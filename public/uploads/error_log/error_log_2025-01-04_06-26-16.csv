@@ -1,0 +1,3 @@
+unique_id,first_name,last_name,role_name,registerd_email_id,custom_tag,subscribe_email,is_subscribed,timestamp,error_message
+OWN019,priya,sharma,agent,priya@mailinator.com,"Promo Campaign",priya,1,,"Invalid Email Address"
+,kriya,sharma,agent,test@mailinator.com,sdhfkjsfsdf,kriya,,,"Invalid Custom Tag Value"
