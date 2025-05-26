@@ -19,6 +19,7 @@ use App\Models\AmenitiesCategory;
 use App\Observers\AmenitiesCategoryObserver;
 use App\Models\MailConfig;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Schema;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -43,18 +44,21 @@ class AppServiceProvider extends ServiceProvider
         Status::observe(StatusObserver::class);
         AmenitiesCategory::observe(AmenitiesCategoryObserver::class);
 
-	$mailConfig = MailConfig::first();
+        if (Schema::hasTable('mail_configs')) {
+            $mailConfig = MailConfig::first();
 
-        if ($mailConfig) {
-            Config::set('mail.mailer', $mailConfig->mailer);
-            Config::set('mail.host', $mailConfig->host);
-            Config::set('mail.port', $mailConfig->port);
-            Config::set('mail.username', $mailConfig->username);
-            Config::set('mail.password', $mailConfig->password);
-            Config::set('mail.encryption', $mailConfig->encryption);
-            Config::set('mail.from.address', $mailConfig->from_address);
-            Config::set('mail.from.name', $mailConfig->from_name);
+            if ($mailConfig) {
+                Config::set('mail.mailer', $mailConfig->mailer);
+                Config::set('mail.host', $mailConfig->host);
+                Config::set('mail.port', $mailConfig->port);
+                Config::set('mail.username', $mailConfig->username);
+                Config::set('mail.password', $mailConfig->password);
+                Config::set('mail.encryption', $mailConfig->encryption);
+                Config::set('mail.from.address', $mailConfig->from_address);
+                Config::set('mail.from.name', $mailConfig->from_name);
+            }
+
         }
-        
+
     }
 }

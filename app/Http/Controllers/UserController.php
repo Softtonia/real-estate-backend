@@ -344,6 +344,21 @@ class UserController extends Controller
 
         $fullName = $user->first_name . ' ' . $user->last_name;
 
+
+        // ✅ Mail configuration from database
+    $settings = DB::table('mail_configs')->where('status', 1)->first();
+    if ($settings) {
+        config([
+            'mail.mailers.smtp.host' => $settings->host,
+            'mail.mailers.smtp.port' => $settings->port,
+            'mail.mailers.smtp.username' => $settings->username,
+            'mail.mailers.smtp.password' => $settings->password,
+            'mail.mailers.smtp.encryption' => $settings->encryption,
+            'mail.from.address' => $settings->from_address,
+            'mail.from.name' => $settings->from_name,
+        ]);
+    }
+
         // Send OTP via email
         try {
             Mail::to($request->email)->send(new OTPMail($otp, $fullName));

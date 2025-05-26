@@ -45,7 +45,6 @@ class AmenitycategoriesController extends Controller
             $validatedData = $request->validate([
                 'name' => 'required|string|max:255|unique:amenities_categories',
                 'display_amenities_categories_order' => 'nullable|integer|unique:amenities_categories',
-                'image' => 'nullable', // Image will be sent as base64 string
                 'icon_id' => 'nullable|exists:media,id', // Check if the provided ID exists in the media table
                 'icon_name' => 'nullable|string|max:255',
                 'icon_css' => 'nullable|string|max:255',
@@ -101,7 +100,7 @@ class AmenitycategoriesController extends Controller
             'icon_id' => $mediaId,
             'icon_name' => $mediaName,
             'icon_css' => $mediaCss,
-            // 'image' => $imagePath, // Save the image path in the database
+
         ]);
 
         // Return the newly created amenities category as JSON response
@@ -219,40 +218,40 @@ class AmenitycategoriesController extends Controller
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
-    
+
         // Retrieve the Authorization header
         $authorizationHeader = $request->header('Authorization');
-    
+
         // Check if the header starts with "Bearer "
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
-    
+
         // Extract the token by removing the "Bearer " prefix
         $requestToken = substr($authorizationHeader, 7);
-    
+
         // Check if the token is empty after removing "Bearer "
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
-    
+
         // Verify the token dynamically (e.g., check in the database)
         $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-    
+
         if (!$tokenExists) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
-    
+
         try {
             $id = $request->id;
-    
+
             // Check if the amenities category exists before proceeding
             $amenitiesCategory = AmenitiesCategory::find($id);
-    
+
             if (!$amenitiesCategory) {
                 return response()->json(['error' => 'Amenities category not found.'], 404);
             }
-    
+
             try {
                 $validatedData = $request->validate([
                     'name' => [
@@ -270,16 +269,16 @@ class AmenitycategoriesController extends Controller
                     'icon_name' => 'nullable|exists:media,icon_name', // Make sure the icon_name exists
                     'icon_css' => 'nullable|exists:media,icon_css_id', // Make sure the icon_css exists
                 ]);
-                
+
             } catch (\Illuminate\Validation\ValidationException $e) {
                 return response()->json(['error' => $e->errors()], 422);
             }
-    
+
             // Initialize variables to hold media information
             $mediaId = null;
             $mediaName = null;
             $mediaCss = null;
-    
+
             // Check which media field is provided and retrieve media information accordingly
             if (isset($validatedData['icon_id'])) {
                 $mediaId = $validatedData['icon_id'];
@@ -297,26 +296,26 @@ class AmenitycategoriesController extends Controller
                 $mediaId = $media->id;
                 $mediaName = $media->icon_name;
             }
-    
+
             // Determine the purpose display order
             $amenitiescategoriesDisplayOrder = $validatedData['display_amenities_categories_order'];
-    
+
             // If the purpose_display_order is null, get the maximum value from the table and add 1
             if ($amenitiescategoriesDisplayOrder === null) {
                 // Get the maximum display order value and increment it by 1 using raw SQL
                 $maxOrder = DB::table('amenities_categories')
                     ->selectRaw('MAX(CAST(display_amenities_categories_order AS UNSIGNED)) as max_order')
                     ->value('max_order');
-    
+
                 // If no records exist, set to 1, else increment by 1
                 $amenitiescategoriesDisplayOrder = ($maxOrder !== null) ? $maxOrder + 1 : 1;
-    
+
                 // Check for duplicate purpose_display_order values and increment until a unique value is found
                 while (AmenitiesCategory::where('display_amenities_categories_order', $amenitiescategoriesDisplayOrder)->exists()) {
                     $amenitiescategoriesDisplayOrder++;
                 }
             }
-    
+
             // Update the amenities category record
             $amenitiesCategory->update([
                 'name' => $validatedData['name'],
@@ -325,7 +324,7 @@ class AmenitycategoriesController extends Controller
                 'icon_name' => $mediaName,
                 'icon_css' => $mediaCss,
             ]);
-    
+
             // Return the updated amenities category as JSON response
             return response()->json([
                 'id' => $amenitiesCategory->id,
@@ -343,7 +342,7 @@ class AmenitycategoriesController extends Controller
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
+
 
 
 

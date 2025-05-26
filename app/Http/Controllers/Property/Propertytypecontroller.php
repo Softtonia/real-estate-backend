@@ -105,34 +105,34 @@ class Propertytypecontroller extends Controller
     //     }
     // }
 
-  
-    
+
+
     public function store(Request $request)
     {
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
-    
+
         // Retrieve and validate the Authorization header
         $authorizationHeader = $request->header('Authorization');
-    
+
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
-    
+
         $requestToken = substr($authorizationHeader, 7);
-    
+
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
-    
+
         // Verify the API token in the database
         $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-    
+
         if (!$tokenExists) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
-    
+
         try {
             // Validate the request data
             $validatedData = $request->validate([
@@ -141,22 +141,22 @@ class Propertytypecontroller extends Controller
                 'property_id' => 'required|exists:properties,id',
                 'image' => 'nullable|file|mimes:jpg,jpeg,png,gif,webp|max:10240', // Max 10MB
             ]);
-    
+
             // Determine `display_property_types_order` if not provided
             $displayPropertyTypesOrder = $request->input('display_property_types_order');
-    
+
             if ($displayPropertyTypesOrder === null) {
                 $maxOrder = DB::table('property_types')
                     ->selectRaw('MAX(CAST(display_property_types_order AS UNSIGNED)) as max_order')
                     ->value('max_order');
-    
+
                 $displayPropertyTypesOrder = ($maxOrder !== null) ? $maxOrder + 1 : 1;
-    
+
                 while (DB::table('property_types')->where('display_property_types_order', $displayPropertyTypesOrder)->exists()) {
                     $displayPropertyTypesOrder++;
                 }
             }
-    
+
             // Handle property image upload and store only the relative path
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
@@ -166,7 +166,7 @@ class Propertytypecontroller extends Controller
             } else {
                 $filePath = null;
             }
-    
+
             // Create a new property type record
             $propertyType = PropertyType::create([
                 'name' => $validatedData['name'],
@@ -174,7 +174,7 @@ class Propertytypecontroller extends Controller
                 'image' => $filePath, // Store only relative path
                 'property_id' => $validatedData['property_id'],
             ]);
-    
+
             // Return the created property type as JSON response
             return response()->json([
                 'id' => $propertyType->id,
@@ -185,14 +185,14 @@ class Propertytypecontroller extends Controller
                 'created_at' => $propertyType->created_at,
                 'updated_at' => $propertyType->updated_at,
             ], 201);
-            
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json(['error' => $e->errors()], 422);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
+
 
     // public function index()
     // {
@@ -577,39 +577,39 @@ public function update(Request $request)
     //     if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
     //         return response()->json(['error' => 'Please provide an API token.'], 422);
     //     }
-    
+
     //     $authorizationHeader = $request->header('Authorization');
-    
+
     //     if (!str_starts_with($authorizationHeader, 'Bearer ')) {
     //         return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
     //     }
-    
+
     //     $requestToken = substr($authorizationHeader, 7);
-    
+
     //     if (empty($requestToken)) {
     //         return response()->json(['error' => 'Token is missing.'], 422);
     //     }
-    
+
     //     // Verify API token
     //     $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-    
+
     //     if (!$tokenExists) {
     //         return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
     //     }
-    
+
     //     $validatedData = $request->validate([
     //         'name' => 'required|string|max:255',
     //     ]);
-    
+
     //     // Retrieve the 'name' query parameter
     //     $searchTerm = $validatedData['name'] ?? '';  // Default to empty string if 'name' is not provided
-    
+
     //     if (!empty($searchTerm)) {
     //         // If search term is provided, filter purposes based on the search term
     //         $purposes = PropertyType::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
     //                            ->orderBy('name') // Sort alphabetically by name
     //                            ->get();
-            
+
     //         // Sort to ensure that names starting with the search term come first
     //         $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {
     //             // Priority: If the name starts with the search term, give it a higher priority (0)
@@ -622,14 +622,14 @@ public function update(Request $request)
     //         // If no search term is provided, return all purposes
     //         $purposes = PropertyType::orderBy('name')->get(); // Return all purposes sorted alphabetically
     //     }
-    
+
     //     // Add 'propertyCount' to each purpose
     //     $purposesWithCount = $purposes->map(function ($purpose) {
     //         $assignPropertyCount = Propertylist::where('property_type_id', $purpose->id)->count();  // Get the property count for each purpose
     //         $purpose->propertyCount = $assignPropertyCount;  // Add the property count to the purpose
     //         return $purpose;
     //     });
-    
+
     //     // Ensure the response is in the correct array format
     //     return response()->json($purposesWithCount->values()->toArray());
     // }
@@ -640,40 +640,40 @@ public function update(Request $request)
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
-    
+
         $authorizationHeader = $request->header('Authorization');
-    
+
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
-    
+
         $requestToken = substr($authorizationHeader, 7);
-    
+
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
-    
+
         // Verify API token
         $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-    
+
         if (!$tokenExists) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
-    
+
         // Validate search input
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
         ]);
-    
+
         // Retrieve the 'name' query parameter
         $searchTerm = $validatedData['name'] ?? '';  // Default to empty string if 'name' is not provided
-    
+
         if (!empty($searchTerm)) {
             // If search term is provided, filter purposes based on the search term
             $purposes = PropertyType::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
                                    ->orderBy('name') // Sort alphabetically by name
                                    ->get();
-    
+
             // Sort to ensure that names starting with the search term come first
             $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {
                 // Priority: If the name starts with the search term, give it a higher priority (0)
@@ -686,25 +686,25 @@ public function update(Request $request)
             // If no search term is provided, return all purposes
             $purposes = PropertyType::orderBy('name')->get(); // Return all purposes sorted alphabetically
         }
-    
+
         // Add 'propertyCount' and 'property_name' to each purpose
         $purposesWithCount = $purposes->map(function ($purpose) {
             // Get the property count for each purpose
             $assignPropertyCount = PropertyList::where('property_type_id', $purpose->id)->count();
             $purpose->propertyCount = $assignPropertyCount;
-    
+
             // Fetch 'property_name' from the related Property table
             $propertyName = $purpose->property ? $purpose->property->name : null;
             $purpose->property_name = $propertyName;
-    
+
             // Remove the full property object (don't include the nested 'property' data)
             unset($purpose->property);
-    
+
             return $purpose;
         });
-    
+
         // Ensure the response is in the correct array format
         return response()->json($purposesWithCount->values()->toArray());
     }
-    
+
 }

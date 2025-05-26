@@ -15,7 +15,15 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('slug')->unique();
-            $table->string('image')->nullable();
+            $table->string('display_amenities_order')->nullable();
+            $table->unsignedBigInteger('media_id')->nullable();
+            $table->string('media_name')->nullable();
+            $table->string('media_css')->nullable();
+            $table->unsignedBigInteger('amenities_categories_id');
+            $table->foreign('amenities_categories_id')
+                  ->references('id')
+                  ->on('amenities_categories')
+                  ->onDelete('cascade');
             $table->timestamps();
         });
     }

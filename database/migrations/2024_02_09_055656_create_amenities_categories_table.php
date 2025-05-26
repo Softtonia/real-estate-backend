@@ -11,14 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('property_types', function (Blueprint $table) {
+        Schema::create('amenities_categories', function (Blueprint $table) {
             $table->id();
             $table->string('name');
             $table->string('slug')->unique();
-            $table->string('image')->nullable(); // Assuming the image path will be stored
-            $table->string('display_property_types_order')->nullable();
-            $table->unsignedBigInteger('property_id');
-            $table->foreign('property_id')->references('id')->on('properties');
+            $table->string('display_amenities_categories_order')->nullable();
+            $table->unsignedBigInteger('icon_id')->nullable();
+            $table->string('icon_name')->nullable();
+            $table->string('icon_css')->nullable();
             $table->timestamps();
         });
     }
@@ -28,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('property_types');
+        Schema::dropIfExists('amenities_categories');
     }
 };

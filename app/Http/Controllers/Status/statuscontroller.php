@@ -102,24 +102,24 @@ class statuscontroller extends Controller
             // Retrieve the status based on the id
             $id = $request->input('id');
             $status = Status::with('propertyType')->where('id', $id)->first();
-    
+
             // Check if the status exists
             if (!$status) {
                 return response()->json(['error' => 'Status not found'], 404);
             }
-    
+
             // Calculate the property count for this status
             $propertyCount = PropertyList::where('property_status_id', $status->id)->count();
-    
+
             // Add property type name to the response
             $status->property_type_name = optional($status->propertyType)->name;
-    
+
             // Add property count to the response
             $status->propertyCount = $propertyCount;
-    
+
             // Hide unnecessary relationships or attributes (like 'propertyType' if not needed)
             $status->makeHidden('propertyType');
-    
+
             // Return the status data along with the property count
             return response()->json(['status' => $status], 200);
         } catch (\Throwable $th) {
@@ -127,7 +127,7 @@ class statuscontroller extends Controller
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
+
 
 
     public function index()
@@ -202,16 +202,16 @@ class statuscontroller extends Controller
                 $maxOrder = DB::table('status')
                     ->selectRaw('MAX(CAST(status_display_order AS UNSIGNED)) as max_order')
                     ->value('max_order');
-    
+
                 // If no records exist, set to 1, else increment by 1
                 $statusDisplayOrder = ($maxOrder !== null) ? $maxOrder + 1 : 1;
-    
+
                 // Check for duplicate status_display_order values and increment until a unique value is found
                 while (Status::where('status_display_order', $statusDisplayOrder)->exists()) {
                     $statusDisplayOrder++;
                 }
             }
-    
+
             // Update the Status
             $updateData = [
                 'status_display_order' => $statusDisplayOrder,
@@ -323,7 +323,7 @@ class statuscontroller extends Controller
             return response()->json(['error' => 'Something went wrong'], 500);
         }
     }
-   
+
     public function searchByName(Request $request)
 {
     // Check for API token
@@ -362,7 +362,7 @@ class statuscontroller extends Controller
         $purposes = Status::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
                            ->orderBy('name') // Sort alphabetically by name
                            ->get();
-        
+
         // Sort to ensure that names starting with the search term come first
         $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {
             // Priority: If the name starts with the search term, give it a higher priority (0)
@@ -380,7 +380,7 @@ class statuscontroller extends Controller
     $purposesWithCount = $purposes->map(function ($purpose) {
         $assignPropertyCount = PropertyList::where('property_status_id', $purpose->id)->count();  // Get the property count for each purpose
         $purpose->propertyCount = $assignPropertyCount;  // Add the property count to the purpose
-        
+
         // Rename 'name' to 'status_name'
         $purpose->status_name = $purpose->name;
 
@@ -395,4 +395,4 @@ class statuscontroller extends Controller
 }
 
 
-}   
+}

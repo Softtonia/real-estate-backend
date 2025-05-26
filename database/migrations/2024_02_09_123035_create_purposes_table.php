@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('slug')->unique(); // Unique slug for SEO-friendly URLs
+            $table->string('purpose_display_order')->nullable(); // Nullable purpose display order for sorting
             $table->string('icon')->nullable(); // Nullable icon field
             $table->timestamps();
         });
