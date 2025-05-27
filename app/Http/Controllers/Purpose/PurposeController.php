@@ -111,39 +111,39 @@ class PurposeController extends Controller
     }
 
     public function getdatabyId(Request $request)
-{
-    // Retrieve the purpose based on the id
-    $id = $request->id;
-    $purpose = Purpose::find($id);
+    {
+        // Retrieve the purpose based on the id
+        $id = $request->id;
+        $purpose = Purpose::find($id);
 
-    // Check if the purpose exists
-    if (!$purpose) {
-        return response()->json(['error' => 'Purpose not found'], 404);
+        // Check if the purpose exists
+        if (!$purpose) {
+            return response()->json(['error' => 'Purpose not found'], 404);
+        }
+
+        // Calculate the property count for the purpose
+        $propertyCount = PropertyList::where('purpose_id', $purpose->id)->count();
+
+        // Prepare the purpose data
+        $purposeData = [
+            'id' => $purpose->id,
+            'purpose_display_order' => $purpose->purpose_display_order,
+            'name' => $purpose->name,
+            'slug' => $purpose->slug,
+            'icon' => $purpose->icon,
+            'created_at' => $purpose->created_at,
+            'updated_at' => $purpose->updated_at,
+            'propertyCount' => $propertyCount,  // Add property count here
+        ];
+
+        // Unset the icon key if its value is null or the string "null"
+        if (empty($purposeData['icon']) || $purpose->icon === "null") {
+            unset($purposeData['icon']);
+        }
+
+        // Return the purpose data with property count
+        return response()->json($purposeData, 200);
     }
-
-    // Calculate the property count for the purpose
-    $propertyCount = PropertyList::where('purpose_id', $purpose->id)->count();
-
-    // Prepare the purpose data
-    $purposeData = [
-        'id' => $purpose->id,
-        'purpose_display_order' => $purpose->purpose_display_order,
-        'name' => $purpose->name,
-        'slug' => $purpose->slug,
-        'icon' => $purpose->icon,
-        'created_at' => $purpose->created_at,
-        'updated_at' => $purpose->updated_at,
-        'propertyCount' => $propertyCount,  // Add property count here
-    ];
-
-    // Unset the icon key if its value is null or the string "null"
-    if (empty($purposeData['icon']) || $purpose->icon === "null") {
-        unset($purposeData['icon']);
-    }
-
-    // Return the purpose data with property count
-    return response()->json($purposeData, 200);
-}
 
 
 
@@ -417,8 +417,8 @@ class PurposeController extends Controller
         if (!empty($searchTerm)) {
             // If search term is provided, filter purposes based on the search term
             $purposes = Purpose::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
-                               ->orderBy('name') // Sort alphabetically by name
-                               ->get();
+                ->orderBy('name') // Sort alphabetically by name
+                ->get();
 
             // Sort to ensure that names starting with the search term come first
             $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {

@@ -103,38 +103,38 @@ class LocationController extends Controller
     }
 
     public function getdatabyId(Request $request)
-{
-    // Retrieve the location based on the id
-    $id = $request->input('id');
-    $location = Location::find($id);
+    {
+        // Retrieve the location based on the id
+        $id = $request->input('id');
+        $location = Location::find($id);
 
-    // Check if the location exists
-    if (!$location) {
-        return response()->json(['error' => 'Location not found'], 404);
+        // Check if the location exists
+        if (!$location) {
+            return response()->json(['error' => 'Location not found'], 404);
+        }
+
+        // Calculate the property count for the location
+        $propertyCount = PropertyList::where('location_id', $location->id)->count();
+
+        // Prepare the location data
+        $locationData = [
+            'id' => $location->id,
+            'name' => $location->name,
+            'slug' => $location->slug,
+            'image' => $location->image,
+            'created_at' => $location->created_at,
+            'updated_at' => $location->updated_at,
+            'propertyCount' => $propertyCount,  // Add property count here
+        ];
+
+        // Unset the image key if its value is null or the string "null"
+        if (empty($locationData['image']) || $location->image === "null") {
+            unset($locationData['image']);
+        }
+
+        // Return the location data
+        return response()->json(['location' => $locationData], 200);
     }
-
-    // Calculate the property count for the location
-    $propertyCount = PropertyList::where('location_id', $location->id)->count();
-
-    // Prepare the location data
-    $locationData = [
-        'id' => $location->id,
-        'name' => $location->name,
-        'slug' => $location->slug,
-        'image' => $location->image,
-        'created_at' => $location->created_at,
-        'updated_at' => $location->updated_at,
-        'propertyCount' => $propertyCount,  // Add property count here
-    ];
-
-    // Unset the image key if its value is null or the string "null"
-    if (empty($locationData['image']) || $location->image === "null") {
-        unset($locationData['image']);
-    }
-
-    // Return the location data
-    return response()->json(['location' => $locationData], 200);
-}
 
 
 
@@ -386,8 +386,8 @@ class LocationController extends Controller
         if (!empty($searchTerm)) {
             // If search term is provided, filter purposes based on the search term
             $purposes = Location::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
-                               ->orderBy('name') // Sort alphabetically by name
-                               ->get();
+                ->orderBy('name') // Sort alphabetically by name
+                ->get();
 
             // Sort to ensure that names starting with the search term come first
             $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {
