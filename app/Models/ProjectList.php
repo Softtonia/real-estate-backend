@@ -27,7 +27,7 @@ class ProjectList extends Model
         return $this->belongsTo(AmenitiesCategory::class);
     }
 
-    
+
     public function user()
     {
         return $this->belongsTo(User::class);
@@ -59,18 +59,18 @@ class ProjectList extends Model
     {
         return $this->belongsTo(PropertyType::class, 'property_type_id');
     }
-    
+
     public function propertystatus()
     {
         return $this->belongsTo(Status::class, 'property_status_id');
     }
-    
+
     public function customFieldValues()
     {
         return $this->hasMany(Customfieldvalue::class, 'project_listing_id');
     }
-    
-    
+
+
     public function properties()
     {
         return $this->hasMany(Propertylist::class, 'project_id', 'id');
@@ -105,16 +105,18 @@ class ProjectList extends Model
     {
         return $this->belongsTo(Country::class, 'country_id');
     }
-    
+
     public function state()
     {
         return $this->belongsTo(State::class, 'state_id');
     }
-    
+
     public function city()
     {
         return $this->belongsTo(City::class, 'city_id');
     }
-    
-    
+
+
+
+
 }

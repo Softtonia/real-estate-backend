@@ -83,7 +83,6 @@ class ProjectController extends Controller
     $validator = Validator::make($request->all(), [
         'project_name' => 'required|unique:projects',
         'project_description' => 'nullable',
-        'location_id' => 'nullable|exists:locations,id',
         'developer' => 'nullable|max:100',
         'property_status' => 'nullable|exists:status,id',
         'property_type_id' => 'nullable|exists:property_types,id',
@@ -153,7 +152,6 @@ class ProjectController extends Controller
     $projectData = [
         'project_name' => $request->input('project_name'),
         'project_description' => $request->input('project_description'),
-        'location_id' => $request->input('location_id'),
         'property_status' => $request->input('property_status'),
         'property_type_id' => $request->input('property_type_id'),
         'amenities' => json_encode($request->input('amenities', [])),
@@ -245,24 +243,24 @@ public function update(Request $request)
         }
 
         // Handle file uploads
-        $imagePath = $request->hasFile('images') 
-            ? $this->handleFileUpload($request->file('images'), 'project_images') 
+        $imagePath = $request->hasFile('images')
+            ? $this->handleFileUpload($request->file('images'), 'project_images')
             : $project->images;
 
-        $galleryPath = $request->hasFile('gallery') 
-            ? $this->handleFileUpload($request->file('gallery'), 'project_galleries') 
+        $galleryPath = $request->hasFile('gallery')
+            ? $this->handleFileUpload($request->file('gallery'), 'project_galleries')
             : $project->gallery;
 
-        $floorPlanMediaPath = $request->hasFile('floor_plan_media') 
-            ? $this->handleFileUpload($request->file('floor_plan_media'), 'project_floor_plan_media') 
+        $floorPlanMediaPath = $request->hasFile('floor_plan_media')
+            ? $this->handleFileUpload($request->file('floor_plan_media'), 'project_floor_plan_media')
             : $project->floor_plan_media;
 
-        $brochurePath = $request->hasFile('brochure') 
-            ? $this->handleFileUpload($request->file('brochure'), 'project_brochures') 
+        $brochurePath = $request->hasFile('brochure')
+            ? $this->handleFileUpload($request->file('brochure'), 'project_brochures')
             : $project->brochure;
 
-        $videoPath = $request->hasFile('video') 
-            ? $this->handleFileUpload($request->file('video'), 'project_videos') 
+        $videoPath = $request->hasFile('video')
+            ? $this->handleFileUpload($request->file('video'), 'project_videos')
             : $project->video;
 
         // Fetch amenities and developers as a string

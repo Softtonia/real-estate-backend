@@ -11,11 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('locations', function (Blueprint $table) {
-            $table->bigIncrements('id');
-            $table->string('name', 255)->nullable();
-            $table->string('slug', 255)->nullable();
-            $table->string('image', 255)->nullable();
+        Schema::create('pages', function (Blueprint $table) {
+            $table->id();
+            $table->string('page', 200)->nullable();
+            $table->string('title', 255)->nullable();
+            $table->text('content')->nullable();
             $table->timestamps();
         });
     }
@@ -25,6 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('locations');
+        Schema::dropIfExists('pages');
     }
 };

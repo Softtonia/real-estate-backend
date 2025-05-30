@@ -11,7 +11,7 @@ use App\Models\Status;
 use App\Models\Amenity;
 use App\Models\PropertyType;
 use App\Models\Location;
-use App\Models\Customfieldvalue; 
+use App\Models\Customfieldvalue;
 use App\Models\AmenitiesCategory;
 use App\Models\Keyword;
 use Illuminate\Support\Facades\DB;
@@ -19,12 +19,12 @@ use Illuminate\Support\Facades\Storage;
 
 class ProjectlistingController extends Controller
 {
-    
-    
-        // this is for store the data
-        public function store(Request $request)
-    {       
-            
+
+
+    // this is for store the data
+    public function store(Request $request)
+    {
+
         try {
 
             if ($request->header('api-token') == '') {
@@ -34,228 +34,237 @@ class ProjectlistingController extends Controller
             $requestToken = $request->header('api-token');
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
             }
 
             $userId = $userData->id;
-                
-            
-                $project_unique_id = 'Project' . rand(111111, 999999);
-            
-                // Upload files to public/uploads/
-                $projectData = [
-                    'project_unique_id' => $project_unique_id,
-                    'user_id' => $userId,
-                    'name' => $request->name,
-                    'description' => $request->description,
-                    'location_id' => $request->location_id,
-                    'purpose_id' => $request->purpose_id,
-                    'property_id' => $request->property_id,
-                    'property_status_id' => $request->property_status_id,
-                    'property_type_id' => $request->property_type_id,
-                    'status' => 'pending',
-                    'project_status' => 1,
-                    'developer_id' => $request->developer_id ?? null
-                ];
-        
-                // Handle file uploads
-                foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'featured_image', 'brochure'] as $fileField) {
-                    if ($request->hasFile($fileField)) {
-                        $file = $request->file($fileField);
-                        $fileName = time() . '_' . $file->getClientOriginalName();
-                        $file->move(public_path('uploads/' . $fileField), $fileName);
-                        $projectData[$fileField] = $fileName;
-                    }
-                }
-            
-                $project = Projectlist::create($projectData);
 
-                $lastInsertId = $project->id;
 
-                if (!empty($request->keyword)) {
-                    $explod_keywords = $request->keyword;
-                    foreach ($explod_keywords as $row) {
-                        $inserData = [
-                            'project_id' => $lastInsertId,
-                            'keyword' => $row,
-                        ];
+            $project_unique_id = 'Project' . rand(111111, 999999);
 
-                        Keyword::create($inserData);
-                    }
+            // Upload files to public/uploads/
+            $projectData = [
+                'project_unique_id' => $project_unique_id,
+                'user_id' => $userId,
+                'name' => $request->name,
+                'description' => $request->description,
+                'location_id' => $request->location_id,
+                'purpose_id' => $request->purpose_id,
+                'property_id' => $request->property_id,
+                'property_status_id' => $request->property_status_id,
+                'property_type_id' => $request->property_type_id,
+                'status' => 'pending',
+                'project_status' => 1,
+                'developer_id' => $request->developer_id ?? null
+            ];
+
+            // Handle file uploads
+            foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'featured_image', 'brochure'] as $fileField) {
+                if ($request->hasFile($fileField)) {
+                    $file = $request->file($fileField);
+                    $fileName = time() . '_' . $file->getClientOriginalName();
+                    $file->move(public_path('uploads/' . $fileField), $fileName);
+                    $projectData[$fileField] = $fileName;
                 }
-            
-                // Handle repeater field values pawan
-                if ($request->has('repeater_fields')) {
-                    $repeaterFields = $request->repeater_fields;
-        
-                    foreach ($repeaterFields as $repeaterFieldIndex => $repeaterField) {
-                        $customFieldData = [
-                            'project_listing_id' => $project->id,
-                            'custom_field_id' => $repeaterField['custom_field_id'],
-                        ];
-        
-                        // Check the field type and handle accordingly
-                        switch ($repeaterField['field_type']) {
-                            case 'text':
-                            case 'textarea':
-                            case 'texteditor':
-                                $customFieldData['field_meta_value'] = $repeaterField['field_value'];
-                                break;
-                            case 'select':
-                            case 'radio':
-                                // Retrieve the custom_field_options_id from the custom_field_options table
-                                $customFieldOptions = DB::table('custom_field_options')
-                                    ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                    ->where('value', $repeaterField['field_value'])
-                                    ->first();
-        
-                                if ($customFieldOptions) {
-                                    $customFieldData['custom_field_options_id'] = $customFieldOptions->id;
-                                }
-                                $customFieldData['field_meta_value'] = $repeaterField['field_value'];
-                                break;
-                            case 'checkbox':
-                                // For checkbox, assume multiple values can be selected
-                                $values = explode(',', $repeaterField['field_value']); // Split the string into an array
-        
-                                // Convert array to string
-                                $customFieldData['field_meta_value'] = implode(',', $values);
-        
-                                // Retrieve custom_field_options_id for each selected value
-                                $customFieldOptionsIds = [];
-                                foreach ($values as $value) {
-                                    $customFieldOption = DB::table('custom_field_options')
-                                        ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                        ->where('value', $value)
-                                        ->first();
-        
-                                    if ($customFieldOption) {
-                                        $customFieldOptionsIds[] = $customFieldOption->id;
-                                    }
-                                }
-                                $customFieldData['custom_field_options_id'] = implode(',', $customFieldOptionsIds);
-                                break;
-                            case 'media':
-                                // Handling for media field
-                                if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
-                                    $mediaArray = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
-                                    $mediaFiles = [];
-        
-                                    foreach ($mediaArray as $media) {
-                                        // Ensure each file is valid and handle accordingly
-                                        if ($media->isValid()) {
-                                            $fileName = time() . '_' . $media->getClientOriginalName();
-                                            $media->move(public_path('uploads/media'), $fileName);
-                                            $mediaFiles[] = $fileName;
-                                        } else {
-                                            // Handle invalid files
-                                            return response()->json(['error' => 'Invalid media file.'], 400);
-                                        }
-                                    }
-        
-                                    // Store the file paths array in the 'field_meta_value'
-                                    $customFieldData['field_meta_value'] = json_encode($mediaFiles);
-                                } else {
-                                    // Handle case where 'field_value' is not set
-                                    return response()->json(['error' => 'No media files uploaded or invalid file data.'], 400);
-                                }
-                                break;
-                            case 'file':
-                                // Handling for file field
-                                $filePaths = [];
-                                
-                                // Ensure the 'field_value' is set and it's an array
-                                if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
-                                    // Retrieve the array of uploaded file objects
-                                    $files = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
-                                    
-                                    // Process each uploaded file
-                                    foreach ($files as $file) {
-                                        // Ensure each file is a valid PDF
-                                        if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                            // Generate unique filename for each file
-                                            $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                                            
-                                            // Move the file to the uploads/gallery directory
-                                            $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
-                                            
-                                            // Store the file path in the array
-                                            $filePaths[] = $filePath;
-                                        } else {
-                                            // Handle case where an uploaded file is not a valid PDF
-                                            return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
-                                        }
-                                    }
-                                } else {
-                                    // Handle case where 'field_value' is not set
-                                    return response()->json(['error' => 'No files uploaded or invalid file data.'], 400);
-                                }
-                                
-                                // Store the array of file paths in the 'field_meta_value'
-                                $customFieldData['field_meta_value'] = json_encode($filePaths);
-                                break;
-                            default:
-                                return response()->json(['error' => 'Unsupported field type'], 400);
-                        }
-        
-                        Customfieldvalue::create($customFieldData);
-                    }
-                }
-            
-                // Prepare the response data
-                $responseData = $project;
-            
-                $returnRes = [
-                    'status' => true,
-                    'message' => 'Data added successfully.',
-                    'data' => $request->all(),
-                ];
-            
-                return response()->json($returnRes, 201);
-            } catch (\Throwable $th) {
-                // Log or handle the exception
-                return response()->json(['error' => $th->getMessage()], 500);
             }
+
+            $project = Projectlist::create($projectData);
+
+            $lastInsertId = $project->id;
+
+            if (!empty($request->keyword)) {
+                $explod_keywords = $request->keyword;
+                foreach ($explod_keywords as $row) {
+                    $inserData = [
+                        'project_id' => $lastInsertId,
+                        'keyword' => $row,
+                    ];
+
+                    Keyword::create($inserData);
+                }
+            }
+
+            // Handle repeater field values pawan
+            if ($request->has('repeater_fields')) {
+                $repeaterFields = $request->repeater_fields;
+
+                foreach ($repeaterFields as $repeaterFieldIndex => $repeaterField) {
+                    $customFieldData = [
+                        'project_listing_id' => $project->id,
+                        'custom_field_id' => $repeaterField['custom_field_id'],
+                    ];
+
+                    // Check the field type and handle accordingly
+                    switch ($repeaterField['field_type']) {
+                        case 'text':
+                        case 'textarea':
+                        case 'texteditor':
+                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                            break;
+                        case 'select':
+                        case 'radio':
+                            // Retrieve the custom_field_options_id from the custom_field_options table
+                            $customFieldOptions = DB::table('custom_field_options')
+                                ->where('custom_field_id', $repeaterField['custom_field_id'])
+                                ->where('value', $repeaterField['field_value'])
+                                ->first();
+
+                            if ($customFieldOptions) {
+                                $customFieldData['custom_field_options_id'] = $customFieldOptions->id;
+                            }
+                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                            break;
+                        case 'checkbox':
+                            // For checkbox, assume multiple values can be selected
+                            $values = explode(',', $repeaterField['field_value']); // Split the string into an array
+
+                            // Convert array to string
+                            $customFieldData['field_meta_value'] = implode(',', $values);
+
+                            // Retrieve custom_field_options_id for each selected value
+                            $customFieldOptionsIds = [];
+                            foreach ($values as $value) {
+                                $customFieldOption = DB::table('custom_field_options')
+                                    ->where('custom_field_id', $repeaterField['custom_field_id'])
+                                    ->where('value', $value)
+                                    ->first();
+
+                                if ($customFieldOption) {
+                                    $customFieldOptionsIds[] = $customFieldOption->id;
+                                }
+                            }
+                            $customFieldData['custom_field_options_id'] = implode(',', $customFieldOptionsIds);
+                            break;
+                        case 'media':
+                            // Handling for media field
+                            if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
+                                $mediaArray = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
+                                $mediaFiles = [];
+
+                                foreach ($mediaArray as $media) {
+                                    // Ensure each file is valid and handle accordingly
+                                    if ($media->isValid()) {
+                                        $fileName = time() . '_' . $media->getClientOriginalName();
+                                        $media->move(public_path('uploads/media'), $fileName);
+                                        $mediaFiles[] = $fileName;
+                                    } else {
+                                        // Handle invalid files
+                                        return response()->json(['error' => 'Invalid media file.'], 400);
+                                    }
+                                }
+
+                                // Store the file paths array in the 'field_meta_value'
+                                $customFieldData['field_meta_value'] = json_encode($mediaFiles);
+                            } else {
+                                // Handle case where 'field_value' is not set
+                                return response()->json(['error' => 'No media files uploaded or invalid file data.'], 400);
+                            }
+                            break;
+                        case 'file':
+                            // Handling for file field
+                            $filePaths = [];
+
+                            // Ensure the 'field_value' is set and it's an array
+                            if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
+                                // Retrieve the array of uploaded file objects
+                                $files = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
+
+                                // Process each uploaded file
+                                foreach ($files as $file) {
+                                    // Ensure each file is a valid PDF
+                                    if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+                                        // Generate unique filename for each file
+                                        $uniqueFileName = time() . '_' . $file->getClientOriginalName();
+
+                                        // Move the file to the uploads/gallery directory
+                                        $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
+
+                                        // Store the file path in the array
+                                        $filePaths[] = $filePath;
+                                    } else {
+                                        // Handle case where an uploaded file is not a valid PDF
+                                        return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+                                    }
+                                }
+                            } else {
+                                // Handle case where 'field_value' is not set
+                                return response()->json(['error' => 'No files uploaded or invalid file data.'], 400);
+                            }
+
+                            // Store the array of file paths in the 'field_meta_value'
+                            $customFieldData['field_meta_value'] = json_encode($filePaths);
+                            break;
+                        default:
+                            return response()->json(['error' => 'Unsupported field type'], 400);
+                    }
+
+                    Customfieldvalue::create($customFieldData);
+                }
+            }
+
+            // Prepare the response data
+            $responseData = $project;
+
+            $returnRes = [
+                'status' => true,
+                'message' => 'Data added successfully.',
+                'data' => $request->all(),
+            ];
+
+            return response()->json($returnRes, 201);
+        } catch (\Throwable $th) {
+            // Log or handle the exception
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
     }
 
 
-        // this is for listing
-        public function index(Request $request)
+    // this is for listing
+    public function index(Request $request)
     {
         try {
 
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
-            }
+            // if ($request->header('api-token') == '') {
+            //     return response()->json(['error' => 'Please enter api token first.'], 422);
+            // }
 
-            $requestToken = $request->header('api-token');
+            // $requestToken = $request->header('api-token');
 
-            $userId = null;
-        
-            $userData = User::where('api_token', $requestToken)->first();
-        
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'User not found'], 404);
-            }
+            // $userId = null;
 
-            $userId = $userData->id;
+            // $userData = User::where('api_token', $requestToken)->first();
+
+            // // Validate that the user exists in the database
+            // if (!$userData) {
+            //     return response()->json(['error' => 'User not found'], 404);
+            // }
+
+            // $userId = $userData->id;
+            // ->where('user_id',$userId)
 
             $baseURL = config('app.url');
             $basePath = public_path();
-            
-            $projects = Projectlist::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption','keywords'])->where('user_id',$userId)->get();
-            
+
+            $projects = Projectlist::with([
+                'user',
+                'propertyType',
+                'purpose',
+                'property',
+                'propertystatus',
+                'customFieldValues.customField',
+                'customFieldValues.customFieldOption',
+            ])->where('live_status', 'Approve')->paginate(10);
+
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                     $customField = $customFieldValue->customField;
                     $customFieldOption = $customFieldValue->customFieldOption ?? null;
-                    
+
                     $fieldValue = $customFieldValue->field_meta_value;
                     if ($customField && $customField->field_type == 'checkbox') {
                         // For checkbox, explode the value to get an array
@@ -271,10 +280,10 @@ class ProjectlistingController extends Controller
                         // For other field types or if $customField is null, keep the value as is
                         $fieldValueArray = $fieldValue;
                     }
-        
+
                     // Include all options for the field
                     $customFieldOptions = $customField ? $customField->options : null;
-                    
+
                     return [
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
@@ -283,15 +292,15 @@ class ProjectlistingController extends Controller
                         // 'custom_field_options' => $customFieldOptions,
                     ];
                 });
-        
+
                 // Prepare property data
                 $projectData = [
                     'id' => $property->id,
                     'project_unique_id' => $property->project_unique_id,
                     'name' => $property->name,
                     'description' => $property->description,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
+                    // 'location_id' => $property->location_id,
+                    // 'location_name' => optional($property->location)->name,
                     'status' => $property->status,
                     'status_reason' => $property->status_reason,
                     'project_status' => $property->project_status,
@@ -306,29 +315,29 @@ class ProjectlistingController extends Controller
                     'property_type_id' => $property->property_type_id,
                     'property_type_id_name' => optional($property->propertyType)->name,
                     'total_view' => $property->analytics()->count(),
-                    'date' => date('d m Y',strtotime($property->created_at)),
-                    'time' => date('h:m A',strtotime($property->created_at)),
-                    'timestamp' => date('d m Y h:m A',strtotime($property->created_at)),
+                    'date' => date('d m Y', strtotime($property->created_at)),
+                    'time' => date('h:m A', strtotime($property->created_at)),
+                    'timestamp' => date('d m Y h:m A', strtotime($property->created_at)),
                     'custom_field_values' => $formattedCustomFieldValues,
                 ];
-                
+
                 return $projectData;
             });
-            
+
             return response()->json($projectsData);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
 
-    
 
-        // this is for update the record 
-        public function update(Request $request)
+
+    // this is for update the record
+    public function update(Request $request)
     {
-        
+
         try {
-            
+
             if ($request->header('api-token') == '') {
                 return response()->json(['error' => 'Please enter api token first.'], 422);
             }
@@ -337,30 +346,30 @@ class ProjectlistingController extends Controller
 
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
             }
 
             $userId = $userData->id;
-        
+
             $id = $request->id;
-        
+
             if (!Projectlist::where('id', $id)->exists()) {
                 return response()->json(['error' => 'Invalid Property Id'], 404);
             }
-        
-            $project = Projectlist::findOrFail($id); 
+
+            $project = Projectlist::findOrFail($id);
 
             $lastInsertId = $id;
 
-            if(!empty($request->keyword)){
-                Keyword::where('project_id',$lastInsertId)->delete();
+            if (!empty($request->keyword)) {
+                Keyword::where('project_id', $lastInsertId)->delete();
                 $explod_keywords = $request->keyword;
-                foreach($explod_keywords as $row){
+                foreach ($explod_keywords as $row) {
                     $inserData = [
                         'project_id' => $lastInsertId,
                         'keyword' => $row,
@@ -369,7 +378,7 @@ class ProjectlistingController extends Controller
                     Keyword::create($inserData);
                 }
             }
-        
+
             // Validate the request data
             $validatedData = $request->validate([
                 'location_id' => 'required|exists:locations,id',
@@ -382,7 +391,7 @@ class ProjectlistingController extends Controller
                 'developer_id' => $request->developer_id ?? null
             ]);
 
-        
+
             // Handle file uploads
             foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'featured_image', 'brochure'] as $fileField) {
                 if ($request->hasFile($fileField)) {
@@ -392,151 +401,151 @@ class ProjectlistingController extends Controller
                     $validatedData[$fileField] = $fileName;
                 }
             }
-        
+
             $project->update($validatedData);
-        
+
             // Handle repeater field values
             if ($request->has('repeater_fields')) {
                 Customfieldvalue::where('project_listing_id', $project->id)->delete();
-                    $repeaterFields = $request->repeater_fields;
-        
-                    foreach ($repeaterFields as $repeaterFieldIndex => $repeaterField) {
-                        $customFieldData = [
-                            'project_listing_id' => $project->id,
-                            'custom_field_id' => $repeaterField['custom_field_id'],
-                        ];
-        
-                        // Check the field type and handle accordingly
-                        switch ($repeaterField['field_type']) {
-                            case 'text':
-                            case 'textarea':
-                            case 'texteditor':
-                                $customFieldData['field_meta_value'] = $repeaterField['field_value'];
-                                break;
-                            case 'select':
-                            case 'radio':
-                                // Retrieve the custom_field_options_id from the custom_field_options table
-                                $customFieldOptions = DB::table('custom_field_options')
+                $repeaterFields = $request->repeater_fields;
+
+                foreach ($repeaterFields as $repeaterFieldIndex => $repeaterField) {
+                    $customFieldData = [
+                        'project_listing_id' => $project->id,
+                        'custom_field_id' => $repeaterField['custom_field_id'],
+                    ];
+
+                    // Check the field type and handle accordingly
+                    switch ($repeaterField['field_type']) {
+                        case 'text':
+                        case 'textarea':
+                        case 'texteditor':
+                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                            break;
+                        case 'select':
+                        case 'radio':
+                            // Retrieve the custom_field_options_id from the custom_field_options table
+                            $customFieldOptions = DB::table('custom_field_options')
+                                ->where('custom_field_id', $repeaterField['custom_field_id'])
+                                ->where('value', $repeaterField['field_value'])
+                                ->first();
+
+                            if ($customFieldOptions) {
+                                $customFieldData['custom_field_options_id'] = $customFieldOptions->id;
+                            }
+                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                            break;
+                        case 'checkbox':
+                            // For checkbox, assume multiple values can be selected
+                            $values = explode(',', $repeaterField['field_value']); // Split the string into an array
+
+                            // Convert array to string
+                            $customFieldData['field_meta_value'] = implode(',', $values);
+
+                            // Retrieve custom_field_options_id for each selected value
+                            $customFieldOptionsIds = [];
+                            foreach ($values as $value) {
+                                $customFieldOption = DB::table('custom_field_options')
                                     ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                    ->where('value', $repeaterField['field_value'])
+                                    ->where('value', $value)
                                     ->first();
-        
-                                if ($customFieldOptions) {
-                                    $customFieldData['custom_field_options_id'] = $customFieldOptions->id;
+
+                                if ($customFieldOption) {
+                                    $customFieldOptionsIds[] = $customFieldOption->id;
                                 }
-                                $customFieldData['field_meta_value'] = $repeaterField['field_value'];
-                                break;
-                            case 'checkbox':
-                                // For checkbox, assume multiple values can be selected
-                                $values = explode(',', $repeaterField['field_value']); // Split the string into an array
-        
-                                // Convert array to string
-                                $customFieldData['field_meta_value'] = implode(',', $values);
-        
-                                // Retrieve custom_field_options_id for each selected value
-                                $customFieldOptionsIds = [];
-                                foreach ($values as $value) {
-                                    $customFieldOption = DB::table('custom_field_options')
-                                        ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                        ->where('value', $value)
-                                        ->first();
-        
-                                    if ($customFieldOption) {
-                                        $customFieldOptionsIds[] = $customFieldOption->id;
+                            }
+                            $customFieldData['custom_field_options_id'] = implode(',', $customFieldOptionsIds);
+                            break;
+                        case 'media':
+                            // Handling for media field
+                            $mediaFiles = [];
+
+                            // Check if file names are provided as strings
+                            if (is_array($repeaterField['field_value'])) {
+                                foreach ($repeaterField['field_value'] as $value) {
+                                    // Check if the value is a string (file name)
+                                    if (is_string($value)) {
+                                        // Add the file name to the array
+                                        $mediaFiles[] = $value;
+                                    } else {
+                                        // Handle binary data (assuming it's a file object)
+                                        if ($value->isValid()) {
+                                            $fileName = time() . '_' . $value->getClientOriginalName();
+                                            $value->move(public_path('uploads/media'), $fileName);
+                                            $mediaFiles[] = $fileName;
+                                        } else {
+                                            // Handle invalid files
+                                            return response()->json(['error' => 'Invalid media file.'], 400);
+                                        }
                                     }
                                 }
-                                $customFieldData['custom_field_options_id'] = implode(',', $customFieldOptionsIds);
-                                break;
-                            case 'media':
-                // Handling for media field
-                $mediaFiles = [];
-
-                // Check if file names are provided as strings
-                if (is_array($repeaterField['field_value'])) {
-                    foreach ($repeaterField['field_value'] as $value) {
-                        // Check if the value is a string (file name)
-                        if (is_string($value)) {
-                            // Add the file name to the array
-                            $mediaFiles[] = $value;
-                        } else {
-                            // Handle binary data (assuming it's a file object)
-                            if ($value->isValid()) {
-                                $fileName = time() . '_' . $value->getClientOriginalName();
-                                $value->move(public_path('uploads/media'), $fileName);
-                                $mediaFiles[] = $fileName;
-                            } else {
-                                // Handle invalid files
-                                return response()->json(['error' => 'Invalid media file.'], 400);
                             }
-                        }
-                    }
-                }
 
-                // Store the file names array in the 'field_meta_value'
-                $customFieldData['field_meta_value'] = json_encode($mediaFiles);
-                break;
+                            // Store the file names array in the 'field_meta_value'
+                            $customFieldData['field_meta_value'] = json_encode($mediaFiles);
+                            break;
 
-                case 'file':
-                    // Handling for file field
-                    $filePaths = [];
-                    
-                    // Ensure the 'field_value' is set and it's an array
-                    if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
-                        // Retrieve the array of uploaded file objects
-                        $files = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
-                        
-                        // Process each uploaded file
-                        foreach ($files as $file) {
-                            // Ensure each file is a valid PDF
-                            if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                // Generate unique filename for each file
-                                $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                                
-                                // Move the file to the uploads/gallery directory
-                                $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
-                                
-                                // Store the file path in the array
-                                $filePaths[] = $filePath;
+                        case 'file':
+                            // Handling for file field
+                            $filePaths = [];
+
+                            // Ensure the 'field_value' is set and it's an array
+                            if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
+                                // Retrieve the array of uploaded file objects
+                                $files = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
+
+                                // Process each uploaded file
+                                foreach ($files as $file) {
+                                    // Ensure each file is a valid PDF
+                                    if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+                                        // Generate unique filename for each file
+                                        $uniqueFileName = time() . '_' . $file->getClientOriginalName();
+
+                                        // Move the file to the uploads/gallery directory
+                                        $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
+
+                                        // Store the file path in the array
+                                        $filePaths[] = $filePath;
+                                    } else {
+                                        // Handle case where an uploaded file is not a valid PDF
+                                        return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+                                    }
+                                }
                             } else {
-                                // Handle case where an uploaded file is not a valid PDF
-                                return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+                                // Handle case where 'field_value' is not set
+                                return response()->json(['error' => 'No files uploaded or invalid file data.'], 400);
                             }
-                        }
-                    } else {
-                        // Handle case where 'field_value' is not set
-                        return response()->json(['error' => 'No files uploaded or invalid file data.'], 400);
+
+                            // Store the array of file paths in the 'field_meta_value'
+                            $customFieldData['field_meta_value'] = json_encode($filePaths);
+                            break;
+                        default:
+                            return response()->json(['error' => 'Unsupported field type'], 400);
                     }
-                    
-                    // Store the array of file paths in the 'field_meta_value'
-                    $customFieldData['field_meta_value'] = json_encode($filePaths);
-                    break;
-                default:
-                return response()->json(['error' => 'Unsupported field type'], 400);
-                        }
-        
-                        Customfieldvalue::create($customFieldData);
-                    }
+
+                    Customfieldvalue::create($customFieldData);
                 }
-        
+            }
+
             // Prepare the response data
             $responseData = $project;
-        
+
             $returnRes = [
                 'status' => true,
                 'message' => 'Data updated successfully.'
             ];
-        
+
             return response()->json($returnRes);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
 
-    
-        // this is for delete the record
-        public function destroy(Request $request)
+
+    // this is for delete the record
+    public function destroy(Request $request)
     {
-        
+
         try {
 
             if ($request->header('api-token') == '') {
@@ -547,9 +556,9 @@ class ProjectlistingController extends Controller
 
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
@@ -559,31 +568,31 @@ class ProjectlistingController extends Controller
 
             $id = $request->id;
             $project = Projectlist::find($id);
-            
+
             if (!$project) {
-            return response()->json(['message' => 'No project found'], 404);
+                return response()->json(['message' => 'No project found'], 404);
             }
-            
+
             // Delete specific related records
             $project->customFieldValues()->delete();
-            
+
             // Delete the project
             $project->delete();
-            
+
             $returnRes = [
-            'status' => true,
-            'message' => 'Data deleted successfully.'
+                'status' => true,
+                'message' => 'Data deleted successfully.'
             ];
-            
-            return response()->json($returnRes,200);
+
+            return response()->json($returnRes, 200);
         } catch (\Throwable $th) {
-        return response()->json(['error' => $th->getMessage()], 500);
+            return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-        
-        
-        // this is foe get data by id
-        public function getdatabyId(Request $request)
+
+
+    // this is foe get data by id
+    public function getdatabyId(Request $request)
     {
         try {
 
@@ -595,9 +604,9 @@ class ProjectlistingController extends Controller
 
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
@@ -608,17 +617,17 @@ class ProjectlistingController extends Controller
             if ($request->id == '') {
                 return response()->json(['error' => 'ID is required'], 400);
             }
-            
+
             $baseURL = config('app.url');
             $basePath = public_path();
-            
-            $projects = Projectlist::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption','keywords'])->where('id', $request->id)->get();
-            
+
+            $projects = Projectlist::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption', 'keywords'])->where('id', $request->id)->get();
+
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                     $customField = $customFieldValue->customField;
                     $customFieldOption = $customFieldValue->customFieldOption ?? null;
-                    
+
                     $fieldValue = $customFieldValue->field_meta_value;
                     if ($customField && $customField->field_type == 'checkbox') {
                         // For checkbox, explode the value to get an array
@@ -634,10 +643,10 @@ class ProjectlistingController extends Controller
                         // For other field types or if $customField is null, keep the value as is
                         $fieldValueArray = $fieldValue;
                     }
-        
+
                     // Include all options for the field
                     $customFieldOptions = $customField ? $customField->options : null;
-                    
+
                     return [
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
@@ -646,7 +655,7 @@ class ProjectlistingController extends Controller
                         // 'custom_field_options' => $customFieldOptions,
                     ];
                 });
-        
+
                 // Prepare property data
                 $projectData = [
                     'id' => $property->id,
@@ -672,10 +681,10 @@ class ProjectlistingController extends Controller
                     'total_view' => $property->analytics()->count(),
                     'custom_field_values' => $formattedCustomFieldValues,
                 ];
-                
+
                 return $projectData;
             });
-            
+
             return response()->json($projectsData);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
@@ -683,70 +692,70 @@ class ProjectlistingController extends Controller
     }
 
 
-        
-        // this is for update property status
-        public function updateProjectStatus(Request $request)
+
+    // this is for update property status
+    public function updateProjectStatus(Request $request)
     {
-        
-            try {
 
-                if ($request->header('api-token') == '') {
-                    return response()->json(['error' => 'Please enter api token first.'], 422);
-                }
+        try {
 
-                $requestToken = $request->header('api-token');
-
-
-                $userId = null;
-            
-                $userData = User::where('api_token', $requestToken)->first();
-            
-                // Validate that the user exists in the database
-                if (!$userData) {
-                    return response()->json(['error' => 'User not found'], 404);
-                }
-
-                $userId = $userData->id;
-
-                // Validate the request data
-                $validatedData = $request->validate([
-                    'project_id' => 'required',
-                    'project_status' => 'required',
-                ]);
-                
-            } catch (\Illuminate\Validation\ValidationException $e) {
-                    // Return validation error response
-                    return response()->json(['error' => $e->errors()], 422);
+            if ($request->header('api-token') == '') {
+                return response()->json(['error' => 'Please enter api token first.'], 422);
             }
-        
-        
-        
-                // Check if the setting record exists
-                $projectData = Projectlist::where('id',$request->project_id)->first();
 
-        
-                if (!$projectData) {
-                  return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid Project Id',
-                ], 401);  
-                } 
+            $requestToken = $request->header('api-token');
 
 
-                if($request->project_status == 'active'){
-                   $project_status_val = '1';
-                }else{
-                    $project_status_val = '0';
-                }
-        
-                $projectData->project_status = $project_status_val;
-                $projectData->update();
-        
-                // Return the updated or newly created setting data as JSON response
-                return response()->json([
-                    'status' => true,
-                    'message' => 'Status updated successfully',
-                ], 201);
+            $userId = null;
+
+            $userData = User::where('api_token', $requestToken)->first();
+
+            // Validate that the user exists in the database
+            if (!$userData) {
+                return response()->json(['error' => 'User not found'], 404);
+            }
+
+            $userId = $userData->id;
+
+            // Validate the request data
+            $validatedData = $request->validate([
+                'project_id' => 'required',
+                'project_status' => 'required',
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Return validation error response
+            return response()->json(['error' => $e->errors()], 422);
+        }
+
+
+
+        // Check if the setting record exists
+        $projectData = Projectlist::where('id', $request->project_id)->first();
+
+
+        if (!$projectData) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid Project Id',
+            ], 401);
+        }
+
+
+        if ($request->project_status == 'active') {
+            $project_status_val = '1';
+        } else {
+            $project_status_val = '0';
+        }
+
+        $projectData->project_status = $project_status_val;
+        $projectData->update();
+
+        // Return the updated or newly created setting data as JSON response
+        return response()->json([
+            'status' => true,
+            'message' => 'Status updated successfully',
+        ], 201);
     }
 
 
@@ -786,18 +795,18 @@ class ProjectlistingController extends Controller
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
 
 
-        // this of for stote project analytics
+
+    // this of for stote project analytics
     public function storeProjectAnalytics(Request $request)
     {
         try {
             // Validate the request data
             $validatedData = $request->validate([
-            'user_id' => 'required|string',
-            'project_id' => 'nullable',
-            'type' => 'required',
+                'user_id' => 'required|string',
+                'project_id' => 'nullable',
+                'type' => 'required',
             ]);
 
             ProjectAnalytic::create($validatedData);
@@ -806,12 +815,12 @@ class ProjectlistingController extends Controller
                 'status' => true,
                 'message' => 'Analytics store successfully',
             ], 201);
-        }catch (\Throwable $th) {
-        // Log or handle the exception
-        return response()->json(['error' => $th->getMessage()], 500);
+        } catch (\Throwable $th) {
+            // Log or handle the exception
+            return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-        
+
 
     // This is for list of project analytics
     public function listProjectAnalytics()
@@ -859,10 +868,10 @@ class ProjectlistingController extends Controller
 
         $userId = $userData->id;
 
-        $projectIdsArr = Projectlist::where('user_id',$userId)->pluck('id')->toArray();
+        $projectIdsArr = Projectlist::where('user_id', $userId)->pluck('id')->toArray();
 
         // Get unique property IDs
-        $projectIds = ProjectAnalytic::whereIn('project_id',$projectIdsArr)->pluck('project_id')->unique();
+        $projectIds = ProjectAnalytic::whereIn('project_id', $projectIdsArr)->pluck('project_id')->unique();
 
         // Initialize arrays to store property labels, total views, and property names
         $projectLabels = [];
