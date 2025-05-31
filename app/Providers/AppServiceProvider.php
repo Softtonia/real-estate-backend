@@ -37,7 +37,6 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Property::observe(PropertyObserver::class);
-        Location::observe(LocationObserver::class);
         Amenity::observe(AmenityObserver::class);
         Purpose::observe(PurposeObserver::class);
         PropertyType::observe(PropertyTypeObserver::class);

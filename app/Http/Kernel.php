@@ -42,7 +42,7 @@ class Kernel extends HttpKernel
     \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
     'throttle:api',
     \Illuminate\Routing\Middleware\SubstituteBindings::class,
-  
+
 ],
     ];
 
@@ -82,6 +82,7 @@ class Kernel extends HttpKernel
         'allow.admin_developer' => \App\Http\Middleware\AdminDeveloperMiddleware::class,
         'consultancy.role' => \App\Http\Middleware\ConsultancyRoleMiddleware::class,
         'excludeOwner' => \App\Http\Middleware\ExcludeOwnerMiddleware::class,
+        'adminOrSelfToken' => \App\Http\Middleware\AdminCurrentUser::class,
 
     ];
 }

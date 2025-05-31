@@ -32,6 +32,7 @@ return new class extends Migration
             $table->timestamp('email_otp_expires_at')->useCurrent()->nullable();
             $table->timestamp('token_created_at')->nullable();
             $table->timestamps();
+
         });
     }
 

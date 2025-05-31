@@ -3,6 +3,7 @@
 use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
+use App\Http\Controllers\SiteSetting\SiteSettingController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
@@ -90,7 +91,9 @@ Route::middleware('admin.token')->post('/user/search', [UserController::class, '
 Route::middleware('admin.token')->get('all-user-listing', [UserController::class, 'alluserlist']);
 // Route::get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']);
 
-Route::middleware('allrole.token')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
+// Route::middleware('allrole.token')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
+Route::middleware('adminOrSelfToken')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
+Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
 Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
 Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);
 Route::middleware('admin.token')->post('create-user', [UserController::class, 'createUser']);
@@ -131,7 +134,7 @@ Route::get('listing-of-trending-project', [UserController::class, 'listingOfAllT
 Route::get('listing-of-property-for-buy', [UserController::class, 'listingOfPropertyForBuy']);
 Route::get('listing-of-property-for-rent', [UserController::class, 'listingOfPropertyForRent']);
 Route::middleware('admin.token')->post('update-site-setting', [UserController::class, 'updateSiteSetting']);
-Route::get('site-setting', [UserController::class, 'siteSetting']);
+Route::get('site-setting', [SiteSettingController::class, 'siteSetting']);
 Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
 
 Route::get('get-all-pages', [UserController::class, 'getAllPages']);

@@ -78,17 +78,17 @@ class UserController extends Controller
             return response()->json(['error' => 'Unauthorized.'], 401);
         }
 
-    $user = Auth::user(); // Get authenticated user
+        $user = Auth::user(); // Get authenticated user
 
-    // Update the password
-    $user->update([
-        'password' => Hash::make($request->new_password),
-    ]);
+        // Update the password
+        $user->update([
+            'password' => Hash::make($request->new_password),
+        ]);
 
-    return response()->json([
-        'status' => true,
-        'message' => 'Password changed successfully',
-    ], 200);
+        return response()->json([
+            'status' => true,
+            'message' => 'Password changed successfully',
+        ], 200);
     }
     public function changePassword(Request $request)
     {
@@ -346,18 +346,18 @@ class UserController extends Controller
 
 
         // ✅ Mail configuration from database
-    $settings = DB::table('mail_configs')->where('status', 1)->first();
-    if ($settings) {
-        config([
-            'mail.mailers.smtp.host' => $settings->host,
-            'mail.mailers.smtp.port' => $settings->port,
-            'mail.mailers.smtp.username' => $settings->username,
-            'mail.mailers.smtp.password' => $settings->password,
-            'mail.mailers.smtp.encryption' => $settings->encryption,
-            'mail.from.address' => $settings->from_address,
-            'mail.from.name' => $settings->from_name,
-        ]);
-    }
+        $settings = DB::table('mail_configs')->where('status', 1)->first();
+        if ($settings) {
+            config([
+                'mail.mailers.smtp.host' => $settings->host,
+                'mail.mailers.smtp.port' => $settings->port,
+                'mail.mailers.smtp.username' => $settings->username,
+                'mail.mailers.smtp.password' => $settings->password,
+                'mail.mailers.smtp.encryption' => $settings->encryption,
+                'mail.from.address' => $settings->from_address,
+                'mail.from.name' => $settings->from_name,
+            ]);
+        }
 
         // Send OTP via email
         try {
@@ -1189,113 +1189,115 @@ class UserController extends Controller
 
 
 
-public function getdetailsbyuserid(Request $request)
-{
-    try {
-        // Get the authenticated user
-        $user = Auth::guard('sanctum')->user();
+    public function getdetailsbyuserid(Request $request)
+    {
+        try {
+            // Get the authenticated user
+            // $user = Auth::guard('sanctum')->user();
 
-        if (!$user) {
-            return response()->json(['error' => 'Unauthorized.'], 401);
+            // if (!$user) {
+            //     return response()->json(['error' => 'Unauthorized.'], 401);
+            // }
+
+            // $userId = $user->id;
+
+            // // Fetch the role of the authenticated user
+            // $userRole = DB::table('roles')
+            //     ->where('id', $user->role_id)
+            //     ->value('name');
+
+            // // Debugging: Log the authenticated user's role
+            // \Log::info('Authenticated user role:', ['role' => $userRole]);
+
+            // // If the user is an admin, block the request
+            // if (strtolower($userRole) === 'admin') {
+            //     return response()->json(['error' => 'Admins are not allowed to access this data.'], 403);
+            // }
+
+            $userId = $request->id;
+
+            // Fetch user details if not an admin
+            $userData = DB::table('users')
+                ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
+                ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
+                ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
+                ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
+                ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+                ->where('users.id', $userId)
+                ->select(
+                    'users.id',
+                    'users.first_name',
+                    'users.last_name',
+                    'users.email',
+                    'users.phone',
+                    'users.role_id',
+                    DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
+                    'users.unique_id',
+                    'users.isapproved',
+                    // 'users.kyc',
+                    'user_details.bussiness_name',
+                    'user_details.bussiness_address',
+                    'user_details.bussiness_email',
+                    'user_details.business_phone',
+                    'countries.name as country',
+                    'states.name as state',
+                    'cities.name as city',
+                    'user_details.address',
+                    'user_details.pin_code',
+                    'user_details.profile_photo',
+                    'user_details.license_number',
+                    'user_details.alternate_number',
+                    'user_details.no_of_employees',
+                    'user_details.about_us',
+                    'users.created_at',
+                    'users.updated_at',
+                    'user_details.country_id',
+                    'user_details.state_id',
+                    'user_details.city_id'
+                )
+                ->first();
+
+            // Debugging: Log the retrieved user data
+
+            if (!$userData) {
+                \Log::error('User not found', ['id' => $userId]);
+                return response()->json(['error' => 'No data found for this user.'], 404);
+            }
+
+            return response()->json([
+                'id' => $userData->id,
+                'first_name' => $userData->first_name,
+                'last_name' => $userData->last_name,
+                'email' => $userData->email,
+                'phone' => $userData->phone,
+                'role_id' => $userData->role_id,
+                'role_name' => $userData->role_name,
+                'unique_id' => $userData->unique_id,
+                'isapproved' => $userData->isapproved,
+                // 'kyc' => $userData->kyc,
+                'bussiness_name' => $userData->bussiness_name,
+                'bussiness_address' => $userData->bussiness_address,
+                'bussiness_email' => $userData->bussiness_email,
+                'business_phone' => $userData->business_phone,
+                'country_id' => $userData->country_id ?? 'N/A',
+                'state_id' => $userData->state_id ?? 'N/A',
+                'city_id' => $userData->city_id ?? 'N/A',
+                'address' => $userData->address,
+                'pin_code' => $userData->pin_code,
+                'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
+                'license_number' => $userData->license_number,
+                'alternate_number' => $userData->alternate_number,
+                'no_of_employees' => $userData->no_of_employees,
+                'about_us' => $userData->about_us,
+                'created_at' => $userData->created_at,
+                'updated_at' => $userData->updated_at
+            ], 200);
+
+        } catch (\Throwable $th) {
+            \Log::error('Error fetching user details:', ['error' => $th->getMessage()]);
+            return response()->json(['error' => 'Internal Server Error.'], 500);
         }
-
-        $userId = $user->id;
-
-        // Fetch the role of the authenticated user
-        $userRole = DB::table('roles')
-            ->where('id', $user->role_id)
-            ->value('name');
-
-        // Debugging: Log the authenticated user's role
-        \Log::info('Authenticated user role:', ['role' => $userRole]);
-
-        // If the user is an admin, block the request
-        if (strtolower($userRole) === 'admin') {
-            return response()->json(['error' => 'Admins are not allowed to access this data.'], 403);
-        }
-
-        // Fetch user details if not an admin
-        $userData = DB::table('users')
-            ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
-            ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
-            ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
-            ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
-            ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
-            ->where('users.id', $userId)
-            ->select(
-                'users.id',
-                'users.first_name',
-                'users.last_name',
-                'users.email',
-                'users.phone',
-                'users.role_id',
-                DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
-                'users.unique_id',
-                'users.isapproved',
-                'users.kyc',
-                'user_details.bussiness_name',
-                'user_details.bussiness_address',
-                'user_details.bussiness_email',
-                'user_details.business_phone',
-                'countries.name as country',
-                'states.name as state',
-                'cities.name as city',
-                'user_details.address',
-                'user_details.pin_code',
-                'user_details.profile_photo',
-                'user_details.license_number',
-                'user_details.alternate_number',
-                'user_details.no_of_employees',
-                'user_details.about_us',
-                'users.created_at',
-                'users.updated_at',
-                'user_details.country_id',
-                'user_details.state_id',
-                'user_details.city_id'
-            )
-            ->first();
-
-        // Debugging: Log the retrieved user data
-
-        if (!$userData) {
-            \Log::error('User not found', ['id' => $userId]);
-            return response()->json(['error' => 'No data found for this user.'], 404);
-        }
-
-        return response()->json([
-            'id' => $userData->id,
-            'first_name' => $userData->first_name,
-            'last_name' => $userData->last_name,
-            'email' => $userData->email,
-            'phone' => $userData->phone,
-            'role_id' => $userData->role_id,
-            'role_name' => $userData->role_name,
-            'unique_id' => $userData->unique_id,
-            'isapproved' => $userData->isapproved,
-            'kyc' => $userData->kyc,
-            'bussiness_name' => $userData->bussiness_name,
-            'bussiness_address' => $userData->bussiness_address,
-            'bussiness_email' => $userData->bussiness_email,
-            'business_phone' => $userData->business_phone,
-            'country_id' => $userData->country_id ?? 'N/A',
-            'state_id' => $userData->state_id ?? 'N/A',
-            'city_id' => $userData->city_id ?? 'N/A',
-            'address' => $userData->address,
-            'pin_code' => $userData->pin_code,
-            'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
-            'license_number' => $userData->license_number,
-            'alternate_number' => $userData->alternate_number,
-            'no_of_employees' => $userData->no_of_employees,
-            'about_us' => $userData->about_us,
-            'created_at' => $userData->created_at,
-            'updated_at' => $userData->updated_at
-        ], 200);
-
-    } catch (\Throwable $th) {
-        \Log::error('Error fetching user details:', ['error' => $th->getMessage()]);
-        return response()->json(['error' => 'Internal Server Error.'], 500);
     }
-}
 
 
     public function getdetailsbyuseridForWebsite(Request $request)
@@ -2046,103 +2048,103 @@ public function getdetailsbyuserid(Request $request)
 
     // for cosultancy listing
     public function allConsultancyListing(Request $request)
-{
-    try {
-        $users = User::where('role_id', 5)
-            ->with('role')
-            ->with('userDetails')
-            ->get();
+    {
+        try {
+            $users = User::where('role_id', 5)
+                ->with('role')
+                ->with('userDetails')
+                ->get();
 
-        // Extract the necessary information from each user
-        $userList = $users->map(function ($user) {
-            $roleName = $user->role ? $user->role->name : null;
-            $userDetails = $user->userDetails ?? null;
+            // Extract the necessary information from each user
+            $userList = $users->map(function ($user) {
+                $roleName = $user->role ? $user->role->name : null;
+                $userDetails = $user->userDetails ?? null;
 
-            return [
-                'id' => $user->id,
-                'fullname' => $user->fullname,
-                'email' => $user->email,
-                'phone' => $user->phone,
-                'role_name' => $roleName,
-                'role_id' => $user->role_id,
-                'uid' => $user->uid,
-                'unique_id' => $user->unique_id,
-                'isapproved' => $user->isapproved,
-                'kyc' => $user->kyc,
-                'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
-                'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
-                'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
-                'business_phone' => $userDetails ? $userDetails->business_phone : null,
-                'profile_photo' => $userDetails ? $userDetails->profile_photo : null,
-                'address' => $userDetails ? $userDetails->address : null,
-                'country' => $userDetails ? $userDetails->country : null,
-                'state' => $userDetails ? $userDetails->state : null,
-                'city' => $userDetails ? $userDetails->city : null,
-                'pin_code' => $userDetails ? $userDetails->pin_code : null,
-                'license_number' => $userDetails ? $userDetails->license_number : null,
-                'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
-            ];
-        });
+                return [
+                    'id' => $user->id,
+                    'fullname' => $user->fullname,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'role_name' => $roleName,
+                    'role_id' => $user->role_id,
+                    'uid' => $user->uid,
+                    'unique_id' => $user->unique_id,
+                    'isapproved' => $user->isapproved,
+                    'kyc' => $user->kyc,
+                    'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
+                    'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
+                    'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
+                    'business_phone' => $userDetails ? $userDetails->business_phone : null,
+                    'profile_photo' => $userDetails ? $userDetails->profile_photo : null,
+                    'address' => $userDetails ? $userDetails->address : null,
+                    'country' => $userDetails ? $userDetails->country : null,
+                    'state' => $userDetails ? $userDetails->state : null,
+                    'city' => $userDetails ? $userDetails->city : null,
+                    'pin_code' => $userDetails ? $userDetails->pin_code : null,
+                    'license_number' => $userDetails ? $userDetails->license_number : null,
+                    'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
+                ];
+            });
 
-        // Return the user list as JSON response
-        return response()->json($userList, 200);
-    } catch (\Throwable $th) {
-        // Handle any exceptions and return an error response
-        return response()->json(['error' => $th->getMessage()], 500);
-    }
-}
-
-
-public function getAllConsultancyListingByCompany(Request $request)
-{
-    try {
-        $authUser = Auth::user();
-
-        if (!$authUser) {
-            return response()->json(['error' => 'User not authenticated'], 401);
+            // Return the user list as JSON response
+            return response()->json($userList, 200);
+        } catch (\Throwable $th) {
+            // Handle any exceptions and return an error response
+            return response()->json(['error' => $th->getMessage()], 500);
         }
-
-        // Fetch consultancies that accepted the request
-        $consultancies = \App\Models\JoinRequest::with('user.userDetails', 'user.role')
-            ->where('type', 'company-consultancy')
-            ->where('status', 2)
-            ->get();
-
-        // Format the response
-        $consultancyList = $consultancies->map(function ($joinRequest) {
-            $user = $joinRequest->user;
-            $userDetails = $user?->userDetails;
-
-            return [
-                'id' => $joinRequest->id,
-                'fullname' => $user?->fullname,
-                'email' => $user?->email,
-                'phone' => $user?->phone,
-                'role_name' => optional($user?->role)->name,
-                'role_id' => $user?->role_id,
-                'uid' => $user?->uid,
-                'unique_id' => $user?->unique_id,
-                'isapproved' => $user?->isapproved,
-                'bussiness_name' => $userDetails?->bussiness_name,
-                'bussiness_address' => $userDetails?->bussiness_address,
-                'bussiness_email' => $userDetails?->bussiness_email,
-                'business_phone' => $userDetails?->business_phone,
-                'profile_photo' => $userDetails?->profile_photo,
-                'address' => $userDetails?->address,
-                'country' => $userDetails?->country,
-                'state' => $userDetails?->state,
-                'city' => $userDetails?->city,
-                'pin_code' => $userDetails?->pin_code,
-                'license_number' => $userDetails?->license_number,
-                'alternate_number' => $userDetails?->alternate_number,
-            ];
-        });
-
-        return response()->json($consultancyList, 200);
-    } catch (\Throwable $th) {
-        return response()->json(['error' => $th->getMessage()], 500);
     }
-}
+
+
+    public function getAllConsultancyListingByCompany(Request $request)
+    {
+        try {
+            $authUser = Auth::user();
+
+            if (!$authUser) {
+                return response()->json(['error' => 'User not authenticated'], 401);
+            }
+
+            // Fetch consultancies that accepted the request
+            $consultancies = \App\Models\JoinRequest::with('user.userDetails', 'user.role')
+                ->where('type', 'company-consultancy')
+                ->where('status', 2)
+                ->get();
+
+            // Format the response
+            $consultancyList = $consultancies->map(function ($joinRequest) {
+                $user = $joinRequest->user;
+                $userDetails = $user?->userDetails;
+
+                return [
+                    'id' => $joinRequest->id,
+                    'fullname' => $user?->fullname,
+                    'email' => $user?->email,
+                    'phone' => $user?->phone,
+                    'role_name' => optional($user?->role)->name,
+                    'role_id' => $user?->role_id,
+                    'uid' => $user?->uid,
+                    'unique_id' => $user?->unique_id,
+                    'isapproved' => $user?->isapproved,
+                    'bussiness_name' => $userDetails?->bussiness_name,
+                    'bussiness_address' => $userDetails?->bussiness_address,
+                    'bussiness_email' => $userDetails?->bussiness_email,
+                    'business_phone' => $userDetails?->business_phone,
+                    'profile_photo' => $userDetails?->profile_photo,
+                    'address' => $userDetails?->address,
+                    'country' => $userDetails?->country,
+                    'state' => $userDetails?->state,
+                    'city' => $userDetails?->city,
+                    'pin_code' => $userDetails?->pin_code,
+                    'license_number' => $userDetails?->license_number,
+                    'alternate_number' => $userDetails?->alternate_number,
+                ];
+            });
+
+            return response()->json($consultancyList, 200);
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
 
 
     public function createUser(Request $request)
@@ -2712,9 +2714,9 @@ public function getAllConsultancyListingByCompany(Request $request)
 
             // Check if there's a relevant column linking join requests to companies
             $consultancy_ids_from_join_requests = JoinRequest::where([
-                    'user_id' => $userId, // Adjust if `user_id` isn't the correct company reference
-                    'status' => 2 // Status 2 = Accepted
-                ])
+                'user_id' => $userId, // Adjust if `user_id` isn't the correct company reference
+                'status' => 2 // Status 2 = Accepted
+            ])
                 ->pluck('user_id') // Ensure this column exists and stores user IDs
                 ->toArray();
 
@@ -2813,11 +2815,14 @@ public function getAllConsultancyListingByCompany(Request $request)
             $userDataList = User::whereHas('role', function ($query) {
                 $query->where('name', 'Consultancy'); // Checking by role name
             })->where('created_by', 0)
-              ->with(['userDetails', 'joinRequest' => function ($query) use ($userId) {
-                  $query->where('user_id', $userId);
-              }])->get();
-              $user = User::find($userId);
-              $userDetails = $user->userDetails; // This should return the related user_details
+                ->with([
+                    'userDetails',
+                    'joinRequest' => function ($query) use ($userId) {
+                        $query->where('user_id', $userId);
+                    }
+                ])->get();
+            $user = User::find($userId);
+            $userDetails = $user->userDetails; // This should return the related user_details
 
             $returnArr = [];
 
@@ -2853,52 +2858,52 @@ public function getAllConsultancyListingByCompany(Request $request)
 
     // for send join request to consultancy
     public function sendRequestByCompanyToConsultancy(Request $request)
-{
-    try {
+    {
+        try {
 
-        $companyUser = Auth::user();
-        $companyId = $companyUser->id;
+            $companyUser = Auth::user();
+            $companyId = $companyUser->id;
 
-          if (!$companyId) {
-            return response()->json(['error' => 'Company not found'], 404);
-        }
-        $userId = $companyUser->id;
+            if (!$companyId) {
+                return response()->json(['error' => 'Company not found'], 404);
+            }
+            $userId = $companyUser->id;
 
-        // Validate that the consultancy user exists in the database
-        if (!User::where('id', $request->consultancy_id)->exists()) {
-            return response()->json(['error' => 'Consultancy not found'], 404);
-        }
+            // Validate that the consultancy user exists in the database
+            if (!User::where('id', $request->consultancy_id)->exists()) {
+                return response()->json(['error' => 'Consultancy not found'], 404);
+            }
 
-        // Check if the request already exists
-        $check = JoinRequest::where([
-            'user_id' => $request->consultancy_id,
-            'type' => 'company-consultancy'
-        ])->first();
-
-        if ($check) {
-            JoinRequest::where([
+            // Check if the request already exists
+            $check = JoinRequest::where([
                 'user_id' => $request->consultancy_id,
                 'type' => 'company-consultancy'
-            ])->delete();
+            ])->first();
 
-            return response()->json(['status' => true, 'message' => 'Request removed successfully.'], 201);
-        } else {
-            JoinRequest::insert([
-                'user_id' => $request->consultancy_id,
-                'type' => 'company-consultancy',
-                'status' => 1, // Changed from 'requested' to 1
-                'created_at' => now(),
-                'updated_at' => now()
-            ]);
+            if ($check) {
+                JoinRequest::where([
+                    'user_id' => $request->consultancy_id,
+                    'type' => 'company-consultancy'
+                ])->delete();
 
-            return response()->json(['status' => true, 'message' => 'Request sent successfully.'], 201);
+                return response()->json(['status' => true, 'message' => 'Request removed successfully.'], 201);
+            } else {
+                JoinRequest::insert([
+                    'user_id' => $request->consultancy_id,
+                    'type' => 'company-consultancy',
+                    'status' => 1, // Changed from 'requested' to 1
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+
+                return response()->json(['status' => true, 'message' => 'Request sent successfully.'], 201);
+            }
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error($e->getMessage());
+            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
         }
-    } catch (\Exception $e) {
-        DB::rollBack();
-        \Log::error($e->getMessage());
-        return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
     }
-}
 
 
 
@@ -3073,80 +3078,80 @@ public function getAllConsultancyListingByCompany(Request $request)
 
 
     public function acceptDeclineCompanyRequestByConsultancy(Request $request)
-{
-    try {
-        $authUser = Auth::user();
+    {
+        try {
+            $authUser = Auth::user();
 
-        if (!$authUser) {
-            return response()->json(['error' => 'User not found'], 404);
-        }
-
-        // Determine user type
-        $userRole = $authUser->role->name;
-        $isCompany = $userRole === 'company';
-        $isConsultancy = $userRole === 'consultancy';
-        $isAgent = $userRole === 'agent';
-
-        if (!$isCompany && !$isConsultancy && !$isAgent) {
-            return response()->json(['error' => 'Unauthorized action'], 403);
-        }
-
-        // Determine the target user and request type
-        if ($isCompany) {
-            $targetUserId = $request->consultancy_id;
-            $requestType = 'company-consultancy';
-        } elseif ($isAgent) {
-            $targetUserId = $request->consultancy_id;
-            $requestType = 'consultancy-agent';
-        } elseif ($isConsultancy) {
-            if ($request->company_id) {
-                $targetUserId = $request->company_id;
-                $requestType = 'company-consultancy';
-            } elseif ($request->agent_id) {
-                $targetUserId = $request->agent_id;
-                $requestType = 'consultancy-agent';
-            } else {
-                return response()->json(['error' => 'Missing target user ID.'], 400);
+            if (!$authUser) {
+                return response()->json(['error' => 'User not found'], 404);
             }
+
+            // Determine user type
+            $userRole = $authUser->role->name;
+            $isCompany = $userRole === 'company';
+            $isConsultancy = $userRole === 'consultancy';
+            $isAgent = $userRole === 'agent';
+
+            if (!$isCompany && !$isConsultancy && !$isAgent) {
+                return response()->json(['error' => 'Unauthorized action'], 403);
+            }
+
+            // Determine the target user and request type
+            if ($isCompany) {
+                $targetUserId = $request->consultancy_id;
+                $requestType = 'company-consultancy';
+            } elseif ($isAgent) {
+                $targetUserId = $request->consultancy_id;
+                $requestType = 'consultancy-agent';
+            } elseif ($isConsultancy) {
+                if ($request->company_id) {
+                    $targetUserId = $request->company_id;
+                    $requestType = 'company-consultancy';
+                } elseif ($request->agent_id) {
+                    $targetUserId = $request->agent_id;
+                    $requestType = 'consultancy-agent';
+                } else {
+                    return response()->json(['error' => 'Missing target user ID.'], 400);
+                }
+            }
+
+            // Ensure the target user exists
+            $targetUser = User::find($targetUserId);
+            if (!$targetUser) {
+                return response()->json(['error' => 'Target user not found'], 404);
+            }
+
+            // Validate status
+            if (!in_array($request->status, [1, 2, 3])) {
+                return response()->json([
+                    'error' => 'Invalid status. Allowed values: 1 (Requested), 2 (Accepted), 3 (Rejected).'
+                ], 422);
+            }
+
+            // Update JoinRequest with correct where conditions
+            $update = JoinRequest::where('type', $requestType)
+                ->where(function ($query) use ($authUser, $targetUserId) {
+                    $query->where('user_id', $authUser->id)
+                        ->orWhere('user_id', $targetUserId);
+                })
+                ->update(['status' => $request->status]);
+
+
+
+            if ($update) {
+                return response()->json([
+                    'status' => true,
+                    'message' => "Request status updated successfully."
+                ], 201);
+            } else {
+                return response()->json(['error' => 'No matching request found.'], 404);
+            }
+
+        } catch (\Exception $e) {
+            \Log::error($e->getMessage());
+            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
         }
-
-        // Ensure the target user exists
-        $targetUser = User::find($targetUserId);
-        if (!$targetUser) {
-            return response()->json(['error' => 'Target user not found'], 404);
-        }
-
-        // Validate status
-        if (!in_array($request->status, [1, 2, 3])) {
-            return response()->json([
-                'error' => 'Invalid status. Allowed values: 1 (Requested), 2 (Accepted), 3 (Rejected).'
-            ], 422);
-        }
-
-        // Update JoinRequest with correct where conditions
-       $update = JoinRequest::where('type', $requestType)
-    ->where(function ($query) use ($authUser, $targetUserId) {
-        $query->where('user_id', $authUser->id)
-              ->orWhere('user_id', $targetUserId);
-    })
-    ->update(['status' => $request->status]);
-
-
-
-        if ($update) {
-            return response()->json([
-                'status' => true,
-                'message' => "Request status updated successfully."
-            ], 201);
-        } else {
-            return response()->json(['error' => 'No matching request found.'], 404);
-        }
-
-    } catch (\Exception $e) {
-        \Log::error($e->getMessage());
-        return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
     }
-}
 
     // for leave the company
     public function leaveTheComapnyByConsultancy(Request $request)
@@ -3166,8 +3171,8 @@ public function getAllConsultancyListingByCompany(Request $request)
             }
 
             // Check if consultancy_id exists in join_requests, otherwise use user_id or consultant_id
-            $update = JoinRequest::where(['user_id' => $userId, ])
-                                 ->update(['status' => '5']); // Change if 'status' is an integer
+            $update = JoinRequest::where(['user_id' => $userId,])
+                ->update(['status' => '5']); // Change if 'status' is an integer
 
             if ($update) {
                 return response()->json(['status' => true, 'message' => 'You left the company successfully.'], 201);
@@ -5288,35 +5293,10 @@ public function getAllConsultancyListingByCompany(Request $request)
 
 
 
-    // This is for site setting list
-    public function siteSetting(Request $request)
-    {
-        try {
-            $setting = SiteSetting::first();
 
-            if ($setting) {
-                if ($setting->website_logo) {
-                    $setting->website_logo = url('uploads/website_logo/' . $setting->website_logo);
-                }
-                if ($setting->mobile_logo) {
-                    $setting->mobile_logo = url('uploads/mobile_logo/' . $setting->mobile_logo);
-                }
-                if ($setting->favicon) {
-                    $setting->favicon = url('uploads/favicon/' . $setting->favicon);
-                }
-            } else {
-                return response()->json(['message' => 'No settings found'], 404);
-            }
 
-            // Return a JSON response
-            return response()->json(['data' => $setting]);
 
-        } catch (\Exception $e) {
-            // Log the error for debugging
-            \Log::error('Error fetching site settings: ' . $e->getMessage());
-            return response()->json(['message' => 'Error fetching site settings', 'error' => $e->getMessage()], 500);
-        }
-    }
+
 
 
 
@@ -6339,28 +6319,28 @@ public function getAllConsultancyListingByCompany(Request $request)
     // }
 
     public function getConsultancyAgents(Request $request, $id)
-{
-    try {
-        // Fetch the role
-        $role = Role::find($id);
+    {
+        try {
+            // Fetch the role
+            $role = Role::find($id);
 
-        // Check if the role exists and is 'consultancy'
-        if (!$role) {
-            return response()->json(['error' => 'Role not found'], 404);
+            // Check if the role exists and is 'consultancy'
+            if (!$role) {
+                return response()->json(['error' => 'Role not found'], 404);
+            }
+
+            if ($role->name !== 'consultancy') {
+                return response()->json(['error' => 'This role is not consultancy'], 400);
+            }
+
+            // Fetch users with the consultancy role
+            $agents = User::where('role_id', $id)->get();
+
+            return response()->json($agents, 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
         }
-
-        if ($role->name !== 'consultancy') {
-            return response()->json(['error' => 'This role is not consultancy'], 400);
-        }
-
-        // Fetch users with the consultancy role
-        $agents = User::where('role_id', $id)->get();
-
-        return response()->json($agents, 200);
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
     }
-}
 
     public function getKYCStatus(Request $request)
     {

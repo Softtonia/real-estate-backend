@@ -53,14 +53,14 @@ class CompanyApiToken
 
 
 
-   
+
     // Check if the user is authenticated
     if (!auth()->check()) {
         return response()->json(['status' => false, 'error' => 'Invalid token'], 400);
     }
 
     // Get the user's role from the roles table using the user's role_id
-    $userRole = Roles::where('id', auth()->user()->role_id)->first();
+    $userRole = Role::where('id', auth()->user()->role_id)->first();
 
     // If the role is admin, allow the action without permission checks
     if ($userRole && $userRole->name === 'admin') {
@@ -77,7 +77,7 @@ class CompanyApiToken
 
     // Assuming you want to log or debug the cleaned URI
     dd($cleanedUri); // This will output the cleaned URI
-    
+
     // Here, you would match $cleanedUri to a model name. For instance, a model mapping array:
     $modelMappings = [
         'posts' => Post::class,
@@ -118,4 +118,4 @@ class CompanyApiToken
 }
 
 }
- 
+
