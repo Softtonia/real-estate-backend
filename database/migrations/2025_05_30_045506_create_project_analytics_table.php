@@ -20,7 +20,7 @@ return new class extends Migration
             $table->timestamp('updated_at', 6)->nullable()->default(DB::raw('CURRENT_TIMESTAMP(6)'));
 
              $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
-             $table->foreign('project_id')->references('id')->on('projects')->onDelete('set null');
+             $table->foreign('project_id')->references('id')->on('project_listings')->onDelete('set null');
         });
     }
 

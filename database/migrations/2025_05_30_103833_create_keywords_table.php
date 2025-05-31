@@ -20,7 +20,7 @@ return new class extends Migration
             $table->timestamp('updated_at', 6)->nullable()->useCurrent();
 
             $table->foreign('property_id')->references('id')->on('properties')->onDelete('cascade');
-            $table->foreign('project_id')->references('id')->on('projects')->onDelete('cascade');
+            $table->foreign('project_id')->references('id')->on('project_listings')->onDelete('cascade');
         });
     }
 
