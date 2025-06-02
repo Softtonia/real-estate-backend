@@ -229,191 +229,197 @@ class Propertytypecontroller extends Controller
     // }
 
     public function index()
-{
-    try {
-        // Get all property types with associated property details
-        $propertyTypes = PropertyType::with('property')->get();
+    {
+        try {
+            // Get all property types with associated property details
+            $propertyTypes = PropertyType::with('property')->get();
 
-        // Initialize an array to store property type data
-        $propertyTypesData = [];
+            // Initialize an array to store property type data
+            $propertyTypesData = [];
 
-        // Iterate over each property type and extract details
-        foreach ($propertyTypes as $propertyType) {
+            // Iterate over each property type and extract details
+            foreach ($propertyTypes as $propertyType) {
+                $propertyName = $propertyType->property ? $propertyType->property->name : null;
+                $assignPropertyCount = PropertyList::where('property_type_id', $propertyType->id)->count();
+
+                $propertyTypesData[] = [
+                    'id' => $propertyType->id,
+                    'name' => $propertyType->name,
+                    'slug' => $propertyType->slug,
+                    'display_property_types_order' => $propertyType->display_property_types_order,
+                    'property_id' => optional($propertyType->property)->id,
+                    'property_name' => $propertyName,
+                    'image' => $propertyType->image ? url($propertyType->image) : null, // Convert relative path to full URL
+                    'propertyCount' => $assignPropertyCount,
+                ];
+            }
+
+            // Return the property type data as JSON response
+            return response()->json($propertyTypesData);
+        } catch (\Throwable $th) {
+            // Handle any exceptions and return an error response
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
+    public function getdatabyId(Request $request)
+    {
+        try {
+            $id = $request->id;
+
+            // Get the property type by ID with associated property details
+            $propertyType = PropertyType::with('property')->find($id);
+
+            // Check if the property type exists
+            if (!$propertyType) {
+                return response()->json(['error' => 'Property type not found'], 404);
+            }
+
+            // Calculate the property count for this property type
+            $propertyCount = PropertyList::where('property_type_id', $propertyType->id)->count();
+
+            // Extract necessary data
             $propertyName = $propertyType->property ? $propertyType->property->name : null;
-            $assignPropertyCount = PropertyList::where('property_type_id', $propertyType->id)->count();
-
-            $propertyTypesData[] = [
+            $propertyTypeData = [
                 'id' => $propertyType->id,
                 'name' => $propertyType->name,
                 'slug' => $propertyType->slug,
                 'display_property_types_order' => $propertyType->display_property_types_order,
-                'property_id' => optional($propertyType->property)->id,
                 'property_name' => $propertyName,
-                'image' => $propertyType->image ? url($propertyType->image) : null, // Convert relative path to full URL
-                'propertyCount' => $assignPropertyCount,
+                'property_id' => $propertyType->property_id,
+                'image' => $propertyType->image ? url($propertyType->image) : null, // Convert to full URL
+                'propertyCount' => $propertyCount,
             ];
-        }
 
-        // Return the property type data as JSON response
-        return response()->json($propertyTypesData);
-    } catch (\Throwable $th) {
-        // Handle any exceptions and return an error response
-        return response()->json(['error' => $th->getMessage()], 500);
-    }
-}
-
-
-public function getdatabyId(Request $request)
-{
-    try {
-        $id = $request->id;
-
-        // Get the property type by ID with associated property details
-        $propertyType = PropertyType::with('property')->find($id);
-
-        // Check if the property type exists
-        if (!$propertyType) {
-            return response()->json(['error' => 'Property type not found'], 404);
-        }
-
-        // Calculate the property count for this property type
-        $propertyCount = PropertyList::where('property_type_id', $propertyType->id)->count();
-
-        // Extract necessary data
-        $propertyName = $propertyType->property ? $propertyType->property->name : null;
-        $propertyTypeData = [
-            'id' => $propertyType->id,
-            'name' => $propertyType->name,
-            'slug' => $propertyType->slug,
-            'display_property_types_order' => $propertyType->display_property_types_order,
-            'property_name' => $propertyName,
-            'property_id' => $propertyType->property_id,
-            'image' => $propertyType->image ? url($propertyType->image) : null, // Convert to full URL
-            'propertyCount' => $propertyCount,
-        ];
-
-        // Remove the image key if its value is null
-        if (empty($propertyTypeData['image']) || $propertyType->image === "null") {
-            unset($propertyTypeData['image']);
-        }
-
-        // Return the property type data as JSON response
-        return response()->json($propertyTypeData);
-    } catch (\Throwable $th) {
-        // Handle any exceptions and return an error response
-        return response()->json(['error' => $th->getMessage()], 500);
-    }
-}
-
-
-public function update(Request $request)
-{
-    // Check for Authorization header
-    if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-        return response()->json(['error' => ['authorization' => ['Please provide an API token.']]], 422);
-    }
-
-    $authorizationHeader = $request->header('Authorization');
-
-    // Validate Authorization header format
-    if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-        return response()->json(['error' => ['authorization' => ['Invalid token format. Token must start with "Bearer ".']]], 422);
-    }
-
-    // Extract the token
-    $requestToken = substr($authorizationHeader, 7);
-
-    if (empty($requestToken)) {
-        return response()->json(['error' => ['authorization' => ['Token is missing.']]], 422);
-    }
-
-    // Verify the token
-    $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-    if (!$tokenExists) {
-        return response()->json(['error' => ['authorization' => ['Unauthorized. Invalid API token.']]], 401);
-    }
-
-    try {
-        $id = $request->id;
-
-        // Find the property type
-        $propertyType = PropertyType::findOrFail($id);
-
-        // Validate request data with custom error handling
-        try {
-            $validatedData = $request->validate([
-                'name' => [
-                    'required',
-                    'string',
-                    'max:255',
-                    Rule::unique('property_types', 'name')->ignore($id), // Unique check ignoring current ID
-                ],
-                'display_property_types_order' => [
-                    'nullable',
-                    'string',
-                    'max:255',
-                    Rule::unique('property_types', 'display_property_types_order')->ignore($id), // Unique check ignoring current ID
-                ],
-                'image' => 'nullable|file|mimes:jpg,jpeg,png,gif,webp|max:10240', // Image validation (Max 10MB)
-                'property_id' => [
-                    'required',
-                    Rule::exists('properties', 'id'), // Validate property_id exists in properties table
-                ],
-            ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 422);
-        }
-
-        // Determine `display_property_types_order` if not provided
-        $displayPropertyTypesOrder = $request->input('display_property_types_order');
-
-        if ($displayPropertyTypesOrder === null) {
-            $maxOrder = DB::table('property_types')
-                ->selectRaw('MAX(CAST(display_property_types_order AS UNSIGNED)) as max_order')
-                ->value('max_order');
-
-            $displayPropertyTypesOrder = ($maxOrder !== null) ? $maxOrder + 1 : 1;
-
-            while (DB::table('property_types')->where('display_property_types_order', $displayPropertyTypesOrder)->exists()) {
-                $displayPropertyTypesOrder++;
+            // Remove the image key if its value is null
+            if (empty($propertyTypeData['image']) || $propertyType->image === "null") {
+                unset($propertyTypeData['image']);
             }
+
+            // Return the property type data as JSON response
+            return response()->json($propertyTypeData);
+        } catch (\Throwable $th) {
+            // Handle any exceptions and return an error response
+            return response()->json(['error' => $th->getMessage()], 500);
         }
-
-        // Handle property image upload and store only the relative path
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
-            $filePath = 'uploads/property_types/' . $fileName; // Store only relative path
-            $file->move(public_path('uploads/property_types'), $fileName);
-        } else {
-            $filePath = $propertyType->image; // Keep the existing image if no new image is uploaded
-        }
-
-        // Update the property type
-        $propertyType->update([
-            'name' => $validatedData['name'],
-            'display_property_types_order' => $displayPropertyTypesOrder,
-            'image' => $filePath, // Store only relative path
-            'property_id' => $validatedData['property_id'],
-        ]);
-
-        // Retrieve the updated record only
-        $updatedPropertyType = PropertyType::select(
-            'id', 'property_id', 'name', 'display_property_types_order', 'image', 'created_at', 'updated_at'
-        )->where('id', $id)->first();
-
-        return response()->json([
-            'message' => 'Property type data updated successfully.',
-            'data' => $updatedPropertyType, // Returns only the updated record
-        ], 200);
-
-    } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-        return response()->json(['error' => ['property_type' => ['Property type not found.']]], 404);
-    } catch (\Throwable $th) {
-        return response()->json(['error' => ['server' => ['An unexpected error occurred: ' . $th->getMessage()]]], 500);
     }
-}
+
+
+    public function update(Request $request)
+    {
+        // Check for Authorization header
+        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
+            return response()->json(['error' => ['authorization' => ['Please provide an API token.']]], 422);
+        }
+
+        $authorizationHeader = $request->header('Authorization');
+
+        // Validate Authorization header format
+        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
+            return response()->json(['error' => ['authorization' => ['Invalid token format. Token must start with "Bearer ".']]], 422);
+        }
+
+        // Extract the token
+        $requestToken = substr($authorizationHeader, 7);
+
+        if (empty($requestToken)) {
+            return response()->json(['error' => ['authorization' => ['Token is missing.']]], 422);
+        }
+
+        // Verify the token
+        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
+
+        if (!$tokenExists) {
+            return response()->json(['error' => ['authorization' => ['Unauthorized. Invalid API token.']]], 401);
+        }
+
+        try {
+            $id = $request->id;
+
+            // Find the property type
+            $propertyType = PropertyType::findOrFail($id);
+
+            // Validate request data with custom error handling
+            try {
+                $validatedData = $request->validate([
+                    'name' => [
+                        'required',
+                        'string',
+                        'max:255',
+                        Rule::unique('property_types', 'name')->ignore($id), // Unique check ignoring current ID
+                    ],
+                    'display_property_types_order' => [
+                        'nullable',
+                        'string',
+                        'max:255',
+                        Rule::unique('property_types', 'display_property_types_order')->ignore($id), // Unique check ignoring current ID
+                    ],
+                    'image' => 'nullable|file|mimes:jpg,jpeg,png,gif,webp|max:10240', // Image validation (Max 10MB)
+                    'property_id' => [
+                        'required',
+                        Rule::exists('properties', 'id'), // Validate property_id exists in properties table
+                    ],
+                ]);
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                return response()->json(['error' => $e->errors()], 422);
+            }
+
+            // Determine `display_property_types_order` if not provided
+            $displayPropertyTypesOrder = $request->input('display_property_types_order');
+
+            if ($displayPropertyTypesOrder === null) {
+                $maxOrder = DB::table('property_types')
+                    ->selectRaw('MAX(CAST(display_property_types_order AS UNSIGNED)) as max_order')
+                    ->value('max_order');
+
+                $displayPropertyTypesOrder = ($maxOrder !== null) ? $maxOrder + 1 : 1;
+
+                while (DB::table('property_types')->where('display_property_types_order', $displayPropertyTypesOrder)->exists()) {
+                    $displayPropertyTypesOrder++;
+                }
+            }
+
+            // Handle property image upload and store only the relative path
+            if ($request->hasFile('image')) {
+                $file = $request->file('image');
+                $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
+                $filePath = 'uploads/property_types/' . $fileName; // Store only relative path
+                $file->move(public_path('uploads/property_types'), $fileName);
+            } else {
+                $filePath = $propertyType->image; // Keep the existing image if no new image is uploaded
+            }
+
+            // Update the property type
+            $propertyType->update([
+                'name' => $validatedData['name'],
+                'display_property_types_order' => $displayPropertyTypesOrder,
+                'image' => $filePath, // Store only relative path
+                'property_id' => $validatedData['property_id'],
+            ]);
+
+            // Retrieve the updated record only
+            $updatedPropertyType = PropertyType::select(
+                'id',
+                'property_id',
+                'name',
+                'display_property_types_order',
+                'image',
+                'created_at',
+                'updated_at'
+            )->where('id', $id)->first();
+
+            return response()->json([
+                'message' => 'Property type data updated successfully.',
+                'data' => $updatedPropertyType, // Returns only the updated record
+            ], 200);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => ['property_type' => ['Property type not found.']]], 404);
+        } catch (\Throwable $th) {
+            return response()->json(['error' => ['server' => ['An unexpected error occurred: ' . $th->getMessage()]]], 500);
+        }
+    }
 
 
 
@@ -671,8 +677,8 @@ public function update(Request $request)
         if (!empty($searchTerm)) {
             // If search term is provided, filter purposes based on the search term
             $purposes = PropertyType::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
-                                   ->orderBy('name') // Sort alphabetically by name
-                                   ->get();
+                ->orderBy('name') // Sort alphabetically by name
+                ->get();
 
             // Sort to ensure that names starting with the search term come first
             $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {

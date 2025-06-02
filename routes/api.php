@@ -337,7 +337,7 @@ Route::post('status-create', [statuscontroller::class, 'store']);
 Route::post('status-update', [statuscontroller::class, 'update']);
 Route::get('status-listing', [statuscontroller::class, 'index']);
 Route::post('status', [statuscontroller::class, 'destroy']);
-Route::post('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
+Route::get('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
 Route::post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
 Route::get('status-search', [statuscontroller::class, 'searchByName'])->name('status.search');
 

@@ -21,6 +21,9 @@ class DatabaseSeeder extends Seeder
         $this->call(RoleSeeder::class);
         $this->call(AdminSeeder::class);
         $this->call(MailConfigSeeder::class);
+        $this->call(PurposeSeeder::class);
+        $this->call(PropertySeeder::class);
+        $this->call(PropertyTypeSeeder::class);
 
     }
 }

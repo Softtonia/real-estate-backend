@@ -15,4 +15,9 @@ class Status extends Model
     {
         return $this->belongsTo(PropertyType::class, 'property_type_id');
     }
+
+    protected $casts = [
+        'property_type_id' => 'array',
+    ];
+
 }
