@@ -1214,6 +1214,7 @@ class UserController extends Controller
             //     return response()->json(['error' => 'Admins are not allowed to access this data.'], 403);
             // }
 
+
             $userId = $request->id;
 
             // Fetch user details if not an admin

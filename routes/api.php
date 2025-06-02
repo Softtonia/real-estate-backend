@@ -91,8 +91,8 @@ Route::middleware('admin.token')->post('/user/search', [UserController::class, '
 Route::middleware('admin.token')->get('all-user-listing', [UserController::class, 'alluserlist']);
 // Route::get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']);
 
-// Route::middleware('allrole.token')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
-Route::middleware('adminOrSelfToken')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
+
+Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
 Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
 Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
 Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);

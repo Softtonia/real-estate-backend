@@ -63,7 +63,7 @@ class Rolecontroller extends Controller
             $role = Role::create([
                 'name' => $request->name,
                 'prefix' => Str::upper($request->role_prefixes),
-                'is_admin_login_permission' => $request->is_admin_login_permission,
+                'is_admin_login_permission' => $request->is_admin_login_permission ?? 0,
                 'created_by' => $user->id,  // The authenticated user's ID is used here
                 'guard_name' => 'sanctum'   // Set the guard_name to 'sanctum'
             ]);
@@ -122,65 +122,65 @@ class Rolecontroller extends Controller
     }
 
     public function editrole(Request $request)
-{
-    // Check for Authorization header
-    if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-        return response()->json(['error' => 'Please provide an API token.'], 422);
+    {
+        // Check for Authorization header
+        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
+            return response()->json(['error' => 'Please provide an API token.'], 422);
+        }
+
+        // Retrieve the Authorization header
+        $authorizationHeader = $request->header('Authorization');
+
+        // Check if the header starts with "Bearer "
+        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
+            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+        }
+
+        // Extract the token by removing the "Bearer " prefix
+        $requestToken = substr($authorizationHeader, 7);
+
+        // Check if the token is empty after removing "Bearer "
+        if (empty($requestToken)) {
+            return response()->json(['error' => 'Token is missing.'], 422);
+        }
+
+        // Verify the token dynamically (check in the database)
+        $user = User::where('api_token', $requestToken)->first();
+
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+        }
+
+        // Validate the incoming request data
+        $validatedData = $request->validate([
+            'id' => 'required|exists:roles,id', // Ensure the role ID exists
+            'name' => 'required|string|unique:roles,name,' . $request->id, // Validate role name uniqueness, ignoring current ID
+            'role_prefixes' => 'required|string|unique:roles,prefix,' . $request->id, // Validate unique role_prefix, ignoring current ID
+            'is_admin_login_permission' => 'nullable|boolean', // Ensure the field is provided and is boolean
+        ]);
+
+        // Find the role by ID
+        $role = Role::find($request->id);
+
+        // Check if role exists
+        if (!$role) {
+            return response()->json(['message' => 'Role not found'], 404);
+        }
+
+        // Update the role with the validated data
+        $role->name = $validatedData['name'];
+        $role->prefix = $validatedData['role_prefixes'];
+        $role->is_admin_login_permission = $validatedData['is_admin_login_permission'];
+        $role->save();
+
+        // Return success response with the updated role
+        return response()->json([
+            'message' => 'Role updated successfully.',
+            'role' => $role
+        ], 200);
     }
 
-    // Retrieve the Authorization header
-    $authorizationHeader = $request->header('Authorization');
 
-    // Check if the header starts with "Bearer "
-    if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-        return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-    }
-
-    // Extract the token by removing the "Bearer " prefix
-    $requestToken = substr($authorizationHeader, 7);
-
-    // Check if the token is empty after removing "Bearer "
-    if (empty($requestToken)) {
-        return response()->json(['error' => 'Token is missing.'], 422);
-    }
-
-    // Verify the token dynamically (check in the database)
-    $user = User::where('api_token', $requestToken)->first();
-
-    if (!$user) {
-        return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-    }
-
-    // Validate the incoming request data
-    $validatedData = $request->validate([
-        'id' => 'required|exists:roles,id', // Ensure the role ID exists
-        'name' => 'required|string|unique:roles,name,' . $request->id, // Validate role name uniqueness, ignoring current ID
-        'role_prefixes' => 'required|string|unique:roles,prefix,' . $request->id, // Validate unique role_prefix, ignoring current ID
-        'is_admin_login_permission' => 'nullable|boolean', // Ensure the field is provided and is boolean
-    ]);
-
-    // Find the role by ID
-    $role = Role::find($request->id);
-
-    // Check if role exists
-    if (!$role) {
-        return response()->json(['message' => 'Role not found'], 404);
-    }
-
-    // Update the role with the validated data
-    $role->name = $validatedData['name'];
-    $role->prefix = $validatedData['role_prefixes'];
-    $role->is_admin_login_permission = $validatedData['is_admin_login_permission'];
-    $role->save();
-
-    // Return success response with the updated role
-    return response()->json([
-        'message' => 'Role updated successfully.',
-        'role' => $role
-    ], 200);
-}
-
-    
     // public function editrole(Request $request)
     // {
     //     try {
@@ -249,85 +249,85 @@ class Rolecontroller extends Controller
     //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
     //     }
     // }
-    
+
     public function deleteRole(Request $request)
-{
-    // Check for Authorization header
-    if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-        return response()->json(['error' => 'Please provide an API token.'], 422);
-    }
-
-    // Retrieve the Authorization header
-    $authorizationHeader = $request->header('Authorization');
-
-    // Check if the header starts with "Bearer "
-    if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-        return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-    }
-
-    // Extract the token by removing the "Bearer " prefix
-    $requestToken = substr($authorizationHeader, 7);
-
-    // Check if the token is empty after removing "Bearer "
-    if (empty($requestToken)) {
-        return response()->json(['error' => 'Token is missing.'], 422);
-    }
-
-    // Verify the token dynamically (check in the database)
-    $user = User::where('api_token', $requestToken)->first();
-
-    if (!$user) {
-        return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-    }
-
-    // Find the role by ID
-    $role = DB::table('roles')->where('id', $request->id)->first();
-
-    // Check if the role exists
-    if (!$role) {
-        return response()->json(['error' => 'Role not found.'], 404);
-    }
-
-    // Check if the role is marked as is_default == 1 (non-deletable)
-    if ($role->is_default == 1) {
-        return response()->json(['error' => 'Cannot delete this role. It is a default role.'], 403);
-    }
-
-    // Check if the role is assigned to any users
-    $userCount = DB::table('users')->where('role_id', $role->id)->count();
-    if ($userCount > 0) {
-        return response()->json([
-            'status' => 'false',
-            'message' => 'Cannot delete this role as it is assigned to users.'
-        ], 400);
-    }
-
-    // Proceed with deleting the role if it's not assigned
-    try {
-        DB::table('roles')->where('id', $role->id)->delete();
-        return response()->json(['message' => 'Role deleted successfully.'], 200);
-    } catch (\Exception $e) {
-        return response()->json(['error' => 'Something went wrong.'], 500);
-    }
-}
-
-public function index($id = null)
-{
-    try {
-        if ($id) {
-            // Fetch specific role by ID (including admin)
-            $role = Role::where('id', $id)->first();
-            return response()->json(['role' => $role]);
+    {
+        // Check for Authorization header
+        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
+            return response()->json(['error' => 'Please provide an API token.'], 422);
         }
 
-        // Fetch all roles including admin
-        $roles = Role::all();
+        // Retrieve the Authorization header
+        $authorizationHeader = $request->header('Authorization');
 
-        return response()->json(['roles' => $roles]);
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
+        // Check if the header starts with "Bearer "
+        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
+            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+        }
+
+        // Extract the token by removing the "Bearer " prefix
+        $requestToken = substr($authorizationHeader, 7);
+
+        // Check if the token is empty after removing "Bearer "
+        if (empty($requestToken)) {
+            return response()->json(['error' => 'Token is missing.'], 422);
+        }
+
+        // Verify the token dynamically (check in the database)
+        $user = User::where('api_token', $requestToken)->first();
+
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+        }
+
+        // Find the role by ID
+        $role = DB::table('roles')->where('id', $request->id)->first();
+
+        // Check if the role exists
+        if (!$role) {
+            return response()->json(['error' => 'Role not found.'], 404);
+        }
+
+        // Check if the role is marked as is_default == 1 (non-deletable)
+        if ($role->is_default == 1) {
+            return response()->json(['error' => 'Cannot delete this role. It is a default role.'], 403);
+        }
+
+        // Check if the role is assigned to any users
+        $userCount = DB::table('users')->where('role_id', $role->id)->count();
+        if ($userCount > 0) {
+            return response()->json([
+                'status' => 'false',
+                'message' => 'Cannot delete this role as it is assigned to users.'
+            ], 400);
+        }
+
+        // Proceed with deleting the role if it's not assigned
+        try {
+            DB::table('roles')->where('id', $role->id)->delete();
+            return response()->json(['message' => 'Role deleted successfully.'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Something went wrong.'], 500);
+        }
     }
-}
+
+    public function index($id = null)
+    {
+        try {
+            if ($id) {
+                // Fetch specific role by ID (including admin)
+                $role = Role::where('id', $id)->first();
+                return response()->json(['role' => $role]);
+            }
+
+            // Fetch all roles including admin
+            $roles = Role::all();
+
+            return response()->json(['roles' => $roles]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
 
 
 
@@ -340,42 +340,42 @@ public function index($id = null)
     public function getDefaultRole(Request $request)
     {
         $allowedRoles = ['owner', 'agent', 'company', 'consultancy', 'developer'];
-        
+
         // Fetch roles where is_default is 1 and the name is in the allowed roles
         $roles = Role::whereIn('name', $allowedRoles)
-                     ->where('is_default', 1)  // Check if the role is default
-                     ->get();
-        
+            ->where('is_default', 1)  // Check if the role is default
+            ->get();
+
         return response()->json($roles);
     }
-    
-    
+
+
 
     public function bulkDeleteRoles(Request $request)
     {
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
-    
+
         // Retrieve the Authorization header
         $authorizationHeader = $request->header('Authorization');
-    
+
         // Check if the header starts with "Bearer "
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
-    
+
         // Extract the token by removing the "Bearer " prefix
         $requestToken = substr($authorizationHeader, 7);
-    
+
         // Check if the token is empty after removing "Bearer "
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
-    
+
         // Verify the token dynamically (check in the database)
         $user = User::where('api_token', $requestToken)->first();
-    
+
         if (!$user) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
@@ -464,32 +464,32 @@ public function index($id = null)
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
-    
+
         // Retrieve the Authorization header
         $authorizationHeader = $request->header('Authorization');
-    
+
         // Check if the header starts with "Bearer "
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
-    
+
         // Extract the token by removing the "Bearer " prefix
         $requestToken = substr($authorizationHeader, 7);
-    
+
         // Check if the token is empty after removing "Bearer "
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
-    
+
         // Verify the token dynamically (check in the database)
         $user = User::where('api_token', $requestToken)->first();
-    
+
         if (!$user) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
-    
+
         $search = $request->search;
-        $role = Role::where('name', 'LIKE', '%' . $search . '%')->get();
+        $role = Role::where('name', 'LIKE', '%' . $search . '%')->paginate(5);
 
         if ($role->isEmpty()) {
             return response()->json([

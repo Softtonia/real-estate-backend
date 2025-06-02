@@ -350,30 +350,95 @@ class PropertyController extends Controller
         }
     }
 
+    // public function searchByName(Request $request)
+    // {
+    //     // Check for API token
+    //     if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
+    //         return response()->json(['error' => 'Please provide an API token.'], 422);
+    //     }
+
+    //     $authorizationHeader = $request->header('Authorization');
+
+    //     if (!str_starts_with($authorizationHeader, 'Bearer ')) {
+    //         return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+    //     }
+
+    //     $requestToken = substr($authorizationHeader, 7);
+
+    //     if (empty($requestToken)) {
+    //         return response()->json(['error' => 'Token is missing.'], 422);
+    //     }
+
+    //     // Verify API token
+    //     $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
+
+    //     if (!$tokenExists) {
+    //         return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+    //     }
+
+    //     $validatedData = $request->validate([
+    //         'name' => 'required|string|max:255',
+    //     ]);
+
+    //     // Retrieve the 'name' query parameter
+    //     $searchTerm = $validatedData['name'] ?? '';  // Default to empty string if 'name' is not provided
+
+    //     if (!empty($searchTerm)) {
+    //         // If search term is provided, filter purposes based on the search term
+    //         $purposes = Property::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
+    //             ->orderBy('name') // Sort alphabetically by name
+    //             ->get();
+
+    //         // Sort to ensure that names starting with the search term come first
+    //         $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {
+    //             // Priority: If the name starts with the search term, give it a higher priority (0)
+    //             if (strtolower(substr($purpose->name, 0, strlen($searchTerm))) === strtolower($searchTerm)) {
+    //                 return 0; // Highest priority
+    //             }
+    //             return 1; // Default priority for others
+    //         });
+    //     } else {
+    //         // If no search term is provided, return all purposes
+    //         $purposes = Property::orderBy('name')->get(); // Return all purposes sorted alphabetically
+    //     }
+
+    //     // Add 'propertyCount' to each purpose
+    //     $purposesWithCount = $purposes->map(function ($purpose) {
+    //         $assignPropertyCount = PropertyList::where('property_id', $purpose->id)->count();  // Get the property count for each purpose
+    //         $purpose->propertyCount = $assignPropertyCount;  // Add the property count to the purpose
+    //         return $purpose;
+    //     });
+
+    //     // Ensure the response is in the correct array format
+    //     return response()->json($purposesWithCount->values()->toArray());
+    // }
+
+
+
     public function searchByName(Request $request)
     {
         // Check for API token
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
+            return response()->json(['status' => false, 'error' => 'Please provide an API token.'], 422);
         }
 
         $authorizationHeader = $request->header('Authorization');
 
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+            return response()->json(['status' => false, 'error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
 
         $requestToken = substr($authorizationHeader, 7);
 
         if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
+            return response()->json(['status' => false, 'error' => 'Token is missing.'], 422);
         }
 
         // Verify API token
         $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
 
         if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+            return response()->json(['status' => false, 'error' => 'Unauthorized. Invalid API token.'], 401);
         }
 
         $validatedData = $request->validate([
@@ -381,39 +446,43 @@ class PropertyController extends Controller
         ]);
 
         // Retrieve the 'name' query parameter
-        $searchTerm = $validatedData['name'] ?? '';  // Default to empty string if 'name' is not provided
+        $searchTerm = $validatedData['name'] ?? '';
+
+        // Get pagination parameters
+        $perPage = $request->input('per_page', 1);
+        $page = $request->input('page', 1);
+
+        // Create base query
+        $query = Property::query();
 
         if (!empty($searchTerm)) {
-            // If search term is provided, filter purposes based on the search term
-            $purposes = Property::where('name', 'LIKE', '%' . $searchTerm . '%') // Match anywhere in the name
-                ->orderBy('name') // Sort alphabetically by name
-                ->get();
-
-            // Sort to ensure that names starting with the search term come first
-            $purposes = $purposes->sortBy(function ($purpose) use ($searchTerm) {
-                // Priority: If the name starts with the search term, give it a higher priority (0)
-                if (strtolower(substr($purpose->name, 0, strlen($searchTerm))) === strtolower($searchTerm)) {
-                    return 0; // Highest priority
-                }
-                return 1; // Default priority for others
-            });
-        } else {
-            // If no search term is provided, return all purposes
-            $purposes = Property::orderBy('name')->get(); // Return all purposes sorted alphabetically
+            $query->where('name', 'LIKE', '%' . $searchTerm . '%')
+                ->orderByRaw("CASE
+                  WHEN name LIKE '" . $searchTerm . "%' THEN 0
+                  ELSE 1
+              END");
         }
 
+        $query->orderBy('name');
+
+        // Get paginated results and append all query parameters
+        $paginatedPurposes = $query->paginate($perPage, ['*'], 'page', $page)
+            ->appends($request->query());
+
         // Add 'propertyCount' to each purpose
-        $purposesWithCount = $purposes->map(function ($purpose) {
-            $assignPropertyCount = PropertyList::where('property_id', $purpose->id)->count();  // Get the property count for each purpose
-            $purpose->propertyCount = $assignPropertyCount;  // Add the property count to the purpose
+        $purposesWithCount = $paginatedPurposes->getCollection()->map(function ($purpose) {
+            $assignPropertyCount = PropertyList::where('property_id', $purpose->id)->count();
+            $purpose->propertyCount = $assignPropertyCount;
             return $purpose;
         });
 
-        // Ensure the response is in the correct array format
-        return response()->json($purposesWithCount->values()->toArray());
+        $paginatedPurposes->setCollection($purposesWithCount);
+
+        // Return the formatted response
+        return response()->json([
+            'status' => true,
+            'data' => $paginatedPurposes
+        ]);
     }
-
-
-
 
 }
