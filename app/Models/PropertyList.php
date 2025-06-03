@@ -8,29 +8,26 @@ use Illuminate\Database\Eloquent\Model;
 class PropertyList extends Model
 {
     use HasFactory;
-    protected $table='properties_listing';
-    protected $guarded=[];
+    protected $table = 'properties_listing';
+    protected $guarded = [];
 
 
     protected $casts = [
         'property_type_id' => 'array',
     ];
-    public function location()
-    {
-        return $this->belongsTo(Location::class);
-    }
+
 
     public function amenity()
     {
         return $this->belongsTo(amenities::class);
     }
 
-        public function amenitycategory()
+    public function amenitycategory()
     {
         return $this->belongsTo(AmenitiesCategory::class);
     }
 
-    
+
     public function user()
     {
         return $this->belongsTo(User::class);
@@ -57,23 +54,23 @@ class PropertyList extends Model
     {
         return $this->belongsTo(Property::class, 'property_id');
     }
-    
+
     public function propertystatus()
     {
         return $this->belongsTo(Status::class, 'property_status_id');
     }
-    
+
     public function customFieldValues()
     {
         return $this->hasMany(Customfieldvalue::class, 'properties_listing_id');
     }
-    
+
     public function project()
     {
         return $this->belongsTo(ProjectList::class, 'project_id', 'id');
     }
-    
-    
+
+
     public function analytics()
     {
         return $this->hasMany(PropertyAnalytic::class, 'property_id', 'id');
@@ -105,18 +102,18 @@ class PropertyList extends Model
         return $this->belongsTo(User::class, 'updated_by');
     }
     public function country()
-{
-    return $this->belongsTo(Country::class, 'country_id');
-}
+    {
+        return $this->belongsTo(Country::class, 'country_id');
+    }
 
-public function state()
-{
-    return $this->belongsTo(State::class, 'state_id');
-}
+    public function state()
+    {
+        return $this->belongsTo(State::class, 'state_id');
+    }
 
-public function city()
-{
-    return $this->belongsTo(City::class, 'city_id');
-}
+    public function city()
+    {
+        return $this->belongsTo(City::class, 'city_id');
+    }
 
 }

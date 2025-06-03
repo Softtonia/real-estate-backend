@@ -235,7 +235,6 @@ class PropertylistingController extends Controller
 
             // Fetch all projects in descending order by created_at
             $projects = PropertyList::with([
-                'location',
                 'user',
                 'propertyType',
                 'purpose',
@@ -246,7 +245,10 @@ class PropertylistingController extends Controller
                 'importKeywords',
                 'developer.userDetails',
                 'createdBy.role',
-                'updatedBy.role'
+                'updatedBy.role',
+                'country',
+                'state',
+                'city'
             ])
                 ->orderBy('created_at', 'desc') // 🔹 Sorting by latest first
                 ->get();
@@ -257,8 +259,6 @@ class PropertylistingController extends Controller
                     'property_unique_id' => $property->property_unique_id,
                     'name' => $property->name,
                     'description' => $property->description,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
                     'live_status' => $property->live_status,
                     'status_reason' => $property->status_reason,
                     'temporary_status' => $property->temporary_status,
@@ -287,6 +287,9 @@ class PropertylistingController extends Controller
                             ? $property->featured_image // ✅ If it's already a full URL, use as is
                             : $baseURL . $property->featured_image) // ✅ Convert relative path to full URL
                         : null,
+                    'country' => $property->country,
+                    'state' => $property->state,
+                    'city' => $property->city,
                 ];
             });
 
@@ -311,7 +314,9 @@ class PropertylistingController extends Controller
 
             // Fetch only properties where live_status is "Approve"
             $properties = PropertyList::with([
-                'location',
+                'country',
+                'state',
+                'city',
                 'user',
                 'propertyType',
                 'purpose',
@@ -355,8 +360,9 @@ class PropertylistingController extends Controller
                     'property_unique_id' => $property->property_unique_id,
                     'property_name' => $property->name,
                     'description' => $property->description,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
+                    'country' => $property->country,
+                    'state' => $property->state,
+                    'city' => $property->city,
                     'property_address' => $property->property_address,
                     'live_status' => $property->live_status,
                     'temporary_status' => $property->temporary_status,
