@@ -83,6 +83,8 @@ class Kernel extends HttpKernel
         'consultancy.role' => \App\Http\Middleware\ConsultancyRoleMiddleware::class,
         'excludeOwner' => \App\Http\Middleware\ExcludeOwnerMiddleware::class,
         'adminOrCurrentUser' => \App\Http\Middleware\AdminCurrentUser::class,
+        'allow.owner.agent' => \App\Http\Middleware\AllowOwnerAndAgent::class,
+
 
     ];
 }

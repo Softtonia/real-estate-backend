@@ -200,7 +200,7 @@ class ProjectlistingController extends Controller
                 'customFieldValues.customField',
                 'customFieldValues.customFieldOption',
                 'importKeywords',
-                'developer.userDetails'
+                'developer.userDetails','country','state','city'
             ])->where('live_status', 'Under Review')->paginate(10);
 
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
@@ -244,8 +244,6 @@ class ProjectlistingController extends Controller
                     'project_unique_id' => $property->project_unique_id,
                     'name' => $property->name,
                     'description' => $property->description,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
                     'live_status' => $property->live_status, // Updated from status
                     'status_reason' => $property->status_reason,
                     'project_status' => $property->project_status,
@@ -268,6 +266,9 @@ class ProjectlistingController extends Controller
                     'developer' => $developerData,
                     'keyword' => $property->importKeywords,
                     'custom_field_values' => $formattedCustomFieldValues,
+                    'country' => $property->country,
+                    'state' => $property->state,
+                    'city' => $property->city
                 ];
             });
 
@@ -314,7 +315,7 @@ class ProjectlistingController extends Controller
 
             // Fetch projects with related models, including created_by & updated_by user roles
             $projects = ProjectList::with([
-                'location',
+                'country','state','city',
                 'user',
                 'propertyType',
                 'purpose',
@@ -326,7 +327,7 @@ class ProjectlistingController extends Controller
                 'developer.userDetails',
                 'createdBy.role',
                 'updatedBy.role',
-                'address' // Added role relationships
+                // 'address' // Added role relationships
             ])
                 ->get(); // No live_status filter
 
@@ -369,8 +370,9 @@ class ProjectlistingController extends Controller
                     'name' => $property->name,
                     'description' => $property->description,
                     'address' => $property->address,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
+                    'country' =>$property->country,
+                    'state' =>$property->state,
+                    'city' => $property->city,
                     'live_status' => $property->live_status,
                     'temporary_status' => $property->temporary_status,
                     'status_reason' => $property->status_reason,
@@ -606,7 +608,6 @@ class ProjectlistingController extends Controller
             $baseURL = config('app.url');
 
             $projects = ProjectList::with([
-                'location',
                 'user.userDetail',
                 'createdBy.role',
                 'updatedBy.role',
@@ -621,7 +622,7 @@ class ProjectlistingController extends Controller
                 'country',
                 'state',
                 'city',
-                'address',
+                // 'address',
             ])->where('id', $request->id)->first(); // Fetch only one record
 
             if (!$projects) {
@@ -702,7 +703,7 @@ class ProjectlistingController extends Controller
                 'project_unique_id' => $projects->project_unique_id,
                 'name' => $projects->name,
                 'description' => $projects->description,
-                'address' => $project->address,
+                'address' => $projects->address,
                 'country_id' => $projects->country_id,
                 'country_name' => optional($projects->country)->name,
                 'state_id' => $projects->state_id,

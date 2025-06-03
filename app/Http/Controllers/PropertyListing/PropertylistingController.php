@@ -76,6 +76,9 @@ class PropertylistingController extends Controller
             $request->validate([
                 'live_status' => 'required|in:Approve,Disapprove,Reject,Under Review,Modify Review',
                 'status_reason' => $request->live_status === 'Reject' ? 'required|string' : 'nullable',
+                'country_id' => 'required|exists:countries,id',
+                'state_id' => 'required|exists:states,id',
+                'city_id' => 'required|exists:cities,id',
             ]);
 
             // Set `live_status` for non-admin users
@@ -122,7 +125,7 @@ class PropertylistingController extends Controller
             ];
 
             // Handle file uploads
-            foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'featured_image', 'brochure'] as $fileField) {
+            foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'brochure'] as $fileField) {
                 if ($request->hasFile($fileField)) {
                     $file = $request->file($fileField);
                     $fileName = time() . '_' . $file->getClientOriginalName();
@@ -612,7 +615,9 @@ class PropertylistingController extends Controller
             $baseURL = config('app.url'); // Base URL for constructing full paths
 
             $property = PropertyList::with([
-                'location',
+                'country',
+                'state',
+                'city',
                 'user',
                 'propertyType',
                 'purpose',
@@ -715,8 +720,9 @@ class PropertylistingController extends Controller
                 'country_id' => $property->country_id,
                 'state_id' => $property->state_id,
                 'city_id' => $property->city_id,
-                'location_id' => $property->location_id,
-                'location_name' => optional($property->location)->name,
+                'country' => $property->country,
+                'state' => $property->state,
+                'city' => $property->city,
                 'address' => $property->property_address,
                 'live_status' => $property->live_status,
                 'temporary_status' => $property->temporary_status,
@@ -950,38 +956,38 @@ class PropertylistingController extends Controller
 
 
     // this is for all project listing by location iD
-//     public function getAllProjectByLocationId(Request $request)
-//     {
-//         try {
-//             $baseURL = config('app.url');
-//             $basePath = public_path();
-//             $projectData= [];
+    //     public function getAllProjectByLocationId(Request $request)
+    //     {
+    //         try {
+    //             $baseURL = config('app.url');
+    //             $basePath = public_path();
+    //             $projectData= [];
 
     //             $location = Location::where('id',$request->location_id)->first();
 
     //             if(!$location){
-//                 return response()->json(['error' => 'Location not found'], 404);
-//             }
+    //                 return response()->json(['error' => 'Location not found'], 404);
+    //             }
 
     //             $projects = ProjectList::where('location_id',$request->location_id)->get();
 
 
     //             if(count($projects)){
-//                 foreach($projects as $row){
-//                     $projectData[] = [ // Append to array using []
-//                       'id' => $row->id,
-//                       'name' => $row->name,
-//                     ];
+    //                 foreach($projects as $row){
+    //                     $projectData[] = [ // Append to array using []
+    //                       'id' => $row->id,
+    //                       'name' => $row->name,
+    //                     ];
 
     //                 }
-//             }
+    //             }
 
     //             return response()->json($projectData);
 
     //         } catch (\Throwable $th) {
-//             return response()->json(['error' => $th->getMessage()], 500);
-//         }
-// }
+    //             return response()->json(['error' => $th->getMessage()], 500);
+    //         }
+    // }
     public function getAllProjectByLocationId(Request $request)
     {
         try {
@@ -1136,6 +1142,289 @@ class PropertylistingController extends Controller
         } catch (\Exception $e) {
             // Handle other unexpected errors
             return response()->json(['error' => 'Something went wrong'], 500);
+        }
+    }
+
+
+
+    // store properties listing by agent owner
+    public function storeByAgentOwner(Request $request)
+    {
+        // \Log::info($request->all());
+
+        try {
+            // Fetch authenticated user
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['error' => 'User not authenticated'], 401);
+            }
+
+            // Fetch required fields dynamically from `model_fields` JSON column
+            $requiredFields = DB::table('custom_fields')
+                ->where('post_type', 'property_list')
+                ->where('required', 'yes')
+                ->get();
+
+            $requiredFieldIds = [];
+
+            foreach ($requiredFields as $field) {
+                if (!empty($field->model_fields)) {
+                    $modelFields = json_decode($field->model_fields, true);
+                    foreach ($modelFields as $modelField) {
+                        if (
+                            isset($request->{$modelField['model']}) &&
+                            in_array($request->{$modelField['model']}, $modelField['condition'])
+                        ) {
+                            $requiredFieldIds[] = $field->id;
+                        }
+                    }
+                }
+            }
+
+            // Validation errors array
+            $validationErrors = [];
+            foreach ($requiredFieldIds as $customFieldId) {
+                $customFieldName = DB::table('custom_fields')->where('id', $customFieldId)->value('field_name');
+                if (empty($request->input("custom_fields.{$customFieldId}"))) {
+                    $validationErrors[$customFieldId] = $customFieldName . ' is required';
+                }
+            }
+
+            if (!empty($validationErrors)) {
+                return response()->json(['errors' => $validationErrors], 422);
+            }
+
+            // Validate status_reason only when live_status is "Reject"
+            $request->validate([
+                'live_status' => 'required|in:Approve,Disapprove,Reject,Under Review,Modify Review',
+                'status_reason' => $request->live_status === 'Reject' ? 'required|string' : 'nullable',
+                'country_id' => 'required|exists:countries,id',
+                'state_id' => 'required|exists:states,id',
+                'city_id' => 'required|exists:cities,id',
+            ]);
+
+            // Set `live_status` for non-admin users
+            if ($user->role->name !== 'admin') {
+                $request->merge(['live_status' => 'Under Review']);
+            }
+
+            // Generate a unique property ID
+            $property_unique_id = 'URP' . rand(111111, 999999);
+            // Handle `featured_image` (Store as `/uploads/properties/{file_name}`)
+
+            if ($request->hasFile('featured_image')) {
+                $file = $request->file('featured_image');
+                $name = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName()); // Replace spaces with underscores
+                $file->move(public_path('uploads/properties'), $name); // Move file to folder
+
+                // ✅ Store only `/uploads/properties/{file_name}`
+                $featuredImage = '/uploads/properties/' . $name;
+            } elseif (!empty($request->featured_image) && filter_var($request->featured_image, FILTER_VALIDATE_URL)) {
+                $featuredImage = $request->featured_image; // Store URL directly if provided
+            } else {
+                $featuredImage = null; // If empty, store null
+            }
+
+            // Store property data
+            $propertyData = [
+                'property_unique_id' => $property_unique_id,
+                'name' => $request->name,
+                'description' => $request->description,
+                'property_address' => $request->property_address,
+                'purpose_id' => $request->purpose_id,
+                'property_id' => $request->property_id,
+                'property_status_id' => $request->property_status_id,
+                'property_type_id' => $request->property_type_id,
+                'live_status' => $request->live_status,
+                'project_id' => $request->project_id,
+                'country_id' => $request->country_id,
+                'state_id' => $request->state_id,
+                'city_id' => $request->city_id,
+                'status_reason' => $request->status_reason,
+                'created_by' => $user->id,
+                'temporary_status' => $request->temporary_status,
+                'featured_image' => $featuredImage, // ✅ Store as `/uploads/properties/{file_name}`
+            ];
+
+            // Handle file uploads
+            foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'brochure'] as $fileField) {
+                if ($request->hasFile($fileField)) {
+                    $file = $request->file($fileField);
+                    $fileName = time() . '_' . $file->getClientOriginalName();
+                    $file->move(public_path('uploads/' . $fileField), $fileName);
+                    $propertyData[$fileField] = $fileName;
+                }
+            }
+
+            // Create the property
+            $property = PropertyList::create($propertyData);
+
+            // Store keywords
+            if (!empty($request->keyword)) {
+                $keywords = explode(',', $request->keyword);
+                foreach ($keywords as $keyword) {
+                    Keyword::create(['property_id' => $property->id, 'keyword' => $keyword]);
+                }
+            }
+
+            // Handle repeater fields
+            if ($request->has('repeater_fields')) {
+                foreach ($request->repeater_fields as $repeaterField) {
+                    $customFieldData = [
+                        'properties_listing_id' => $property->id,
+                        'custom_field_id' => $repeaterField['custom_field_id'],
+                    ];
+
+                    switch ($repeaterField['field_type']) {
+                        case 'text':
+                        case 'textarea':
+                        case 'texteditor':
+                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                            break;
+
+                        case 'select':
+                        case 'radio':
+                            $customFieldOption = DB::table('custom_field_options')
+                                ->where('custom_field_id', $repeaterField['custom_field_id'])
+                                ->where('value', $repeaterField['field_value'])
+                                ->first();
+                            if ($customFieldOption) {
+                                $customFieldData['custom_field_options_id'] = $customFieldOption->id;
+                            }
+                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                            break;
+
+                        case 'checkbox':
+                            $values = explode(',', $repeaterField['field_value']);
+                            $customFieldData['field_meta_value'] = implode(',', $values);
+                            $customFieldOptionsIds = DB::table('custom_field_options')
+                                ->whereIn('value', $values)
+                                ->where('custom_field_id', $repeaterField['custom_field_id'])
+                                ->pluck('id')
+                                ->implode(',');
+                            $customFieldData['custom_field_options_id'] = $customFieldOptionsIds;
+                            break;
+
+                        case 'media':
+                            if ($request->hasFile("repeater_fields.{$repeaterField['custom_field_id']}.field_value")) {
+                                $files = $request->file("repeater_fields.{$repeaterField['custom_field_id']}.field_value");
+                                $fileNames = [];
+                                foreach ($files as $file) {
+                                    if ($file->isValid()) {
+                                        $fileName = time() . '_' . $file->getClientOriginalName();
+                                        $file->move(public_path('uploads/media'), $fileName);
+                                        $fileNames[] = $fileName;
+                                    }
+                                }
+                                $customFieldData['field_meta_value'] = json_encode($fileNames);
+                            }
+                            break;
+
+                        case 'file':
+                            if ($request->hasFile("repeater_fields.{$repeaterField['custom_field_id']}.field_value")) {
+                                $file = $request->file("repeater_fields.{$repeaterField['custom_field_id']}.field_value");
+                                if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+                                    $uniqueFileName = time() . '_' . $file->getClientOriginalName();
+                                    $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
+                                    $customFieldData['field_meta_value'] = $filePath;
+                                } else {
+                                    return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+                                }
+                            }
+                            break;
+                    }
+
+                    Customfieldvalue::create($customFieldData);
+                }
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Data added successfully.',
+                'data' => $property,
+            ], 201);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
+
+    //  property listing by user token
+
+    public function getUserPropertiesByToken(Request $request)
+    {
+        $user = Auth::user();
+        try {
+            $baseURL = url('/'); // ✅ Get full base URL dynamically
+
+            // Fetch all projects in descending order by created_at
+            $projects = PropertyList::with([
+                'user',
+                'propertyType',
+                'purpose',
+                'property',
+                'propertystatus',
+                'customFieldValues.customField',
+                'customFieldValues.customFieldOption',
+                'importKeywords',
+                'developer.userDetails',
+                'createdBy.role',
+                'updatedBy.role',
+                'country',
+                'state',
+                'city'
+            ])->where('created_by', $user->id)
+                ->orderBy('created_at', 'desc') // 🔹 Sorting by latest first
+                ->get();
+
+            $projectsData = $projects->map(function ($property) use ($baseURL) {
+                return [
+                    'id' => $property->id,
+                    'property_unique_id' => $property->property_unique_id,
+                    'name' => $property->name,
+                    'description' => $property->description,
+                    'live_status' => $property->live_status,
+                    'status_reason' => $property->status_reason,
+                    'temporary_status' => $property->temporary_status,
+                    'project_status' => $property->project_status,
+                    'user_id' => $property->user_id,
+                    'created_by' => $property->created_by,
+                    'created_by_role' => optional($property->createdBy)->role->name ?? 'N/A',
+                    'updated_by' => $property->updated_by,
+                    'updated_by_role' => optional($property->updatedBy)->role->name ?? 'N/A',
+                    'listed_by' => optional(optional($property->user)->role)->name ?? 'N/A',
+                    'purpose_id' => $property->purpose_id,
+                    'purpose_id_name' => optional($property->purpose)->name,
+                    'property_id' => $property->property_id,
+                    'property_id_name' => optional($property->property)->name,
+                    'property_status_id' => $property->property_status_id,
+                    'property_status_id_name' => optional($property->propertystatus)->name,
+                    'property_type_id' => $property->property_type_id,
+                    'property_type_id_name' => optional($property->propertyType)->name,
+                    'total_view' => $property->analytics()->count(),
+                    'date' => date('d m Y', strtotime($property->created_at)),
+                    'time' => date('h:i A', strtotime($property->created_at)),
+                    'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
+                    'keyword' => $property->importKeywords,
+                    'featured_image' => !empty($property->featured_image)
+                        ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
+                            ? $property->featured_image // ✅ If it's already a full URL, use as is
+                            : $baseURL . $property->featured_image) // ✅ Convert relative path to full URL
+                        : null,
+                    'country' => $property->country,
+                    'state' => $property->state,
+                    'city' => $property->city,
+                ];
+            });
+
+            return response()->json($projectsData);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()
+            ], 500);
         }
     }
 

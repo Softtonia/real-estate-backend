@@ -24,6 +24,7 @@ class DatabaseSeeder extends Seeder
         $this->call(PurposeSeeder::class);
         $this->call(PropertySeeder::class);
         $this->call(PropertyTypeSeeder::class);
+        $this->call(ModelsTableSeeder::class);
 
     }
 }

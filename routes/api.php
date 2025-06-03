@@ -230,6 +230,10 @@ Route::post('get-all-project-by-location-id', [PropertylistingController::class,
 Route::post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
 Route::post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
 
+// ============= Property Listing by agent and owner============
+Route::middleware('allow.owner.agent')->post('post-property-create', [PropertylistingController::class, 'storeByAgentOwner']);
+Route::middleware('api.token')->get('get-all-propety-listing-byusertoken', [PropertylistingController::class, 'getUserPropertiesByToken']);
+
 
 
 
@@ -357,6 +361,7 @@ Route::post('property', [Propertycontroller::class, 'destroy']);
 Route::get('properties/{id}', [PropertyController::class, 'getPropertyAndType']);
 Route::post('property-bulk-delete', [PropertyController::class, 'bulkDelete']);
 Route::get('property-search', [PropertyController::class, 'searchByName'])->name('property.search');
+
 
 
 // =======Amenity Categories============

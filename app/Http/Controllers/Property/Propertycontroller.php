@@ -485,4 +485,10 @@ class PropertyController extends Controller
         ]);
     }
 
+
+
+
+
+
+
 }
