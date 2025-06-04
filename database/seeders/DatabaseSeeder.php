@@ -26,6 +26,9 @@ class DatabaseSeeder extends Seeder
         $this->call(PropertyTypeSeeder::class);
         $this->call(ModelsTableSeeder::class);
         $this->call(StatusSeeder::class);
+        $this->call(MediaSeeder::class);
+        $this->call(AmenitiesCategoriesSeeder::class);
+        $this->call(AmenitySeeder::class);
 
     }
 }
