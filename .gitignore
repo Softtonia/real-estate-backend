@@ -1,0 +1,25 @@
+# Laravel default ignores
+/vendor
+/node_modules
+/public/storage
+/storage/*.key
+/storage/*.pem
+/storage/*.crt
+/storage/logs/*
+/storage/framework/*
+/.env
+.env.*
+main.env
+Homestead.yaml
+Homestead.json
+.phpunit.result.cache
+.idea
+.DS_Store
+*.log
+*.sqlite
+*.zip
+*.bak
+*.swp
+*.swo
+*.sublime-workspace
+*.code-workspace
