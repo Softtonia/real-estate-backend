@@ -831,7 +831,7 @@ class ProjectlistingController extends Controller
             $baseURL = config('app.url');
             $basePath = public_path();
 
-            $projects = ProjectList::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption'])->where('user_id', $request->user_id)->get();
+            $projects = ProjectList::with(['country','state','city', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption'])->where('user_id', $request->user_id)->get();
 
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
@@ -872,8 +872,12 @@ class ProjectlistingController extends Controller
                     'project_unique_id' => $property->project_unique_id,
                     'name' => $property->name,
                     'description' => $property->description,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
+                    'country_id' => $property->country_id,
+                    'country_name' => optional($property->country)->name,
+                    'state_id' => $property->state_id,
+                    'state_name' => optional($property->state)->name,
+                    'city_id' => $property->city_id,
+                    'city_name' => optional($property->city)->name,
                     'status' => $property->status,
                     'status_reason' => $property->status_reason,
                     'project_status' => $property->project_status,
