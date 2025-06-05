@@ -439,6 +439,10 @@ Route::middleware('admin.token')->post('tickets-status-create', [ticketstatuscon
 Route::middleware('admin.token')->post('tickets-status-update', [ticketstatuscontroller::class, 'update']); //Done By softtonia
 Route::get('tickets-status-list', [ticketstatuscontroller::class, 'index']);
 Route::middleware('admin.token')->post('tickets-status-delete', [ticketstatuscontroller::class, 'destroy']); //Done By softtonia
+
+Route::middleware('admin.token')->post('tickets-status-bulk-delete', [ticketstatuscontroller::class, 'bulkDelete']);
+Route::get('search-tickets-status-name', [ticketstatuscontroller::class, 'searchTicketStatusName']);
+
 Route::middleware('admin.token')->post('get-tickets-status-byid', [ticketstatuscontroller::class, 'show']); //Done By softtonia
 
 Route::middleware('admin.token')->post('tickets-department-create', [TicketDepartmentController::class, 'store']);  //Done By softtonia
@@ -451,7 +455,10 @@ Route::middleware('admin.token')->post('tickets-priority-create', [ticketpriorit
 Route::middleware('admin.token')->post('tickets-priority-update', [ticketprioritycontroller::class, 'update']); //Done By softtonia
 Route::middleware('admin.token')->get('tickets-priority-list', [ticketprioritycontroller::class, 'index']); //Done By softtonia
 Route::post('tickets-priority-delete', [ticketprioritycontroller::class, 'destroy']); //Done By softtonia
+Route::post('tickets-priority-bulk-delete', [ticketprioritycontroller::class, 'bulkDelete']);
 Route::middleware('admin.token')->post('get-tickets-priority-byid', [ticketprioritycontroller::class, 'show']); //Done By softtonia
+
+Route::middleware('admin.token')->get('search-tickets-priority',[ticketprioritycontroller::class,'searchTicketPriority']);
 
 Route::post('tickets-type-create', [TicketTypeController::class, 'store']);
 Route::post('tickets-type-update', [TicketTypeController::class, 'update']);

@@ -257,7 +257,8 @@ class ticketprioritycontroller extends Controller
         } catch (\Throwable $th) {
             // Handle any other exceptions and return an error response
             return response()->json(['error' => $th->getMessage()], 500);
-        }    }
+        }
+    }
 
 
     public function show(Request $request)
@@ -280,6 +281,118 @@ class ticketprioritycontroller extends Controller
 
         } catch (\Illuminate\Database\QueryException $e) {
             return response()->json(['message' => 'The provided ticket priority id is invalid.'], 422);
+        }
+    }
+
+
+    // Bulk Delete
+    public function bulkDelete(Request $request)
+    {
+
+        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
+            return response()->json(['error' => 'Please provide an API token.'], 422);
+        }
+
+        // Retrieve the Authorization header
+        $authorizationHeader = $request->header('Authorization');
+
+        // Check if the header starts with "Bearer "
+        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
+            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+        }
+
+        // Extract the token by removing the "Bearer " prefix
+        $requestToken = substr($authorizationHeader, 7);
+
+        // Check if the token is empty after removing "Bearer "
+        if (empty($requestToken)) {
+            return response()->json(['error' => 'Token is missing.'], 422);
+        }
+
+        // Verify the token dynamically (e.g., check in the database)
+        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
+
+        if (!$tokenExists) {
+            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+        }
+        // Verify the token dynamically (e.g., check in the database)
+        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
+
+        if (!$tokenExists) {
+            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+        }
+
+
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|distinct|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Validation failed.',
+                'details' => $validator->errors(),
+            ], 422);
+        }
+
+        $ids = $request->input('ids');
+
+
+        try {
+            // Existing IDs
+            $existingIds = TicketPriority::whereIn('id', $ids)->pluck('id')->toArray();
+
+            if (empty($existingIds)) {
+                return response()->json([
+                    'error' => 'No matching Ticket Priority records found for given IDs.'
+                ], 404);
+            }
+
+            $notFoundIds = array_values(array_diff($ids, $existingIds));
+
+            $deletedCount = TicketPriority::whereIn('id', $existingIds)->delete();
+
+            return response()->json([
+                'message' => 'Ticket Priorities deleted successfully.',
+                'requested_ids' => $ids,
+                'deleted_count' => $deletedCount,
+                'not_found_ids' => $notFoundIds,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'error' => 'Server error.',
+                'details' => $th->getMessage(),
+            ], 500);
+        }
+    }
+
+
+
+    // Search ticket priorities by ticket_priority
+    public function searchTicketPriority(Request $request)
+    {
+        try {
+            $searchTerm = $request->input('search');
+
+            $query = TicketPriority::query();
+
+            if (!empty($searchTerm)) {
+                $query->where('ticket_priority', 'like', '%' . $searchTerm . '%');
+            }
+
+            $results = $query->orderBy('display_order', 'asc')->paginate(10); // 10 results per page
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Ticket priorities fetched successfully.',
+                'data' => $results
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Server error.',
+                'error' => $th->getMessage(),
+            ], 500);
         }
     }
 
