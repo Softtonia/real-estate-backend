@@ -371,6 +371,8 @@ Route::get('list-amenities-categories', [AmenitycategoriesController::class, 'in
 Route::post('delete-amenities-categories', [AmenitycategoriesController::class, 'destroy']);
 Route::post('getdatabyId-amenitycategories', [AmenitycategoriesController::class, 'getdatabyId']);
 Route::post('amenities-categories-bulk-delete', [AmenitycategoriesController::class, 'bulkDelete']);
+
+Route::get('search-amenities-categories', [AmenitycategoriesController::class, 'searchByName']);
 // admin route will end from here
 
 

@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\File;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 
 
@@ -996,12 +997,26 @@ class PropertylistingController extends Controller
             $projectData = [];
 
             // Validate: Ensure at least one of country_id, state_id, city_id is provided and not null
-            if (
-                (!isset($request->country_id) || $request->country_id === null) &&
-                (!isset($request->state_id) || $request->state_id === null) &&
-                (!isset($request->city_id) || $request->city_id === null)
-            ) {
-                return response()->json(['error' => 'Please provide at least one of country_id, state_id, or city_id.'], 422);
+            // if (
+            //     (!isset($request->country_id) || $request->country_id === null) &&
+            //     (!isset($request->state_id) || $request->state_id === null) &&
+            //     (!isset($request->city_id) || $request->city_id === null)
+            // ) {
+            //     return response()->json(['error' => 'Please provide at least one of country_id, state_id, or city_id.'], 422);
+            // }
+
+            $validator = Validator::make($request->all(), [
+                'country_id' => 'required|integer|exists:countries,id',
+                'state_id' => 'required|integer|exists:states,id',
+                'city_id' => 'required|integer|exists:cities,id',
+            ]);
+
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'errors' => $validator->errors(),      // field-wise detail
+                    'message' => 'country_id, state_id, and city_id are all required.',
+                ], 422);
             }
 
             // Build query dynamically based on provided parameters

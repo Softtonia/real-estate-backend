@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers\Admin;
 
+use App\Models\Keyword;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
@@ -94,69 +95,96 @@ class AdminController extends Controller
         }
     }
 
-public function update(Request $request)
-{
-    try {
-        // Validate the incoming request data for first_name, last_name, and phone_number
-        $validatedData = $request->validate([
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'phone' => 'required|string|max:20', // Add validation for phone number
+    public function update(Request $request)
+    {
+        try {
+            // Validate the incoming request data for first_name, last_name, and phone_number
+            $validatedData = $request->validate([
+                'first_name' => 'required|string|max:255',
+                'last_name' => 'required|string|max:255',
+                'phone' => 'required|string|max:20', // Add validation for phone number
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Handle the validation error and return the errors
+            return response()->json(['errors' => $e->errors()], 422);
+        }
+
+        // Retrieve the currently authenticated user
+        $user = Auth::user();
+        // dd( $user);
+        // Check if the user is found
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // Update the fields with validated data
+        $user->first_name = $validatedData['first_name'];
+        $user->last_name = $validatedData['last_name'];
+        $user->phone = $validatedData['phone']; // Update phone number
+
+        // Save the updated user
+        $user->save();
+
+        // Get the role name from the Role table using the role_id
+        $role = Role::find($user->role_id); // Assuming 'Role' is the name of the role model
+
+        // Get the role name, or default to 'Unknown' if the role doesn't exist
+        $role_name = $role ? $role->name : 'Unknown';
+
+        // Determine the status based on the 'isapproved' field value
+        $status = 'UnderReview'; // Default status
+        if ($user->isapproved == 1) {
+            $status = 'Active';
+        } elseif ($user->isapproved == 2) {
+            $status = 'Deactive';
+        }
+
+        // Return the updated user data along with the additional fields
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user' => [
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'email' => $user->email, // Include email
+                'phone' => $user->phone, // Include phone number
+                'role_name' => $role_name, // Include role name
+                'isapproved' => $status, // Include approval status code
+            ]
         ]);
-    } catch (\Illuminate\Validation\ValidationException $e) {
-        // Handle the validation error and return the errors
-        return response()->json(['errors' => $e->errors()], 422);
     }
-
-    // Retrieve the currently authenticated user
-    $user = Auth::user();
-// dd( $user);
-    // Check if the user is found
-    if (!$user) {
-        return response()->json(['message' => 'User not found'], 404);
-    }
-
-    // Update the fields with validated data
-    $user->first_name = $validatedData['first_name'];
-    $user->last_name = $validatedData['last_name'];
-    $user->phone = $validatedData['phone']; // Update phone number
-
-    // Save the updated user
-    $user->save();
-
-    // Get the role name from the Role table using the role_id
-    $role = Role::find($user->role_id); // Assuming 'Role' is the name of the role model
-
-    // Get the role name, or default to 'Unknown' if the role doesn't exist
-    $role_name = $role ? $role->name : 'Unknown';
-
-    // Determine the status based on the 'isapproved' field value
-    $status = 'UnderReview'; // Default status
-    if ($user->isapproved == 1) {
-        $status = 'Active';
-    } elseif ($user->isapproved == 2) {
-        $status = 'Deactive';
-    }
-
-    // Return the updated user data along with the additional fields
-    return response()->json([
-        'message' => 'Profile updated successfully',
-        'user' => [
-            'first_name' => $user->first_name,
-            'last_name' => $user->last_name,
-            'email' => $user->email, // Include email
-            'phone' => $user->phone, // Include phone number
-            'role_name' => $role_name, // Include role name
-            'isapproved' => $status, // Include approval status code
-        ]
-    ]);
-}
 
 
     public function fetchProjectKeywordList()
     {
         try {
             $importKeywordData = ImportKeyword::where('keyword_type', 'project_keyword')->get()->groupBy('keyword_name');
+
+            // Convert the grouped collection to an array
+            $result = [];
+            foreach ($importKeywordData as $keyword => $items) {
+                // Get the first item from the group as a representative
+                $item = $items->first();
+                $result[] = [
+                    'id' => $item->id,
+                    'keyword_name' => $item->keyword_name,
+                    'slug' => $item->slug,
+                    'keyword_type' => $item->keyword_type,
+                    'created_at' => $item->created_at,
+                    'updated_at' => $item->updated_at
+                ];
+            }
+
+            return response()->json(['data' => $result], 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+        }
+    }
+
+
+    public function fetchPropertyKeywordList()
+    {
+        try {
+            $importKeywordData = ImportKeyword::where('keyword_type', 'property_keyword')->get()->groupBy('keyword_name');
 
             // Convert the grouped collection to an array
             $result = [];
@@ -304,31 +332,31 @@ public function update(Request $request)
         }
     }
     public function getAdminProfile(Request $request)
-{
-    // Retrieve the currently authenticated user
-    $user = Auth::user(); // This should now return the authenticated user
+    {
+        // Retrieve the currently authenticated user
+        $user = Auth::user(); // This should now return the authenticated user
 
-    // Check if user is found
-    if (!$user) {
-        return response()->json(['message' => 'User not found'], 404);
+        // Check if user is found
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // Get the role associated with the user
+        $role = $user->role; // Assuming there's a 'role' relationship in the User model
+
+        // Proceed with returning the required fields
+        return response()->json([
+            'message' => 'Admin profile retrieved successfully',
+            'user' => [
+                'first_name' => $user->first_name,  // First Name
+                'last_name' => $user->last_name,    // Last Name
+                'email' => $user->email,            // Email
+                'phone' => $user->phone,            // Phone
+                'role_name' => $role ? $role->name : null,  // Role Name
+                'isapproved' => $user->isapproved,  // Account approval status
+            ]
+        ]);
     }
-
-    // Get the role associated with the user
-    $role = $user->role; // Assuming there's a 'role' relationship in the User model
-
-    // Proceed with returning the required fields
-    return response()->json([
-        'message' => 'Admin profile retrieved successfully',
-        'user' => [
-            'first_name' => $user->first_name,  // First Name
-            'last_name' => $user->last_name,    // Last Name
-            'email' => $user->email,            // Email
-            'phone' => $user->phone,            // Phone
-            'role_name' => $role ? $role->name : null,  // Role Name
-            'isapproved' => $user->isapproved,  // Account approval status
-        ]
-    ]);
-}
 
     public function userAllRecordBulksDelete(Request $request)
     {
@@ -357,6 +385,170 @@ public function update(Request $request)
             'status' => true,
             'message' => 'Users and all related records deleted successfully'
         ], 200);
+    }
+
+
+    // import keywords store function
+
+    public function import(Request $request)
+    {
+        //   Validate file input
+        Validator::validate($request->all(), [
+            'csv_file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
+
+        try {
+            $file = $request->file('csv_file');
+            $handle = fopen($file->getRealPath(), 'r');
+
+            /* Skip header row – delete this line if your CSV has no header */
+            fgetcsv($handle);
+
+            $created = 0;
+            $updated = 0;
+            $errors = [];
+
+            // Allowed keyword types
+            $allowedTypes = ['property_keyword', 'project_keyword', 'developer_keyword'];
+
+            while (($cols = fgetcsv($handle, 0, ',')) !== false) {
+
+                // ── Column 1: keyword_name (required)
+                $keywordName = trim($cols[0] ?? '');
+
+                // ── Column 2: keyword_type (optional)
+                $keywordType = trim($cols[1] ?? '');
+
+                // Auto-detect if second column missing
+                if ($keywordType === '') {
+                    if (Str::startsWith($keywordName, 'Project '))
+                        $keywordType = 'project_keyword';
+                    elseif (Str::startsWith($keywordName, 'Developer '))
+                        $keywordType = 'developer_keyword';
+                    else
+                        $keywordType = 'property_keyword';
+                }
+
+                // Basic validations
+                if ($keywordName === '') {
+                    $errors[] = 'Empty keyword_name – row skipped';
+                    continue;
+                }
+
+                if (!in_array($keywordType, $allowedTypes)) {
+                    $errors[] = "Invalid keyword_type '{$keywordType}' for '{$keywordName}' – row skipped";
+                    continue;
+                }
+
+                // Unique slug
+                $slug = Str::slug($keywordName);
+
+                //   Upsert via Eloquent (slug is the unique key)
+                $model = ImportKeyword::updateOrCreate(
+                    ['slug' => $slug],
+                    ['keyword_name' => $keywordName, 'keyword_type' => $keywordType]
+                );
+
+                $model->wasRecentlyCreated ? $created++ : $updated++;
+            }
+
+            fclose($handle);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'CSV processed successfully.',
+                'created' => $created,
+                'updated' => $updated,
+                'skipped' => count($errors),
+                'errors' => $errors,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Import failed.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    // export keywords csv
+
+    public function export()
+    {
+        $fileName = 'import_keywords_' . now()->format('Ymd_His') . '.csv';
+        $keywords = ImportKeyword::all();
+
+        if ($keywords->isEmpty()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'No keywords found to export.',
+            ], 404);
+        }
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"$fileName\"",
+        ];
+
+        $columns = ['ID', 'Keyword Name', 'Slug', 'Keyword Type', 'Created At', 'Updated At'];
+
+        $callback = function () use ($keywords, $columns) {
+            $file = fopen('php://output', 'w');
+
+            // Add CSV header
+            fputcsv($file, $columns);
+
+            // Add rows
+            foreach ($keywords as $keyword) {
+                fputcsv($file, [
+                    $keyword->id,
+                    $keyword->keyword_name,
+                    $keyword->slug,
+                    $keyword->keyword_type,
+                    $keyword->created_at,
+                    $keyword->updated_at
+                ]);
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+
+    // fetch all keywords
+
+    // public function fetchKeywordList()
+    // {
+    //     $keywords = ImportKeyword::whereIn('id', function ($query) {
+    //         $query->select('keyword')->from('keywords');
+    //     })->orderBy('keyword_name')->get(['id', 'keyword_name', 'slug', 'keyword_type']);
+
+    //     return response()->json([
+    //         'status' => true,
+    //         'message' => $keywords->isEmpty()
+    //             ? '⚠️ No keywords found.'
+    //             : '✅ Keywords fetched successfully.',
+    //         'total' => $keywords->count(),
+    //         'data' => $keywords,
+    //     ]);
+    // }
+
+    public function fetchKeywordList()
+    {
+        $keywords = ImportKeyword::select('id', 'keyword_name', 'slug', 'keyword_type')
+            ->orderBy('keyword_name')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => $keywords->isEmpty()
+                ? ' No import keywords found.'
+                : ' Import keywords fetched successfully.',
+            'total' => $keywords->count(),
+            'data' => $keywords,
+        ]);
     }
 
 

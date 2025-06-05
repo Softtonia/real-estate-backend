@@ -6,6 +6,7 @@ use DB;
 use Illuminate\Http\Request;
 use App\Models\AmenitiesCategory;
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Validator;
 use Storage;
 use App\Models\Media;
 use Illuminate\Validation\Rule;
@@ -451,6 +452,42 @@ class AmenitycategoriesController extends Controller
             // Handle other unexpected errors
             return response()->json(['error' => 'Something went wrong'], 500);
         }
+    }
+
+
+    // Search by name
+
+    public function searchByName(Request $request)
+    {
+        try {
+            $searchName = $request->input('search');
+
+
+            // Build query
+            $query = AmenitiesCategory::query();
+
+            if (!empty($searchName)) {
+                $query->where('name', 'like', '%' . $searchName . '%');
+            }
+
+            // Execute query with pagination
+            $categories = $query->paginate(10);
+
+            // Return formatted response
+            return response()->json([
+                'status' => true,
+                'message' => 'Categories retrieved successfully',
+                'data' => $categories
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Server error',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+
     }
 
 }
