@@ -470,7 +470,7 @@ Route::get('search-tickets-type',[TicketTypeController::class,'searchTicketType'
 
 
 Route::middleware('allrole.token')->post('tickets/respond', [TicketController::class, 'respond']);
-Route::post('tickets-respond-list', [TicketController::class, 'respondlist']);
+Route::get('tickets-respond-list', [TicketController::class, 'respondlist']);
 // Ticket Route will end from here
 
 // Agent Route will start from here

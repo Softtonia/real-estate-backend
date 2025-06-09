@@ -147,9 +147,9 @@ class TicketController extends Controller
             ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
             ->select(
                 'raised_users.id as raised_by_id',
-                'raised_users.fullname as raised_user_name',
+                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name)  as raised_user_name"),
                 'assigned_users.id as assigned_to_id',
-                'assigned_users.fullname as assigned_user_fullname',
+                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_fullname"),
                 'tickets.*',
                 'ticket_priorities.ticket_priority',
                 'ticket_status.ticket_status_name',
@@ -328,12 +328,19 @@ class TicketController extends Controller
         // Retrieve responses for the specified ticket
         $ticket_id = $request->ticket_id;
 
+
+
         $responses = DB::table('tickets_response')
             ->where('ticket_id', $ticket_id)
             ->join('users', 'tickets_response.user_id', '=', 'users.id')
             ->join('tickets', 'tickets.id', '=', 'tickets_response.ticket_id')
-            ->select('users.fullname as user_name', 'tickets_response.*', 'tickets.subject as ticket_subject', 'tickets.message as ticket_message', 'tickets.ticket_type_id as ticket_type_id')
-            ->get();
+           ->selectRaw("
+            CONCAT_WS(' ', users.first_name, users.last_name)  AS user_name,
+            tickets_response.*,
+            tickets.subject       AS ticket_subject,
+            tickets.message       AS ticket_message,
+            tickets.ticket_type_id
+        ")->get();
 
         // Return responses as JSON
         return response()->json(['responses' => $responses]);
