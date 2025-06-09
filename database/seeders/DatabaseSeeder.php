@@ -30,6 +30,7 @@ class DatabaseSeeder extends Seeder
         $this->call(AmenitiesCategoriesSeeder::class);
         $this->call(AmenitySeeder::class);
         $this->call(ImportKeywordsSeeder::class);
+        $this->call(TicketDepartmentsSeeder::class);
 
     }
 }

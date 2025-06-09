@@ -428,10 +428,10 @@ Route::get('/model-names', [PermissionController::class, 'getModelNames']);
 
 
 // Ticket Route will start from here
-Route::middleware('allrole.token')->post('tickets-create', [TicketController::class, 'store']);
+Route::middleware('adminOrCurrentUser')->post('tickets-create', [TicketController::class, 'store']);
 Route::middleware('allrole.token')->get('tickets-list', [TicketController::class, 'index']);
-Route::middleware('allrole.token')->post('tickets-update', [TicketController::class, 'update']);
-Route::middleware('allrole.token')->post('tickets-delete', [TicketController::class, 'destroy']);
+Route::middleware('adminOrCurrentUser')->post('tickets-update', [TicketController::class, 'update']);
+Route::middleware('adminOrCurrentUser')->post('tickets-delete', [TicketController::class, 'destroy']);
 Route::middleware('allrole.token')->post('get-tickets-byuserid', [TicketController::class, 'show']);
 Route::middleware('allrole.token')->post('update-tickets-status', [TicketController::class, 'updateTicketStatus']);
 
@@ -460,11 +460,14 @@ Route::middleware('admin.token')->post('get-tickets-priority-byid', [ticketprior
 
 Route::middleware('admin.token')->get('search-tickets-priority',[ticketprioritycontroller::class,'searchTicketPriority']);
 
-Route::post('tickets-type-create', [TicketTypeController::class, 'store']);
-Route::post('tickets-type-update', [TicketTypeController::class, 'update']);
+Route::middleware('admin.token')->post('tickets-type-create', [TicketTypeController::class, 'store']);
+Route::middleware('admin.token')->post('tickets-type-update', [TicketTypeController::class, 'update']);
 Route::get('tickets-type-list', [TicketTypeController::class, 'index']);
-Route::post('tickets-type-delete', [TicketTypeController::class, 'destroy']);
+Route::middleware('admin.token')->post('tickets-type-delete', [TicketTypeController::class, 'destroy']);
 Route::post('get-tickets-type-byid', [TicketTypeController::class, 'show']);
+Route::middleware('admin.token')->delete('/tickets-type-bulk-delete', [TicketTypeController::class, 'bulkDelete']);
+Route::get('search-tickets-type',[TicketTypeController::class,'searchTicketType']);
+
 
 Route::middleware('allrole.token')->post('tickets/respond', [TicketController::class, 'respond']);
 Route::post('tickets-respond-list', [TicketController::class, 'respondlist']);
