@@ -322,7 +322,8 @@ class TicketController extends Controller
     {
         // Validate request parameters
         $request->validate([
-            'ticket_id' => 'required|exists:tickets,id',
+            ['ticket_id' => 'required|exists:tickets,id'],
+            ['ticket_id.exists' => 'Ticket not found']
         ]);
 
         // Retrieve responses for the specified ticket
@@ -331,7 +332,7 @@ class TicketController extends Controller
 
 
         $responses = DB::table('tickets_response')
-            ->where('ticket_id', $ticket_id)
+            ->where('ticket_id', $request->ticket_id)
             ->join('users', 'tickets_response.user_id', '=', 'users.id')
             ->join('tickets', 'tickets.id', '=', 'tickets_response.ticket_id')
            ->selectRaw("
@@ -342,6 +343,12 @@ class TicketController extends Controller
             tickets.ticket_type_id
         ")->get();
 
+        if ($responses->isEmpty()) {
+            return response()->json([
+                'error' => 'No responses found for this ticket.'
+            ], 404);
+        }
+
         // Return responses as JSON
         return response()->json(['responses' => $responses]);
     }
@@ -350,6 +357,9 @@ class TicketController extends Controller
 
     public function updateTicketStatus(Request $request)
     {
+
+        $authUser = $request->user();
+
 
         $validator = Validator::make($request->all(), [
             'ticket_id' => 'required|exists:tickets,id',
@@ -360,12 +370,29 @@ class TicketController extends Controller
             return response()->json(['error' => $validator->errors()], 422);
         }
 
+
+
+
+
         // Check if a response already exists for this ticket
         if (!Ticket::where('id', $request->ticket_id)->exists()) {
             return response()->json(['error' => 'Invalid Ticket Id'], 422);
         }
 
         $ticket = Ticket::findOrFail($request->ticket_id);
+        $isAdmin = $authUser->role && strcasecmp($authUser->role->name, 'admin') === 0;
+
+
+        if (
+            !$isAdmin &&
+            $ticket->user_id !== $authUser->id &&
+            $ticket->raised_by !== $authUser->id
+        ) {
+
+            return response()->json([
+                'error' => 'You are only allowed to delete your own tickets.'
+            ], 403);
+        }
         $ticket->status_id = $request->status_id;
         $ticket->update();
 

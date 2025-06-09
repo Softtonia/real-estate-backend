@@ -433,7 +433,7 @@ Route::middleware('allrole.token')->get('tickets-list', [TicketController::class
 Route::middleware('adminOrCurrentUser')->post('tickets-update', [TicketController::class, 'update']);
 Route::middleware('adminOrCurrentUser')->post('tickets-delete', [TicketController::class, 'destroy']);
 Route::middleware('allrole.token')->post('get-tickets-byuserid', [TicketController::class, 'show']);
-Route::middleware('allrole.token')->post('update-tickets-status', [TicketController::class, 'updateTicketStatus']);
+Route::middleware('adminOrCurrentUser')->post('update-tickets-status', [TicketController::class, 'updateTicketStatus']);
 
 Route::middleware('admin.token')->post('tickets-status-create', [ticketstatuscontroller::class, 'store']);  //Done By softtonia
 Route::middleware('admin.token')->post('tickets-status-update', [ticketstatuscontroller::class, 'update']); //Done By softtonia
