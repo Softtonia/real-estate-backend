@@ -586,11 +586,11 @@ Route::middleware(['auth.api.token'])->group(function () {
 });
 
 // =========Builder=======
-Route::get('builder-list', [Buildercontroller::class, 'index']);
-Route::post('get-builderdata-byid', [Buildercontroller::class, 'show']);
-Route::post('builder-create', [Buildercontroller::class, 'store']);
-Route::post('builder-update', [Buildercontroller::class, 'update']);
-Route::post('builder-delete', [Buildercontroller::class, 'destroy']);
+// Route::get('builder-list', [Buildercontroller::class, 'index']);
+// Route::post('get-builderdata-byid', [Buildercontroller::class, 'show']);
+// Route::post('builder-create', [Buildercontroller::class, 'store']);
+// Route::post('builder-update', [Buildercontroller::class, 'update']);
+// Route::post('builder-delete', [Buildercontroller::class, 'destroy']);
 
 // =========Profile=======
 Route::post('complete-your-profile', [Profilecontroller::class, 'updateProfile']);
@@ -609,7 +609,7 @@ Route::middleware('admin.token')->post('edit-faq-category', [FaqCategoryControll
 Route::middleware('admin.token')->post('delete-faq-category', [FaqCategoryController::class, 'destroy']); //Done By softtonia
 Route::get('get-faq-category', [FaqCategoryController::class, 'index']); //Done By softtonia
 Route::middleware('admin.token')->get('get-faq-category-by-id/{id}', [FaqCategoryController::class, 'getdatabyId']); //Done By softtonia
-
+Route::middleware('admin.token')->post('bulk-delete-faq-category', [FaqCategoryController::class, 'bulkDelete']);
 
 // =====For Faq =======
 Route::middleware('admin.token')->post('add-faq', [FaqController::class, 'store']); //Done By softtonia
