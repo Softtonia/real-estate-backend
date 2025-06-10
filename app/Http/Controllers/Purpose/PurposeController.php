@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use App\Models\Purpose;
 use App\Models\PropertyList;
 use App\Models\User;
+use Illuminate\Support\Facades\File;
 use Storage;
 use Illuminate\Validation\Rule;
 
@@ -64,7 +65,7 @@ class PurposeController extends Controller
             $file->move(public_path('uploads/purposes'), $name); // Move file to correct folder
 
             // Generate the URL in the required format
-            $profile_image = url('uploads/purposes/' . $name); // Correct path for public access
+            $profile_image = 'uploads/purposes/' . $name; // Correct path for public access
         } elseif (isset($request->icon) && !empty($request->icon)) {
             // If the 'icon' input is set and not empty, use the provided icon
             $profile_image = $request->input('icon');
@@ -130,7 +131,7 @@ class PurposeController extends Controller
             'purpose_display_order' => $purpose->purpose_display_order,
             'name' => $purpose->name,
             'slug' => $purpose->slug,
-            'icon' => $purpose->icon,
+            'icon' => url($purpose->icon),
             'created_at' => $purpose->created_at,
             'updated_at' => $purpose->updated_at,
             'propertyCount' => $propertyCount,  // Add property count here
@@ -229,7 +230,7 @@ class PurposeController extends Controller
             $file->move(public_path('uploads/purposes'), $name); // Move file to correct folder
 
             // Generate the URL in the required format
-            $profile_image = url('uploads/purposes/' . $name); // Correct path for public access
+            $profile_image = 'uploads/purposes/' . $name; // Correct path for public access
         } elseif (isset($request->icon) && !empty($request->icon)) {
             // If the 'icon' input is set and not empty, use the provided icon
             $profile_image = $request->input('icon');
@@ -263,7 +264,7 @@ class PurposeController extends Controller
                 'purpose_display_order' => $purpose['purpose_display_order'],
                 'name' => $purpose['name'],
                 'slug' => $purpose['slug'],
-                'icon' => $purpose['icon'],
+                'icon' => url($purpose['icon']),
                 'created_at' => $purpose['created_at'],
                 'updated_at' => $purpose['updated_at'],
                 'propertyCount' => $assignPropertyCount,
@@ -315,6 +316,16 @@ class PurposeController extends Controller
             $id = $request->id;
             $purpose = Purpose::findOrFail($id);
 
+            // $filePath = public_path('uploads/purposes/' . $purpose->icon);
+
+            // If you stored the full relative path, use:
+            $filePath = public_path($purpose->icon);
+
+            // Delete the file if it exists
+            if (File::exists($filePath)) {
+                File::delete($filePath);
+            }
+
             // Delete the builder record
             $purpose->delete();
 
@@ -364,6 +375,13 @@ class PurposeController extends Controller
 
             foreach ($delete_ids as $row) {
                 $purpose = Purpose::findOrFail($row);
+
+                $filePath = public_path($purpose->icon);
+
+                // Delete the file if it exists
+                if (File::exists($filePath)) {
+                    File::delete($filePath);
+                }
                 // Delete the builder record
                 $purpose->delete();
             }

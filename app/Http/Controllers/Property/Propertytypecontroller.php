@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\Status;
 use App\Models\Property;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -458,6 +459,13 @@ class Propertytypecontroller extends Controller
             $id = $request->id;
             $property = PropertyType::findOrFail($id); // Find the property by ID
 
+            $filePath = public_path($property->image);
+
+            // Delete the file if it exists
+            if (File::exists($filePath)) {
+                File::delete($filePath);
+            }
+
             $property->delete(); // Delete the property
 
             return response()->json(['message' => 'Property deleted successfully']);
@@ -559,9 +567,16 @@ class Propertytypecontroller extends Controller
             $delete_ids = explode(',', $request->id);
 
             foreach ($delete_ids as $row) {
-                $purpose = PropertyType::findOrFail($row);
+                $property = PropertyType::findOrFail($row);
+
+                $filePath = public_path($property->image);
+
+                // Delete the file if it exists
+                if (File::exists($filePath)) {
+                    File::delete($filePath);
+                }
                 // Delete the builder record
-                $purpose->delete();
+                $property->delete();
             }
 
             // Return a success response

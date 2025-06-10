@@ -8,6 +8,7 @@ use DB;
 use Illuminate\Http\Request;
 use App\Models\Property;
 use App\Models\PropertyList;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Storage;
 use Illuminate\Validation\Rule;
@@ -262,6 +263,13 @@ class PropertyController extends Controller
                 return response()->json(['error' => 'Property not found'], 404);
             }
 
+            $filePath = public_path($property->property_image);
+
+            // Delete the file if it exists
+            if (File::exists($filePath)) {
+                File::delete($filePath);
+            }
+
             $property->delete();
             return response()->json(['message' => 'Property deleted successfully']);
         } catch (\Exception $e) {
@@ -332,6 +340,12 @@ class PropertyController extends Controller
 
             foreach ($delete_ids as $row) {
                 $property = Property::findOrFail($row);
+                $filePath = public_path($property->property_image);
+
+                // Delete the file if it exists
+                if (File::exists($filePath)) {
+                    File::delete($filePath);
+                }
                 // Delete the builder record
                 $property->delete();
             }

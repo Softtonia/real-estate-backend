@@ -450,6 +450,8 @@ Route::middleware('admin.token')->post('tickets-department-update', [TicketDepar
 Route::get('tickets-department-list', [TicketDepartmentController::class, 'index']);
 Route::middleware('admin.token')->post('tickets-department-delete', [TicketDepartmentController::class, 'destroy']); //Done By softtonia
 Route::middleware('admin.token')->post('get-tickets-department-byid', [TicketDepartmentController::class, 'show']); //Done By softtonia
+Route::middleware('admin.token')->post('tickets-department-bulk-delete', [TicketDepartmentController::class, 'bulkDestroy']);
+
 
 Route::middleware('admin.token')->post('tickets-priority-create', [ticketprioritycontroller::class, 'store']); //Done By softtonia
 Route::middleware('admin.token')->post('tickets-priority-update', [ticketprioritycontroller::class, 'update']); //Done By softtonia
@@ -538,6 +540,7 @@ Route::middleware('admin.token')->post('help-category-create', [HelpCategoryCont
 Route::middleware('admin.token')->post('help-category-update', [HelpCategoryController::class, 'update']);
 Route::middleware('admin.token')->post('help-category-delete', [HelpCategoryController::class, 'delete']);
 Route::get('get-help-category-by-id/{id}', [HelpCategoryController::class, 'getdatabyId']);
+Route::middleware('admin.token')->post('help-category-bulk-delete', [HelpCategoryController::class, 'bulkDelete']);
 
 
 // ==========Help Subcat=======
@@ -548,6 +551,8 @@ Route::middleware('admin.token')->post('help-subcategory-delete', [HelpSubcatego
 Route::get('get-help-subcategory-by-id/{id}', [HelpSubcategoryController::class, 'getdatabyId']);
 Route::post('help-subcategory-by-categoryid', [HelpSubcategoryController::class, 'getHelpSubcategoryByCategoryId']);
 
+Route::middleware('admin.token')->post('help-subcategory-bulk-delete', [HelpSubcategoryController::class, 'bulkDelete']);
+
 // ===========Help Childcat=======
 Route::get('help-childcategory-list', [HelpChildcategoryController::class, 'index']);
 Route::middleware('admin.token')->post('help-childcategory-create', [HelpChildcategoryController::class, 'store']);
@@ -555,6 +560,8 @@ Route::middleware('admin.token')->post('help-childcategory-update', [HelpChildca
 Route::middleware('admin.token')->post('help-childcategory-delete', [HelpChildcategoryController::class, 'delete']);
 Route::get('get-help-childcategory-by-id/{id}', [HelpChildcategoryController::class, 'getdatabyId']);
 Route::post('help-childcategory-by-subcategoryid', [HelpChildcategoryController::class, 'getHelpChildcategoryBySubcategoryId']);
+
+
 
 
 // =========Help Art=======

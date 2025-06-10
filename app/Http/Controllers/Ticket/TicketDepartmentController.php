@@ -163,4 +163,30 @@ class TicketDepartmentController extends Controller
             'message' => 'Department deleted successfully.'
         ]);
     }
+
+    // Bulk Delete
+
+    public function bulkDestroy(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:ticket_departments,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Perform bulk delete
+        $deleted = TicketDepartment::whereIn('id', $request->ids)->delete();
+
+        return response()->json([
+            'status' => true,
+            'message' => "$deleted department(s) deleted successfully."
+        ]);
+    }
+
 }

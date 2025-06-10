@@ -25,5 +25,15 @@ class HelpCategory extends Model
     {
         return $this->hasMany(HelpArticle::class);
     }
-    
+
+    protected $appends = ['full_image_url'];
+
+    public function getFullImageUrlAttribute()
+    {
+        if ($this->image) {
+            return config('app.url') . '/uploads/help/' . ltrim($this->image, '/');
+        }
+        return null;
+    }
+
 }

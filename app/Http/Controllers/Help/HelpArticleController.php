@@ -28,43 +28,48 @@ class HelpArticleController extends Controller
             ]);
 
             $data = [
-                'title' => $request->title,
-                'description' => $request->description,
+                'title' => $validatedData['title'],
+                'description' => $validatedData['description'],
+                'help_category_id' => $validatedData['help_category_id'] ?? null,
+                'help_subcategory_id' => $validatedData['help_subcategory_id'] ?? null,
+                'help_childcategory_id' => $validatedData['help_childcategory_id'] ?? null,
+                'created_at' => now(),
+                'updated_at' => now(),
             ];
-    
+
 
             $result = HelpArticle::create($data);
-     
-        
+
+
             $returnRes = [
                 'status' => true,
                 'message' => 'Data added successfully.',
                 'data' => $result,
             ];
-        
+
             return response()->json($returnRes, 201);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
-    
+
+
     // this is for listing
     public function index(Request $request)
     {
         try {
 
             $data = HelpArticle::with('category','subcategory','childcategory')->get();
-            
+
             return response()->json($data);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
 
-    
 
-    // this is for update the record 
+
+    // this is for update the record
     public function update(Request $request)
     {
         try {
@@ -102,8 +107,8 @@ class HelpArticleController extends Controller
         }
     }
 
-    
-    
+
+
     // this is for delete the record
     public function delete(Request $request)
     {
@@ -111,37 +116,37 @@ class HelpArticleController extends Controller
 
             $id = $request->id;
             $client = HelpArticle::find($id);
-            
+
             if (!$client) {
             return response()->json(['message' => 'Data not found'], 404);
             }
-            
+
             // Delete the client
             $client->delete();
-            
+
             $returnRes = [
             'status' => true,
             'message' => 'Data deleted successfully.'
             ];
-            
+
             return response()->json($returnRes,200);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
-    
+
+
     // this is foe get data by id
     public function getdatabyId(Request $request)
     {
         try {
 
             $data = HelpArticle::with('category','subcategory','childcategory')->where('id',$request->id)->first();
-            
+
             return response()->json($data);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
+
 }
