@@ -15,8 +15,9 @@ use App\Models\Customfieldvalue;
 use App\Models\AmenitiesCategory;
 use App\Models\Keyword;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\File;
+// use Illuminate\Http\File;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -587,11 +588,20 @@ class PropertylistingController extends Controller
                 return response()->json(['message' => 'Data not found'], 404);
             }
 
+            $filePath = public_path($property->featured_image);
+
+            // Delete the file if it exists
+            if (File::exists($filePath)) {
+                File::delete($filePath);
+            }
+
             // Delete specific related records
             $property->customFieldValues()->delete();
 
+
             // Delete the property
             $property->delete();
+
 
             $returnRes = [
                 'status' => true,
@@ -1139,11 +1149,19 @@ class PropertylistingController extends Controller
             $delete_ids = explode(',', $request->id);
 
             foreach ($delete_ids as $row) {
-                $purpose = PropertyList::findOrFail($row);
+                $property = PropertyList::findOrFail($row);
+
+                $filePath = public_path($property->featured_image);
+
+                // Delete the file if it exists
+                if (File::exists($filePath)) {
+                    File::delete($filePath);
+                }
+
                 // Delete the builder record
-                $purpose->customFieldValues()->delete();
+                $property->customFieldValues()->delete();
                 // Delete the property
-                $purpose->delete();
+                $property->delete();
             }
 
             // Return a success response
@@ -1153,7 +1171,7 @@ class PropertylistingController extends Controller
             ], 200);
         } catch (ModelNotFoundException $e) {
             // Handle model not found errors
-            return response()->json(['error' => 'purpose not found'], 404);
+            return response()->json(['error' => 'property not found'], 404);
         } catch (\Exception $e) {
             // Handle other unexpected errors
             return response()->json(['error' => 'Something went wrong'], 500);
