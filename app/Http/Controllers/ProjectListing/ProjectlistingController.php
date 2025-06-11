@@ -201,7 +201,7 @@ class ProjectlistingController extends Controller
                 'customFieldValues.customFieldOption',
                 'importKeywords',
                 'developer.userDetails','country','state','city'
-            ])->where('live_status', 'Under Review')->paginate(10);
+            ])->where('live_status', 'Approve')->get();
 
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
