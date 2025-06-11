@@ -570,6 +570,7 @@ Route::post('help-article-create', [HelpArticleController::class, 'store']);
 Route::post('help-article-update', [HelpArticleController::class, 'update']);
 Route::post('help-article-delete', [HelpArticleController::class, 'delete']);
 Route::get('get-help-article-by-id/{id}', [HelpArticleController::class, 'getdatabyId']);
+Route::post('help-article-bulk-delete', [HelpArticleController::class, 'bulkDelete']);
 
 
 // ==========Like/Dislike===============

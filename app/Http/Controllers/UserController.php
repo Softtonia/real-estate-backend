@@ -5719,7 +5719,7 @@ class UserController extends Controller
                 $baseURL = config('app.url');
                 $basePath = public_path();
 
-                $projects = ProjectList::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption'])->whereIn('id', $projectIds)->get();
+                $projects = ProjectList::with(['country','state','city', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption'])->whereIn('id', $projectIds)->get();
 
                 $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
                     $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
@@ -5760,8 +5760,7 @@ class UserController extends Controller
                         'project_unique_id' => $property->project_unique_id,
                         'name' => $property->name,
                         'description' => $property->description,
-                        'location_id' => $property->location_id,
-                        'location_name' => optional($property->location)->name,
+
                         'status' => $property->status,
                         'status_reason' => $property->status_reason,
                         'project_status' => $property->project_status,
@@ -5780,6 +5779,9 @@ class UserController extends Controller
                         'time' => date('h:m A', strtotime($property->created_at)),
                         'timestamp' => date('d m Y h:m A', strtotime($property->created_at)),
                         'custom_field_values' => $formattedCustomFieldValues,
+                        'country' => $property->country,
+                        'state' => $property->state,
+                        'city' => $property->city
                     ];
 
                     return $projectData;

@@ -149,4 +149,41 @@ class HelpArticleController extends Controller
         }
     }
 
+
+    // Bulk delete
+    public function bulkDelete(Request $request)
+    {
+        try {
+
+            $validator = Validator::make($request->all(), [
+                'ids' => 'required|array|min:1',
+                'ids.*' => 'integer|exists:help_articles,id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            // Delete in one transaction
+            DB::transaction(function () use ($request) {
+                HelpArticle::whereIn('id', $request->ids)->delete();
+            });
+
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Selected articles deleted successfully.',
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'error' => $th->getMessage(),
+            ], 500);
+        }
+    }
+
 }

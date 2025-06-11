@@ -1248,60 +1248,181 @@ class CustomFieldController extends Controller
     //     }
     // }
 
+    // old code for listing of custom fields by model name
 
     // this  id for listing of custom fields by model name
+    // public function customFieldListing(Request $request)
+    // {
+    //     try {
+
+    //         $model = $request->model;
+
+    //         $cusData = CustomField::where('model', $model)->with('groupname', 'options')->where('post_type', 'property_list')->get();
+
+    //         $data = [];
+
+    //         if (count($cusData) > 0) {
+    //             foreach ($cusData as $row) {
+
+    //                 if ($row->model == 'purpose') {
+    //                     $modelConditionName = Purpose::where('id', $row->condition)->first();
+    //                 } else if ($row->model == 'property') {
+    //                     $modelConditionName = Property::where('id', $row->condition)->first();
+    //                 } else if ($row->model == 'property_type') {
+    //                     $modelConditionName = PropertyType::where('id', $row->condition)->first();
+    //                 } else if ($row->model == 'property_status') {
+    //                     $modelConditionName = Status::where('id', $row->condition)->first();
+    //                 } else if ($row->model == 'amenities') {
+    //                     $modelConditionName = Amenity::where('id', $row->condition)->first();
+    //                 } else if ($row->model == 'amenities_categories') {
+    //                     $modelConditionName = AmenitiesCategory::where('id', $row->condition)->first();
+    //                 }
+
+    //                 $data[] = [
+    //                     'id' => $row->id,
+    //                     'group_data' => $row->groupname,
+    //                     'field_label' => $row->field_label,
+    //                     'field_name' => $row->field_name,
+    //                     'field_placeholder' => $row->field_placeholder,
+    //                     // 'field_name_description' => $row->field_name_description,
+    //                     'field_type' => $row->field_type,
+    //                     'options' => $row->options,
+    //                     'model' => $row->model,
+    //                     'condition' => $modelConditionName,
+    //                 ];
+    //             }
+    //             $arr['data'] = $data;
+    //             return response()->json($arr, 200);
+    //         } else {
+    //             return response()->json(['success' => 'No data found'], 200);
+    //         }
+
+    //     } catch (\Exception $e) {
+    //         // Log and return generic error response
+    //         Log::error('Error: ' . $e->getMessage());
+    //         return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+    //     }
+    // }
+
     public function customFieldListing(Request $request)
     {
         try {
 
-            $model = $request->model;
+            //  Which model are we looking for inside model_fields?
 
-            $cusData = CustomField::where('model', $model)->with('groupname', 'options')->where('post_type', 'property_list')->get();
-
-            $data = [];
-
-            if (count($cusData) > 0) {
-                foreach ($cusData as $row) {
-
-                    if ($row->model == 'purpose') {
-                        $modelConditionName = Purpose::where('id', $row->condition)->first();
-                    } else if ($row->model == 'property') {
-                        $modelConditionName = Property::where('id', $row->condition)->first();
-                    } else if ($row->model == 'property_type') {
-                        $modelConditionName = PropertyType::where('id', $row->condition)->first();
-                    } else if ($row->model == 'property_status') {
-                        $modelConditionName = Status::where('id', $row->condition)->first();
-                    } else if ($row->model == 'amenities') {
-                        $modelConditionName = Amenity::where('id', $row->condition)->first();
-                    } else if ($row->model == 'amenities_categories') {
-                        $modelConditionName = AmenitiesCategory::where('id', $row->condition)->first();
-                    }
-
-                    $data[] = [
-                        'id' => $row->id,
-                        'group_data' => $row->groupname,
-                        'field_label' => $row->field_label,
-                        'field_name' => $row->field_name,
-                        'field_placeholder' => $row->field_placeholder,
-                        // 'field_name_description' => $row->field_name_description,
-                        'field_type' => $row->field_type,
-                        'options' => $row->options,
-                        'model' => $row->model,
-                        'condition' => $modelConditionName,
-                    ];
-                }
-                $arr['data'] = $data;
-                return response()->json($arr, 200);
-            } else {
-                return response()->json(['success' => 'No data found'], 200);
+            $filterModel = $request->model;
+            if (!$filterModel) {
+                return response()->json(
+                    ['error' => 'Please pass `model` in request body'],
+                    422
+                );
             }
 
-        } catch (\Exception $e) {
-            // Log and return generic error response
-            Log::error('Error: ' . $e->getMessage());
-            return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+
+            //    Pull ALL rows that might match   (post_type = property_list)
+            //    If you are on MySQL ≥ 5.7 / MariaDB ≥ 10.2 you can
+            //    replace this with a JSON_SEARCH() WHERE clause; the
+            //    plain LIKE keeps it portable.
+
+            $cusData = CustomField::query()
+                ->where('post_type', 'property_list')
+                ->where('model_fields', 'LIKE', '%"model":"'.$filterModel.'"%')
+                ->with('groupname', 'options')
+                ->get();
+
+
+            //  Iterate & keep only rows whose model_fields
+            //    actually CONTAIN the requested model
+
+            $payload = [];
+
+            foreach ($cusData as $row) {
+
+                $modelFields = json_decode($row->model_fields, true) ?: [];
+                $matchesFilter = false;
+                $resolvedConditions = [];
+
+                foreach ($modelFields as $mf) {
+                    // Does this entry correspond to the requested model?
+                    if (($mf['model'] ?? null) !== $filterModel) {
+                        continue;
+                    }
+
+                    $matchesFilter = true;                  // mark row as match
+                    foreach ($mf['condition'] ?? [] as $id) {
+                        // resolve ID → human-readable name
+                        $resolvedConditions[] = $this->resolveCondition(
+                            $filterModel,
+                            $id
+                        );
+                    }
+                }
+
+                // skip rows that do not contain the requested model
+                if (!$matchesFilter) {
+                    continue;
+                }
+
+                $payload[] = [
+                    'id'               => $row->id,
+                    'group'            => $row->groupname,
+                    'field_label'      => $row->field_label,
+                    'field_name'       => $row->field_name_slug,
+                    'field_placeholder'=> $row->field_placeholder,
+                    'field_type'       => $row->field_type,
+                    'required'         => $row->required,
+                    'options'          => $row->options,
+                    'model_conditions' => array_values(
+                        array_filter($resolvedConditions)   // drop nulls
+                    ),
+                ];
+            }
+
+            return $payload
+                ? response()->json(['data' => $payload], 200)
+                : response()->json(['success' => 'No data found'], 200);
+
+        } catch (\Throwable $e) {
+            \Log::error('customFieldListing error: '.$e->getMessage());
+            return response()->json(
+                ['error' => 'Something went wrong. '.$e->getMessage()],
+                500
+            );
         }
     }
+
+    /**
+     * Resolve a single condition ID into {model,id,name}
+     * Returns null if the row is missing or unsupported.
+     */
+    private function resolveCondition(string $model, int $id): ?array
+    {
+        switch ($model) {
+            case 'property_type':
+                $record = PropertyType::find($id);
+                break;
+            case 'purpose':
+                $record = Purpose::find($id);
+                break;
+            case 'property_status':
+                $record = Status::find($id);
+                break;
+            case 'amenities':
+                $record = Amenity::find($id);
+                break;
+            case 'amenities_categories':
+                $record = AmenitiesCategory::find($id);
+                break;
+            default:
+                return null;   // unsupported model
+        }
+
+        return $record
+            ? ['model' => $model, 'id' => $id, 'name' => $record->name]
+            : null;
+    }
+
+
 
 
 
@@ -1500,34 +1621,68 @@ class CustomFieldController extends Controller
 
 
     // this  id for listing of property type by property id.
+    // public function propertyStatusListingByPropertyType(Request $request)
+    // {
+    //     try {
+
+    //         $conditionData = Status::where('property_type_id', $request->property_type_id)->get();
+
+
+    //         $data = [];
+
+    //         if (count($conditionData) > 0) {
+    //             foreach ($conditionData as $condition) {
+    //                 $data[] = [
+    //                     'id' => $condition->id,
+    //                     'name' => $condition->name,
+    //                 ];
+    //             }
+    //             $arr['data'] = $data;
+    //             return response()->json($arr, 200);
+    //         } else {
+    //             return response()->json(['success' => 'No data found'], 200);
+    //         }
+
+    //     } catch (\Exception $e) {
+    //         // Log and return generic error response
+    //         Log::error('Error: ' . $e->getMessage());
+    //         return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+    //     }
+    // }
+
+    // new function
     public function propertyStatusListingByPropertyType(Request $request)
     {
         try {
+            // Get all statuses where the property_type_id JSON array contains the requested ID
+            $allStatuses = Status::all();
 
-            $conditionData = Status::where('property_type_id', $request->property_type_id)->get();
-
+            $filteredStatuses = $allStatuses->filter(function ($status) use ($request) {
+                $propertyTypeIds = json_decode($status->property_type_id);
+                return in_array($request->property_type_id, $propertyTypeIds);
+            });
 
             $data = [];
 
-            if (count($conditionData) > 0) {
-                foreach ($conditionData as $condition) {
+            if ($filteredStatuses->count() > 0) {
+                foreach ($filteredStatuses as $status) {
                     $data[] = [
-                        'id' => $condition->id,
-                        'name' => $condition->name,
+                        'id' => $status->id,
+                        'name' => $status->name,
                     ];
                 }
-                $arr['data'] = $data;
-                return response()->json($arr, 200);
+                return response()->json(['data' => $data], 200);
             } else {
                 return response()->json(['success' => 'No data found'], 200);
             }
 
         } catch (\Exception $e) {
-            // Log and return generic error response
             Log::error('Error: ' . $e->getMessage());
             return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
         }
     }
+
+
 
 
 
