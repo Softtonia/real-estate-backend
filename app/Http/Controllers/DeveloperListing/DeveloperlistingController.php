@@ -17,6 +17,7 @@ use App\Models\Keyword;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 
 class DeveloperlistingController extends Controller
@@ -583,7 +584,7 @@ class DeveloperlistingController extends Controller
             $baseURL = config('app.url');
 
             $project = Developerlist::with([
-                'location',
+                'country','state','city',
                 'user',
                 'propertyType',
                 'purpose',
@@ -679,8 +680,7 @@ class DeveloperlistingController extends Controller
                 'state_name' => optional($project->state)->name,
                 'city_id' => $project->city_id,
                 'city_name' => optional($project->city)->name,
-                'location_id' => $project->location_id,
-                'location_name' => optional($project->location)->name,
+
                 'property_address' => $project->property_address,
                 'status' => $project->status,
                 'status_reason' => $project->status_reason,
@@ -787,25 +787,27 @@ class DeveloperlistingController extends Controller
             $projectData = [];
 
             // Validate: Ensure at least one of country_id, state_id, city_id is provided and not null
-            if (
-                (!isset($request->country_id) || $request->country_id === null) &&
-                (!isset($request->state_id) || $request->state_id === null) &&
-                (!isset($request->city_id) || $request->city_id === null)
-            ) {
-                return response()->json(['error' => 'Please provide at least one of country_id, state_id, or city_id.'], 422);
+            $validator = Validator::make($request->all(), [
+                'country_id' => 'required|integer|exists:countries,id',
+                'state_id' => 'required|integer|exists:states,id',
+                'city_id' => 'required|integer|exists:cities,id',
+            ]);
+
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'country_id, state_id, and city_id are all required.',
+                    'errors' => $validator->errors(),      // field-wise detail
+                ], 422);
             }
 
             // Build query dynamically based on provided parameters
             $query = Developerlist::query();
 
-            if (!empty($request->country_id)) {
-                $query->where('country_id', $request->country_id);
-            }
-            if (!empty($request->state_id)) {
-                $query->where('state_id', $request->state_id);
-            }
-            if (!empty($request->city_id)) {
-                $query->where('city_id', $request->city_id);
+            if (!empty($request->country_id) && !empty($request->state_id) && !empty($request->city_id)) {
+                $query->where('country_id', $request->country_id)
+                      ->where('state_id', $request->state_id)
+                      ->where('city_id', $request->city_id);
             }
 
             // Fetch matching projects
