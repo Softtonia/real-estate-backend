@@ -676,10 +676,13 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 
 // Template Value Id
 
-Route::get('/template-values', [TemplateValueIdController::class, 'index']);        // Get all
-Route::get('/template-values/show', [TemplateValueIdController::class, 'show']);    // Get one
-Route::middleware('admin.token')->post('/template-values/create', [TemplateValueIdController::class, 'store']); // Create
-Route::middleware('admin.token')->put('/template-values/update', [TemplateValueIdController::class, 'update']); // Update
-Route::middleware('admin.token')->delete('/template-values/delete', [TemplateValueIdController::class, 'destroy']); // Delete
-Route::middleware('admin.token')->post('/template-values/bulk-delete', [TemplateValueIdController::class, 'bulkDelete']);
+Route::get('/get-all-template-value-id', [TemplateValueIdController::class, 'index']);        // Get all
+Route::get('/get-template-value-id', [TemplateValueIdController::class, 'show']);    // Get one
+Route::middleware('admin.token')->post('add-template-value-id', [TemplateValueIdController::class, 'store']); // Create
+Route::middleware('admin.token')->put('update-template-value-id', [TemplateValueIdController::class, 'update']); // Update
+Route::middleware('admin.token')->delete('delete-template-value-id', [TemplateValueIdController::class, 'destroy']); // Delete
+Route::middleware('admin.token')->post('bulk-delete-template-value-id', [TemplateValueIdController::class, 'bulkDelete']);
+
+Route::get('/check-template-value-id-uniqueness', [TemplateValueIdController::class, 'checkTemplateValueIdUniqueness']);
+
 

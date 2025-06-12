@@ -62,13 +62,28 @@ class TemplateValueIdController extends Controller
         $validated = $validator->validated();
 
         // Generate slug from name
-        $baseSlug = Str::slug($validated['name']);
-        $slug = $baseSlug;
-        $counter = 1;
+        $slug = Str::slug($validated['name']);
 
-        // Ensure slug is unique
-        while (TemplateValueId::where('slug', $slug)->exists()) {
-            $slug = $baseSlug . '-' . $counter++;
+        //  Condition 1: Slug already exists globally (optional if DB unique)
+        $slugExists = TemplateValueId::where('slug', $slug)->exists();
+
+        if ($slugExists) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Slug already exists. Please change the "name" field.',
+            ], 409);
+        }
+
+        //  Condition 2: Slug with same post_type exists
+        $comboExists = TemplateValueId::where('slug', $slug)
+            ->where('post_type', $validated['post_type'])
+            ->exists();
+
+        if ($comboExists) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This name already exists for the selected post type. Please change the name.',
+            ], 409);
         }
 
         $validated['slug'] = $slug;
@@ -81,6 +96,7 @@ class TemplateValueIdController extends Controller
             'data' => $data,
         ], 201);
     }
+
 
     // GET single record
     public function show(Request $request)
@@ -124,12 +140,12 @@ class TemplateValueIdController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Data not found',
-            ], 200);
+            ], 404);
         }
 
         $validator = Validator::make($request->all(), [
             'name' => 'nullable|string|max:50',
-            'slug' => 'nullable|string|max:100|unique:template_value_id,slug,' . $id,
+            'slug' => 'nullable|string|max:100',
             'post_type' => 'nullable|in:project,property_list,developer_list',
             'status' => 'nullable|in:0,1',
         ]);
@@ -144,18 +160,33 @@ class TemplateValueIdController extends Controller
 
         $validated = $validator->validated();
 
-        // If slug not provided but name is updated, generate a unique slug
-        if (empty($validated['slug']) && !empty($validated['name'])) {
-            $baseSlug = Str::slug($validated['name']);
-            $slug = $baseSlug;
-            $counter = 1;
+        // Use existing post_type if not sent
+        $postType = $validated['post_type'] ?? $data->post_type;
 
-            while (TemplateValueId::where('slug', $slug)->where('id', '!=', $id)->exists()) {
-                $slug = $baseSlug . '-' . $counter++;
-            }
-
-            $validated['slug'] = $slug;
+        // Slug logic
+        if (!empty($validated['slug'])) {
+            $slug = Str::slug($validated['slug']);
+        } elseif (!empty($validated['name'])) {
+            $slug = Str::slug($validated['name']);
+        } else {
+            $slug = $data->slug; // no change
         }
+
+        // Check for duplicate slug + post_type combo (excluding current record)
+        $exists = TemplateValueId::where('slug', $slug)
+            ->where('post_type', $postType)
+            ->where('id', '=', $id)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This name or slug already exists for the selected post type. Please change the name or slug.',
+            ], 409);
+        }
+
+        $validated['slug'] = $slug;
+        $validated['post_type'] = $postType;
 
         $data->update($validated);
 
@@ -165,6 +196,7 @@ class TemplateValueIdController extends Controller
             'data' => $data,
         ]);
     }
+
 
     // DELETE record
     public function destroy(Request $request)
@@ -227,5 +259,31 @@ class TemplateValueIdController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+
+    public function checkTemplateValueIdUniqueness(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'slug' => 'required|string|max:100',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $slug = Str::slug($request->slug); // Normalize slug input
+
+        $exists = TemplateValueId::where('slug', $slug)->exists();
+
+        return response()->json([
+            'status' => !$exists,
+            'message' => $exists ? 'Slug already exists.' : 'Slug is available.',
+            'slug' => $slug,
+        ]);
     }
 }
