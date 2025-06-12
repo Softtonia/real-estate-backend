@@ -1326,7 +1326,7 @@ class CustomFieldController extends Controller
 
             $cusData = CustomField::query()
                 ->where('post_type', 'property_list')
-                ->where('model_fields', 'LIKE', '%"model":"'.$filterModel.'"%')
+                ->where('model_fields', 'LIKE', '%"model":"' . $filterModel . '"%')
                 ->with('groupname', 'options')
                 ->get();
 
@@ -1364,14 +1364,14 @@ class CustomFieldController extends Controller
                 }
 
                 $payload[] = [
-                    'id'               => $row->id,
-                    'group'            => $row->groupname,
-                    'field_label'      => $row->field_label,
-                    'field_name'       => $row->field_name_slug,
-                    'field_placeholder'=> $row->field_placeholder,
-                    'field_type'       => $row->field_type,
-                    'required'         => $row->required,
-                    'options'          => $row->options,
+                    'id' => $row->id,
+                    'group' => $row->groupname,
+                    'field_label' => $row->field_label,
+                    'field_name' => $row->field_name_slug,
+                    'field_placeholder' => $row->field_placeholder,
+                    'field_type' => $row->field_type,
+                    'required' => $row->required,
+                    'options' => $row->options,
                     'model_conditions' => array_values(
                         array_filter($resolvedConditions)   // drop nulls
                     ),
@@ -1383,9 +1383,9 @@ class CustomFieldController extends Controller
                 : response()->json(['success' => 'No data found'], 200);
 
         } catch (\Throwable $e) {
-            \Log::error('customFieldListing error: '.$e->getMessage());
+            \Log::error('customFieldListing error: ' . $e->getMessage());
             return response()->json(
-                ['error' => 'Something went wrong. '.$e->getMessage()],
+                ['error' => 'Something went wrong. ' . $e->getMessage()],
                 500
             );
         }

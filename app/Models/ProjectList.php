@@ -12,10 +12,7 @@ class ProjectList extends Model
     protected $table='project_listings';
     protected $guarded=[];
 
-    public function location()
-    {
-        return $this->belongsTo(Location::class);
-    }
+
 
     public function amenity()
     {

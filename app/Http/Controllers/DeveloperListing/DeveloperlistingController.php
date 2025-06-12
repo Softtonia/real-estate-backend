@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\DeveloperListing;
 
 use App\Http\Controllers\Controller;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use App\Models\Developerlist;
 use App\Models\User;
@@ -15,6 +16,7 @@ use App\Models\CustomFieldRepeaterValues;
 use App\Models\AmenitiesCategory;
 use App\Models\Keyword;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -485,11 +487,18 @@ class DeveloperlistingController extends Controller
     public function destroy(Request $request)
     {
 
-        if ($request->header('api-token') == '') {
-            return response()->json(['error' => 'Please enter api token first.'], 422);
+        $userToken = $request->header('Authorization'); // Assuming the token is passed in the Authorization header as 'Bearer {token}'
+        if (!$userToken || !str_starts_with($userToken, 'Bearer ')) {
+            return response()->json(['error' => 'API token is required'], 422);
         }
 
-        $requestToken = $request->header('api-token');
+        $token = substr($userToken, 7); // Extract the token from 'Bearer {token}'
+
+        // Find the user associated with the token
+        $user = User::where('api_token', $token)->first();
+        if (!$user) {
+            return response()->json(['error' => 'Invalid API token'], 401);
+        }
 
         try {
             $id = $request->id;
@@ -497,6 +506,13 @@ class DeveloperlistingController extends Controller
 
             if (!$project) {
                 return response()->json(['message' => 'No Developer found'], 404);
+            }
+
+            $filePath = public_path('uploads/featured_image/'.$project->featured_image);
+
+            // Delete the file if it exists
+            if (File::exists($filePath)) {
+                File::delete($filePath);
             }
 
             // Delete specific related records
@@ -712,17 +728,17 @@ class DeveloperlistingController extends Controller
     public function bulkDelete(Request $request)
     {
 
-        if ($request->header('api-token') == '') {
-            return response()->json(['error' => 'Please enter api token first.'], 422);
-        }
+        // if ($request->header('api-token') == '') {
+        //     return response()->json(['error' => 'Please enter api token first.'], 422);
+        // }
 
-        $requestToken = $request->header('api-token');
+        // $requestToken = $request->header('api-token');
 
-        $expectedToken = config('constants.API_TOKEN');
+        // $expectedToken = config('constants.API_TOKEN');
 
-        if ($requestToken !== $expectedToken) {
-            return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
-        }
+        // if ($requestToken !== $expectedToken) {
+        //     return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
+        // }
 
         try {
             // Find the builder by ID
@@ -730,6 +746,12 @@ class DeveloperlistingController extends Controller
 
             foreach ($delete_ids as $row) {
                 $purpose = Developerlist::findOrFail($row);
+                $filePath = public_path('uploads/featured_image/' . $purpose->featured_image);
+
+                // Delete the file if it exists
+                if (File::exists($filePath)) {
+                    File::delete($filePath);
+                }
                 // Delete the builder record
                 $purpose->customFieldValues()->delete();
                 // Delete the property
@@ -749,7 +771,7 @@ class DeveloperlistingController extends Controller
             return response()->json(['error' => 'Something went wrong'], 500);
         }
     }
-    public function getUserProject(Request $request)
+    public function getUserDeveloper(Request $request)
     {
         try {
             // Authenticate the user

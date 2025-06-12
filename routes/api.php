@@ -4,6 +4,7 @@ use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
+use App\Http\Controllers\TemplateValueId\TemplateValueIdController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
@@ -201,11 +202,11 @@ Route::post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete
 // ======Developer Listing============
 Route::middleware('allow.admin_developer')->post('add-developer-listing', [DeveloperlistingController::class, 'store']);
 Route::middleware('allow.admin_developer')->post('edit-developer-listing', [DeveloperlistingController::class, 'update']);
-Route::post('allow.admin_developer', [DeveloperlistingController::class, 'destroy']);
+Route::middleware('allow.admin_developer')->post('developer-delete', [DeveloperlistingController::class, 'destroy']);
 Route::get('fetch-all-developer-listing', [DeveloperlistingController::class, 'index']);
 Route::middleware('admin.token')->get('fetch-all-developer-listing-by-admin', [DeveloperlistingController::class, 'indexByAdmin']);
 Route::get('get-data-developer/{id}', [DeveloperlistingController::class, 'getdatabyId']);
-Route::post('developer-bulk-delete', [DeveloperlistingController::class, 'bulkDelete']);
+Route::middleware('allow.admin_developer')->post('developer-bulk-delete', [DeveloperlistingController::class, 'bulkDelete']);
 Route::middleware('admin.token')->post('update-developer-status', [DeveloperlistingController::class, 'updateDeveloperStatus']);
 Route::middleware('api.token')->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
 Route::post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
@@ -670,3 +671,15 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 //Route::get('/get-data-by-token', [UserController::class, 'getDataByToken']);
 // Route::get('get-all-agent-listing-by-admin', [UserController::class, 'allAgentListingByAdmin']);
 // Route::get('get-agent-listing', [UserController::class, 'getAgentListing']);
+
+
+
+// Template Value Id
+
+Route::get('/template-values', [TemplateValueIdController::class, 'index']);        // Get all
+Route::get('/template-values/show', [TemplateValueIdController::class, 'show']);    // Get one
+Route::middleware('admin.token')->post('/template-values/create', [TemplateValueIdController::class, 'store']); // Create
+Route::middleware('admin.token')->put('/template-values/update', [TemplateValueIdController::class, 'update']); // Update
+Route::middleware('admin.token')->delete('/template-values/delete', [TemplateValueIdController::class, 'destroy']); // Delete
+Route::middleware('admin.token')->post('/template-values/bulk-delete', [TemplateValueIdController::class, 'bulkDelete']);
+
