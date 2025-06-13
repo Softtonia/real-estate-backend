@@ -14,7 +14,7 @@ class CustomField extends Model
     protected $fillable = [
         'group_id', 'field_label', 'field_name_slug', 'field_placeholder',
         'field_type', 'required', 'post_type', 'media_limit', 'media_size',
-        'media_format', 'model_fields','checkbox_type'
+        'media_format', 'model_fields','checkbox_type','template_value_id','model'
     ];
 
     protected $dates = ['deleted_at'];

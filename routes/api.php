@@ -684,5 +684,7 @@ Route::middleware('admin.token')->delete('delete-template-value-id', [TemplateVa
 Route::middleware('admin.token')->post('bulk-delete-template-value-id', [TemplateValueIdController::class, 'bulkDelete']);
 
 Route::get('/check-template-value-id-uniqueness', [TemplateValueIdController::class, 'checkTemplateValueIdUniqueness']);
+Route::get('/get-template-value-id-by-post-type', [TemplateValueIdController::class, 'getTemplateValueIdByPostType']);
+
 
 

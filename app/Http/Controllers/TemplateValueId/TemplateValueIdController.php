@@ -16,7 +16,7 @@ class TemplateValueIdController extends Controller
     public function index()
     {
         try {
-            $data = TemplateValueId::all();
+            $data = TemplateValueId::where('status',1)->get();
 
             if ($data->isEmpty()) {
                 return response()->json([
@@ -115,7 +115,7 @@ class TemplateValueIdController extends Controller
                 ], 422);
             }
 
-            $data = TemplateValueId::find($request->id);
+            $data = TemplateValueId::find($request->id)->where('status', 1);
 
             return response()->json([
                 'status' => true,
@@ -261,7 +261,7 @@ class TemplateValueIdController extends Controller
         }
     }
 
-
+// check uniqueness
     public function checkTemplateValueIdUniqueness(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -286,4 +286,39 @@ class TemplateValueIdController extends Controller
             'slug' => $slug,
         ]);
     }
+
+
+
+    // get template value id by post_type
+
+    public function getTemplateValueIdByPostType(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'post_type' => 'required|in:project,property_list,developer_list',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $data = TemplateValueId::where('post_type', $request->post_type)->where('status',1)->get();
+
+        if ($data->isEmpty()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'No data found for the given post_type.',
+            ], 200);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Data fetched successfully.',
+            'data' => $data,
+        ]);
+    }
+
 }

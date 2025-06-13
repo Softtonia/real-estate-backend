@@ -538,8 +538,10 @@ class CustomFieldController extends Controller
                 'fields.*.field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
                 'fields.*.required' => 'required|string|in:yes,no',
                 'fields.*.post_type' => 'required|string|max:255',
+                'fields.*.template_value_id' => 'nullable|integer|exists:template_value_id,id', // Ensure template_value_id exists in the database
                 'fields.*.media_limit' => 'nullable|integer',
                 'fields.*.media_size' => 'nullable|string',
+                'fields.*.model' => 'nullable|string',
                 'fields.*.media_format' => 'nullable|array',
                 'fields.*.options' => 'nullable|array',
                 'fields.*.repeater' => 'nullable|array',
@@ -590,9 +592,11 @@ class CustomFieldController extends Controller
                     'required' => $fieldData['required'],
                     'checkbox_type' => $fieldData['checkbox_type'] ?? null,
                     'post_type' => $fieldData['post_type'],
+                    'template_value_id' => $fieldData['template_value_id'] ?? null, // ADD THIS
                     'media_limit' => $fieldData['media_limit'] ?? null,
                     'media_size' => $fieldData['media_size'] ?? null,
                     'media_format' => $mediaFormat,
+                    'model' => $fieldData['model'] ?? null,
                     'model_fields' => json_encode($modelFieldsData),
                 ]);
 
@@ -687,6 +691,7 @@ class CustomFieldController extends Controller
                 'fields.*.field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
                 'fields.*.required' => 'required|string|in:yes,no',
                 'fields.*.post_type' => 'required|string|max:255',
+                'fields.*.template_value_id' => 'nullable|integer|exists:template_value_id,id', // Ensure template_value_id exists in the database
                 'fields.*.media_limit' => 'nullable|integer',
                 'fields.*.media_size' => 'nullable|string',
                 'fields.*.media_format' => 'nullable|array',
@@ -694,6 +699,7 @@ class CustomFieldController extends Controller
                 'fields.*.options.*.label' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
                 'fields.*.options.*.value' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
                 'fields.*.repeater' => 'nullable|array',
+                'fields.*.model' => 'nullable|string',
                 'fields.*.model_fields' => 'nullable|array',
                 'fields.*.model_fields.*.model' => 'nullable|string',
                 'fields.*.model_fields.*.condition' => 'nullable|array',
@@ -741,9 +747,11 @@ class CustomFieldController extends Controller
                         'field_type' => $fieldData['field_type'],
                         'required' => $fieldData['required'],
                         'post_type' => $fieldData['post_type'],
+                        'template_value_id' => $fieldData['template_value_id'] ?? null, // ADD THIS
                         'media_limit' => $fieldData['media_limit'] ?? null,
                         'media_size' => $fieldData['media_size'] ?? null,
                         'media_format' => $mediaFormat,
+                        'model'=> $fieldData['model'],
                         'model_fields' => json_encode($modelFieldsData),
                     ]
                 );
