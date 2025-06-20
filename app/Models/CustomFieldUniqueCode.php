@@ -12,4 +12,12 @@ class CustomFieldUniqueCode extends Model
     protected $guarded=[];
 
 
+     public $timestamps = true;
+
+
+    public function customFields(){
+        return $this->hasMany(CustomField::class, 'template_id', 'id');
+    }
+
+
 }

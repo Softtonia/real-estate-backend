@@ -4,7 +4,6 @@ use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
-use App\Http\Controllers\TemplateValueId\TemplateValueIdController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
@@ -410,6 +409,8 @@ Route::middleware('admin.token')->post('groups-update/{id}', [GroupController::c
 Route::middleware('admin.token')->post('groups-list', [GroupController::class, 'index']);
 Route::middleware('admin.token')->post('groups-delete/{id}', [GroupController::class, 'deleteGroup']);
 Route::get('/check-unique-group-name', [GroupController::class, 'checkUniqueGroupName']);
+Route::middleware('admin.token')->post('groups-bulk-delete', [GroupController::class, 'bulkDeleteGroups']);
+
 
 // Group Route will end from here
 
@@ -674,17 +675,15 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 
 
 
-// Template Value Id
+// Template  Id
 
-Route::get('/get-all-template-value-id', [TemplateValueIdController::class, 'index']);        // Get all
-Route::get('/get-template-value-id', [TemplateValueIdController::class, 'show']);    // Get one
-Route::middleware('admin.token')->post('add-template-value-id', [TemplateValueIdController::class, 'store']); // Create
-Route::middleware('admin.token')->put('update-template-value-id', [TemplateValueIdController::class, 'update']); // Update
-Route::middleware('admin.token')->delete('delete-template-value-id', [TemplateValueIdController::class, 'destroy']); // Delete
-Route::middleware('admin.token')->post('bulk-delete-template-value-id', [TemplateValueIdController::class, 'bulkDelete']);
+// CustomFieldUniqueCode
+Route::middleware('admin.token')->post('add-template-id-listings', [CustomFieldController::class, 'storeCustomFieldUniqueCode']);
+Route::get('/get-template-id-listings-by-id', [CustomFieldController::class, 'showCustomFieldUniqueCodeById']);
+Route::middleware('admin.token')->post('update-template-id-listings', [CustomFieldController::class, 'updateCustomFieldUniqueCode']);
+Route::middleware('admin.token')->delete('delete-template-id-listings', [CustomFieldController::class, 'destroyCustomFieldUniqueCode']);
+Route::middleware('admin.token')->post('bulk-delete-template-id-listings',[CustomFieldController::class, 'bulkDeleteCustomFieldUniqueCode']);
 
-Route::get('/check-template-value-id-uniqueness', [TemplateValueIdController::class, 'checkTemplateValueIdUniqueness']);
-Route::get('/get-template-value-id-by-post-type', [TemplateValueIdController::class, 'getTemplateValueIdByPostType']);
 
 
 

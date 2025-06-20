@@ -200,7 +200,10 @@ class ProjectlistingController extends Controller
                 'customFieldValues.customField',
                 'customFieldValues.customFieldOption',
                 'importKeywords',
-                'developer.userDetails','country','state','city'
+                'developer.userDetails',
+                'country',
+                'state',
+                'city'
             ])->where('live_status', 'Approve')->get();
 
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
@@ -315,7 +318,9 @@ class ProjectlistingController extends Controller
 
             // Fetch projects with related models, including created_by & updated_by user roles
             $projects = ProjectList::with([
-                'country','state','city',
+                'country',
+                'state',
+                'city',
                 'user',
                 'propertyType',
                 'purpose',
@@ -370,8 +375,8 @@ class ProjectlistingController extends Controller
                     'name' => $property->name,
                     'description' => $property->description,
                     'address' => $property->address,
-                    'country' =>$property->country,
-                    'state' =>$property->state,
+                    'country' => $property->country,
+                    'state' => $property->state,
                     'city' => $property->city,
                     'live_status' => $property->live_status,
                     'temporary_status' => $property->temporary_status,
@@ -831,7 +836,7 @@ class ProjectlistingController extends Controller
             $baseURL = config('app.url');
             $basePath = public_path();
 
-            $projects = ProjectList::with(['country','state','city', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption'])->where('user_id', $request->user_id)->get();
+            $projects = ProjectList::with(['country', 'state', 'city', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption'])->where('user_id', $request->user_id)->get();
 
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {

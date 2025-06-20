@@ -252,16 +252,17 @@ class AdminController extends Controller
             }
 
             $totalPropertyCount = PropertyList::count();
-            $approvedPropertyCount = PropertyList::where('status', 'approved')->count();
-            $rejectPropertyCount = PropertyList::where('status', 'reject')->count();
-            $pendingPropertyCount = PropertyList::where('status', 'pending')->count();
+            $approvedPropertyCount = PropertyList::where('live_status', 'Approve')->count();
+            $rejectPropertyCount = PropertyList::where('live_status', 'Reject')->count();
+            $underReviewPropertyCount = PropertyList::where('live_status', 'Under Review')->count();
 
 
             $totalProjectCount = ProjectList::count();
-            $approvedProjectCount = ProjectList::where('status', 'approved')->count();
-            $rejectProjectCount = ProjectList::where('status', 'reject')->count();
-            $pendingProjectCount = ProjectList::where('status', 'pending')->count();
+            $approvedProjectCount = ProjectList::where('live_status', 'Approve')->count();
+            $rejectProjectCount = ProjectList::where('live_status', 'Reject')->count();
+            $underReviewProjectCount = ProjectList::where('live_status', 'Under Review')->count();
 
+            // Approve, Disapprove,Reject,Under Review,Modify Review,
 
             $ownerCount = User::where('role_id', 2)->count();
             $agentCount = User::where('role_id', 3)->count();
@@ -281,12 +282,12 @@ class AdminController extends Controller
                 'total_property_count' => $totalPropertyCount,
                 'approved_property_count' => $approvedPropertyCount,
                 'reject_property_count' => $rejectPropertyCount,
-                'pending_property_count' => $pendingPropertyCount,
+                'under_review_property_count' => $underReviewPropertyCount,
 
                 'total_project_count' => $totalProjectCount,
                 'approved_project_count' => $approvedProjectCount,
                 'reject_project_count' => $rejectProjectCount,
-                'pending_project_count' => $pendingProjectCount,
+                'under_review_project_count' => $underReviewProjectCount,
 
                 'owner_count' => $ownerCount,
                 'agent_count' => $agentCount,

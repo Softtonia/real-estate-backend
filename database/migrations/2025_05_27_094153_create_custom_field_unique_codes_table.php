@@ -19,7 +19,7 @@ return new class extends Migration
 
             $table->enum('status', ['1', '0'])->collation('utf8mb4_general_ci')->default('1');
             $table->timestamp('created_at')->useCurrent()->nullable();
-            $table->timestamp('update_at')->useCurrent()->nullable();
+            $table->timestamp('updated_at')->useCurrent()->nullable();
         });
     }
 

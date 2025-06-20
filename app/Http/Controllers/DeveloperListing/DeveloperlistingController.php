@@ -382,8 +382,8 @@ class DeveloperlistingController extends Controller
 
             // Validate ID
             $id = $request->id;
-            $project = Developerlist::find($id);
-            if (!$project) {
+            $developer = Developerlist::find($id);
+            if (!$developer) {
                 return response()->json(['error' => 'Invalid Developer Id'], 404);
             }
 
@@ -394,12 +394,12 @@ class DeveloperlistingController extends Controller
                     $file = $request->file($fileField);
                     $fileName = time() . '_' . $file->getClientOriginalName();
                     $file->move(public_path('uploads/' . $fileField), $fileName);
-                    $project->$fileField = $fileName;
+                    $developer->$fileField = $fileName;
                 }
             }
 
-            // Update project data and store updated_by
-            $project->update([
+            // Update developer data and store updated_by
+            $developer->update([
                 'name' => $request->name,
                 'description' => $request->description,
                 'country_id' => $request->country_id,
@@ -417,11 +417,11 @@ class DeveloperlistingController extends Controller
 
             // Handle repeater fields (custom fields)
             if ($request->has('repeater_fields')) {
-                Customfieldvalue::where('project_listing_id', $project->id)->delete(); // Clear existing
+                Customfieldvalue::where('developer_listing_id', $developer->id)->delete(); // Clear existing
 
                 foreach ($request->repeater_fields as $repeaterField) {
                     $customFieldData = [
-                        'project_listing_id' => $project->id,
+                        'developer_listing_id' => $developer->id,
                         'custom_field_id' => $repeaterField['custom_field_id'],
                         'field_meta_value' => $repeaterField['field_value'],
                     ];

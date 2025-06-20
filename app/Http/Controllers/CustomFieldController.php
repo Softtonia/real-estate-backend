@@ -69,7 +69,7 @@ class CustomFieldController extends Controller
             $currentPage = $request->input('page', 1);
 
             // Fetch paginated custom fields with 10 items per page
-            $customFields = CustomField::with('repeaters') // Load repeaters for each field
+            $customFields = CustomField::with('repeaters', 'templateValue') // Load repeaters for each field
                 ->latest('created_at')
                 ->paginate(10, ['*'], 'page', $currentPage);
 
@@ -160,6 +160,8 @@ class CustomFieldController extends Controller
                                     'fieldMediaFormat' => $repeater->media_format,
                                 ];
                             }),
+                            'template_id' => $customField->template_id,
+                            'template_value' => $customField->templateValue,
                         ]
                     ]
                 ]);
@@ -205,6 +207,8 @@ class CustomFieldController extends Controller
                             'updated_at' => $repeater->updated_at->format('Y-m-d H:i:s'),
                         ];
                     }),
+                    'template_id' => $field->template_id,
+                    'template_value' => $field->templateValue,
                 ];
             });
 
@@ -538,10 +542,9 @@ class CustomFieldController extends Controller
                 'fields.*.field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
                 'fields.*.required' => 'required|string|in:yes,no',
                 'fields.*.post_type' => 'required|string|max:255',
-                'fields.*.template_value_id' => 'nullable|integer|exists:template_value_id,id', // Ensure template_value_id exists in the database
+                'fields.*.template_id' => 'nullable|integer|exists:custom_field_unique_codes,id', // Ensure template_value_id exists in the database
                 'fields.*.media_limit' => 'nullable|integer',
                 'fields.*.media_size' => 'nullable|string',
-                'fields.*.model' => 'nullable|string',
                 'fields.*.media_format' => 'nullable|array',
                 'fields.*.options' => 'nullable|array',
                 'fields.*.repeater' => 'nullable|array',
@@ -592,11 +595,10 @@ class CustomFieldController extends Controller
                     'required' => $fieldData['required'],
                     'checkbox_type' => $fieldData['checkbox_type'] ?? null,
                     'post_type' => $fieldData['post_type'],
-                    'template_value_id' => $fieldData['template_value_id'] ?? null, // ADD THIS
+                    'template_id' => $fieldData['template_id'] ?? null, // ADD THIS
                     'media_limit' => $fieldData['media_limit'] ?? null,
                     'media_size' => $fieldData['media_size'] ?? null,
                     'media_format' => $mediaFormat,
-                    'model' => $fieldData['model'] ?? null,
                     'model_fields' => json_encode($modelFieldsData),
                 ]);
 
@@ -691,7 +693,7 @@ class CustomFieldController extends Controller
                 'fields.*.field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
                 'fields.*.required' => 'required|string|in:yes,no',
                 'fields.*.post_type' => 'required|string|max:255',
-                'fields.*.template_value_id' => 'nullable|integer|exists:template_value_id,id', // Ensure template_value_id exists in the database
+                 'fields.*.template_id' => 'nullable|integer|exists:custom_field_unique_codes,id',
                 'fields.*.media_limit' => 'nullable|integer',
                 'fields.*.media_size' => 'nullable|string',
                 'fields.*.media_format' => 'nullable|array',
@@ -699,7 +701,6 @@ class CustomFieldController extends Controller
                 'fields.*.options.*.label' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
                 'fields.*.options.*.value' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
                 'fields.*.repeater' => 'nullable|array',
-                'fields.*.model' => 'nullable|string',
                 'fields.*.model_fields' => 'nullable|array',
                 'fields.*.model_fields.*.model' => 'nullable|string',
                 'fields.*.model_fields.*.condition' => 'nullable|array',
@@ -747,11 +748,10 @@ class CustomFieldController extends Controller
                         'field_type' => $fieldData['field_type'],
                         'required' => $fieldData['required'],
                         'post_type' => $fieldData['post_type'],
-                        'template_value_id' => $fieldData['template_value_id'] ?? null, // ADD THIS
+                        'template_id' => $fieldData['template_id'] ?? null, // ADD THIS
                         'media_limit' => $fieldData['media_limit'] ?? null,
                         'media_size' => $fieldData['media_size'] ?? null,
                         'media_format' => $mediaFormat,
-                        'model'=> $fieldData['model'],
                         'model_fields' => json_encode($modelFieldsData),
                     ]
                 );
@@ -929,22 +929,143 @@ class CustomFieldController extends Controller
 
 
     // this  id for show of fields
+    // public function show(Request $request)
+    // {
+    //     try {
+    //         // Fetch the custom fields along with their groupname, options, and repeater fields with values
+    //         $data = CustomField::where('group_id', $request->group_id)
+    //             ->with(['groupname', 'options', 'repeaterFields.repeaterOptions'])
+    //             ->get();
+
+    //         if (count($data) < 1) {
+    //             return response()->json($data, 200);
+    //         }
+
+    //         // Fetch the group data
+    //         $groupData = Groupname::where('id', $request->group_id)->first();
+
+    //         // Prepare the response data
+    //         $customFields = [];
+    //         $customFields['group_data'] = [
+    //             'group_name' => $groupData->group_name,
+    //             'group_id' => $groupData->id
+    //         ];
+
+    //         $customFields['data'] = [];
+
+    //         foreach ($data as $field) {
+    //             $modelNameNew = ucwords(str_replace('_', ' ', $field->model));
+
+    //             // Fetch the model condition data
+    //             $conditionData = $this->getModelConditionData($field->model);
+
+    //             // Decode the condition string to convert it to an array
+    //             $conditionArray = json_decode($field->condition);
+
+    //             // Transform repeater fields to camelCase and add prefix to specific columns
+    //             $repeaterFields = [];
+    //             foreach ($field->repeaterFields as $repeaterField) {
+    //                 $repeaterFieldArray = $repeaterField->toArray();
+    //                 $camelCasedRepeaterField = [];
+    //                 foreach ($repeaterFieldArray as $key => $value) {
+    //                     $newKey = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $key))));
+    //                     if (in_array($key, ['media_format', 'media_limit', 'media_size'])) {
+    //                         $newKey = 'field' . ucfirst($newKey);
+    //                     }
+    //                     $camelCasedRepeaterField[$newKey] = $value;
+    //                 }
+
+    //                 // Transform repeater options to camelCase
+    //                 $repeaterOptions = [];
+    //                 foreach ($repeaterField->repeaterOptions as $repeaterOption) {
+    //                     $repeaterOptionArray = $repeaterOption->toArray();
+    //                     $camelCasedRepeaterOption = array_combine(
+    //                         array_map(function ($key) {
+    //                             return lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $key))));
+    //                         }, array_keys($repeaterOptionArray)),
+    //                         $repeaterOptionArray
+    //                     );
+    //                     $repeaterOptions[] = $camelCasedRepeaterOption;
+    //                 }
+    //                 $camelCasedRepeaterField['repeaterOptions'] = $repeaterOptions;
+    //                 $repeaterFields[] = $camelCasedRepeaterField;
+    //             }
+
+    //             // Include the new columns in the response
+    //             $customFields['data'][] = [
+    //                 'id' => $field->id,
+    //                 'post_type' => $field->post_type,
+    //                 'field_label' => $field->field_label,
+    //                 'field_name' => $field->field_name,
+    //                 'field_placeholder' => $field->field_placeholder,
+    //                 // 'field_name_description' => $field->field_name_description,
+    //                 'checkbox_visible' => $field->field_type == 'checkbox' ? true : false,
+    //                 'media_visible' => $field->field_type == 'media' ? true : false,
+    //                 'file_visible' => $field->field_type == 'file' ? true : false,
+    //                 'select_visible' => $field->field_type == 'select' ? true : false,
+    //                 'radio_visible' => $field->field_type == 'radio' ? true : false,
+    //                 'repeater_visible' => $field->field_type == 'repeater' ? true : false,
+    //                 'field_type' => $field->field_type,
+    //                 'options' => $field->options,
+    //                 'repeater_fields' => $repeaterFields,
+    //                 'model' => $field->model,
+    //                 'model_' => $modelNameNew,
+    //                 'model_condition' => $conditionData,
+    //                 'condition' => $conditionArray,
+    //                 'required' => $field->required,
+    //                 'media_limit' => $field->media_limit,
+    //                 'media_size' => $field->media_size,
+    //                 'media_format' => explode(',', $field->media_format),
+    //                 'checkbox_type' => $request->checkbox_type ?? 'manually' ?? 'import_from_aminities',
+    //                 'created_at' => $field->created_at,
+    //                 'updated_at' => $field->updated_at
+    //             ];
+    //         }
+
+    //         // Return the array of custom field data as JSON response
+    //         return response()->json($customFields, 200);
+    //     } catch (\Exception $e) {
+    //         // Log and return generic error response
+    //         Log::error('Error: ' . $e->getMessage());
+    //         return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+    //     }
+    // }
+
+    // private function getModelConditionData($model)
+    // {
+    //     switch ($model) {
+    //         case 'purpose':
+    //             return Purpose::all();
+    //         case 'property':
+    //             return Property::all();
+    //         case 'property_type':
+    //             return PropertyType::all();
+    //         case 'property_status':
+    //             return Status::all();
+    //         case 'amenities':
+    //             return Amenity::all();
+    //         case 'amenities_categories':
+    //             return AmenitiesCategory::all();
+    //         default:
+    //             return [];
+    //     }
+    // }
+
+    ############################## new show function ################################
+
     public function show(Request $request)
     {
         try {
-            // Fetch the custom fields along with their groupname, options, and repeater fields with values
             $data = CustomField::where('group_id', $request->group_id)
                 ->with(['groupname', 'options', 'repeaterFields.repeaterOptions'])
                 ->get();
 
-            if (count($data) < 1) {
-                return response()->json($data, 200);
+            if ($data->isEmpty()) {
+                return response()->json([], 200);
             }
 
-            // Fetch the group data
-            $groupData = Groupname::where('id', $request->group_id)->first();
+            $groupData = Groupname::find($request->group_id);
 
-            // Prepare the response data
             $customFields = [];
             $customFields['group_data'] = [
                 'group_name' => $groupData->group_name,
@@ -954,19 +1075,30 @@ class CustomFieldController extends Controller
             $customFields['data'] = [];
 
             foreach ($data as $field) {
-                $modelNameNew = ucwords(str_replace('_', ' ', $field->model));
+                // Decode model_fields JSON
+                $modelFields = json_decode($field->model_fields, true) ?? [];
 
-                // Fetch the model condition data
-                $conditionData = $this->getModelConditionData($field->model);
+                // Convert model names to readable format
+                $modelNames = [];
+                foreach ($modelFields as $modelFieldItem) {
+                    $modelNames[] = ucwords(str_replace('_', ' ', $modelFieldItem['model'] ?? ''));
+                }
 
-                // Decode the condition string to convert it to an array
-                $conditionArray = json_decode($field->condition);
+                // Collect model_condition data
+                $modelConditionData = [];
+                foreach ($modelFields as $modelFieldItem) {
+                    $singleModel = $modelFieldItem['model'] ?? null;
+                    if ($singleModel) {
+                        $modelConditionData[$singleModel] = $this->getModelConditionData($singleModel);
+                    }
+                }
 
-                // Transform repeater fields to camelCase and add prefix to specific columns
+                // Prepare repeater fields
                 $repeaterFields = [];
                 foreach ($field->repeaterFields as $repeaterField) {
                     $repeaterFieldArray = $repeaterField->toArray();
                     $camelCasedRepeaterField = [];
+
                     foreach ($repeaterFieldArray as $key => $value) {
                         $newKey = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $key))));
                         if (in_array($key, ['media_format', 'media_limit', 'media_size'])) {
@@ -975,7 +1107,7 @@ class CustomFieldController extends Controller
                         $camelCasedRepeaterField[$newKey] = $value;
                     }
 
-                    // Transform repeater options to camelCase
+                    // Repeater Options in camelCase
                     $repeaterOptions = [];
                     foreach ($repeaterField->repeaterOptions as $repeaterOption) {
                         $repeaterOptionArray = $repeaterOption->toArray();
@@ -987,47 +1119,44 @@ class CustomFieldController extends Controller
                         );
                         $repeaterOptions[] = $camelCasedRepeaterOption;
                     }
+
                     $camelCasedRepeaterField['repeaterOptions'] = $repeaterOptions;
                     $repeaterFields[] = $camelCasedRepeaterField;
                 }
 
-                // Include the new columns in the response
                 $customFields['data'][] = [
                     'id' => $field->id,
                     'post_type' => $field->post_type,
                     'field_label' => $field->field_label,
                     'field_name' => $field->field_name,
                     'field_placeholder' => $field->field_placeholder,
-                    // 'field_name_description' => $field->field_name_description,
-                    'checkbox_visible' => $field->field_type == 'checkbox' ? true : false,
-                    'media_visible' => $field->field_type == 'media' ? true : false,
-                    'file_visible' => $field->field_type == 'file' ? true : false,
-                    'select_visible' => $field->field_type == 'select' ? true : false,
-                    'radio_visible' => $field->field_type == 'radio' ? true : false,
-                    'repeater_visible' => $field->field_type == 'repeater' ? true : false,
+                    'checkbox_visible' => $field->field_type === 'checkbox',
+                    'media_visible' => $field->field_type === 'media',
+                    'file_visible' => $field->field_type === 'file',
+                    'select_visible' => $field->field_type === 'select',
+                    'radio_visible' => $field->field_type === 'radio',
+                    'repeater_visible' => $field->field_type === 'repeater',
                     'field_type' => $field->field_type,
                     'options' => $field->options,
                     'repeater_fields' => $repeaterFields,
-                    'model' => $field->model,
-                    'model_' => $modelNameNew,
-                    'model_condition' => $conditionData,
-                    'condition' => $conditionArray,
+                    'model_fields' => $modelFields,
+                    'model_names' => $modelNames,
+                    'model_condition' => $modelConditionData,
                     'required' => $field->required,
                     'media_limit' => $field->media_limit,
                     'media_size' => $field->media_size,
                     'media_format' => explode(',', $field->media_format),
-                    'checkbox_type' => $request->checkbox_type ?? 'manually' ?? 'import_from_aminities',
+                    'checkbox_type' => $request->checkbox_type ?? 'manually',
                     'created_at' => $field->created_at,
                     'updated_at' => $field->updated_at
                 ];
             }
 
-            // Return the array of custom field data as JSON response
             return response()->json($customFields, 200);
-        } catch (\Exception $e) {
-            // Log and return generic error response
+
+        } catch (Exception $e) {
             Log::error('Error: ' . $e->getMessage());
-            return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+            return response()->json(['error' => 'Something went wrong. ' . $e->getMessage()], 500);
         }
     }
 
@@ -1051,16 +1180,103 @@ class CustomFieldController extends Controller
         }
     }
 
+    ############################ end new show function #############################
 
 
 
 
 
     // this is for listing of custom fields by type
+    // public function customFieldListingByType(Request $request)
+    // {
+    //     try {
+
+    //         if (isset($request->post_type) && $request->post_type == 'project') {
+    //             $post_type = 'project';
+    //         } elseif (isset($request->post_type) && $request->post_type == 'developer_list') {
+    //             $post_type = 'developer_list';
+    //         } else {
+    //             $post_type = 'property_list';
+    //         }
+
+    //         $groupIdArr = [];
+    //         // Retrieve all CustomField records with their associated Groupname
+    //         $data = CustomField::with('groupname', 'options')->where('post_type', $post_type)->get();
+
+    //         $customFields = [];
+
+
+    //         foreach ($data as $field) {
+    //             array_push($groupIdArr, $field->group_id);
+
+    //             switch ($field->model) {
+    //                 case 'purpose':
+    //                     $modelConditionName = Purpose::whereIn('id', json_decode($field->condition))->get();
+    //                     break;
+    //                 case 'property':
+    //                     $modelConditionName = Property::whereIn('id', json_decode($field->condition))->get();
+    //                     break;
+    //                 case 'property_type':
+    //                     $modelConditionName = PropertyType::whereIn('id', json_decode($field->condition))->get();
+    //                     break;
+    //                 case 'property_status':
+    //                     $modelConditionName = Status::whereIn('id', json_decode($field->condition))->get();
+    //                     break;
+    //                 case 'amenities':
+    //                     $modelConditionName = Amenity::whereIn('id', json_decode($field->condition))->get();
+    //                     break;
+    //                 case 'amenities_categories':
+    //                     $modelConditionName = AmenitiesCategory::whereIn('id', json_decode($field->condition))->get();
+    //                     break;
+    //                 default:
+    //                     $modelConditionName = null;
+    //                     break;
+    //             }
+
+
+    //             $modelNameNew = ucwords(str_replace('_', ' ', $field->model));
+
+
+    //             $customFields[] = [
+    //                 'id' => $field->id,
+    //                 'post_type' => $field->post_type,
+    //                 'field_label' => $field->field_label,
+    //                 'field_name' => $field->field_name,
+    //                 'field_placeholder' => $field->field_placeholder,
+    //                 //'field_name_description' => $field->field_name_description,
+    //                 'field_type' => $field->field_type,
+    //                 'options' => $field->options,
+    //                 'model' => $field->model,
+    //                 'model_show' => $modelNameNew,
+    //                 'condition' => $modelConditionName,
+    //                 'group_data' => $field->groupname,
+    //                 'required' => $field->required,
+    //                 'media_limit' => $field->media_limit,
+    //                 'media_size' => $field->media_size,
+    //                 'media_format' => explode(',', $field->media_format),
+    //                 'post_type' => $field->post_type,
+    //                 'checkbox_type' => $field->checkbox_type,
+    //                 'created_at' => $field->created_at,
+    //                 'updated_at' => $field->updated_at
+    //             ];
+    //         }
+
+
+    //         // Return the array of custom field data as JSON response
+    //         return response()->json($customFields, 200);
+    //     } catch (\Exception $e) {
+    //         // Log and return generic error response
+    //         Log::error('Error: ' . $e->getMessage());
+    //         return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+    //     }
+    // }
+
+
+    ################# new update code model_fields ###############
     public function customFieldListingByType(Request $request)
     {
         try {
-
+            // Determine the post type from the request
             if (isset($request->post_type) && $request->post_type == 'project') {
                 $post_type = 'project';
             } elseif (isset($request->post_type) && $request->post_type == 'developer_list') {
@@ -1070,42 +1286,63 @@ class CustomFieldController extends Controller
             }
 
             $groupIdArr = [];
-            // Retrieve all CustomField records with their associated Groupname
+
+            // Retrieve all CustomField records with their associated Groupname and Options
             $data = CustomField::with('groupname', 'options')->where('post_type', $post_type)->get();
 
             $customFields = [];
 
-
             foreach ($data as $field) {
                 array_push($groupIdArr, $field->group_id);
 
-                switch ($field->model) {
-                    case 'purpose':
-                        $modelConditionName = Purpose::whereIn('id', json_decode($field->condition))->get();
-                        break;
-                    case 'property':
-                        $modelConditionName = Property::whereIn('id', json_decode($field->condition))->get();
-                        break;
-                    case 'property_type':
-                        $modelConditionName = PropertyType::whereIn('id', json_decode($field->condition))->get();
-                        break;
-                    case 'property_status':
-                        $modelConditionName = Status::whereIn('id', json_decode($field->condition))->get();
-                        break;
-                    case 'amenities':
-                        $modelConditionName = Amenity::whereIn('id', json_decode($field->condition))->get();
-                        break;
-                    case 'amenities_categories':
-                        $modelConditionName = AmenitiesCategory::whereIn('id', json_decode($field->condition))->get();
-                        break;
-                    default:
-                        $modelConditionName = null;
-                        break;
+                $modelConditions = [];
+
+                if (!empty($field->model_fields)) {
+                    $modelFieldsDecoded = json_decode($field->model_fields, true);
+
+                    foreach ($modelFieldsDecoded as $mf) {
+                        $model = $mf['model'] ?? null;
+                        $conditionIds = $mf['condition'] ?? [];
+
+                        if (!$model || empty($conditionIds)) {
+                            continue;
+                        }
+
+                        // Load related condition data dynamically
+                        switch ($model) {
+                            case 'purpose':
+                                $conditionData = Purpose::whereIn('id', $conditionIds)->get();
+                                break;
+                            case 'property':
+                                $conditionData = Property::whereIn('id', $conditionIds)->get();
+                                break;
+                            case 'property_type':
+                                $conditionData = PropertyType::whereIn('id', $conditionIds)->get();
+                                break;
+                            case 'property_status':
+                                $conditionData = Status::whereIn('id', $conditionIds)->get();
+                                break;
+                            case 'amenities':
+                                $conditionData = Amenity::whereIn('id', $conditionIds)->get();
+                                break;
+                            case 'amenities_categories':
+                                $conditionData = AmenitiesCategory::whereIn('id', $conditionIds)->get();
+                                break;
+                            default:
+                                $conditionData = null;
+                                break;
+                        }
+
+                        // Push if valid data is found
+                        if ($conditionData) {
+                            $modelConditions[] = [
+                                'model' => $model,
+                                'model_show' => ucwords(str_replace('_', ' ', $model)),
+                                'conditions' => $conditionData
+                            ];
+                        }
+                    }
                 }
-
-
-                $modelNameNew = ucwords(str_replace('_', ' ', $field->model));
-
 
                 $customFields[] = [
                     'id' => $field->id,
@@ -1113,33 +1350,32 @@ class CustomFieldController extends Controller
                     'field_label' => $field->field_label,
                     'field_name' => $field->field_name,
                     'field_placeholder' => $field->field_placeholder,
-                    //'field_name_description' => $field->field_name_description,
                     'field_type' => $field->field_type,
                     'options' => $field->options,
-                    'model' => $field->model,
-                    'model_show' => $modelNameNew,
-                    'condition' => $modelConditionName,
+                    'model_fields' => $modelConditions,
                     'group_data' => $field->groupname,
                     'required' => $field->required,
                     'media_limit' => $field->media_limit,
                     'media_size' => $field->media_size,
                     'media_format' => explode(',', $field->media_format),
-                    'post_type' => $field->post_type,
                     'checkbox_type' => $field->checkbox_type,
                     'created_at' => $field->created_at,
                     'updated_at' => $field->updated_at
                 ];
             }
 
-
-            // Return the array of custom field data as JSON response
+            // Return the result as JSON response
             return response()->json($customFields, 200);
+
         } catch (\Exception $e) {
-            // Log and return generic error response
-            Log::error('Error: ' . $e->getMessage());
-            return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+            // Log and return error
+            Log::error('customFieldListingByType error: ' . $e->getMessage());
+            return response()->json(['error' => 'Something went wrong. ' . $e->getMessage()], 500);
         }
     }
+
+    ################# end code #################
+
 
 
     // this  id for listing of models
@@ -1694,6 +1930,7 @@ class CustomFieldController extends Controller
 
 
 
+
     // this  id for listing of models
     public function customFieldUniqueCode(Request $request)
     {
@@ -1730,7 +1967,7 @@ class CustomFieldController extends Controller
                         'id' => $model->id,
                         'show' => $name,
                         'name' => $model->slug,
-                        'type' => $model->type,
+                        'type' => $model->post_type,
                     ];
                 }
                 $arr['data'] = $data;
@@ -1745,6 +1982,249 @@ class CustomFieldController extends Controller
             return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
         }
     }
+
+    // start template
+
+    public function storeCustomFieldUniqueCode(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:50',
+            'post_type' => 'required|in:project,property_list,developer_list',
+            'status' => 'required|in:0,1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        // Generate slug from name
+        $slug = Str::slug($validated['name']);
+
+        //   Slug already exists globally (optional if DB unique)
+        $slugExists = CustomFieldUniqueCode::where('slug', $slug)->exists();
+
+        if ($slugExists) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Slug already exists. Please change the "name" field.',
+            ], 409);
+        }
+
+        //   Slug with same post_type exists
+        $comboExists = CustomFieldUniqueCode::where('slug', $slug)
+            ->where('post_type', $validated['post_type'])
+            ->exists();
+
+        if ($comboExists) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This name already exists for the selected post type. Please change the name.',
+            ], 409);
+        }
+
+        $validated['slug'] = $slug;
+
+        $data = CustomFieldUniqueCode::create($validated);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Data created successfully',
+            'data' => $data,
+        ], 201);
+    }
+
+
+    public function showCustomFieldUniqueCodeById(Request $request)
+    {
+        try {
+            $id = $request->id;
+
+            if (!$id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'ID is required',
+                ], 400);
+            }
+
+            // Fetch data with status = 1
+            $model = CustomFieldUniqueCode::where('id', $id)
+                ->where('status', 1)
+                ->first();
+
+            if (!$model) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Data not found or inactive',
+                ], 404);
+            }
+
+            // Format name
+            $formattedName = ucwords(str_replace('_', ' ', $model->name));
+
+            $data = [
+                'id' => $model->id,
+                'show' => $formattedName,
+                'name' => $model->slug,
+                'type' => $model->post_type,
+            ];
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Data fetched successfully',
+                'data' => $data,
+            ], 200);
+
+        } catch (Exception $e) {
+            Log::error('Error fetching CustomFieldUniqueCode by ID: ' . $e->getMessage());
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Something went wrong.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+
+    public function updateCustomFieldUniqueCode(Request $request)
+    {
+        $id = $request->id;
+        $data = CustomFieldUniqueCode::find($id);
+
+        if (!$data) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Data not found',
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'nullable|string|max:50',
+            'slug' => 'nullable|string|max:100',
+            'post_type' => 'nullable|in:project,property_list,developer_list',
+            'status' => 'nullable|in:0,1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        // Use existing post_type if not sent
+        $postType = $validated['post_type'] ?? $data->post_type;
+
+        // Slug logic
+        if (!empty($validated['slug'])) {
+            $slug = Str::slug($validated['slug']);
+        } elseif (!empty($validated['name'])) {
+            $slug = Str::slug($validated['name']);
+        } else {
+            $slug = $data->slug; // no change
+        }
+
+        // Check for duplicate slug + post_type combo (excluding current record)
+        $exists = CustomFieldUniqueCode::where('slug', $slug)
+            ->where('post_type', $postType)
+            ->where('id', '!=', $id)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This name or slug already exists for the selected post type. Please change the name or slug.',
+            ], 409);
+        }
+
+        $validated['slug'] = $slug;
+        $validated['post_type'] = $postType;
+
+        $data->update($validated);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Data updated successfully',
+            'data' => $data,
+        ]);
+    }
+
+
+    public function destroyCustomFieldUniqueCode(Request $request)
+    {
+        $id = $request->id;
+        $data = CustomFieldUniqueCode::find($id);
+
+        if (!$data) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Data not found',
+            ], 200);
+        }
+
+        $data->delete();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Data deleted successfully',
+        ]);
+    }
+
+    // Bulk Delete
+
+    public function bulkDeleteCustomFieldUniqueCode(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:custom_field_unique_codes,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $ids = $request->ids;
+
+        try {
+            DB::beginTransaction();
+
+            CustomFieldUniqueCode::whereIn('id', $ids)->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Selected records deleted successfully.',
+                'deleted_ids' => $ids
+            ]);
+        } catch (Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to delete records',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+
+    // end template
+
 
 
     // this is for listing of amenities
@@ -1770,80 +2250,176 @@ class CustomFieldController extends Controller
         }
     }
 
+    // public function searchAndFilter(Request $request)
+    // {
+    //     try {
+    //         // Extract input parameters
+    //         $dropdownValue = $request->input('dropdown_value'); // This will be the group_name
+    //         $searchQuery = $request->input('search');
+    //         $modelValue = $request->input('model_value'); // Value for the second dropdown (model)
+    //         $field = $request->input('field');
+    //         $condition = $request->input('condition');
+    //         $sortField = $request->input('sort_field'); // Field to sort by
+    //         $sortOrder = $request->input('sort_order'); // Sort order: 'asc' or 'desc'
+    //         $perPage = $request->input('per_page', 10);
+    //         $fieldType = $request->input('field_type');
+    //         // Start the query
+    //         $query = CustomField::query();
+
+    //         // Retrieve the group_id based on the group_name (dropdownValue)
+    //         $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
+
+    //         // Filter by group_id if dropdownValue exists
+    //         if ($dropdownValue && $groupId) {
+    //             $query->where('group_id', $groupId);
+    //         }
+
+    //         // If model_value is provided, filter records by the model
+    //         if ($modelValue) {
+    //             $query->where('model', $modelValue);
+    //         }
+
+    //         if ($fieldType) {
+    //             $query->where('field_type', $fieldType);
+    //         }
+
+    //         // Apply search filtering
+    //         if ($searchQuery) {
+    //             // Join the group_name table to access group_name for searching
+    //             $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+    //                 ->where(function ($q) use ($searchQuery) {
+    //                     $q->where('field_label', 'LIKE', "%{$searchQuery}%")
+    //                         ->orWhere('field_name', 'LIKE', "%{$searchQuery}%")
+    //                         ->orWhere('model', 'LIKE', "%{$searchQuery}%")
+    //                         ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
+    //                         ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%"); // Search in group_name
+    //                 })
+    //                 ->select('custom_fields.*', 'group_name.group_name'); // Ensure selected fields are correct
+    //         }
+
+
+    //         // Apply specific field filtering
+    //         if ($field && $condition) {
+    //             if ($field === 'condition') {
+    //                 $query->whereJsonContains($field, json_decode($condition));
+    //             } else {
+    //                 $query->where($field, $condition);
+    //             }
+    //         }
+    //         // Apply sorting by specific fields
+    //         if ($sortField && in_array($sortField, ['model', 'field_type', 'group_name', 'field_label'])) {
+    //             if ($sortField === 'group_name') {
+    //                 // For group_name, join with the group_name table to sort
+    //                 $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+    //                     ->orderBy('group_name.group_name', $sortOrder)
+    //                     ->select('custom_fields.*', 'group_name.group_name');
+    //             } else {
+    //                 $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+    //                     ->orderBy($sortField, $sortOrder)
+    //                     ->select('custom_fields.*', 'group_name.group_name');
+    //             }
+    //         }
+
+    //         // Fetch the filtered results
+    //         $results = $query->paginate($perPage);
+
+    //         // Return the results as a JSON response
+    //         return response()->json([
+    //             'message' => 'Filtered results retrieved successfully',
+    //             'data' => $results->items(),
+    //             'pagination' => [
+    //                 'current_page' => $results->currentPage(),
+    //                 'last_page' => $results->lastPage(),
+    //                 'per_page' => $results->perPage(),
+    //                 'total' => $results->total(),
+    //             ],
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         // Return error response in case of failure
+    //         return response()->json([
+    //             'error' => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
+
+    ################# new code #############
+
     public function searchAndFilter(Request $request)
     {
         try {
-            // Extract input parameters
-            $dropdownValue = $request->input('dropdown_value'); // This will be the group_name
+            $dropdownValue = $request->input('dropdown_value');
             $searchQuery = $request->input('search');
-            $modelValue = $request->input('model_value'); // Value for the second dropdown (model)
-            $field = $request->input('field');
-            $condition = $request->input('condition');
-            $sortField = $request->input('sort_field'); // Field to sort by
-            $sortOrder = $request->input('sort_order'); // Sort order: 'asc' or 'desc'
+            $modelValue = $request->input('model_value');
+            $conditionValue = $request->input('condition');
+            $sortField = $request->input('sort_field');
+            $sortOrder = $request->input('sort_order');
             $perPage = $request->input('per_page', 10);
             $fieldType = $request->input('field_type');
-            // Start the query
+            $field = $request->input('field');
+
             $query = CustomField::query();
 
-            // Retrieve the group_id based on the group_name (dropdownValue)
+            // ✅ Group filter
             $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
-
-            // Filter by group_id if dropdownValue exists
             if ($dropdownValue && $groupId) {
                 $query->where('group_id', $groupId);
             }
 
-            // If model_value is provided, filter records by the model
-            if ($modelValue) {
-                $query->where('model', $modelValue);
+            // ✅ Filter by model_fields JSON column (model + condition)
+            if ($modelValue && $conditionValue !== null) {
+                $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+                foreach ($conditions as $cond) {
+                    $query->whereRaw(
+                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+                        [$modelValue, $cond]
+                    );
+                }
             }
 
+            // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
+            if ($field && $conditionValue) {
+                $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+                foreach ($values as $val) {
+                    $query->whereRaw(
+                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+                        [$field, $val]
+                    );
+                }
+            }
+
+            // ✅ Filter by field_type
             if ($fieldType) {
                 $query->where('field_type', $fieldType);
             }
 
-            // Apply search filtering
+            // ✅ Search filtering (joins group_name table)
             if ($searchQuery) {
-                // Join the group_name table to access group_name for searching
                 $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
                     ->where(function ($q) use ($searchQuery) {
                         $q->where('field_label', 'LIKE', "%{$searchQuery}%")
-                            ->orWhere('field_name', 'LIKE', "%{$searchQuery}%")
-                            ->orWhere('model', 'LIKE', "%{$searchQuery}%")
+                            ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
                             ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
-                            ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%"); // Search in group_name
+                            ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
                     })
-                    ->select('custom_fields.*', 'group_name.group_name'); // Ensure selected fields are correct
+                    ->select('custom_fields.*', 'group_name.group_name');
             }
 
-
-            // Apply specific field filtering
-            if ($field && $condition) {
-                if ($field === 'condition') {
-                    $query->whereJsonContains($field, json_decode($condition));
-                } else {
-                    $query->where($field, $condition);
-                }
-            }
-            // Apply sorting by specific fields
-            if ($sortField && in_array($sortField, ['model', 'field_type', 'group_name', 'field_label'])) {
+            // ✅ Sorting (excluding model which is not a column)
+            if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
                 if ($sortField === 'group_name') {
-                    // For group_name, join with the group_name table to sort
                     $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
                         ->orderBy('group_name.group_name', $sortOrder)
                         ->select('custom_fields.*', 'group_name.group_name');
                 } else {
-                    $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
-                        ->orderBy($sortField, $sortOrder)
-                        ->select('custom_fields.*', 'group_name.group_name');
+                    $query->orderBy($sortField, $sortOrder);
                 }
             }
 
-            // Fetch the filtered results
+            // ✅ Paginate
             $results = $query->paginate($perPage);
 
-            // Return the results as a JSON response
             return response()->json([
                 'message' => 'Filtered results retrieved successfully',
                 'data' => $results->items(),
@@ -1854,13 +2430,17 @@ class CustomFieldController extends Controller
                     'total' => $results->total(),
                 ],
             ], 200);
+
         } catch (\Exception $e) {
-            // Return error response in case of failure
             return response()->json([
                 'error' => $e->getMessage(),
             ], 500);
         }
     }
+
+
+
+    ################## end new code ############
 
     public function deleteCustomField(Request $request)
     {

@@ -25,6 +25,7 @@ class TicketController extends Controller
             ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
             ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
             ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
+            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
             ->select(
                 'raised_users.id as raised_by_id',
                 // 'raised_users.fullname as raised_user_name',
@@ -36,7 +37,8 @@ class TicketController extends Controller
                 'tickets.*',
                 'ticket_priorities.ticket_priority',
                 'ticket_status.ticket_status_name',
-                'ticket_types.ticket_type_name'
+                'ticket_types.ticket_type_name',
+                'ticket_departments.ticket_department_name'
             )
             ->get();
 
@@ -61,6 +63,8 @@ class TicketController extends Controller
                 'message' => $ticket->message,
                 'ticket_type_id' => $ticket->ticket_type_id,
                 'ticket_type_name' => $ticket->ticket_type_name,
+                'ticket_department_id' => $ticket->ticket_department_id,
+                'ticket_department_name' => $ticket->ticket_department_name,
                 'media_attachment' => $ticket->media_attachment,
                 'created_at' => $ticket->created_at,
                 'updated_at' => $ticket->updated_at
@@ -91,6 +95,7 @@ class TicketController extends Controller
             'priority_id' => 'required|exists:ticket_priorities,id',
             'status_id' => 'nullable|exists:ticket_status,id',
             'media_attachment' => $request->hasFile('media_attachment') ? 'file|max:10240' : '',
+            'ticket_department_id' => 'required|exists:ticket_departments,id',
         ]);
 
         if ($validator->fails()) {
@@ -145,6 +150,7 @@ class TicketController extends Controller
             ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
             ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
             ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
+             ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
             ->select(
                 'raised_users.id as raised_by_id',
                 DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name)  as raised_user_name"),
@@ -153,9 +159,10 @@ class TicketController extends Controller
                 'tickets.*',
                 'ticket_priorities.ticket_priority',
                 'ticket_status.ticket_status_name',
-                'ticket_types.ticket_type_name'
-            )
-            ->first();
+                'ticket_types.ticket_type_name',
+                'ticket_departments.ticket_department_name'
+            )->where('tickets.id', $id)->get()->first();
+            // ->first();
 
         if (!$ticket) {
             return response()->json(['error' => 'Ticket not found'], 404);
@@ -176,6 +183,8 @@ class TicketController extends Controller
             'message' => $ticket->message,
             'ticket_type_id' => $ticket->ticket_type_id,
             'ticket_type_name' => $ticket->ticket_type_name,
+            'ticket_department_id' => $ticket->ticket_department_id,
+            'ticket_department_name' => $ticket->ticket_department_name,
             'media_attachment' => $ticket->media_attachment,
             'created_at' => $ticket->created_at,
             'updated_at' => $ticket->updated_at
@@ -199,6 +208,7 @@ class TicketController extends Controller
             'priority_id' => 'exists:ticket_priorities,id',
             'status_id' => 'nullable|exists:ticket_status,id',
             'media_attachment' => $request->hasFile('media_attachment') ? 'file|max:10240' : '',
+            'ticket_department_id' => 'nullable|exists:ticket_departments,id',
         ]);
 
         if ($validator->fails()) {

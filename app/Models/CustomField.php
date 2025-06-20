@@ -12,9 +12,19 @@ class CustomField extends Model
     protected $guarded = [];
     protected $table = 'custom_fields';
     protected $fillable = [
-        'group_id', 'field_label', 'field_name_slug', 'field_placeholder',
-        'field_type', 'required', 'post_type', 'media_limit', 'media_size',
-        'media_format', 'model_fields','checkbox_type','template_value_id','model'
+        'group_id',
+        'field_label',
+        'field_name_slug',
+        'field_placeholder',
+        'field_type',
+        'required',
+        'post_type',
+        'media_limit',
+        'media_size',
+        'media_format',
+        'model_fields',
+        'checkbox_type',
+        'template_id',
     ];
 
     protected $dates = ['deleted_at'];
@@ -32,13 +42,18 @@ class CustomField extends Model
     {
         return $this->hasMany(CustomFieldRepeater::class, 'custom_field_id');
     }
-        public function condition()
+    public function condition()
     {
         return $this->belongsTo(Condition::class);
     }
     public function repeaters()
     {
         return $this->hasMany(CustomFieldRepeater::class, 'custom_field_id');
+    }
+
+    public function templateValue()
+    {
+        return $this->belongsTo(CustomFieldUniqueCode::class, 'template_id');
     }
 
 }

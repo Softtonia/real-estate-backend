@@ -12,11 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('custom_fields', function (Blueprint $table) {
-            $table->unsignedBigInteger('template_value_id')->nullable()->after('id');
 
-            $table->foreign('template_value_id')
+             $table->unsignedBigInteger('template_id')->nullable()->after('id');
+
+            $table->foreign('template_id')
                 ->references('id')
-                ->on('template_value_id')
+                ->on('custom_field_unique_codes')
                 ->onDelete('set null');
         });
     }
@@ -27,8 +28,10 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('custom_fields', function (Blueprint $table) {
-            $table->dropForeign(['template_value_id']);
-            $table->dropColumn('template_value_id');
+
+             $table->dropForeign(['template_id']);
+
+            $table->dropColumn('template_id');
         });
     }
 };
