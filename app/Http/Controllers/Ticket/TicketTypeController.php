@@ -237,7 +237,7 @@ class TicketTypeController extends Controller
         $results = TicketType::with('media')
             ->where('ticket_type_name', 'like', '%' . $search . '%')
             ->orderBy('display_order', 'asc')
-            ->paginate(1);
+            ->paginate(10);
 
         return response()->json([
             'count' => $results->count(),
