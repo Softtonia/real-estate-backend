@@ -312,6 +312,9 @@ Route::post('getdatabyId-location', [Locationcontroller::class, 'getdatabyId']);
 Route::post('location-bulk-delete', [Locationcontroller::class, 'bulkDelete']);
 Route::get('location-search', [Locationcontroller::class, 'searchByName'])->name('location.search');
 
+Route::get('/all-location-list', [LocationController::class, 'locationList']);
+
+
 // ======= Bulk Upload Country , State, City in CSV Format ===========
 
 Route::post('bulk-upload-location-csv', [Locationcontroller::class, 'bulkUploadCSC']);
@@ -434,7 +437,10 @@ Route::middleware('adminOrCurrentUser')->post('tickets-create', [TicketControlle
 Route::middleware('allrole.token')->get('tickets-list', [TicketController::class, 'index']);
 Route::middleware('adminOrCurrentUser')->post('tickets-update', [TicketController::class, 'update']);
 Route::middleware('adminOrCurrentUser')->post('tickets-delete', [TicketController::class, 'destroy']);
-Route::middleware('allrole.token')->post('get-tickets-byuserid', [TicketController::class, 'show']);
+Route::middleware('allrole.token')->post('get-tickets-by-id', [TicketController::class, 'show']);
+
+Route::middleware('adminOrCurrentUser')->post('get-tickets-by-token', [TicketController::class, 'getTicketByToken']);
+
 Route::middleware('adminOrCurrentUser')->post('update-tickets-status', [TicketController::class, 'updateTicketStatus']);
 
 Route::middleware('admin.token')->post('tickets-status-create', [ticketstatuscontroller::class, 'store']);  //Done By softtonia
@@ -475,6 +481,9 @@ Route::get('search-tickets-type',[TicketTypeController::class,'searchTicketType'
 
 Route::middleware('allrole.token')->post('tickets/respond', [TicketController::class, 'respond']);
 Route::get('tickets-respond-list', [TicketController::class, 'respondlist']);
+// ticket response history
+Route::middleware('adminOrCurrentUser')->get('/tickets-response-list-history/{ticketId}', [TicketController::class, 'ticketResponseHistory']);
+
 // Ticket Route will end from here
 
 // Agent Route will start from here

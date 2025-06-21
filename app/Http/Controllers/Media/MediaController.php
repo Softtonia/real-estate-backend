@@ -197,9 +197,29 @@ class MediaController extends Controller
         return response()->json(['message' => 'Media deleted successfully'], 200);
     }
 
+    // public function index(Request $request)
+    // {
+    //     // Fetch all media records from the database
+    //     $data = DB::table('media')->get();
+    //     $mediaList = [];
+
+    //     foreach ($data as $media) {
+    //         $mediaList[] = [
+    //             'id' => $media->id,
+    //             'icon_css_id' => $media->icon_css_id,
+    //             'icon_name' => $media->icon_name,
+    //             'media_icon' => url($media->media_icon), // Prepend the base URL to the media icon path
+    //             'created_at' => $media->created_at,
+    //             'updated_at' => $media->updated_at
+    //         ];
+    //     }
+
+    //     // Return the response with the list of media items
+    //     return response()->json($mediaList);
+    // }
+
     public function index(Request $request)
     {
-        // Fetch all media records from the database
         $data = DB::table('media')->get();
         $mediaList = [];
 
@@ -208,13 +228,12 @@ class MediaController extends Controller
                 'id' => $media->id,
                 'icon_css_id' => $media->icon_css_id,
                 'icon_name' => $media->icon_name,
-                'media_icon' => url($media->media_icon), // Prepend the base URL to the media icon path
+                'media_icon' => url(str_replace('public/', '', $media->media_icon)),
                 'created_at' => $media->created_at,
                 'updated_at' => $media->updated_at
             ];
         }
 
-        // Return the response with the list of media items
         return response()->json($mediaList);
     }
 

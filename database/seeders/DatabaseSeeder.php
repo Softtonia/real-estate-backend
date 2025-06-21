@@ -31,6 +31,10 @@ class DatabaseSeeder extends Seeder
         $this->call(AmenitySeeder::class);
         $this->call(ImportKeywordsSeeder::class);
         $this->call(TicketDepartmentsSeeder::class);
+        $this->call(TicketTypesTableSeeder::class);
+        $this->call(TicketPrioritiesTableSeeder::class);
+        $this->call(TicketStatusTableSeeder::class);
+
 
     }
 }

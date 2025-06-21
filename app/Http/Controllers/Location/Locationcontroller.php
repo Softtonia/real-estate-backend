@@ -605,5 +605,31 @@ class LocationController extends Controller
     }
 
 
+    public function locationList()
+    {
+        $data = DB::table('countries')
+            ->join('states', 'states.country_id', '=', 'countries.id')
+            ->join('cities', 'cities.state_id', '=', 'states.id')
+            ->select(
+                'countries.id as country_id',
+                'countries.name as country_name',
+                'states.id as state_id',
+                'states.name as state_name',
+                'cities.id as city_id',
+                'cities.name as city_name'
+            )
+            ->orderBy('countries.name')
+            ->orderBy('states.name')
+            ->orderBy('cities.name')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'All location data fetched successfully',
+            'data' => $data
+        ]);
+    }
+
+
 
 }

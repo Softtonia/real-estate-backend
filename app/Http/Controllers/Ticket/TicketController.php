@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Ticket;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use DB;
@@ -28,12 +30,9 @@ class TicketController extends Controller
             ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
             ->select(
                 'raised_users.id as raised_by_id',
-                // 'raised_users.fullname as raised_user_name',
-                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name)  as raised_user_name"),
+                'raised_users.first_name as raised_user_name',
                 'assigned_users.id as assigned_to_id',
-                // 'assigned_users.fullname as assigned_user_fullname',
-
-                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_fullname"),
+                'assigned_users.first_name as assigned_user_fullname',
                 'tickets.*',
                 'ticket_priorities.ticket_priority',
                 'ticket_status.ticket_status_name',
@@ -41,6 +40,17 @@ class TicketController extends Controller
                 'ticket_departments.ticket_department_name'
             )
             ->get();
+
+
+        // Check if no tickets found
+        if ($tickets->isEmpty()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ticket not found',
+                'data' => []
+            ], 200);
+        }
+
 
         $formattedTickets = [];
 
@@ -120,11 +130,27 @@ class TicketController extends Controller
         $data = $request->all();
         $data['ticket_number'] = $ticketNumber;
 
+        // if ($request->hasFile('media_attachment')) {
+        //     $file = $request->file('media_attachment');
+        //     $extension = $file->getClientOriginalExtension();
+        //     $fileName = time() . '.' . $extension;
+        //     $file->storeAs('attachments', $fileName);
+        //     $data['media_attachment'] = $fileName;
+        // }
+
+        // Store directly inside public/attachments/
         if ($request->hasFile('media_attachment')) {
             $file = $request->file('media_attachment');
             $extension = $file->getClientOriginalExtension();
             $fileName = time() . '.' . $extension;
-            $file->storeAs('attachments', $fileName);
+            $destinationPath = public_path('attachments');
+
+            // Ensure the directory exists
+            if (!file_exists($destinationPath)) {
+                mkdir($destinationPath, 0755, true);
+            }
+
+            $file->move($destinationPath, $fileName);
             $data['media_attachment'] = $fileName;
         }
 
@@ -150,22 +176,22 @@ class TicketController extends Controller
             ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
             ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
             ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
-             ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
+            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
             ->select(
                 'raised_users.id as raised_by_id',
-                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name)  as raised_user_name"),
+                'raised_users.first_name as raised_user_name',
                 'assigned_users.id as assigned_to_id',
-                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_fullname"),
+                'assigned_users.first_name as assigned_user_fullname',
                 'tickets.*',
                 'ticket_priorities.ticket_priority',
                 'ticket_status.ticket_status_name',
                 'ticket_types.ticket_type_name',
                 'ticket_departments.ticket_department_name'
             )->where('tickets.id', $id)->get()->first();
-            // ->first();
+        // ->first();
 
         if (!$ticket) {
-            return response()->json(['error' => 'Ticket not found'], 404);
+            return response()->json(['error' => 'Ticket not found'], 200);
         }
 
         $formattedTicket = [
@@ -247,13 +273,40 @@ class TicketController extends Controller
         }
 
         // Handle media attachment
+        // if ($request->hasFile('media_attachment')) {
+        //     $file = $request->file('media_attachment');
+        //     $extension = $file->getClientOriginalExtension();
+        //     $fileName = time() . '.' . $extension;
+        //     $file->storeAs('attachments', $fileName);
+        //     $ticket->media_attachment = $fileName;
+        // }
+
+
         if ($request->hasFile('media_attachment')) {
             $file = $request->file('media_attachment');
             $extension = $file->getClientOriginalExtension();
             $fileName = time() . '.' . $extension;
-            $file->storeAs('attachments', $fileName);
+            $destinationPath = public_path('attachments');
+
+            // Create directory if it doesn't exist
+            if (!file_exists($destinationPath)) {
+                mkdir($destinationPath, 0755, true);
+            }
+
+            // Move the new file
+            $file->move($destinationPath, $fileName);
+
+            // Delete old file if exists
+            if ($ticket->media_attachment && file_exists($destinationPath . '/' . $ticket->media_attachment)) {
+                unlink($destinationPath . '/' . $ticket->media_attachment);
+            }
+
+            // Save new file name
             $ticket->media_attachment = $fileName;
         }
+
+
+
 
         // Save the updated ticket
         $ticket->save();
@@ -342,10 +395,10 @@ class TicketController extends Controller
 
 
         $responses = DB::table('tickets_response')
-            ->where('ticket_id', $request->ticket_id)
+            ->where('ticket_id', $ticket_id)
             ->join('users', 'tickets_response.user_id', '=', 'users.id')
             ->join('tickets', 'tickets.id', '=', 'tickets_response.ticket_id')
-           ->selectRaw("
+            ->selectRaw("
             CONCAT_WS(' ', users.first_name, users.last_name)  AS user_name,
             tickets_response.*,
             tickets.subject       AS ticket_subject,
@@ -356,11 +409,11 @@ class TicketController extends Controller
         if ($responses->isEmpty()) {
             return response()->json([
                 'error' => 'No responses found for this ticket.'
-            ], 404);
+            ], 200);
         }
 
         // Return responses as JSON
-        return response()->json(['responses' => $responses]);
+        return response()->json(['responses' => $responses], 200);
     }
 
 
@@ -410,6 +463,382 @@ class TicketController extends Controller
         $response = ['status' => true, 'message' => 'Status updated successfully.'];
 
         return response()->json($response, 200);
+    }
+
+
+    // get tickect by user token
+
+
+    public function getTicketByToken(Request $request)
+    {
+        $user = $request->user(); // Get user from token
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        $userId = $user->id;
+
+        $tickets = DB::table('tickets')
+            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
+            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
+            ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
+            ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
+            ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
+            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
+            ->select(
+                'raised_users.id as raised_by_id',
+                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_user_name"),
+                'assigned_users.id as assigned_to_id',
+                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_fullname"),
+                'tickets.*',
+                'ticket_priorities.ticket_priority',
+                'ticket_status.ticket_status_name',
+                'ticket_types.ticket_type_name',
+                'ticket_departments.ticket_department_name'
+            )
+            ->where('tickets.user_id', $userId)
+            ->get();
+
+        if ($tickets->isEmpty()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'No tickets found for this user',
+                'data' => []
+            ], 200);
+        }
+
+        $formattedTickets = [];
+
+        foreach ($tickets as $ticket) {
+            $formattedTickets[] = [
+                'id' => $ticket->id,
+                'raised_by' => $ticket->raised_by_id,
+                'raised_by_name' => $ticket->raised_user_name,
+                'user_id' => $ticket->assigned_to_id,
+                'user_name' => $ticket->assigned_user_fullname,
+                'status_id' => $ticket->status_id,
+                'status_name' => $ticket->ticket_status_name,
+                'priority_id' => $ticket->priority_id,
+                'priority_name' => $ticket->ticket_priority,
+                'ticket_number' => $ticket->ticket_number,
+                'subject' => $ticket->subject,
+                'message' => $ticket->message,
+                'ticket_type_id' => $ticket->ticket_type_id,
+                'ticket_type_name' => $ticket->ticket_type_name,
+                'ticket_department_id' => $ticket->ticket_department_id,
+                'ticket_department_name' => $ticket->ticket_department_name,
+                'media_attachment' => $ticket->media_attachment,
+                'created_at' => $ticket->created_at,
+                'updated_at' => $ticket->updated_at
+            ];
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Tickets fetched successfully',
+            'data' => $formattedTickets
+        ], 200);
+    }
+
+
+    // ticket response history
+
+    public function ticketResponseHistory1($ticketId)
+    {
+        // Step 1: Fetch ticket details (main ticket information)
+        $ticket = DB::table('tickets')
+            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
+            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
+            ->where('tickets.id', $ticketId)
+            ->select(
+                'tickets.id',
+                'tickets.ticket_number',
+                'tickets.subject',
+                'tickets.message',
+                'tickets.status_id',
+                'tickets.priority_id',
+                'tickets.media_attachment',
+                'tickets.ticket_type_id',
+                'tickets.ticket_department_id',
+                'tickets.created_at',
+                'tickets.updated_at',
+                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_by_name"),
+                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_name")
+            )
+            ->first();
+
+        if (!$ticket) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ticket not found',
+                'data' => []
+            ], 200);
+        }
+
+        // Step 2: Fetch responses for this ticket (history)
+        $responses = DB::table('tickets_response')
+            ->join('users', 'tickets_response.user_id', '=', 'users.id')
+            ->where('tickets_response.ticket_id', $ticketId)
+            ->select(
+                'tickets_response.id',
+                'tickets_response.message',
+                'tickets_response.message_by',
+                'tickets_response.created_at',
+                // 'tickets_response.media_attachment',
+                DB::raw("CONCAT_WS(' ', users.first_name, users.last_name) as user_name")
+            )
+            ->orderBy('tickets_response.created_at', 'asc')
+            ->get();
+
+        // Step 3: Format the data into chat history
+        $chatHistory = [];
+
+        // Initial message (ticket's main message)
+        $chatHistory[] = [
+            'message' => $ticket->message,
+            'media_attachment' => $ticket->media_attachment,
+            'user_name' => $ticket->raised_by_name,
+            'message_by' => 'raised_by',
+            'created_at' => $ticket->created_at,
+        ];
+
+        // Responses (user/admin replies)
+        foreach ($responses as $response) {
+            $chatHistory[] = [
+                'message' => $response->message,
+                'media_attachment' => $response->media_attachment ?? null,
+                'user_name' => $response->user_name,
+                'message_by' => $response->message_by,
+                'created_at' => $response->created_at,
+            ];
+        }
+
+        // Step 4: Return the final response with ticket and chat history
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket response history fetched successfully',
+            'data' => [
+                'ticket_id' => $ticket->id,
+                'ticket_number' => $ticket->ticket_number,
+                'subject' => $ticket->subject,
+                'status_id' => $ticket->status_id,
+                'priority_id' => $ticket->priority_id,
+                'ticket_type_id' => $ticket->ticket_type_id,
+                'ticket_department_id' => $ticket->ticket_department_id,
+                'media_attachment' => $ticket->media_attachment,
+                'created_at' => $ticket->created_at,
+                'updated_at' => $ticket->updated_at,
+                'raised_by_name' => $ticket->raised_by_name,
+                'assigned_user_name' => $ticket->assigned_user_name,
+                'chat_history' => $chatHistory
+            ]
+        ], 200);
+    }
+
+    //  public function ticketResponseHistory($ticketId)
+// {
+//     //  Fetch ticket details (main ticket information)
+//     $ticket = DB::table('tickets')
+//         ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
+//         ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
+//         ->where('tickets.id', $ticketId)
+//         ->select(
+//             'tickets.id',
+//             'tickets.ticket_number',
+//             'tickets.subject',
+//             'tickets.message',
+//             'tickets.status_id',
+//             'tickets.priority_id',
+//             'tickets.media_attachment',
+//             'tickets.ticket_type_id',
+//             'tickets.ticket_department_id',
+//             'tickets.created_at',
+//             'tickets.updated_at',
+//             DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_by_name"),
+//             DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_name")
+//         )
+//         ->first();
+
+    //     if (!$ticket) {
+//         return response()->json([
+//             'status' => false,
+//             'message' => 'Ticket not found',
+//             'data' => []
+//         ], 200);
+//     }
+
+    //     // Step 2: Fetch responses for this ticket (history)
+//     $responses = DB::table('tickets_response')
+//         ->join('users', 'tickets_response.user_id', '=', 'users.id')
+//         ->where('tickets_response.ticket_id', $ticketId)
+//         ->select(
+//             'tickets_response.id',
+//             'tickets_response.message',
+//             'tickets_response.message_by',
+//             'tickets_response.created_at',
+//             DB::raw("CONCAT_WS(' ', users.first_name, users.last_name) as user_name")
+//         )
+//         ->orderBy('tickets_response.created_at', 'asc')
+//         ->get();
+
+    //     // Step 3: Format the data into chat history
+//     $chatHistory = [];
+
+    //     // Initial message (ticket's main message)
+//     $chatHistory[] = [
+//         'message' => $ticket->message,
+//         'media_attachment' => $ticket->media_attachment
+//             ? config('app.url') . Storage::url('attachments/' . $ticket->media_attachment)
+//             : null,
+//         'user_name' => $ticket->raised_by_name,
+//         'message_by' => 'raised_by',
+//         'created_at' => $ticket->created_at,
+//     ];
+
+    //     // Responses (user/admin replies)
+//     foreach ($responses as $response) {
+//         $chatHistory[] = [
+//             'message' => $response->message,
+//             'media_attachment' => $response->media_attachment
+//                 ? config('app.url') . Storage::url('attachments/' . $response->media_attachment)
+//                 : null,
+//             'user_name' => $response->user_name,
+//             'message_by' => $response->message_by,
+//             'created_at' => $response->created_at,
+//         ];
+//     }
+
+    //     //  Return the final response with ticket and chat history
+//     return response()->json([
+//         'status' => true,
+//         'message' => 'Ticket response history fetched successfully',
+//         'data' => [
+//             'ticket_id' => $ticket->id,
+//             'ticket_number' => $ticket->ticket_number,
+//             'subject' => $ticket->subject,
+//             'status_id' => $ticket->status_id,
+//             'priority_id' => $ticket->priority_id,
+//             'ticket_type_id' => $ticket->ticket_type_id,
+//             'ticket_department_id' => $ticket->ticket_department_id,
+//             'media_attachment' => $ticket->media_attachment
+//                 ? config('app.url') . Storage::url('attachments/' . $ticket->media_attachment)
+//                 : null,
+//             'created_at' => $ticket->created_at,
+//             'updated_at' => $ticket->updated_at,
+//             'raised_by_name' => $ticket->raised_by_name,
+//             'assigned_user_name' => $ticket->assigned_user_name,
+//             'chat_history' => $chatHistory
+//         ]
+//     ], 200);
+// }
+
+
+
+    // use Illuminate\Support\Facades\Storage;
+
+    public function ticketResponseHistory($ticketId)
+    {
+        // Fetch ticket details (main ticket information)
+        $ticket = DB::table('tickets')
+            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
+            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
+            ->where('tickets.id', $ticketId)
+            ->select(
+                'tickets.id',
+                'tickets.ticket_number',
+                'tickets.subject',
+                'tickets.message',
+                'tickets.status_id',
+                'tickets.priority_id',
+                'tickets.media_attachment',
+                'tickets.ticket_type_id',
+                'tickets.ticket_department_id',
+                'tickets.created_at',
+                'tickets.updated_at',
+                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_by_name"),
+                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_name")
+            )
+            ->first();
+
+        if (!$ticket) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ticket not found',
+                'data' => []
+            ], 200);
+        }
+
+        // Fetch ticket responses
+        $responses = DB::table('tickets_response')
+            ->join('users', 'tickets_response.user_id', '=', 'users.id')
+            ->where('tickets_response.ticket_id', $ticketId)
+            ->select(
+                'tickets_response.id',
+                'tickets_response.message',
+                'tickets_response.message_by',
+                'tickets_response.created_at',
+                DB::raw("CONCAT_WS(' ', users.first_name, users.last_name) as user_name")
+            )
+            ->orderBy('tickets_response.created_at', 'asc')
+            ->get();
+
+        // Build media URL if file exists in public/attachments
+        $ticketMediaUrl = null;
+        if (!empty($ticket->media_attachment)) {
+            $attachmentPath = public_path('attachments/' . $ticket->media_attachment);
+
+            if (file_exists($attachmentPath)) {
+                $ticketMediaUrl = config('app.url') . '/attachments/' . $ticket->media_attachment;
+            }
+        }
+
+        // Build chat history
+        $chatHistory = [];
+
+        // Add the original ticket message
+        $chatHistory[] = [
+            'message' => $ticket->message,
+            'media_attachment' => $ticketMediaUrl,
+            'user_name' => $ticket->raised_by_name,
+            'message_by' => 'raised_by',
+            'created_at' => $ticket->created_at,
+        ];
+
+        // Add all responses
+        foreach ($responses as $response) {
+            $chatHistory[] = [
+                'message' => $response->message,
+                'media_attachment' => null, // No attachment in responses
+                'user_name' => $response->user_name,
+                'message_by' => $response->message_by,
+                'created_at' => $response->created_at,
+            ];
+        }
+
+        // Return final formatted data
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket response history fetched successfully',
+            'data' => [
+                'ticket_id' => $ticket->id,
+                'ticket_number' => $ticket->ticket_number,
+                'subject' => $ticket->subject,
+                'status_id' => $ticket->status_id,
+                'priority_id' => $ticket->priority_id,
+                'ticket_type_id' => $ticket->ticket_type_id,
+                'ticket_department_id' => $ticket->ticket_department_id,
+                'media_attachment' => $ticketMediaUrl,
+                'created_at' => $ticket->created_at,
+                'updated_at' => $ticket->updated_at,
+                'raised_by_name' => $ticket->raised_by_name,
+                'assigned_user_name' => $ticket->assigned_user_name,
+                'chat_history' => $chatHistory,
+            ]
+        ], 200);
     }
 
 
