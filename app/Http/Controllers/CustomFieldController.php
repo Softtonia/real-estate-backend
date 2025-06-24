@@ -533,7 +533,10 @@ class CustomFieldController extends Controller
 
             // Validate the request data
             $validatedData = $request->validate([
-                'group_name' => 'required|unique:group_name,group_name|string',
+                // 'group_name' => 'required|unique:group_name,group_name|string',
+                'group_id' => 'nullable|integer|exists:group_name,id',
+                'group_name' => 'nullable|string|max:255',
+
                 'fields' => 'required|array', // Ensure 'fields' is an array
                 'fields.*.field_label' => 'required|string|max:255',
                 'fields.*.checkbox_type' => 'nullable|string',
@@ -558,10 +561,33 @@ class CustomFieldController extends Controller
             // Begin transaction
             DB::beginTransaction();
 
+            if (empty($validatedData['group_id']) && empty($validatedData['group_name'])) {
+                return response()->json(['error' => 'Either group_id or group_name must be provided'], 422);
+            }
+
+
+            if (!empty($validatedData['group_id'])) {
+                // Use existing group
+                $groupData = Groupname::find($validatedData['group_id']);
+            } else {
+                // Check if group_name is unique
+                $existingGroup = Groupname::where('group_name', $validatedData['group_name'])->first();
+                if ($existingGroup) {
+                    return response()->json(['error' => 'Group name already exists.'], 422);
+                }
+
+                // Create new group
+                $groupData = Groupname::create([
+                    'group_name' => $validatedData['group_name'],
+                ]);
+            }
+
+
+
             // Insert into Groupname table
-            $groupData = Groupname::create([
-                'group_name' => $validatedData['group_name'],
-            ]);
+            // $groupData = Groupname::create([
+            //     'group_name' => $validatedData['group_name'],
+            // ]);
 
             $customFields = [];
 
@@ -693,7 +719,7 @@ class CustomFieldController extends Controller
                 'fields.*.field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
                 'fields.*.required' => 'required|string|in:yes,no',
                 'fields.*.post_type' => 'required|string|max:255',
-                 'fields.*.template_id' => 'nullable|integer|exists:custom_field_unique_codes,id',
+                'fields.*.template_id' => 'nullable|integer|exists:custom_field_unique_codes,id',
                 'fields.*.media_limit' => 'nullable|integer',
                 'fields.*.media_size' => 'nullable|string',
                 'fields.*.media_format' => 'nullable|array',

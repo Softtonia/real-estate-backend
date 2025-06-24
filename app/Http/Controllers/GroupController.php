@@ -178,7 +178,7 @@ class GroupController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Group name already exists'
-            ], 409); // 409 Conflict
+            ], 200);
         }
 
         return response()->json([

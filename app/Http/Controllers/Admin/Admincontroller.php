@@ -255,14 +255,18 @@ class AdminController extends Controller
             $approvedPropertyCount = PropertyList::where('live_status', 'Approve')->count();
             $rejectPropertyCount = PropertyList::where('live_status', 'Reject')->count();
             $underReviewPropertyCount = PropertyList::where('live_status', 'Under Review')->count();
+            $disapprovePropertyCount = PropertyList::where('live_status', 'Disapprove')->count();
+            $modifyReviewPropertyCount = PropertyList::where('live_status', 'Modify Review')->count();
 
 
             $totalProjectCount = ProjectList::count();
             $approvedProjectCount = ProjectList::where('live_status', 'Approve')->count();
             $rejectProjectCount = ProjectList::where('live_status', 'Reject')->count();
             $underReviewProjectCount = ProjectList::where('live_status', 'Under Review')->count();
+            $disapproveProjectCount = ProjectList::where('live_status', 'Disapprove')->count();
+            $modifyReviewProjectCount = ProjectList::where('live_status', 'Modify Review')->count();
 
-            // Approve, Disapprove,Reject,Under Review,Modify Review,
+
 
             $ownerCount = User::where('role_id', 2)->count();
             $agentCount = User::where('role_id', 3)->count();
@@ -283,11 +287,15 @@ class AdminController extends Controller
                 'approved_property_count' => $approvedPropertyCount,
                 'reject_property_count' => $rejectPropertyCount,
                 'under_review_property_count' => $underReviewPropertyCount,
+                'disapprove_property_count' => $disapprovePropertyCount,
+                'modify_review_property_count' => $modifyReviewPropertyCount,
 
                 'total_project_count' => $totalProjectCount,
                 'approved_project_count' => $approvedProjectCount,
                 'reject_project_count' => $rejectProjectCount,
                 'under_review_project_count' => $underReviewProjectCount,
+                'disapprove_project_count' => $disapproveProjectCount,
+                'modify_review_project_count' => $modifyReviewProjectCount,
 
                 'owner_count' => $ownerCount,
                 'agent_count' => $agentCount,
