@@ -715,7 +715,7 @@ class ProjectlistingController extends Controller
                 'state_name' => optional($projects->state)->name,
                 'city_id' => $projects->city_id,
                 'city_name' => optional($projects->city)->name,
-                'live_status' => $projects->status,
+                'live_status' => $projects->live_status,
                 'status_reason' => $projects->status_reason,
                 'project_status' => $projects->project_status,
                 'user_id' => $projects->user_id,
