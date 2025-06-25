@@ -197,6 +197,8 @@ Route::middleware('admin.token')->post('update-project-status-by-admin', [Projec
 Route::post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
 Route::post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
 
+Route::middleware('admin.token')->post('update-project-temporary-status',[ProjectlistingController::class, 'updateTemporaryStatus']);
+
 
 // ======Developer Listing============
 Route::middleware('allow.admin_developer')->post('add-developer-listing', [DeveloperlistingController::class, 'store']);
@@ -209,6 +211,8 @@ Route::middleware('allow.admin_developer')->post('developer-bulk-delete', [Devel
 Route::middleware('admin.token')->post('update-developer-status', [DeveloperlistingController::class, 'updateDeveloperStatus']);
 Route::middleware('api.token')->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
 Route::post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
+
+Route::middleware('admin.token')->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
 
 
 

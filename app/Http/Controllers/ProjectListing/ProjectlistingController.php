@@ -968,5 +968,53 @@ class ProjectlistingController extends Controller
     }
 
 
+    public function updateTemporaryStatus(Request $request)
+    {
+        try {
+            // Validate the request
+            $validatedData = $request->validate([
+                'project_id' => 'required|exists:project_listings,id',
+                'temporary_status' => 'required|string',  // Temporary status is required
+            ]);
+
+            // Fetch allowed enum values dynamically
+            $enumValues = DB::select("SHOW COLUMNS FROM project_listings WHERE Field = 'temporary_status'");
+
+            if (!empty($enumValues)) {
+                $type = $enumValues[0]->Type; // Get enum type definition
+                preg_match('/enum\((.*)\)/', $type, $matches);
+                $allowedStatuses = str_getcsv($matches[1], ",", "'");
+            } else {
+                return response()->json(['error' => 'Failed to fetch temporary_status values'], 500);
+            }
+
+            // Check if provided status is valid
+            if (!in_array($request->temporary_status, $allowedStatuses)) {
+                return response()->json([
+                    'error' => "Invalid temporary_status. Allowed values: " . implode(', ', $allowedStatuses)
+                ], 422);
+            }
+
+            // Find the project and update the status
+            $project = ProjectList::findOrFail($request->project_id);
+            $project->temporary_status = $request->temporary_status;
+            $project->save();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Temporary status updated successfully',
+                'data' => $project
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'error' => $th->getMessage(),
+                'line' => $th->getLine(),
+                'file' => $th->getFile()
+            ], 500);
+        }
+    }
+
+
 
 }

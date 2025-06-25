@@ -859,6 +859,54 @@ class DeveloperlistingController extends Controller
     }
 
 
+    public function updateTemporaryStatus(Request $request)
+    {
+        try {
+            // Validate the request
+            $validatedData = $request->validate([
+                'developer_id' => 'required|exists:developer_listings,id',
+                'temporary_status' => 'required|string',  // Temporary status is required
+            ]);
+
+            // Fetch allowed enum values dynamically
+            $enumValues = DB::select("SHOW COLUMNS FROM developer_listings WHERE Field = 'temporary_status'");
+
+            if (!empty($enumValues)) {
+                $type = $enumValues[0]->Type; // Get enum type definition
+                preg_match('/enum\((.*)\)/', $type, $matches);
+                $allowedStatuses = str_getcsv($matches[1], ",", "'");
+            } else {
+                return response()->json(['error' => 'Failed to fetch temporary_status values'], 500);
+            }
+
+            // Check if provided status is valid
+            if (!in_array($request->temporary_status, $allowedStatuses)) {
+                return response()->json([
+                    'error' => "Invalid temporary_status. Allowed values: " . implode(', ', $allowedStatuses)
+                ], 422);
+            }
+
+            // Find the developer and update the status
+            $developer = Developerlist::findOrFail($request->developer_id);
+            $developer->temporary_status = $request->temporary_status;
+            $developer->save();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Temporary status updated successfully',
+                'data' => $developer
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'error' => $th->getMessage(),
+                'line' => $th->getLine(),
+                'file' => $th->getFile()
+            ], 500);
+        }
+    }
+
+
     // ====================================================
 
 
