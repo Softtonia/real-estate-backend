@@ -292,6 +292,7 @@ class PropertylistingController extends Controller
                             ? $property->featured_image // ✅ If it's already a full URL, use as is
                             : $baseURL . $property->featured_image) // ✅ Convert relative path to full URL
                         : null,
+                    'property_address' => $property->property_address,
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
@@ -453,7 +454,7 @@ class PropertylistingController extends Controller
                 'property_id' => 'nullable|exists:properties,id',
                 'property_status_id' => 'nullable',
                 'property_type_id' => 'nullable',
-                'project_id' => 'nullable|exists:projects,id',
+                'project_id' => 'nullable|exists:project_listings,id',
             ]);
 
             // Find the property by ID
@@ -734,7 +735,7 @@ class PropertylistingController extends Controller
                 'country' => $property->country,
                 'state' => $property->state,
                 'city' => $property->city,
-                'address' => $property->property_address,
+                'property_address' => $property->property_address,
                 'live_status' => $property->live_status,
                 'temporary_status' => $property->temporary_status,
                 'status_reason' => $property->status_reason,

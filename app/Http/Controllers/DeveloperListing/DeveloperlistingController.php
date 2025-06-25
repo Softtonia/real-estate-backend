@@ -244,6 +244,7 @@ class DeveloperlistingController extends Controller
                     'property_type_id_name' => optional($property->propertyType)->name,
 
                     // Newly added fields
+                    'address' => $property->address,
                     'country_id' => $property->country_id,
                     'country_name' => optional($property->country)->name,
                     'state_id' => $property->state_id,
@@ -335,6 +336,8 @@ class DeveloperlistingController extends Controller
                     'property_status_id_name' => optional($property->propertystatus)->name,
                     'property_type_id' => $property->property_type_id,
                     'property_type_id_name' => optional($property->propertyType)->name,
+
+                    'address' => $property->address,
 
                     'country_id' => $property->country_id,
                     'country_name' => optional($property->country)->name,

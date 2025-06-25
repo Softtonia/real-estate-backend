@@ -269,6 +269,7 @@ class ProjectlistingController extends Controller
                     'developer' => $developerData,
                     'keyword' => $property->importKeywords,
                     'custom_field_values' => $formattedCustomFieldValues,
+                    'address' => $property->address,
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city
@@ -631,7 +632,7 @@ class ProjectlistingController extends Controller
             ])->where('id', $request->id)->first(); // Fetch only one record
 
             if (!$projects) {
-                return response()->json(['error' => 'Project not found'], 404);
+                return response()->json(['error' => 'Project not found'], 200);
             }
 
             // ✅ Handle Created By and Updated By
