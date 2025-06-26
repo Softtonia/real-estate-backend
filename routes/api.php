@@ -710,3 +710,6 @@ Route::get('/get-top-features-by-property-id/{id}', [TopFeatureController::class
 Route::get('/get-top-features-by-developer-id/{id}', [TopFeatureController::class, 'getTopFeaturesByDeveloperId']);
 Route::get('/get-top-features-by-agent-id/{id}', [TopFeatureController::class, 'getTopFeaturesByAgentId']);
 
+Route::middleware('admin.token')->post('/update-top-features', [TopFeatureController::class, 'updateTopFeatures']);
+
+
