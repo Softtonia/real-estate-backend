@@ -3,6 +3,9 @@
 namespace App\Http\Controllers\TopFeature;
 
 use App\Http\Controllers\Controller;
+use App\Models\Developerlist;
+use App\Models\ProjectList;
+use App\Models\PropertyList;
 use App\Models\TopFeature;
 use Illuminate\Http\Request;
 
@@ -88,6 +91,9 @@ class TopFeatureController extends Controller
                 $section_name = [$section_name];
             }
 
+            // Convert to "[value1,value2]" string
+            $sectionString = '[' . implode(',', $section_name) . ']';
+
             // Identify ID type
             $project_id = $request->project_id ?? null;
             $property_id = $request->property_id ?? null;
@@ -111,12 +117,33 @@ class TopFeatureController extends Controller
             $column = array_key_first($ids);
             $value = $ids[$column];
 
+            //  Check if the given ID actually exists in its respective table
+            switch ($column) {
+                case 'project_id':
+                    if (!ProjectList::find($value)) {
+                        return response()->json(['error' => 'Project not found.'], 200);
+                    }
+                    break;
+                case 'property_id':
+                    if (!PropertyList::find($value)) {
+                        return response()->json(['error' => 'Property not found.'], 200);
+                    }
+                    break;
+                case 'developer_id':
+                    if (!Developerlist::find($value)) {
+                        return response()->json(['error' => 'Developer not found.'], 200);
+                    }
+                    break;
+                // agent_id check skipped unless you want it too
+            }
+
+
             // Update if exists, otherwise create
             $topFeature = TopFeature::where($column, $value)->first();
 
             if ($topFeature) {
                 $topFeature->update([
-                    'section_name' => $section_name,
+                    'section_name' => $sectionString,
                     'project_id' => $project_id,
                     'property_id' => $property_id,
                     'developer_id' => $developer_id,
@@ -124,7 +151,7 @@ class TopFeatureController extends Controller
                 ]);
             } else {
                 TopFeature::create([
-                    'section_name' => $section_name,
+                    'section_name' => $sectionString,
                     'project_id' => $project_id,
                     'property_id' => $property_id,
                     'developer_id' => $developer_id,

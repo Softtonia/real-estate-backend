@@ -215,7 +215,7 @@ class DeveloperlistingController extends Controller
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
                         'field_value' => $fieldValueArray,
-                        'field_name' => $customField ? $customField->field_name : null,
+                        'field_name' => $customField ? $customField->field_label : null,
                     ];
                 });
 
@@ -308,7 +308,7 @@ class DeveloperlistingController extends Controller
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
                         'field_value' => $fieldValueArray,
-                        'field_name' => $customField ? $customField->field_name : null,
+                        'field_name' => $customField ? $customField->field_label : null,
                     ];
                 });
 
@@ -681,8 +681,8 @@ class DeveloperlistingController extends Controller
 
                 return [
                     'custom_field_id' => $customFieldValue->custom_field_id,
-                    'field_label' => $customField->field_name ?? 'Unknown Field',
-                    'placeholder' => $customFieldValue->placeholder,
+                    'field_label' => $customField->field_label ?? 'Unknown Field',
+                    'placeholder' => $customField->field_placeholder,
                     'field_type' => $fieldType,
                     'field_value' => $fieldValue,
                     'options' => $allAvailableOptions,

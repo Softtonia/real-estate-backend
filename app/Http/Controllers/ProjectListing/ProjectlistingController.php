@@ -227,7 +227,7 @@ class ProjectlistingController extends Controller
                         'custom_field_id' => optional($customField)->id,
                         'field_type' => optional($customField)->field_type,
                         'field_value' => $fieldValueArray,
-                        'field_name' => optional($customField)->field_name,
+                        'field_name' => optional($customField)->field_label,
                     ];
                 });
 
@@ -355,7 +355,7 @@ class ProjectlistingController extends Controller
                         'custom_field_id' => optional($customField)->id,
                         'field_type' => optional($customField)->field_type,
                         'field_value' => $fieldValueArray,
-                        'field_name' => optional($customField)->field_name,
+                        'field_name' => optional($customField)->field_label,
                     ];
                 });
 
@@ -638,14 +638,14 @@ class ProjectlistingController extends Controller
             // ✅ Handle Created By and Updated By
             $createdByData = $projects->createdBy ? [
                 'id' => $projects->createdBy->id,
-                'name' => $projects->createdBy->name,
+                'name' => $projects->createdBy->first_name,
                 'email' => $projects->createdBy->email,
                 'role' => optional($projects->createdBy->role)->name,
             ] : null;
 
             $updatedByData = $projects->updatedBy ? [
                 'id' => $projects->updatedBy->id,
-                'name' => $projects->updatedBy->name,
+                'name' => $projects->updatedBy->first_name,
                 'email' => $projects->updatedBy->email,
                 'role' => optional($projects->updatedBy->role)->name,
             ] : null;
@@ -696,8 +696,8 @@ class ProjectlistingController extends Controller
 
                 return [
                     'custom_field_id' => $customFieldValue->custom_field_id,
-                    'field_label' => $customField->field_name ?? 'Unknown Field',
-                    'placeholder' => $customFieldValue->placeholder,
+                    'field_label' => $customField->field_label ?? 'Unknown Field',
+                    'placeholder' => $customField->field_placeholder,
                     'field_type' => $fieldType,
                     'field_value' => $fieldValue,
                     'options' => $allAvailableOptions,
@@ -867,7 +867,7 @@ class ProjectlistingController extends Controller
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
                         'field_value' => $fieldValueArray,
-                        'field_name' => $customField ? $customField->field_name : null,
+                        'field_name' => $customField ? $customField->field_label : null,
                         // 'custom_field_options' => $customFieldOptions,
                     ];
                 });
@@ -884,7 +884,7 @@ class ProjectlistingController extends Controller
                     'state_name' => optional($property->state)->name,
                     'city_id' => $property->city_id,
                     'city_name' => optional($property->city)->name,
-                    'status' => $property->status,
+                    'live_status' => $property->live_status,
                     'status_reason' => $property->status_reason,
                     'project_status' => $property->project_status,
                     'user_id' => $property->user_id,
@@ -1069,7 +1069,7 @@ class ProjectlistingController extends Controller
                         'custom_field_id' => optional($customField)->id,
                         'field_type' => optional($customField)->field_type,
                         'field_value' => $fieldValueArray,
-                        'field_name' => optional($customField)->field_name,
+                        'field_name' => optional($customField)->field_label,
                     ];
                 });
 

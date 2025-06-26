@@ -239,7 +239,7 @@ class PropertylistingController extends Controller
             $baseURL = url('/'); // ✅ Get full base URL dynamically
 
             // Fetch all projects in descending order by created_at
-            $projects = PropertyList::with([
+            $properties = PropertyList::with([
                 'user',
                 'propertyType',
                 'purpose',
@@ -258,7 +258,7 @@ class PropertylistingController extends Controller
                 ->orderBy('created_at', 'desc') // 🔹 Sorting by latest first
                 ->get();
 
-            $projectsData = $projects->map(function ($property) use ($baseURL) {
+            $projectsData = $properties->map(function ($property) use ($baseURL) {
                 return [
                     'id' => $property->id,
                     'property_unique_id' => $property->property_unique_id,
@@ -652,14 +652,14 @@ class PropertylistingController extends Controller
             // ✅ Handle Created By and Updated By
             $createdByData = optional($property->createdBy) ? [
                 'id' => optional($property->createdBy)->id,
-                'name' => optional($property->createdBy)->name,
+                'name' => optional($property->createdBy)->first_name,
                 'email' => optional($property->createdBy)->email,
                 'role' => optional(optional($property->createdBy)->role)->name,
             ] : null;
 
             $updatedByData = optional($property->updatedBy) ? [
                 'id' => optional($property->updatedBy)->id,
-                'name' => optional($property->updatedBy)->name,
+                'name' => optional($property->updatedBy)->first_name,
                 'email' => optional($property->updatedBy)->email,
                 'role' => optional(optional($property->updatedBy)->role)->name,
             ] : null;
@@ -716,8 +716,8 @@ class PropertylistingController extends Controller
 
                 return [
                     'custom_field_id' => $customFieldValue->custom_field_id,
-                    'field_label' => $customField->field_name ?? 'Unknown Field',
-                    'placeholder' => $customFieldValue->placeholder,
+                    'field_label' => $customField->field_label ?? 'Unknown Field',
+                    'placeholder' => $customField->field_placeholder,
                     'field_type' => $fieldType,
                     'field_value' => $fieldValue,
                     'options' => $allAvailableOptions,
