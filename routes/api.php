@@ -4,6 +4,7 @@ use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
+use App\Http\Controllers\TopFeature\TopFeatureController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
@@ -198,6 +199,7 @@ Route::post('get-project-by-userid', [ProjectlistingController::class, 'getProje
 Route::post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
 
 Route::middleware('admin.token')->post('update-project-temporary-status',[ProjectlistingController::class, 'updateTemporaryStatus']);
+Route::middleware('admin.token')->get('project-search',[ProjectlistingController::class, 'projectSearch']);
 
 
 // ======Developer Listing============
@@ -213,6 +215,7 @@ Route::middleware('api.token')->get('/user-developer', [DeveloperlistingControll
 Route::post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
 
 Route::middleware('admin.token')->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
+Route::get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
 
 
 
@@ -224,6 +227,8 @@ Route::middleware('api.token')->post('delete-properties-listing', [Propertylisti
 Route::middleware('admin.token')->get('get-all-properties-listing-by-admin', [PropertylistingController::class, 'indexByadmin']);
 Route::get('get-all-properties-listing', [PropertylistingController::class, 'index']);
 Route::middleware('api.token')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
+
+Route::middleware('admin.token')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
 
 Route::get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
 Route::post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);
@@ -698,5 +703,10 @@ Route::middleware('admin.token')->delete('delete-template-id-listings', [CustomF
 Route::middleware('admin.token')->post('bulk-delete-template-id-listings',[CustomFieldController::class, 'bulkDeleteCustomFieldUniqueCode']);
 
 
+// Top Features
 
+Route::get('/get-top-features-by-project-id/{id}', [TopFeatureController::class, 'getTopFeaturesByProjectId']);
+Route::get('/get-top-features-by-property-id/{id}', [TopFeatureController::class, 'getTopFeaturesByPropertyId']);
+Route::get('/get-top-features-by-developer-id/{id}', [TopFeatureController::class, 'getTopFeaturesByDeveloperId']);
+Route::get('/get-top-features-by-agent-id/{id}', [TopFeatureController::class, 'getTopFeaturesByAgentId']);
 

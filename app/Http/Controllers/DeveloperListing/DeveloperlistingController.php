@@ -511,7 +511,7 @@ class DeveloperlistingController extends Controller
                 return response()->json(['message' => 'No Developer found'], 404);
             }
 
-            $filePath = public_path('uploads/featured_image/'.$project->featured_image);
+            $filePath = public_path('uploads/featured_image/' . $project->featured_image);
 
             // Delete the file if it exists
             if (File::exists($filePath)) {
@@ -602,8 +602,10 @@ class DeveloperlistingController extends Controller
 
             $baseURL = config('app.url');
 
-            $project = Developerlist::with([
-                'country','state','city',
+            $developer = Developerlist::with([
+                'country',
+                'state',
+                'city',
                 'user',
                 'propertyType',
                 'purpose',
@@ -615,27 +617,27 @@ class DeveloperlistingController extends Controller
                 'updatedBy.role'
             ])->where('id', $request->id)->first();
 
-            if (!$project) {
-                return response()->json(['error' => 'Project not found'], 404);
+            if (!$developer) {
+                return response()->json(['error' => 'Developer not found'], 200);
             }
 
             // ✅ Handle Created By and Updated By
-            $createdByData = $project->createdBy ? [
-                'id' => $project->createdBy->id,
-                'name' => $project->createdBy->name,
-                'email' => $project->createdBy->email,
-                'role' => optional($project->createdBy->role)->name,
+            $createdByData = $developer->createdBy ? [
+                'id' => $developer->createdBy->id,
+                'name' => $developer->createdBy->first_name,
+                'email' => $developer->createdBy->email,
+                'role' => optional($developer->createdBy->role)->name,
             ] : null;
 
-            $updatedByData = $project->updatedBy ? [
-                'id' => $project->updatedBy->id,
-                'name' => $project->updatedBy->name,
-                'email' => $project->updatedBy->email,
-                'role' => optional($project->updatedBy->role)->name,
+            $updatedByData = $developer->updatedBy ? [
+                'id' => $developer->updatedBy->id,
+                'name' => $developer->updatedBy->first_name,
+                'email' => $developer->updatedBy->email,
+                'role' => optional($developer->updatedBy->role)->name,
             ] : null;
 
             // ✅ Fetch repeater fields dynamically
-            $repeaterFields = $project->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
+            $repeaterFields = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                 $customField = optional($customFieldValue->customField);
                 $fieldType = $customField->field_type ?? 'unknown';
                 $fieldValue = $customFieldValue->field_meta_value ?? '';
@@ -688,37 +690,38 @@ class DeveloperlistingController extends Controller
             });
 
             return response()->json([
-                'id' => $project->id,
-                'developer_unique_id' => $project->developer_unique_id,
-                'name' => $project->name,
-                'address' => $project->address,
-                'description' => $project->description,
-                'country_id' => $project->country_id,
-                'country_name' => optional($project->country)->name,
-                'state_id' => $project->state_id,
-                'state_name' => optional($project->state)->name,
-                'city_id' => $project->city_id,
-                'city_name' => optional($project->city)->name,
+                'id' => $developer->id,
+                'developer_unique_id' => $developer->developer_unique_id,
+                'name' => $developer->name,
+                'address' => $developer->address,
+                'description' => $developer->description,
+                'country_id' => $developer->country_id,
+                'country_name' => optional($developer->country)->name,
+                'state_id' => $developer->state_id,
+                'state_name' => optional($developer->state)->name,
+                'city_id' => $developer->city_id,
+                'city_name' => optional($developer->city)->name,
 
-                'property_address' => $project->property_address,
-                'status' => $project->status,
-                'status_reason' => $project->status_reason,
-                'user_id' => $project->user_id,
+
+                'live_status' => $developer->live_status,
+                'status_reason' => $developer->status_reason,
+                'temporary_status' => $developer->temporary_status,
+                'user_id' => $developer->user_id,
                 'created_by' => $createdByData,
                 'updated_by' => $updatedByData,
-                'listed_by' => optional(optional($project->user)->role)->name,
-                'purpose_id' => $project->purpose_id,
-                'purpose_id_name' => optional($project->purpose)->name,
-                'property_id' => $project->property_id,
-                'property_id_name' => optional($project->property)->name,
-                'property_status_id' => $project->property_status_id,
-                'property_status_id_name' => optional($project->propertystatus)->name,
-                'property_type_id' => $project->property_type_id,
-                'property_type_id_name' => optional($project->propertyType)->name,
+                'listed_by' => optional(optional($developer->user)->role)->name,
+                'purpose_id' => $developer->purpose_id,
+                'purpose_id_name' => optional($developer->purpose)->name,
+                'property_id' => $developer->property_id,
+                'property_id_name' => optional($developer->property)->name,
+                'property_status_id' => $developer->property_status_id,
+                'property_status_id_name' => optional($developer->propertystatus)->name,
+                'property_type_id' => $developer->property_type_id,
+                'property_type_id_name' => optional($developer->propertyType)->name,
                 'total_view' => 0, // ✅ Removed analytics() call
-                'date' => $project->created_at ? $project->created_at->format('d m Y') : null,
-                'time' => $project->created_at ? $project->created_at->format('h:i A') : null,
-                'timestamp' => $project->created_at ? $project->created_at->format('d m Y h:i A') : null,
+                'date' => $developer->created_at ? $developer->created_at->format('d m Y') : null,
+                'time' => $developer->created_at ? $developer->created_at->format('h:i A') : null,
+                'timestamp' => $developer->created_at ? $developer->created_at->format('d m Y h:i A') : null,
                 'repeater_fields' => $repeaterFields,
             ]);
 
@@ -831,8 +834,8 @@ class DeveloperlistingController extends Controller
 
             if (!empty($request->country_id) && !empty($request->state_id) && !empty($request->city_id)) {
                 $query->where('country_id', $request->country_id)
-                      ->where('state_id', $request->state_id)
-                      ->where('city_id', $request->city_id);
+                    ->where('state_id', $request->state_id)
+                    ->where('city_id', $request->city_id);
             }
 
             // Fetch matching projects
@@ -903,6 +906,101 @@ class DeveloperlistingController extends Controller
                 'line' => $th->getLine(),
                 'file' => $th->getFile()
             ], 500);
+        }
+    }
+
+
+// developer search by name and developer_unique_id
+    public function developerSearch(Request $request)
+    {
+        try {
+            $search = $request->input('search'); // name query from frontend
+            $baseURL = config('app.url');
+
+
+            $developers = Developerlist::when($search, function ($query) use ($search) {
+                    $query->where('name', 'like', '%' . $search . '%')->orWhere('developer_unique_id', 'like', '%' . $search . '%');
+                })
+                ->with([
+                    'user',
+                    'propertyType',
+                    'purpose',
+                    'property',
+                    'propertystatus',
+                    'customFieldValues.customField',
+                    'customFieldValues.customFieldOption',
+                    'country',
+                    'state',
+                    'city',
+                    'createdBy.role',
+                    'updatedBy.role'
+                ])
+                ->get();
+
+            $developersData = $developers->map(function ($developer) use ($baseURL) {
+                $formattedCustomFieldValues = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
+                    $customField = $customFieldValue->customField;
+                    $fieldValue = $customFieldValue->field_meta_value;
+
+                    if ($customField && $customField->field_type == 'checkbox') {
+                        $fieldValueArray = explode(',', $fieldValue);
+                    } elseif ($customField && $customField->field_type == 'media') {
+                        $fieldValueArray = json_decode($fieldValue);
+                        $fieldValueArray = collect($fieldValueArray)->map(function ($file) use ($baseURL) {
+                            return $baseURL . '/uploads/media/' . $file;
+                        });
+                    } else {
+                        $fieldValueArray = $fieldValue;
+                    }
+
+                    return [
+                        'custom_field_id' => $customField ? $customField->id : null,
+                        'field_type' => $customField ? $customField->field_type : null,
+                        'field_value' => $fieldValueArray,
+                        'field_name' => $customField ? $customField->field_name : null,
+                    ];
+                });
+
+                return [
+                    'id' => $developer->id,
+                    'developer_unique_id' => $developer->developer_unique_id,
+                    'name' => $developer->name,
+                    'description' => $developer->description,
+                    'live_status' => $developer->live_status,
+                    'temporary_status' => $developer->temporary_status,
+                    'status_reason' => $developer->status_reason,
+                    'user_id' => $developer->user_id,
+                    'created_by' => $developer->created_by,
+                    'created_by_role' => optional(optional($developer->createdBy)->role)->name,
+                    'updated_by' => $developer->updated_by,
+                    'updated_by_role' => optional(optional($developer->updatedBy)->role)->name,
+                    'listed_by' => optional(optional($developer->user)->role)->name,
+                    'purpose_id' => $developer->purpose_id,
+                    'purpose_id_name' => optional($developer->purpose)->name,
+                    'property_id' => $developer->property_id,
+                    'property_id_name' => optional($developer->property)->name,
+                    'property_status_id' => $developer->property_status_id,
+                    'property_status_id_name' => optional($developer->propertystatus)->name,
+                    'property_type_id' => $developer->property_type_id,
+                    'property_type_id_name' => optional($developer->propertyType)->name,
+                    'address' => $developer->address,
+                    'country_id' => $developer->country_id,
+                    'country_name' => optional($developer->country)->name,
+                    'state_id' => $developer->state_id,
+                    'state_name' => optional($developer->state)->name,
+                    'city_id' => $developer->city_id,
+                    'city_name' => optional($developer->city)->name,
+                    'date' => date('d m Y', strtotime($developer->created_at)),
+                    'time' => date('h:i A', strtotime($developer->created_at)),
+                    'timestamp' => date('d m Y h:i A', strtotime($developer->created_at)),
+                    'custom_field_values' => $formattedCustomFieldValues,
+                ];
+            });
+
+            return response()->json($developersData);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()], 500);
         }
     }
 

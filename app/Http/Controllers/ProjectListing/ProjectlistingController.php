@@ -1017,4 +1017,118 @@ class ProjectlistingController extends Controller
 
 
 
+    // project search by name , project_unique_id
+
+    public function projectSearch(Request $request)
+    {
+        try {
+            $search = $request->input('search'); //  one search input
+            $baseURL = config('app.url');
+            $basePath = public_path();
+
+            // Apply conditional search
+            $projects = ProjectList::when($search, function ($query) use ($search) {
+                $query->where(function ($subQuery) use ($search) {
+                    $subQuery->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('project_unique_id', 'like', '%' . $search . '%');
+                });
+            })
+                ->with([
+                    'country',
+                    'state',
+                    'city',
+                    'user',
+                    'propertyType',
+                    'purpose',
+                    'property',
+                    'propertystatus',
+                    'customFieldValues.customField',
+                    'customFieldValues.customFieldOption',
+                    'importKeywords',
+                    'developer.userDetails',
+                    'createdBy.role',
+                    'updatedBy.role',
+                ])
+                ->get();
+
+            $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
+                $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
+                    $customField = $customFieldValue->customField;
+                    $fieldValue = $customFieldValue->field_meta_value;
+
+                    if ($customField && $customField->field_type === 'checkbox') {
+                        $fieldValueArray = explode(',', $fieldValue);
+                    } elseif ($customField && $customField->field_type === 'media') {
+                        $fieldValueArray = json_decode($fieldValue);
+                        $fieldValueArray = collect($fieldValueArray)->map(fn($file) => $baseURL . '/uploads/media/' . $file);
+                    } else {
+                        $fieldValueArray = $fieldValue;
+                    }
+
+                    return [
+                        'custom_field_id' => optional($customField)->id,
+                        'field_type' => optional($customField)->field_type,
+                        'field_value' => $fieldValueArray,
+                        'field_name' => optional($customField)->field_name,
+                    ];
+                });
+
+                $developer = $property->developer;
+                $developerData = $developer ? [
+                    'id' => $developer->id,
+                    'fullname' => $developer->fullname,
+                    'email' => $developer->email,
+                    'phone' => $developer->phone,
+                    'api_token' => $developer->api_token,
+                    'unique_id' => $developer->unique_id,
+                    'user_details' => optional($developer->userDetails)->toArray(),
+                ] : null;
+
+                return [
+                    'id' => $property->id,
+                    'project_unique_id' => $property->project_unique_id,
+                    'name' => $property->name,
+                    'description' => $property->description,
+                    'address' => $property->address,
+                    'country' => $property->country,
+                    'state' => $property->state,
+                    'city' => $property->city,
+                    'live_status' => $property->live_status,
+                    'temporary_status' => $property->temporary_status,
+                    'status_reason' => $property->status_reason,
+                    'project_status' => $property->project_status,
+                    'user_id' => $property->user_id,
+                    'created_by' => $property->created_by,
+                    'created_by_role' => optional($property->createdBy)->role->name ?? 'N/A',
+                    'updated_by' => $property->updated_by,
+                    'updated_by_role' => optional($property->updatedBy)->role->name ?? 'N/A',
+                    'listed_by' => optional(optional($property->user)->role)->name ?? 'N/A',
+                    'purpose_id' => $property->purpose_id,
+                    'purpose_id_name' => optional($property->purpose)->name,
+                    'property_id' => $property->property_id,
+                    'property_id_name' => optional($property->property)->name,
+                    'property_status_id' => $property->property_status_id,
+                    'property_status_id_name' => optional($property->propertystatus)->name,
+                    'property_type_id' => $property->property_type_id,
+                    'property_type_id_name' => optional($property->propertyType)->name,
+                    'total_view' => $property->analytics()->count(),
+                    'date' => date('d m Y', strtotime($property->created_at)),
+                    'time' => date('h:i A', strtotime($property->created_at)),
+                    'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
+                    'developer' => $developerData,
+                    'keyword' => $property->importKeywords,
+                    'custom_field_values' => $formattedCustomFieldValues,
+                ];
+            });
+
+            return response()->json($projectsData);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()], 500);
+        }
+    }
+
+
+
+
 }

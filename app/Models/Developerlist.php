@@ -12,12 +12,9 @@ class Developerlist extends Model
     protected $table='developer_listings';
     protected $guarded=[];
 
-    public function location()
-    {
-        return $this->belongsTo(Location::class);
-    }
 
-    
+
+
     public function user()
     {
         return $this->belongsTo(User::class);
@@ -38,12 +35,12 @@ class Developerlist extends Model
     {
         return $this->belongsTo(PropertyType::class, 'property_type_id');
     }
-    
+
     public function propertystatus()
     {
         return $this->belongsTo(Status::class, 'property_status_id');
     }
-    
+
 
     // A developer listing has many custom field values
     public function customFieldValues()
@@ -54,15 +51,15 @@ class Developerlist extends Model
     public function country() {
         return $this->belongsTo(Country::class);
     }
-    
+
     public function state() {
         return $this->belongsTo(State::class);
     }
-    
+
     public function city() {
         return $this->belongsTo(City::class);
     }
-    
+
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -76,7 +73,7 @@ class Developerlist extends Model
     {
         return $this->hasMany(Analytics::class, 'developer_id'); // Adjust 'developer_id' as needed
     }
-    
 
-    
+
+
 }

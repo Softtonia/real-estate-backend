@@ -1463,5 +1463,88 @@ class PropertylistingController extends Controller
     }
 
 
+    // properties search by name , property_unique_id
+
+    public function propertiesSearch(Request $request)
+    {
+        try {
+            $search = $request->input('search'); // 🔍 Single input for both name & unique ID
+            $baseURL = url('/');
+
+            $projects = PropertyList::when($search, function ($query) use ($search) {
+                $query->where(function ($subQuery) use ($search) {
+                    $subQuery->where('name', 'like', "%{$search}%")
+                        ->orWhere('property_unique_id', 'like', "%{$search}%");
+                });
+            })
+                ->with([
+                    'user',
+                    'propertyType',
+                    'purpose',
+                    'property',
+                    'propertystatus',
+                    'customFieldValues.customField',
+                    'customFieldValues.customFieldOption',
+                    'importKeywords',
+                    'developer.userDetails',
+                    'createdBy.role',
+                    'updatedBy.role',
+                    'country',
+                    'state',
+                    'city'
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $projectsData = $projects->map(function ($property) use ($baseURL) {
+                return [
+                    'id' => $property->id,
+                    'property_unique_id' => $property->property_unique_id,
+                    'name' => $property->name,
+                    'description' => $property->description,
+                    'live_status' => $property->live_status,
+                    'status_reason' => $property->status_reason,
+                    'temporary_status' => $property->temporary_status,
+                    'project_status' => $property->project_status,
+                    'user_id' => $property->user_id,
+                    'created_by' => $property->created_by,
+                    'created_by_role' => optional($property->createdBy)->role->name ?? 'N/A',
+                    'updated_by' => $property->updated_by,
+                    'updated_by_role' => optional($property->updatedBy)->role->name ?? 'N/A',
+                    'listed_by' => optional(optional($property->user)->role)->name ?? 'N/A',
+                    'purpose_id' => $property->purpose_id,
+                    'purpose_id_name' => optional($property->purpose)->name,
+                    'property_id' => $property->property_id,
+                    'property_id_name' => optional($property->property)->name,
+                    'property_status_id' => $property->property_status_id,
+                    'property_status_id_name' => optional($property->propertystatus)->name,
+                    'property_type_id' => $property->property_type_id,
+                    'property_type_id_name' => optional($property->propertyType)->name,
+                    'total_view' => $property->analytics()->count(),
+                    'date' => date('d m Y', strtotime($property->created_at)),
+                    'time' => date('h:i A', strtotime($property->created_at)),
+                    'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
+                    'keyword' => $property->importKeywords,
+                    'featured_image' => !empty($property->featured_image)
+                        ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
+                            ? $property->featured_image
+                            : $baseURL . $property->featured_image)
+                        : null,
+                    'property_address' => $property->property_address,
+                    'country' => $property->country,
+                    'state' => $property->state,
+                    'city' => $property->city,
+                ];
+            });
+
+            return response()->json($projectsData);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()
+            ], 500);
+        }
+    }
+
 
 }
