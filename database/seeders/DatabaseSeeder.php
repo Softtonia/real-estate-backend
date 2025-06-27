@@ -34,6 +34,9 @@ class DatabaseSeeder extends Seeder
         $this->call(TicketTypesTableSeeder::class);
         $this->call(TicketPrioritiesTableSeeder::class);
         $this->call(TicketStatusTableSeeder::class);
+        $this->call(HelpCategorySeeder::class);
+        $this->call(HelpSubcategorySeeder::class);
+         $this->call(HelpChildcategorySeeder::class);
 
 
     }
