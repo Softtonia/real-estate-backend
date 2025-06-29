@@ -391,9 +391,9 @@ Route::get('search-amenities-categories', [AmenitycategoriesController::class, '
 // custom field will start from here
 Route::get('custom-field-listing-by-type', [CustomFieldController::class, 'customFieldListingByType']);
 Route::middleware('admin.token')->post('add-custom-fields', [CustomFieldController::class, 'store']);
-Route::middleware('admin.token')->post('edit-custom-fields', [CustomFieldController::class, 'update']);
+Route::middleware('admin.token')->post('edit-custom-fields-by-group-id', [CustomFieldController::class, 'updateCustomFieldByGroupId']);
 Route::middleware('admin.token')->post('delete-custom-fields', [CustomFieldController::class, 'delete']);
-Route::post('get-custom-fields-byid', [CustomFieldController::class, 'show']);
+Route::post('get-custom-fields-by-group-id', [CustomFieldController::class, 'getCustomFieldByGroupId']);
 Route::middleware('allrole.token')->get('model-listing', [CustomFieldController::class, 'modelListing']);
 Route::get('all_template_id_listings', [CustomFieldController::class, 'customFieldUniqueCode']);
 Route::middleware('allrole.token')->get('condition-listing', [CustomFieldController::class, 'conditionListing']);
@@ -409,6 +409,9 @@ Route::post('slug-uniqueness-check', [CustomFieldController::class, 'slugUniques
 Route::get('get-model-condition-record', [CustomFieldController::class, 'getAllModelConditionRecords']);
 Route::middleware('allrole.token')->get('get-custom-field-model-multi-condition', [CustomFieldController::class, 'getCustomFieldModelMultiCondition']);
 Route::post('custom-field-listing-by-model-conditionid', [CustomFieldController::class, 'customFieldListingByModelConditionId']);
+
+Route::get('get-custom-field-by-id/{id}', [CustomFieldController::class, 'getCustomFieldById']);
+Route::middleware('admin.token')->post('edit-custom-fields-by-id/{id}', [CustomFieldController::class, 'updateCustomFieldById']);
 
 
 

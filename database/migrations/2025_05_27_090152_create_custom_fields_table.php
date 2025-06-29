@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('field_name_slug', 255)->collation('utf8mb4_unicode_ci')->nullable()->comment('this is field key');
             $table->string('field_placeholder', 255)->collation('utf8mb4_unicode_ci')->nullable();
             $table->enum('field_type', ['text', 'textarea', 'texteditor', 'number', 'file', 'checkbox', 'select', 'radio', 'url', 'repeater','media'])->collation('utf8mb4_unicode_ci');
-            $table->enum('post_type', ['project', 'property_list', 'developer_list'])->default('property_list')->collation('utf8mb4_unicode_ci');
+            $table->enum('post_type', ['project_list', 'property_list', 'developer_list'])->default('property_list')->collation('utf8mb4_unicode_ci');
             $table->enum('required', ['yes', 'no'])->collation('utf8mb4_unicode_ci');
             $table->string('media_limit', 20)->collation('utf8mb4_unicode_ci')->nullable();
             $table->string('media_size', 20)->collation('utf8mb4_unicode_ci')->nullable();

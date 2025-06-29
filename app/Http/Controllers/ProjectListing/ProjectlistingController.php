@@ -25,6 +25,7 @@ class ProjectlistingController extends Controller
     // this is for store the data
     public function store(Request $request)
     {
+         \Log::info($request->all());
         try {
             // Get authenticated user from middleware
             $user = Auth::user();

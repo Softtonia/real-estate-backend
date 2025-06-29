@@ -15,11 +15,11 @@ return new class extends Migration {
 
             // Rename column and change to ENUM
             // Rename column using raw SQL (MariaDB-compatible)
-            DB::statement("ALTER TABLE custom_field_unique_codes CHANGE `type` `post_type` ENUM('project', 'property_list', 'developer_list') DEFAULT 'project'");
+            DB::statement("ALTER TABLE custom_field_unique_codes CHANGE `type` `post_type` ENUM('project_list', 'property_list', 'developer_list') DEFAULT 'project_list'");
 
             DB::statement("ALTER TABLE custom_field_unique_codes
-                       MODIFY post_type ENUM('project', 'property_list', 'developer_list')
-                       DEFAULT 'project'");
+                       MODIFY post_type ENUM('project_list', 'property_list', 'developer_list')
+                       DEFAULT 'project_list'");
 
         });
     }

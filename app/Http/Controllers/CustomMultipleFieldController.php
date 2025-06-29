@@ -16,8 +16,8 @@ class CustomMultipleFieldController extends Controller
 {
     public function customFieldListingByModelConditionId(Request $request)
 {
-    $postType = $request->post_type && in_array($request->post_type, ['project', 'developer_list', 'property_list']) 
-        ? $request->post_type 
+    $postType = $request->post_type && in_array($request->post_type, ['project_list', 'developer_list', 'property_list'])
+        ? $request->post_type
         : 'property_list';
 
     try {
@@ -106,22 +106,22 @@ class CustomMultipleFieldController extends Controller
     // public function customFieldListingByModelConditionId(Request $request)
     // {
     //     $postType = null;
-    
+
     //     if (isset($request->post_type)) {
-    //         $postType = in_array($request->post_type, ['project', 'developer_list', 'property_list']) ? $request->post_type : 'property_list';
+    //         $postType = in_array($request->post_type, ['project_list', 'developer_list', 'property_list']) ? $request->post_type : 'property_list';
     //     } else {
     //         $postType = 'property_list';
     //     }
-    
+
     //     try {
     //         $validatedData = $request->validate([
     //             'model' => 'required',
     //             'condition_id' => 'required', // condition_id is still required
     //         ]);
-    
+
     //         $model = $request->model;
     //         $conditionIds = explode(',', $request->condition_id); // Split comma-separated condition IDs
-    
+
     //         // Retrieve all records matching the model
     //         $customFields = CustomField::where('model', $model)
     //             ->with(['groupname', 'options', 'repeaterFields.repeaterFieldsOptions'])
@@ -131,9 +131,9 @@ class CustomMultipleFieldController extends Controller
     //                 if (!isset($customField->condition) || empty($customField->condition)) {
     //                     return false;
     //                 }
-    
+
     //                 $conditionsArray = json_decode($customField->condition, true);
-    
+
     //                 // Check if any condition_id in the array matches
     //                 return !empty(array_intersect($conditionIds, $conditionsArray));
     //             })
@@ -144,7 +144,7 @@ class CustomMultipleFieldController extends Controller
     //                     'group_data' => [
     //                         'id' => $groupData->id,
     //                         'group_name' => $groupData->group_name,
-                            
+
     //                         'created_at' => $groupData->created_at->toISOString(),
     //                         'updated_at' => $groupData->updated_at->toISOString(),
     //                         'status' => $groupData->status,
@@ -175,35 +175,35 @@ class CustomMultipleFieldController extends Controller
     //                 ];
     //             })
     //             ->values(); // Reindex the collection
-    
+
     //         return response()->json($customFields, 200);
-    
+
     //     } catch (\Exception $e) {
     //         // Log and return generic error response
     //         Log::error('Error: ' . $e->getMessage());
     //         return response()->json(['error' => 'Something went wrong. ' . $e->getMessage()], 500);
     //     }
     // }
-    
+
 //     public function customFieldListingByModelConditionId(Request $request)
 //     {
 //         $postType = null;
-    
+
 //         if (isset($request->post_type)) {
-//             $postType = in_array($request->post_type, ['project', 'developer_list', 'property_list']) ? $request->post_type : 'property_list';
+//             $postType = in_array($request->post_type, ['project_list', 'developer_list', 'property_list']) ? $request->post_type : 'property_list';
 //         } else {
 //             $postType = 'property_list';
 //         }
-    
+
 //         try {
 //             $validatedData = $request->validate([
 //                 'model' => 'required',
 //                 'condition_id' => 'required',
 //             ]);
-    
+
 //             $model = $request->model;
 //             $conditionId = explode(',', $request->condition_id);
-    
+
 //             // Retrieve all records matching the model
 //             $customFields = CustomField::where('model', $model)
 //                 ->with(['groupname', 'options', 'repeaterFields.repeaterFieldsOptions'])
@@ -213,7 +213,7 @@ class CustomMultipleFieldController extends Controller
 //                     if (!isset($customField->condition) || empty($customField->condition)) {
 //                         return false;
 //                     }
-    
+
 //                     $conditionsArray = json_decode($customField->condition, true);
 //                     return in_array($conditionId, $conditionsArray);
 //                 })
@@ -221,21 +221,21 @@ class CustomMultipleFieldController extends Controller
 //                     if (!isset($customField->groupname) || empty($customField->groupname)) {
 //                         $customField->groupname = null;
 //                     }
-    
+
 //                     if (!isset($customField->options) || empty($customField->options)) {
 //                         $customField->options = null;
 //                     }
-    
+
 //                     if (!isset($customField->repeaterFields) || empty($customField->repeaterFields)) {
 //                         $customField->repeaterFields = collect();
 //                     }
-    
+
 //                     $modelConditionName = $this->fetchModelConditionName($model, $conditionId);
 //                     $repeaterFieldsData = $customField->repeaterFields->map(function ($repeaterField) {
 //                         if (!isset($repeaterField->repeaterFieldsOptions) || empty($repeaterField->repeaterFieldsOptions)) {
 //                             $repeaterField->repeaterFieldsOptions = null;
 //                         }
-    
+
 //                         return [
 //                             'id' => $repeaterField->id,
 //                             'custom_field_id' => $repeaterField->custom_field_id,
@@ -245,7 +245,7 @@ class CustomMultipleFieldController extends Controller
 //                             'options' => $repeaterField->repeaterFieldsOptions,
 //                         ];
 //                     });
-    
+
 //                     return [
 //                         'id' => $customField->id,
 //                         'group_data' => $customField->groupname,
@@ -266,9 +266,9 @@ class CustomMultipleFieldController extends Controller
 //                         'repeater_fields' => $repeaterFieldsData,
 //                     ];
 //                 });
-    
+
 //             return response()->json(['data' => $customFields], 200);
-    
+
 //         } catch (\Exception $e) {
 //             // Log and return generic error response
 //             Log::error('Error: ' . $e->getMessage());
@@ -296,7 +296,7 @@ class CustomMultipleFieldController extends Controller
             default:
                 return null;
         }
-    }    
+    }
 
 }
 

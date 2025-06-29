@@ -682,6 +682,8 @@ class CustomFieldController extends Controller
                 }
 
                 $customFields[] = $field->toArray();
+
+
             }
 
             // Commit transaction
@@ -702,7 +704,7 @@ class CustomFieldController extends Controller
 
 
 
-    public function update(Request $request)
+    public function updateCustomFieldByGroupId(Request $request)
     {
         // dd($request->all());
         try {
@@ -1077,9 +1079,9 @@ class CustomFieldController extends Controller
     //     }
     // }
 
-    ############################## new show function ################################
+    ############################## new get custom field by group id function ################################
 
-    public function show(Request $request)
+    public function getCustomFieldByGroupId(Request $request)
     {
         try {
             $data = CustomField::where('group_id', $request->group_id)
@@ -1206,9 +1208,479 @@ class CustomFieldController extends Controller
         }
     }
 
-    ############################ end new show function #############################
+    ############################ end get custom field by group id function #############################
+
+    ########################### get custom field by id #############################
+
+    public function getCustomFieldById($customFieldId)
+    {
+        try {
+            $customField = CustomField::with('repeaters', 'templateValue')->find($customFieldId);
+
+            if (!$customField) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Custom Field not found',
+                    'debug' => [
+                        'requested_id' => $customFieldId,
+                        'available_ids' => CustomField::pluck('id')->toArray(),
+                    ]
+                ], 404);
+            }
+
+            $customField->group_name = Groupname::where('id', $customField->group_id)->value('group_name');
+            $customField->model_fields = json_decode($customField->model_fields, true) ?? [];
+
+            // 🔁 Filtered model_condition only for listed condition IDs
+            $conditionData = [];
+            foreach ($customField->model_fields as $modelField) {
+                if (isset($modelField['model'], $modelField['condition'])) {
+                    $modelName = $modelField['model'];
+                    $conditionIds = $modelField['condition'];
+
+                    $conditionData[$modelName] = $this->getFilteredModelConditionData($modelName, $conditionIds);
+                }
+            }
+            $customField->model_condition = $conditionData;
+
+            $customFieldOptions = CustomFieldOption::where('custom_field_id', $customField->id)->get()->map(function ($option) {
+                return [
+                    'label' => $option->name,
+                    'value' => $option->value,
+                    'created_at' => $option->created_at->format('Y-m-d H:i:s'),
+                    'updated_at' => $option->updated_at->format('Y-m-d H:i:s'),
+                ];
+            });
+
+            $formattedData = [
+                'id' => $customField->id,
+                'group_id' => $customField->group_id,
+                'field_label' => $customField->field_label,
+                'field_type' => $customField->field_type,
+                'post_type' => $customField->post_type,
+                'required' => $customField->required,
+                'field_name_slug' => $customField->field_name_slug,
+                'field_placeholder' => $customField->field_placeholder,
+                'created_at' => $customField->created_at->format('Y-m-d H:i:s'),
+                'updated_at' => $customField->updated_at->format('Y-m-d H:i:s'),
+                'group_name' => $customField->group_name,
+                'model_fields' => $customField->model_fields,
+                'model_condition' => $customField->model_condition,
+                'options' => $customFieldOptions,
+                'checkbox_type' => $customField->checkbox_type,
+                'select_visible' => $customField->field_type === 'select',
+                'radio_visible' => $customField->field_type === 'radio',
+                'checkbox_visible' => $customField->field_type === 'checkbox',
+                'media_visible' => $customField->field_type === 'media',
+                'file_visible' => $customField->field_type === 'file',
+                'repeater_visible' => $customField->field_type === 'repeater',
+                'repeater' => $customField->repeaters->map(function ($repeater) {
+                    $data = [
+                        'id' => $repeater->id,
+                        'fieldName' => $repeater->field_label,
+                        'field_name_slug' => $repeater->field_name_slug,
+                        'fieldType' => $repeater->field_type,
+                        'fieldPlaceholder' => $repeater->field_placeholder,
+                    ];
+
+                    // ✅ Add media_* fields only if media/file
+                    if (in_array($repeater->field_type, ['media', 'file'])) {
+                        $data['fieldMediaLimit'] = $repeater->media_limit;
+                        $data['fieldMediaSize'] = $repeater->media_size;
+                        $data['fieldMediaFormat'] = $repeater->media_format;
+                    }
+
+                    return $data;
+                }),
+                'template_id' => $customField->template_id,
+                'template_value' => $customField->templateValue,
+            ];
+
+            // ✅ Add top-level media_* fields only if media/file
+            if (in_array($customField->field_type, ['media', 'file'])) {
+                $formattedData['media_limit'] = $customField->media_limit;
+                $formattedData['media_size'] = $customField->media_size;
+                $formattedData['media_format'] = $customField->media_format;
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Custom Field fetched successfully',
+                'data' => [$formattedData]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error fetching custom field',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 
 
+
+    private function getFilteredModelConditionData($model, array $conditionIds)
+    {
+        switch ($model) {
+            case 'purpose':
+                return Purpose::whereIn('id', $conditionIds)->get();
+
+            case 'property':
+                return Property::whereIn('id', $conditionIds)->get();
+
+            case 'property_type':
+                return PropertyType::whereIn('id', $conditionIds)->get();
+
+            case 'property_status':
+                return Status::whereIn('id', $conditionIds)->get();
+
+            case 'amenities':
+                return Amenity::whereIn('id', $conditionIds)->get();
+
+            case 'amenities_categories':
+                return AmenitiesCategory::whereIn('id', $conditionIds)->get();
+
+            default:
+                return [];
+        }
+    }
+
+    ###################### update custom field by id ###########################
+
+    // public function updateCustomFieldById(Request $request, $id)
+    // {
+    //     $fieldId = $id;
+    //     try {
+    //         $validatedData = $request->validate([
+    //             'group_id' => 'nullable|numeric|exists:group_name,id',
+    //             'group_name' => 'nullable|string|max:255', // ✅ Add group_name
+    //             'field_label' => 'required|string|max:255',
+    //             'field_name_slug' => 'required|string|max:255|unique:custom_fields,field_name_slug,' . $fieldId,
+    //             'field_placeholder' => 'nullable|string|max:255',
+    //             'field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
+    //             'required' => 'required|string|in:yes,no',
+    //             'post_type' => 'required|string|max:255',
+    //             'template_id' => 'nullable|integer|exists:custom_field_unique_codes,id',
+    //             'media_limit' => 'nullable|integer',
+    //             'media_size' => 'nullable|string',
+    //             'media_format' => 'nullable|array',
+    //             'options' => 'nullable|array',
+    //             'options.*.label' => 'required_if:field_type,select,checkbox|string|max:255',
+    //             'options.*.value' => 'required_if:field_type,select,checkbox|string|max:255',
+    //             'repeater' => 'nullable|array',
+    //             'model_fields' => 'nullable|array',
+    //             'model_fields.*.model' => 'nullable|string',
+    //             'model_fields.*.condition' => 'nullable|array',
+    //         ]);
+
+    //         DB::beginTransaction();
+
+    //         $field = CustomField::findOrFail($fieldId);
+    //         $groupId = $validatedData['group_id'] ?? $field->group_id;
+
+    //         // ✅ Update group name if sent
+    //         if (!empty($validatedData['group_name'])) {
+    //             $group = Groupname::find($groupId);
+    //             if ($group) {
+    //                 $group->update([
+    //                     'group_name' => $validatedData['group_name']
+    //                 ]);
+    //             }
+    //         }
+
+    //         $mediaFormat = isset($validatedData['media_format']) ? implode(',', $validatedData['media_format']) : null;
+
+    //         $modelFieldsData = [];
+    //         if (!empty($validatedData['model_fields'])) {
+    //             foreach ($validatedData['model_fields'] as $modelField) {
+    //                 $modelFieldsData[] = [
+    //                     'model' => $modelField['model'],
+    //                     'condition' => $modelField['condition'],
+    //                 ];
+    //             }
+    //         }
+
+    //         $field->update([
+    //             'group_id' => $groupId,
+    //             'field_label' => $validatedData['field_label'],
+    //             'field_name_slug' => $validatedData['field_name_slug'],
+    //             'field_placeholder' => $validatedData['field_placeholder'] ?? null,
+    //             'field_type' => $validatedData['field_type'],
+    //             'required' => $validatedData['required'],
+    //             'post_type' => $validatedData['post_type'],
+    //             'template_id' => $validatedData['template_id'] ?? null,
+    //             'media_limit' => $validatedData['media_limit'] ?? null,
+    //             'media_size' => $validatedData['media_size'] ?? null,
+    //             'media_format' => $mediaFormat,
+    //             'model_fields' => json_encode($modelFieldsData),
+    //         ]);
+
+    //         // ➤ Select / Checkbox Options
+    //         if (in_array($field->field_type, ['select', 'checkbox']) && isset($validatedData['options'])) {
+    //             $existingOptionIds = $field->options->pluck('id')->toArray();
+    //             $newOptionIds = [];
+
+    //             foreach ($validatedData['options'] as $option) {
+    //                 if (isset($option['id'])) {
+    //                     CustomFieldOption::where('id', $option['id'])->update([
+    //                         'name' => $option['label'],
+    //                         'value' => $option['value'],
+    //                     ]);
+    //                     $newOptionIds[] = $option['id'];
+    //                 } else {
+    //                     $newOption = CustomFieldOption::create([
+    //                         'custom_field_id' => $field->id,
+    //                         'type' => $field->field_type,
+    //                         'name' => $option['label'],
+    //                         'value' => $option['value'],
+    //                     ]);
+    //                     $newOptionIds[] = $newOption->id;
+    //                 }
+    //             }
+
+    //             CustomFieldOption::where('custom_field_id', $field->id)
+    //                 ->whereNotIn('id', $newOptionIds)
+    //                 ->delete();
+    //         }
+
+    //         // ➤ Repeater Fields
+    //         if ($field->field_type === 'repeater' && isset($validatedData['repeater'])) {
+    //             $repeaterIds = [];
+
+    //             foreach ($validatedData['repeater'] as $repeaterItem) {
+    //                 $fieldMediaFormat = isset($repeaterItem['fieldMediaFormat'])
+    //                     ? (is_array($repeaterItem['fieldMediaFormat']) ? implode(',', $repeaterItem['fieldMediaFormat']) : $repeaterItem['fieldMediaFormat'])
+    //                     : null;
+
+    //                 $repeaterField = CustomFieldRepeater::updateOrCreate(
+    //                     ['field_name_slug' => Str::slug($repeaterItem['field_name_slug'])],
+    //                     [
+    //                         'group_id' => $groupId,
+    //                         'custom_field_id' => $field->id,
+    //                         'field_label' => $repeaterItem['fieldName'],
+    //                         'field_type' => $repeaterItem['fieldType'],
+    //                         'field_name_slug' => $repeaterItem['field_name_slug'],
+    //                         'field_placeholder' => $repeaterItem['fieldPlaceholder'] ?? null,
+    //                         'media_format' => $fieldMediaFormat,
+    //                         'media_limit' => $repeaterItem['fieldMediaLimit'] ?? null,
+    //                         'media_size' => $repeaterItem['fieldMediaSize'] ?? null,
+    //                     ]
+    //                 );
+
+    //                 $repeaterIds[] = $repeaterField->id;
+
+    //                 if (isset($repeaterItem['fieldOptions'])) {
+    //                     $existing = $repeaterField->options->pluck('id')->toArray();
+    //                     $newIds = [];
+
+    //                     foreach ($repeaterItem['fieldOptions'] as $option) {
+    //                         if (isset($option['id'])) {
+    //                             CustomFieldRepeaterOption::where('id', $option['id'])->update([
+    //                                 'name' => $option['name'],
+    //                                 'value' => $option['value'],
+    //                             ]);
+    //                             $newIds[] = $option['id'];
+    //                         } else {
+    //                             $new = CustomFieldRepeaterOption::create([
+    //                                 'custom_field_repeater_id' => $repeaterField->id,
+    //                                 'type' => $repeaterItem['fieldType'],
+    //                                 'name' => $option['name'],
+    //                                 'value' => $option['value'],
+    //                             ]);
+    //                             $newIds[] = $new->id;
+    //                         }
+    //                     }
+
+    //                     CustomFieldRepeaterOption::where('custom_field_repeater_id', $repeaterField->id)
+    //                         ->whereNotIn('id', $newIds)
+    //                         ->delete();
+    //                 }
+    //             }
+
+    //             CustomFieldRepeater::where('custom_field_id', $field->id)
+    //                 ->whereNotIn('id', $repeaterIds)
+    //                 ->delete();
+    //         }
+
+    //         DB::commit();
+    //         return response()->json(['message' => 'Custom field updated successfully'], 200);
+
+    //     } catch (\Illuminate\Validation\ValidationException $e) {
+    //         DB::rollBack();
+    //         return response()->json(['message' => 'Validation failed', 'errors' => $e->errors()], 422);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json(['message' => 'Update failed', 'error' => $e->getMessage()], 500);
+    //     }
+    // }
+
+
+    public function updateCustomFieldById(Request $request, $id)
+    {
+        $fieldId = $id;
+        try {
+            $validatedData = $request->validate([
+                'group_id' => 'nullable|numeric|exists:group_name,id',
+                'group_name' => 'nullable|string|max:255',
+                'field_label' => 'required|string|max:255',
+                'field_name_slug' => 'required|string|max:255|unique:custom_fields,field_name_slug,' . $fieldId,
+                'field_placeholder' => 'nullable|string|max:255',
+                'field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
+                'required' => 'required|string|in:yes,no',
+                'post_type' => 'required|string|max:255',
+                'template_id' => 'nullable|integer|exists:custom_field_unique_codes,id',
+                'media_limit' => 'nullable|integer',
+                'media_size' => 'nullable|string',
+                'media_format' => 'nullable|array',
+                'options' => 'nullable|array',
+                'options.*.label' => 'required_if:field_type,select,checkbox|string|max:255',
+                'options.*.value' => 'required_if:field_type,select,checkbox|string|max:255',
+                'repeater' => 'nullable|array',
+                'model_fields' => 'nullable|array',
+                'model_fields.*.model' => 'nullable|string',
+                'model_fields.*.condition' => 'nullable|array',
+            ]);
+
+            DB::beginTransaction();
+
+            // ✅ Eager load options relation
+            $field = CustomField::with('options')->findOrFail($fieldId);
+            $groupId = $validatedData['group_id'] ?? $field->group_id;
+
+            if (!empty($validatedData['group_name'])) {
+                $group = Groupname::find($groupId);
+                if ($group) {
+                    $group->update(['group_name' => $validatedData['group_name']]);
+                }
+            }
+
+            $mediaFormat = isset($validatedData['media_format']) ? implode(',', $validatedData['media_format']) : null;
+
+            $modelFieldsData = [];
+            if (!empty($validatedData['model_fields'])) {
+                foreach ($validatedData['model_fields'] as $modelField) {
+                    $modelFieldsData[] = [
+                        'model' => $modelField['model'],
+                        'condition' => $modelField['condition'],
+                    ];
+                }
+            }
+
+            $field->update([
+                'group_id' => $groupId,
+                'field_label' => $validatedData['field_label'],
+                'field_name_slug' => $validatedData['field_name_slug'],
+                'field_placeholder' => $validatedData['field_placeholder'] ?? null,
+                'field_type' => $validatedData['field_type'],
+                'required' => $validatedData['required'],
+                'post_type' => $validatedData['post_type'],
+                'template_id' => $validatedData['template_id'] ?? null,
+                'media_limit' => $validatedData['media_limit'] ?? null,
+                'media_size' => $validatedData['media_size'] ?? null,
+                'media_format' => $mediaFormat,
+                'model_fields' => json_encode($modelFieldsData),
+            ]);
+
+            // ✅ Select / Checkbox Options
+            if (in_array($field->field_type, ['select', 'checkbox']) && isset($validatedData['options'])) {
+                $existingOptionIds = $field->options ? $field->options->pluck('id')->toArray() : [];
+                $newOptionIds = [];
+
+                foreach ($validatedData['options'] as $option) {
+                    if (isset($option['id'])) {
+                        CustomFieldOption::where('id', $option['id'])->update([
+                            'name' => $option['label'],
+                            'value' => $option['value'],
+                        ]);
+                        $newOptionIds[] = $option['id'];
+                    } else {
+                        $newOption = CustomFieldOption::create([
+                            'custom_field_id' => $field->id,
+                            'type' => $field->field_type,
+                            'name' => $option['label'],
+                            'value' => $option['value'],
+                        ]);
+                        $newOptionIds[] = $newOption->id;
+                    }
+                }
+
+                CustomFieldOption::where('custom_field_id', $field->id)
+                    ->whereNotIn('id', $newOptionIds)
+                    ->delete();
+            }
+
+            // ✅ Repeater Fields
+            if ($field->field_type === 'repeater' && isset($validatedData['repeater'])) {
+                $repeaterIds = [];
+
+                foreach ($validatedData['repeater'] as $repeaterItem) {
+                    $fieldMediaFormat = isset($repeaterItem['fieldMediaFormat'])
+                        ? (is_array($repeaterItem['fieldMediaFormat']) ? implode(',', $repeaterItem['fieldMediaFormat']) : $repeaterItem['fieldMediaFormat'])
+                        : null;
+
+                    $repeaterField = CustomFieldRepeater::updateOrCreate(
+                        ['field_name_slug' => Str::slug($repeaterItem['field_name_slug'])],
+                        [
+                            'group_id' => $groupId,
+                            'custom_field_id' => $field->id,
+                            'field_label' => $repeaterItem['fieldName'],
+                            'field_type' => $repeaterItem['fieldType'],
+                            'field_name_slug' => $repeaterItem['field_name_slug'],
+                            'field_placeholder' => $repeaterItem['fieldPlaceholder'] ?? null,
+                            'media_format' => $fieldMediaFormat,
+                            'media_limit' => $repeaterItem['fieldMediaLimit'] ?? null,
+                            'media_size' => $repeaterItem['fieldMediaSize'] ?? null,
+                        ]
+                    );
+
+                    $repeaterIds[] = $repeaterField->id;
+
+                    if (isset($repeaterItem['fieldOptions'])) {
+                        $existing = $repeaterField->options ? $repeaterField->options->pluck('id')->toArray() : [];
+                        $newIds = [];
+
+                        foreach ($repeaterItem['fieldOptions'] as $option) {
+                            if (isset($option['id'])) {
+                                CustomFieldRepeaterOption::where('id', $option['id'])->update([
+                                    'name' => $option['name'],
+                                    'value' => $option['value'],
+                                ]);
+                                $newIds[] = $option['id'];
+                            } else {
+                                $new = CustomFieldRepeaterOption::create([
+                                    'custom_field_repeater_id' => $repeaterField->id,
+                                    'type' => $repeaterItem['fieldType'],
+                                    'name' => $option['name'],
+                                    'value' => $option['value'],
+                                ]);
+                                $newIds[] = $new->id;
+                            }
+                        }
+
+                        CustomFieldRepeaterOption::where('custom_field_repeater_id', $repeaterField->id)
+                            ->whereNotIn('id', $newIds)
+                            ->delete();
+                    }
+                }
+
+                CustomFieldRepeater::where('custom_field_id', $field->id)
+                    ->whereNotIn('id', $repeaterIds)
+                    ->delete();
+            }
+
+            DB::commit();
+            return response()->json(['message' => 'Custom field updated successfully'], 200);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Validation failed', 'errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Update failed', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+#################### end update custom field by id ################
 
 
 
@@ -1298,13 +1770,16 @@ class CustomFieldController extends Controller
     // }
 
 
+
+
+
     ################# new update code model_fields ###############
     public function customFieldListingByType(Request $request)
     {
         try {
             // Determine the post type from the request
-            if (isset($request->post_type) && $request->post_type == 'project') {
-                $post_type = 'project';
+            if (isset($request->post_type) && $request->post_type == 'project_list') {
+                $post_type = 'project_list';
             } elseif (isset($request->post_type) && $request->post_type == 'developer_list') {
                 $post_type = 'developer_list';
             } else {
@@ -1767,13 +2242,13 @@ class CustomFieldController extends Controller
     //     }
     // }
 
-    public function customFieldListingByModelConditionId(Request $request)
+    public function customFieldListingByModelConditionId123(Request $request)
     {
         try {
             // Validate request
             $validatedData = $request->validate([
                 'model_fields' => 'required',  // 'model_fields' is expected to be an array
-                'post_type' => 'nullable|string|in:project,developer_list,property_list',
+                'post_type' => 'nullable|string|in:project_list,developer_list,property_list',
             ]);
 
             // Set post_type (default: 'property_list')
@@ -1836,6 +2311,104 @@ class CustomFieldController extends Controller
             return response()->json(['error' => 'Something went wrong.', 'details' => $e->getMessage()], 500);
         }
     }
+
+    public function customFieldListingByModelConditionId(Request $request)
+    {
+        try {
+            $validatedData = $request->validate([
+                'model_fields' => 'required|array',
+                'post_type' => 'nullable|string|in:project_list,developer_list,property_list',
+            ]);
+
+            $postType = $request->post_type ?? 'property_list';
+
+            $customFields = CustomField::where('post_type', $postType)
+                ->with(['groupname', 'options', 'repeaterFields.repeaterFieldsOptions'])
+                ->get()
+                ->map(function ($customField) use ($validatedData) {
+                    // Safely decode model_fields JSON
+                    $modelFields = json_decode($customField->model_fields, true);
+                    if (!is_array($modelFields))
+                        return null;
+
+                    // Filter model_fields
+                    $filteredModelFields = array_values(array_filter($modelFields, function ($entry) use ($validatedData) {
+                        foreach ($validatedData['model_fields'] as $modelField) {
+                            if (
+                                isset($entry['model']) &&
+                                $entry['model'] === $modelField['model'] &&
+                                !empty($entry['condition']) &&
+                                count(array_intersect($entry['condition'], $modelField['condition'])) > 0
+                            ) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }));
+
+                    if (empty($filteredModelFields))
+                        return null;
+
+                    // Process repeater fields
+                    $processedRepeaterFields = $customField->repeaterFields->map(function ($repeater) {
+                        $repeaterData = [
+                            'id' => $repeater->id,
+                            'field_name_slug' => $repeater->field_name_slug,
+                            'group_id' => $repeater->group_id,
+                            'custom_field_id' => $repeater->custom_field_id,
+                            'field_type' => $repeater->field_type,
+                            'field_label' => $repeater->field_label,
+                            'field_placeholder' => $repeater->field_placeholder,
+                            'status' => $repeater->status,
+                            'created_at' => $repeater->created_at,
+                            'updated_at' => $repeater->updated_at,
+                            'repeater_fields_options' => $repeater->repeaterFieldsOptions,
+                        ];
+
+                        // Add media details conditionally
+                        if (in_array($repeater->field_type, ['media', 'file'])) {
+                            $repeaterData['media_limit'] = $repeater->media_limit;
+                            $repeaterData['media_size'] = $repeater->media_size;
+                            $repeaterData['media_format'] = $repeater->media_format;
+                        }
+
+                        return $repeaterData;
+                    });
+
+                    // Final response per custom field
+                    $response = [
+                        'id' => $customField->id,
+                        'group_data' => $customField->groupname,
+                        'field_label' => $customField->field_label,
+                        'field_name_slug' => $customField->field_name_slug,
+                        'field_placeholder' => $customField->field_placeholder,
+                        'field_type' => $customField->field_type,
+                        'post_type' => $customField->post_type,
+                        'required' => $customField->required,
+                        'options' => $customField->options,
+                        'model_fields' => $filteredModelFields,
+                        'repeater_fields' => $processedRepeaterFields,
+                    ];
+
+                    // Include media meta only if top-level field is media or file
+                    if (in_array($customField->field_type, ['media', 'file'])) {
+                        $response['media_limit'] = $customField->media_limit;
+                        $response['media_size'] = $customField->media_size;
+                        $response['media_format'] = $customField->media_format;
+                    }
+
+                    return $response;
+                })
+                ->filter()
+                ->values();
+
+            return response()->json(['data' => $customFields], 200);
+        } catch (\Exception $e) {
+            Log::error('Error in customFieldListingByModelConditionId: ' . $e->getMessage());
+            return response()->json(['error' => 'Something went wrong.', 'details' => $e->getMessage()], 500);
+        }
+    }
+
 
     private function fetchModelConditionName($model, $conditionId)
     {
@@ -1971,8 +2544,8 @@ class CustomFieldController extends Controller
                 return response()->json(['error' => 'The name is already taken.'], 422);
             }
 
-            if (isset($request->post_type) && $request->post_type == 'project') {
-                $post_type = 'project';
+            if (isset($request->post_type) && $request->post_type == 'project_list') {
+                $post_type = 'project_list';
             } elseif (isset($request->post_type) && $request->post_type == 'developer_list') {
                 $post_type = 'developer_list';
             } else {
@@ -2015,7 +2588,7 @@ class CustomFieldController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:50',
-            'post_type' => 'required|in:project,property_list,developer_list',
+            'post_type' => 'required|in:project_list,property_list,developer_list',
             'status' => 'required|in:0,1',
         ]);
 
@@ -2133,7 +2706,7 @@ class CustomFieldController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'nullable|string|max:50',
             'slug' => 'nullable|string|max:100',
-            'post_type' => 'nullable|in:project,property_list,developer_list',
+            'post_type' => 'nullable|in:project_list,property_list,developer_list',
             'status' => 'nullable|in:0,1',
         ]);
 
