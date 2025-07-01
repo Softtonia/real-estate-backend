@@ -351,6 +351,7 @@ class DeveloperlistingController extends Controller
                     'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
 
                     'custom_field_values' => $formattedCustomFieldValues,
+                    'featured' => $property->top_featured_id !== null, // true if not null, else false
                 ];
             });
 

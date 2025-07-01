@@ -27,4 +27,10 @@ class TopFeature extends Model
     {
         return $this->belongsTo(ProjectList::class, 'project_id');
     }
+
+
+
+    protected $casts = [
+        'featured_type' => 'array',
+    ];
 }

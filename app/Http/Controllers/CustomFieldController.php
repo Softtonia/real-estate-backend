@@ -1318,124 +1318,124 @@ class CustomFieldController extends Controller
     // }
 
     public function getCustomFieldById($customFieldId)
-{
-    try {
-        // Eager load repeater options to optimize DB queries
-        $customField = CustomField::with(['repeaters.repeaterOptions', 'templateValue'])->find($customFieldId);
+    {
+        try {
+            // Eager load repeater options to optimize DB queries
+            $customField = CustomField::with(['repeaters.repeaterOptions', 'templateValue'])->find($customFieldId);
 
-        if (!$customField) {
+            if (!$customField) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Custom Field not found',
+                    'debug' => [
+                        'requested_id' => $customFieldId,
+                        'available_ids' => CustomField::pluck('id')->toArray(),
+                    ]
+                ], 404);
+            }
+
+            $customField->group_name = Groupname::where('id', $customField->group_id)->value('group_name');
+            $customField->model_fields = json_decode($customField->model_fields, true) ?? [];
+
+            // ✅ Fetch condition data for each model field
+            $conditionData = [];
+            foreach ($customField->model_fields as $modelField) {
+                if (isset($modelField['model'], $modelField['condition'])) {
+                    $modelName = $modelField['model'];
+                    $conditionIds = $modelField['condition'];
+                    $conditionData[$modelName] = $this->getFilteredModelConditionData($modelName, $conditionIds);
+                }
+            }
+            $customField->model_condition = $conditionData;
+
+            // ✅ Fetch top-level field options
+            $customFieldOptions = CustomFieldOption::where('custom_field_id', $customField->id)->get()->map(function ($option) {
+                return [
+                    'label' => $option->name,
+                    'value' => $option->value,
+                    'created_at' => $option->created_at->format('Y-m-d H:i:s'),
+                    'updated_at' => $option->updated_at->format('Y-m-d H:i:s'),
+                ];
+            });
+
+            // ✅ Construct response
+            $formattedData = [
+                'id' => $customField->id,
+                'group_id' => $customField->group_id,
+                'field_label' => $customField->field_label,
+                'field_type' => $customField->field_type,
+                'post_type' => $customField->post_type,
+                'required' => $customField->required,
+                'field_name_slug' => $customField->field_name_slug,
+                'field_placeholder' => $customField->field_placeholder,
+                'created_at' => $customField->created_at->format('Y-m-d H:i:s'),
+                'updated_at' => $customField->updated_at->format('Y-m-d H:i:s'),
+                'group_name' => $customField->group_name,
+                'model_fields' => $customField->model_fields,
+                'model_condition' => $customField->model_condition,
+                'options' => $customFieldOptions,
+                'checkbox_type' => $customField->checkbox_type,
+                'select_visible' => $customField->field_type === 'select',
+                'radio_visible' => $customField->field_type === 'radio',
+                'checkbox_visible' => $customField->field_type === 'checkbox',
+                'media_visible' => $customField->field_type === 'media',
+                'file_visible' => $customField->field_type === 'file',
+                'repeater_visible' => $customField->field_type === 'repeater',
+
+                // ✅ Repeater fields with options and media config
+                'repeater' => $customField->repeaters->map(function ($repeater) {
+                    $data = [
+                        'id' => $repeater->id,
+                        'fieldName' => $repeater->field_label,
+                        'field_name_slug' => $repeater->field_name_slug,
+                        'fieldType' => $repeater->field_type,
+                        'fieldPlaceholder' => $repeater->field_placeholder,
+                    ];
+
+                    if (in_array($repeater->field_type, ['media', 'file'])) {
+                        $data['fieldMediaLimit'] = $repeater->media_limit;
+                        $data['fieldMediaSize'] = $repeater->media_size;
+                        $data['fieldMediaFormat'] = $repeater->media_format;
+                    }
+
+                    if (in_array($repeater->field_type, ['select', 'radio', 'checkbox'])) {
+                        $data['options'] = $repeater->repeaterOptions->map(function ($option) {
+                            return [
+                                'label' => $option->name,
+                                'value' => $option->value,
+                                'created_at' => $option->created_at->format('Y-m-d H:i:s'),
+                                'updated_at' => $option->updated_at->format('Y-m-d H:i:s'),
+                            ];
+                        });
+                    }
+
+                    return $data;
+                }),
+
+                'template_id' => $customField->template_id,
+                'template_value' => $customField->templateValue,
+            ];
+
+            // ✅ Top-level media/file config
+            if (in_array($customField->field_type, ['media', 'file'])) {
+                $formattedData['media_limit'] = $customField->media_limit;
+                $formattedData['media_size'] = $customField->media_size;
+                $formattedData['media_format'] = $customField->media_format;
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Custom Field fetched successfully',
+                'data' => [$formattedData]
+            ]);
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
-                'message' => 'Custom Field not found',
-                'debug' => [
-                    'requested_id' => $customFieldId,
-                    'available_ids' => CustomField::pluck('id')->toArray(),
-                ]
-            ], 404);
+                'message' => 'Error fetching custom field',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $customField->group_name = Groupname::where('id', $customField->group_id)->value('group_name');
-        $customField->model_fields = json_decode($customField->model_fields, true) ?? [];
-
-        // ✅ Fetch condition data for each model field
-        $conditionData = [];
-        foreach ($customField->model_fields as $modelField) {
-            if (isset($modelField['model'], $modelField['condition'])) {
-                $modelName = $modelField['model'];
-                $conditionIds = $modelField['condition'];
-                $conditionData[$modelName] = $this->getFilteredModelConditionData($modelName, $conditionIds);
-            }
-        }
-        $customField->model_condition = $conditionData;
-
-        // ✅ Fetch top-level field options
-        $customFieldOptions = CustomFieldOption::where('custom_field_id', $customField->id)->get()->map(function ($option) {
-            return [
-                'label' => $option->name,
-                'value' => $option->value,
-                'created_at' => $option->created_at->format('Y-m-d H:i:s'),
-                'updated_at' => $option->updated_at->format('Y-m-d H:i:s'),
-            ];
-        });
-
-        // ✅ Construct response
-        $formattedData = [
-            'id' => $customField->id,
-            'group_id' => $customField->group_id,
-            'field_label' => $customField->field_label,
-            'field_type' => $customField->field_type,
-            'post_type' => $customField->post_type,
-            'required' => $customField->required,
-            'field_name_slug' => $customField->field_name_slug,
-            'field_placeholder' => $customField->field_placeholder,
-            'created_at' => $customField->created_at->format('Y-m-d H:i:s'),
-            'updated_at' => $customField->updated_at->format('Y-m-d H:i:s'),
-            'group_name' => $customField->group_name,
-            'model_fields' => $customField->model_fields,
-            'model_condition' => $customField->model_condition,
-            'options' => $customFieldOptions,
-            'checkbox_type' => $customField->checkbox_type,
-            'select_visible' => $customField->field_type === 'select',
-            'radio_visible' => $customField->field_type === 'radio',
-            'checkbox_visible' => $customField->field_type === 'checkbox',
-            'media_visible' => $customField->field_type === 'media',
-            'file_visible' => $customField->field_type === 'file',
-            'repeater_visible' => $customField->field_type === 'repeater',
-
-            // ✅ Repeater fields with options and media config
-            'repeater' => $customField->repeaters->map(function ($repeater) {
-                $data = [
-                    'id' => $repeater->id,
-                    'fieldName' => $repeater->field_label,
-                    'field_name_slug' => $repeater->field_name_slug,
-                    'fieldType' => $repeater->field_type,
-                    'fieldPlaceholder' => $repeater->field_placeholder,
-                ];
-
-                if (in_array($repeater->field_type, ['media', 'file'])) {
-                    $data['fieldMediaLimit'] = $repeater->media_limit;
-                    $data['fieldMediaSize'] = $repeater->media_size;
-                    $data['fieldMediaFormat'] = $repeater->media_format;
-                }
-
-                if (in_array($repeater->field_type, ['select', 'radio', 'checkbox'])) {
-                    $data['options'] = $repeater->repeaterOptions->map(function ($option) {
-                        return [
-                            'label' => $option->name,
-                            'value' => $option->value,
-                            'created_at' => $option->created_at->format('Y-m-d H:i:s'),
-                            'updated_at' => $option->updated_at->format('Y-m-d H:i:s'),
-                        ];
-                    });
-                }
-
-                return $data;
-            }),
-
-            'template_id' => $customField->template_id,
-            'template_value' => $customField->templateValue,
-        ];
-
-        // ✅ Top-level media/file config
-        if (in_array($customField->field_type, ['media', 'file'])) {
-            $formattedData['media_limit'] = $customField->media_limit;
-            $formattedData['media_size'] = $customField->media_size;
-            $formattedData['media_format'] = $customField->media_format;
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Custom Field fetched successfully',
-            'data' => [$formattedData]
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => false,
-            'message' => 'Error fetching custom field',
-            'error' => $e->getMessage()
-        ], 500);
     }
-}
 
 
 
@@ -1800,7 +1800,7 @@ class CustomFieldController extends Controller
         }
     }
 
-#################### end update custom field by id ################
+    #################### end update custom field by id ################
 
 
 

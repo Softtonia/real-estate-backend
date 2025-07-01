@@ -437,6 +437,7 @@ class PropertylistingController extends Controller
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
+                    'featured' => $property->top_featured_id !== null, // true if not null, else false
                 ];
             });
 

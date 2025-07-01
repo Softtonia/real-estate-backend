@@ -140,9 +140,9 @@ Route::get('listing-of-property-with-project', [UserController::class, 'listingO
 
 Route::get('get-all-pages', [UserController::class, 'getAllPages']);
 Route::get('overview-of-all-user-property', [UserController::class, 'overviewOfProperty']);
-Route::middleware('admin.token')->post('create-top-features', [UserController::class, 'createTopFeatures']);
-Route::post('listing-of-top-features', [UserController::class, 'listingOfTopFeatures']);
-Route::post('top-features-listing', [UserController::class, 'topFeaturesListing']);
+
+
+
 Route::get('property-listing-by-location', [UserController::class, 'propertyListingByLocation']);
 Route::get('get-user-status', [UserController::class, 'getallstatus']);
 
@@ -708,11 +708,15 @@ Route::middleware('admin.token')->post('bulk-delete-template-id-listings',[Custo
 
 // Top Features
 
-Route::get('/get-top-features-by-project-id/{id}', [TopFeatureController::class, 'getTopFeaturesByProjectId']);
-Route::get('/get-top-features-by-property-id/{id}', [TopFeatureController::class, 'getTopFeaturesByPropertyId']);
-Route::get('/get-top-features-by-developer-id/{id}', [TopFeatureController::class, 'getTopFeaturesByDeveloperId']);
-Route::get('/get-top-features-by-agent-id/{id}', [TopFeatureController::class, 'getTopFeaturesByAgentId']);
+// Route::middleware('admin.token')->post('create-top-features', [TopFeatureController::class, 'createTopFeatureStore']);
+// Route::middleware('admin.token')->post('update-top-features/{id}', [TopFeatureController::class, 'editTopFeatureUpdate']);
+Route::get('top-features-list', [TopFeatureController::class, 'index']);
+Route::get('/get-top-features-by-id', [TopFeatureController::class, 'getTopFeaturesById']);
+Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [TopFeatureController::class, 'createOrUpdateTopFeature']);
 
-Route::middleware('admin.token')->post('/update-top-features', [TopFeatureController::class, 'updateTopFeatures']);
+
+
+
+
 
 
