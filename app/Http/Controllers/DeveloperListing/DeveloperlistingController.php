@@ -74,16 +74,34 @@ class DeveloperlistingController extends Controller
             // Generate unique developer ID
             $developer_unique_id = 'Developer' . rand(111111, 999999);
 
+            // featured image handle
+
+            if ($request->hasFile('featured_image')) {
+                $file = $request->file('featured_image');
+                $name = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName()); // Replace spaces with underscores
+                $file->move(public_path('uploads/developers'), $name); // Move file to folder
+
+                // ✅ Store only `/uploads/developers/{file_name}`
+                $featuredImage = '/uploads/developers/' . $name;
+            } elseif (!empty($request->featured_image) && filter_var($request->featured_image, FILTER_VALIDATE_URL)) {
+                $featuredImage = $request->featured_image; // Store URL directly if provided
+            } else {
+                $featuredImage = null; // If empty, store null
+            }
+
             // Prepare developer data
             $developerData = array_merge($validatedData, [
                 'developer_unique_id' => $developer_unique_id,
                 'user_id' => $userId,
                 'created_by' => $userId, // Store the authenticated user's ID
                 'address' => $request->address,
+                'featured_image' => $featuredImage,
             ]);
 
             // ✅ Create the developer listing FIRST
             $project = Developerlist::create($developerData);
+
+
 
             // ✅ Handle repeater fields AFTER the project is created
             if ($request->has('repeater_fields')) {
@@ -392,8 +410,28 @@ class DeveloperlistingController extends Controller
                 return response()->json(['error' => 'Invalid Developer Id'], 404);
             }
 
+             // Store old image path
+            $oldImage = $developer->featured_image;
+
+            // Handle image upload
+            if ($request->hasFile('featured_image')) {
+                $file = $request->file('featured_image');
+                $name = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
+                $file->move(public_path('uploads/developers'), $name);
+                $featuredImage = '/uploads/developers/' . $name;
+
+                // ✅ Delete old image if exists and not a URL
+                if (!empty($oldImage) && File::exists(public_path($oldImage))) {
+                    File::delete(public_path($oldImage));
+                }
+            } elseif (!empty($request->featured_image) && filter_var($request->featured_image, FILTER_VALIDATE_URL)) {
+                $featuredImage = $request->featured_image;
+            } else {
+                $featuredImage = $oldImage; // Keep old if nothing new provided
+            }
+
             // Handle file uploads
-            $fileFields = ['property_video', 'virtual_tour', 'video_thumbnail', 'featured_image', 'brochure'];
+            $fileFields = ['property_video', 'virtual_tour', 'video_thumbnail', 'brochure'];
             foreach ($fileFields as $fileField) {
                 if ($request->hasFile($fileField)) {
                     $file = $request->file($fileField);
@@ -418,6 +456,7 @@ class DeveloperlistingController extends Controller
                 'status_reason' => $request->status_reason,
                 'updated_by' => $userId,  // Store the user ID in the updated_by field
                 'address' => $request->address,
+                'featured_image' => $featuredImage,
             ]);
 
             // Handle repeater fields (custom fields)
@@ -638,6 +677,13 @@ class DeveloperlistingController extends Controller
                 'role' => optional($developer->updatedBy->role)->name,
             ] : null;
 
+            if (!empty($developer->featured_image)) {
+                $developer->featured_image = filter_var($developer->featured_image, FILTER_VALIDATE_URL)
+                    ? $developer->featured_image
+                    : url($developer->featured_image);
+            }
+
+
             // ✅ Fetch repeater fields dynamically
             $repeaterFields = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                 $customField = optional($customFieldValue->customField);
@@ -704,7 +750,7 @@ class DeveloperlistingController extends Controller
                 'city_id' => $developer->city_id,
                 'city_name' => optional($developer->city)->name,
 
-
+                'featured_image' => $developer->featured_image,
                 'live_status' => $developer->live_status,
                 'status_reason' => $developer->status_reason,
                 'temporary_status' => $developer->temporary_status,

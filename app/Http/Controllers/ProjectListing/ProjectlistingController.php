@@ -14,6 +14,7 @@ use App\Models\Customfieldvalue;
 use App\Models\AmenitiesCategory;
 use App\Models\Keyword;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 use Log;
@@ -25,7 +26,7 @@ class ProjectlistingController extends Controller
     // this is for store the data
     public function store(Request $request)
     {
-         \Log::info($request->all());
+        //  \Log::info($request->all());
         try {
             // Get authenticated user from middleware
             $user = Auth::user();
@@ -67,12 +68,30 @@ class ProjectlistingController extends Controller
             // Set temporary_status: "active" by default if not provided
             $validatedData['temporary_status'] = $validatedData['temporary_status'] ?? 'active';
 
+
+
+            // featured image handle
+
+            if ($request->hasFile('featured_image')) {
+                $file = $request->file('featured_image');
+                $name = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName()); // Replace spaces with underscores
+                $file->move(public_path('uploads/projects'), $name); // Move file to folder
+
+                // ✅ Store only `/uploads/projects/{file_name}`
+                $featuredImage = '/uploads/projects/' . $name;
+            } elseif (!empty($request->featured_image) && filter_var($request->featured_image, FILTER_VALIDATE_URL)) {
+                $featuredImage = $request->featured_image; // Store URL directly if provided
+            } else {
+                $featuredImage = null; // If empty, store null
+            }
+
             // Prepare project data
             $projectData = array_merge($validatedData, [
                 'project_unique_id' => $project_unique_id,
                 'user_id' => $userId,
                 'created_by' => $userId, // Store the authenticated user's ID
                 'address' => $request->address,
+                'featured_image' => $featuredImage,
             ]);
 
             // Create project
@@ -461,6 +480,29 @@ class ProjectlistingController extends Controller
             // Set `temporary_status`: Default to "active" unless provided
             $temporaryStatus = $request->has('temporary_status') ? $request->temporary_status : 'active';
 
+
+
+            // Store old image path
+            $oldImage = $project->featured_image;
+
+            // Handle image upload
+            if ($request->hasFile('featured_image')) {
+                $file = $request->file('featured_image');
+                $name = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
+                $file->move(public_path('uploads/projects'), $name);
+                $featuredImage = '/uploads/projects/' . $name;
+
+                // ✅ Delete old image if exists and not a URL
+                if (!empty($oldImage) && File::exists(public_path($oldImage))) {
+                    File::delete(public_path($oldImage));
+                }
+            } elseif (!empty($request->featured_image) && filter_var($request->featured_image, FILTER_VALIDATE_URL)) {
+                $featuredImage = $request->featured_image;
+            } else {
+                $featuredImage = $oldImage; // Keep old if nothing new provided
+            }
+
+
             // Prepare update data
             $updateData = [
                 'name' => $request->name ?? $project->name,
@@ -478,6 +520,7 @@ class ProjectlistingController extends Controller
                 'temporary_status' => $temporaryStatus,
                 'updated_by' => $userId, // Store updated_by
                 'address' => $request->address,
+                'featured_image' => $featuredImage,
             ];
 
             // Update project
@@ -653,6 +696,13 @@ class ProjectlistingController extends Controller
                 'role' => optional($projects->updatedBy->role)->name,
             ] : null;
 
+
+            if (!empty($projects->featured_image)) {
+                $projects->featured_image = filter_var($projects->featured_image, FILTER_VALIDATE_URL)
+                    ? $projects->featured_image
+                    : url($projects->featured_image);
+            }
+
             // ✅ Fetch repeater fields dynamically
             $repeaterFields = $projects->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                 $customField = optional($customFieldValue->customField);
@@ -719,6 +769,7 @@ class ProjectlistingController extends Controller
                 'state_name' => optional($projects->state)->name,
                 'city_id' => $projects->city_id,
                 'city_name' => optional($projects->city)->name,
+                'featured_image' => $projects->featured_image,
                 'live_status' => $projects->live_status,
                 'status_reason' => $projects->status_reason,
                 'project_status' => $projects->project_status,

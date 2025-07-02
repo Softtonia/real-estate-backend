@@ -1157,6 +1157,7 @@ class CustomFieldController extends Controller
                     'post_type' => $field->post_type,
                     'field_label' => $field->field_label,
                     'field_name' => $field->field_name,
+                    'field_name_slug' => $field->field_name_slug,
                     'field_placeholder' => $field->field_placeholder,
                     'checkbox_visible' => $field->field_type === 'checkbox',
                     'media_visible' => $field->field_type === 'media',
@@ -2485,6 +2486,10 @@ class CustomFieldController extends Controller
                             'repeater_fields_options' => $repeater->repeaterFieldsOptions,
                         ];
 
+                         if($repeaterData['field_type'] == 'checkbox'){
+                            $repeaterData['checkbox_type'] = $repeater->checkbox_type;
+                        }
+
                         // Add media details conditionally
                         if (in_array($repeater->field_type, ['media', 'file'])) {
                             $repeaterData['media_limit'] = $repeater->media_limit;
@@ -2509,6 +2514,10 @@ class CustomFieldController extends Controller
                         'model_fields' => $filteredModelFields,
                         'repeater_fields' => $processedRepeaterFields,
                     ];
+
+                    if($customField->field_type == 'checkbox'){
+                        $response['checkbox_type'] = $customField->checkbox_type;
+                    }
 
                     // Include media meta only if top-level field is media or file
                     if (in_array($customField->field_type, ['media', 'file'])) {
