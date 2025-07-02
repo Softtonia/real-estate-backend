@@ -437,6 +437,7 @@ class PropertylistingController extends Controller
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
+                    'top_featured_id' => $property->top_featured_id,
                     'featured' => $property->top_featured_id !== null, // true if not null, else false
                 ];
             });
@@ -499,7 +500,7 @@ class PropertylistingController extends Controller
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
                         'field_value' => $fieldValueArray,
-                        'field_name' => $customField ? $customField->field_name : null,
+                        'field_name' => $customField ? $customField->field_label : null,
                     ];
                 });
 

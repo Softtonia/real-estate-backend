@@ -405,6 +405,7 @@ class ProjectlistingController extends Controller
                     'developer' => $developerData,
                     'keyword' => $property->importKeywords,
                     'custom_field_values' => $formattedCustomFieldValues,
+                    'top_featured_id' => $property->top_featured_id,
                     'featured' => $property->top_featured_id !== null, // true if not null, else false
                 ];
             });
