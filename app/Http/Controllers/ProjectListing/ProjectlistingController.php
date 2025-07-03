@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\ProjectListing;
 
 use App\Http\Controllers\Controller;
+use App\Models\CustomFieldRepeaterValues;
 use Illuminate\Http\Request;
 use App\Models\ProjectList;
 use App\Models\User;
@@ -182,6 +183,85 @@ class ProjectlistingController extends Controller
                                 }
                             }
                             break;
+
+                        case 'repeater':
+                            if (!empty($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
+                                foreach ($repeaterField['field_value'] as $rowIndex => $row) {
+                                    $uniqueRowId = uniqid('repeater_');
+                                    foreach ($row as $subField) {
+                                        $nestedFieldData = [
+                                            'project_listing_id' => $project->id,
+                                            'custom_field_id' => $subField['sub_field_id'],
+                                            'custom_field_repeater_id' => $repeaterField['custom_field_id'],
+                                            'field_type' => $subField['field_type'],
+                                            'unique_id' => $uniqueRowId,
+                                        ];
+
+                                        switch ($subField['field_type']) {
+                                            case 'text':
+                                            case 'textarea':
+                                            case 'texteditor':
+                                                $nestedFieldData['field_meta_value'] = $subField['field_value'];
+                                                break;
+
+                                            case 'select':
+                                            case 'radio':
+                                                $option = DB::table('custom_field_repeater_options')
+                                                    ->where('custom_field_repeater_id', $subField['sub_field_id'])
+                                                    ->where('value', $subField['field_value'])
+                                                    ->first();
+                                                if ($option) {
+                                                    $nestedFieldData['custom_field_repeater_options_id'] = $option->id;
+                                                }
+                                                $nestedFieldData['field_meta_value'] = $subField['field_value'];
+                                                break;
+
+                                            case 'checkbox':
+                                                $values = explode(',', $subField['field_value']);
+                                                $nestedFieldData['field_meta_value'] = implode(',', $values);
+                                                $optionIds = DB::table('custom_field_repeater_options')
+                                                    ->where('custom_field_repeater_id', $subField['sub_field_id'])
+                                                    ->whereIn('value', $values)
+                                                    ->pluck('id')
+                                                    ->implode(',');
+                                                $nestedFieldData['custom_field_repeater_options_id'] = $optionIds;
+                                                break;
+
+                                            case 'media':
+                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+                                                    $fileNames = [];
+                                                    foreach ($subField['field_value'] as $file) {
+                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                                            $fileName = time() . '_' . $file->getClientOriginalName();
+                                                            $file->move(public_path('uploads/media'), $fileName);
+                                                            $fileNames[] = $fileName;
+                                                        }
+                                                    }
+                                                    $nestedFieldData['field_meta_value'] = json_encode($fileNames);
+                                                }
+                                                break;
+
+                                            case 'file':
+                                                if (isset($subField['field_value']) && $subField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
+                                                    $file = $subField['field_value'];
+                                                    if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+                                                        $fileName = time() . '_' . $file->getClientOriginalName();
+                                                        $filePath = $file->storeAs('uploads/gallery', $fileName);
+                                                        $nestedFieldData['field_meta_value'] = $filePath;
+                                                    } else {
+                                                        return response()->json(['error' => 'Invalid file format in repeater. Only PDF files allowed.'], 400);
+                                                    }
+                                                }
+                                                break;
+                                        }
+
+                                        // Save nested repeater field value
+                                        CustomFieldRepeaterValues::create($nestedFieldData);
+                                    }
+                                }
+                            }
+                            break;
+
 
                         default:
                             return response()->json(['error' => 'Unsupported field type'], 400);
@@ -535,78 +615,304 @@ class ProjectlistingController extends Controller
             }
 
             // Handle repeater field values
+            // if ($request->has('repeater_fields')) {
+            //     Customfieldvalue::where('project_listing_id', $project->id)->delete();
+            //     foreach ($request->repeater_fields as $repeaterField) {
+            //         $customFieldData = [
+            //             'project_listing_id' => $project->id,
+            //             'custom_field_id' => $repeaterField['custom_field_id'],
+            //             // 'updated_by' => $userId, // Store updated_by
+            //         ];
+
+            //         // Handle field types
+            //         switch ($repeaterField['field_type']) {
+            //             case 'text':
+            //             case 'textarea':
+            //             case 'texteditor':
+            //                 $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+            //                 break;
+
+            //             case 'select':
+            //             case 'radio':
+            //                 $option = DB::table('custom_field_options')
+            //                     ->where('custom_field_id', $repeaterField['custom_field_id'])
+            //                     ->where('value', $repeaterField['field_value'])
+            //                     ->first();
+            //                 if ($option) {
+            //                     $customFieldData['custom_field_options_id'] = $option->id;
+            //                 }
+            //                 break;
+
+            //             case 'checkbox':
+            //                 $values = explode(',', $repeaterField['field_value']);
+            //                 $customFieldData['field_meta_value'] = implode(',', $values);
+            //                 $optionIds = DB::table('custom_field_options')
+            //                     ->whereIn('value', $values)
+            //                     ->where('custom_field_id', $repeaterField['custom_field_id'])
+            //                     ->pluck('id')
+            //                     ->implode(',');
+            //                 $customFieldData['custom_field_options_id'] = $optionIds;
+            //                 break;
+
+            //             case 'media':
+            //                 $mediaFiles = [];
+            //                 if (is_array($repeaterField['field_value'])) {
+            //                     foreach ($repeaterField['field_value'] as $value) {
+            //                         if (is_string($value)) {
+            //                             $mediaFiles[] = $value;
+            //                         } else if ($value->isValid()) {
+            //                             $fileName = time() . '_' . $value->getClientOriginalName();
+            //                             $value->move(public_path('uploads/media'), $fileName);
+            //                             $mediaFiles[] = $fileName;
+            //                         }
+            //                     }
+            //                 }
+            //                 $customFieldData['field_meta_value'] = json_encode($mediaFiles);
+            //                 break;
+
+            //            case 'file':
+            //         if (isset($repeaterField['field_value']) && $repeaterField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
+            //             $file = $repeaterField['field_value'];
+            //             if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+            //                 $fileName = time() . '_' . $file->getClientOriginalName();
+            //                 $filePath = $file->storeAs('uploads/gallery', $fileName);
+            //                 $customFieldData['field_meta_value'] = $filePath;
+            //             } else {
+            //                 return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+            //             }
+            //         }
+            //                 break;
+
+            //             case 'repeater':
+            //                 if (!empty($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
+            //                     foreach ($repeaterField['field_value'] as $row) {
+            //                         $uniqueRowId = uniqid('repeater_');
+            //                         foreach ($row as $subField) {
+            //                             $nestedData = [
+            //                                 'custom_field_id' => $subField['sub_field_id'],
+            //                                 'custom_field_repeater_id' => $repeaterField['custom_field_id'],
+            //                                 'field_type' => $subField['field_type'],
+            //                                 'unique_id' => $uniqueRowId,
+            //                                 'project_listing_id' => $project->id,
+            //                             ];
+
+            //                             switch ($subField['field_type']) {
+            //                                 case 'text':
+            //                                 case 'textarea':
+            //                                 case 'texteditor':
+            //                                     $nestedData['field_meta_value'] = $subField['field_value'];
+            //                                     break;
+
+            //                                 case 'select':
+            //                                 case 'radio':
+            //                                     $option = DB::table('custom_field_repeater_options')
+            //                                         ->where('custom_field_repeater_id', $subField['sub_field_id'])
+            //                                         ->where('value', $subField['field_value'])
+            //                                         ->first();
+            //                                     if ($option) {
+            //                                         $nestedData['custom_field_repeater_options_id'] = $option->id;
+            //                                     }
+            //                                     $nestedData['field_meta_value'] = $subField['field_value'];
+            //                                     break;
+
+            //                                 case 'checkbox':
+            //                                     $values = explode(',', $subField['field_value']);
+            //                                     $nestedData['field_meta_value'] = implode(',', $values);
+            //                                     $optionIds = DB::table('custom_field_repeater_options')
+            //                                         ->where('custom_field_repeater_id', $subField['sub_field_id'])
+            //                                         ->whereIn('value', $values)
+            //                                         ->pluck('id')
+            //                                         ->implode(',');
+            //                                     $nestedData['custom_field_repeater_options_id'] = $optionIds;
+            //                                     break;
+
+            //                                 case 'media':
+            //                                     if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+            //                                         $fileNames = [];
+            //                                         foreach ($subField['field_value'] as $file) {
+            //                                             if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+            //                                                 $fileName = time() . '_' . $file->getClientOriginalName();
+            //                                                 $file->move(public_path('uploads/media'), $fileName);
+            //                                                 $fileNames[] = $fileName;
+            //                                             }
+            //                                         }
+            //                                         $nestedData['field_meta_value'] = json_encode($fileNames);
+            //                                     }
+            //                                     break;
+
+            //                                 case 'file':
+            //                                     if (isset($subField['field_value']) && $subField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
+            //                                         $file = $subField['field_value'];
+            //                                         if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+            //                                             $fileName = time() . '_' . $file->getClientOriginalName();
+            //                                             $filePath = $file->storeAs('uploads/gallery', $fileName);
+            //                                             $nestedData['field_meta_value'] = $filePath;
+            //                                         }
+            //                                     }
+            //                                     break;
+            //                             }
+
+            //                             CustomFieldRepeaterValues::create($nestedData);
+            //                         }
+            //                     }
+            //                 }
+            //                 break;
+            //         }
+
+            //         Customfieldvalue::create($customFieldData);
+            //     }
+            // }
+
             if ($request->has('repeater_fields')) {
-                Customfieldvalue::where('project_listing_id', $project->id)->delete();
-                foreach ($request->repeater_fields as $repeaterField) {
-                    $customFieldData = [
-                        'project_listing_id' => $project->id,
-                        'custom_field_id' => $repeaterField['custom_field_id'],
-                        // 'updated_by' => $userId, // Store updated_by
-                    ];
+    // ✅ Delete old values before insert
+    Customfieldvalue::where('project_listing_id', $project->id)->delete();
+    CustomFieldRepeaterValues::where('project_listing_id', $project->id)->delete(); // ✅ delete nested data
 
-                    // Handle field types
-                    switch ($repeaterField['field_type']) {
-                        case 'text':
-                        case 'textarea':
-                        case 'texteditor':
-                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
-                            break;
+    foreach ($request->repeater_fields as $repeaterField) {
+        $customFieldData = [
+            'project_listing_id' => $project->id,
+            'custom_field_id' => $repeaterField['custom_field_id'],
+        ];
 
-                        case 'select':
-                        case 'radio':
-                            $option = DB::table('custom_field_options')
-                                ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                ->where('value', $repeaterField['field_value'])
-                                ->first();
-                            if ($option) {
-                                $customFieldData['custom_field_options_id'] = $option->id;
-                            }
-                            break;
+        switch ($repeaterField['field_type']) {
+            case 'text':
+            case 'textarea':
+            case 'texteditor':
+                $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                break;
 
-                        case 'checkbox':
-                            $values = explode(',', $repeaterField['field_value']);
-                            $customFieldData['field_meta_value'] = implode(',', $values);
-                            $optionIds = DB::table('custom_field_options')
-                                ->whereIn('value', $values)
-                                ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                ->pluck('id')
-                                ->implode(',');
-                            $customFieldData['custom_field_options_id'] = $optionIds;
-                            break;
-
-                        case 'media':
-                            $mediaFiles = [];
-                            if (is_array($repeaterField['field_value'])) {
-                                foreach ($repeaterField['field_value'] as $value) {
-                                    if (is_string($value)) {
-                                        $mediaFiles[] = $value;
-                                    } else if ($value->isValid()) {
-                                        $fileName = time() . '_' . $value->getClientOriginalName();
-                                        $value->move(public_path('uploads/media'), $fileName);
-                                        $mediaFiles[] = $fileName;
-                                    }
-                                }
-                            }
-                            $customFieldData['field_meta_value'] = json_encode($mediaFiles);
-                            break;
-
-                        case 'file':
-                            if ($request->hasFile("repeater_fields.{$repeaterField['custom_field_id']}.field_value")) {
-                                $file = $request->file("repeater_fields.{$repeaterField['custom_field_id']}.field_value");
-                                if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                    $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                                    $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
-                                    $customFieldData['field_meta_value'] = $filePath;
-                                } else {
-                                    return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
-                                }
-                            }
-                            break;
-                    }
-
-                    Customfieldvalue::create($customFieldData);
+            case 'select':
+            case 'radio':
+                $option = DB::table('custom_field_options')
+                    ->where('custom_field_id', $repeaterField['custom_field_id'])
+                    ->where('value', $repeaterField['field_value'])
+                    ->first();
+                if ($option) {
+                    $customFieldData['custom_field_options_id'] = $option->id;
                 }
-            }
+                $customFieldData['field_meta_value'] = $repeaterField['field_value'];
+                break;
+
+            case 'checkbox':
+                $values = explode(',', $repeaterField['field_value']);
+                $customFieldData['field_meta_value'] = implode(',', $values);
+                $optionIds = DB::table('custom_field_options')
+                    ->whereIn('value', $values)
+                    ->where('custom_field_id', $repeaterField['custom_field_id'])
+                    ->pluck('id')
+                    ->implode(',');
+                $customFieldData['custom_field_options_id'] = $optionIds;
+                break;
+
+            case 'media':
+                $mediaFiles = [];
+                if (is_array($repeaterField['field_value'])) {
+                    foreach ($repeaterField['field_value'] as $value) {
+                        if (is_string($value)) {
+                            $mediaFiles[] = $value;
+                        } elseif ($value instanceof \Illuminate\Http\UploadedFile && $value->isValid()) {
+                            $fileName = time() . '_' . $value->getClientOriginalName();
+                            $value->move(public_path('uploads/media'), $fileName);
+                            $mediaFiles[] = $fileName;
+                        }
+                    }
+                }
+                $customFieldData['field_meta_value'] = json_encode($mediaFiles);
+                break;
+
+            case 'file':
+    if (isset($repeaterField['field_value']) && $repeaterField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
+        $file = $repeaterField['field_value'];
+        if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+            $fileName = time() . '_' . $file->getClientOriginalName();
+            $filePath = $file->storeAs('uploads/gallery', $fileName);
+            $customFieldData['field_meta_value'] = $filePath;
+        } else {
+            return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+        }
+    }
+                break;
+
+            case 'repeater':
+                if (!empty($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
+                    foreach ($repeaterField['field_value'] as $row) {
+                        $uniqueRowId = uniqid('repeater_');
+                        foreach ($row as $subField) {
+                            $nestedData = [
+                                'project_listing_id' => $project->id,
+                                'custom_field_id' => $subField['sub_field_id'],
+                                'custom_field_repeater_id' => $repeaterField['custom_field_id'],
+                                'field_type' => $subField['field_type'],
+                                'unique_id' => $uniqueRowId,
+                            ];
+
+                            switch ($subField['field_type']) {
+                                case 'text':
+                                case 'textarea':
+                                case 'texteditor':
+                                    $nestedData['field_meta_value'] = $subField['field_value'];
+                                    break;
+
+                                case 'select':
+                                case 'radio':
+                                    $option = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $subField['sub_field_id'])
+                                        ->where('value', $subField['field_value'])
+                                        ->first();
+                                    if ($option) {
+                                        $nestedData['custom_field_repeater_options_id'] = $option->id;
+                                    }
+                                    $nestedData['field_meta_value'] = $subField['field_value'];
+                                    break;
+
+                                case 'checkbox':
+                                    $values = explode(',', $subField['field_value']);
+                                    $nestedData['field_meta_value'] = implode(',', $values);
+                                    $optionIds = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $subField['sub_field_id'])
+                                        ->whereIn('value', $values)
+                                        ->pluck('id')
+                                        ->implode(',');
+                                    $nestedData['custom_field_repeater_options_id'] = $optionIds;
+                                    break;
+
+                                case 'media':
+                                    $fileNames = [];
+                                    if (is_array($subField['field_value'])) {
+                                        foreach ($subField['field_value'] as $file) {
+                                            if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                                $fileName = time() . '_' . $file->getClientOriginalName();
+                                                $file->move(public_path('uploads/media'), $fileName);
+                                                $fileNames[] = $fileName;
+                                            }
+                                        }
+                                    }
+                                    $nestedData['field_meta_value'] = json_encode($fileNames);
+                                    break;
+
+                                case 'file':
+                                    if (isset($subField['field_value']) && $subField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
+                                        $file = $subField['field_value'];
+                                        if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
+                                            $fileName = time() . '_' . $file->getClientOriginalName();
+                                            $filePath = $file->storeAs('uploads/gallery', $fileName);
+                                            $nestedData['field_meta_value'] = $filePath;
+                                        }
+                                    }
+                                    break;
+                            }
+
+                            CustomFieldRepeaterValues::create($nestedData);
+                        }
+                    }
+                }
+                break;
+        }
+
+        Customfieldvalue::create($customFieldData);
+    }
+}
+
 
             return response()->json([
                 'status' => true,
@@ -650,6 +956,156 @@ class ProjectlistingController extends Controller
 
 
     // this is for get data by id
+    // public function getdatabyId(Request $request)
+    // {
+    //     try {
+    //         if (!$request->id) {
+    //             return response()->json(['error' => 'ID is required'], 400);
+    //         }
+
+    //         $baseURL = config('app.url');
+
+    //         $projects = ProjectList::with([
+    //             'user.userDetail',
+    //             'createdBy.role',
+    //             'updatedBy.role',
+    //             'propertyType',
+    //             'purpose',
+    //             'property',
+    //             'propertystatus',
+    //             'customFieldValues.customField',
+    //             'customFieldValues.customFieldOption',
+    //             'importKeywords',
+    //             'developer.userDetails',
+    //             'country',
+    //             'state',
+    //             'city',
+    //             // 'address',
+    //         ])->where('id', $request->id)->first(); // Fetch only one record
+
+    //         if (!$projects) {
+    //             return response()->json(['error' => 'Project not found'], 200);
+    //         }
+
+    //         // ✅ Handle Created By and Updated By
+    //         $createdByData = $projects->createdBy ? [
+    //             'id' => $projects->createdBy->id,
+    //             'name' => $projects->createdBy->first_name,
+    //             'email' => $projects->createdBy->email,
+    //             'role' => optional($projects->createdBy->role)->name,
+    //         ] : null;
+
+    //         $updatedByData = $projects->updatedBy ? [
+    //             'id' => $projects->updatedBy->id,
+    //             'name' => $projects->updatedBy->first_name,
+    //             'email' => $projects->updatedBy->email,
+    //             'role' => optional($projects->updatedBy->role)->name,
+    //         ] : null;
+
+
+    //         if (!empty($projects->featured_image)) {
+    //             $projects->featured_image = filter_var($projects->featured_image, FILTER_VALIDATE_URL)
+    //                 ? $projects->featured_image
+    //                 : url($projects->featured_image);
+    //         }
+
+    //         // ✅ Fetch repeater fields dynamically
+    //         $repeaterFields = $projects->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
+    //             $customField = optional($customFieldValue->customField);
+    //             $fieldType = $customField->field_type ?? 'unknown';
+    //             $fieldValue = $customFieldValue->field_meta_value ?? '';
+    //             $allAvailableOptions = [];
+
+    //             // ✅ Fetch all available options dynamically
+    //             $availableOptions = DB::table('custom_field_options')
+    //                 ->where('custom_field_id', $customFieldValue->custom_field_id)
+    //                 ->where('status', 1) // Only fetch active options
+    //                 ->get(['id', 'name', 'value']);
+    //             // dd( $availableOptions);
+    //             if ($availableOptions->isNotEmpty()) {
+    //                 foreach ($availableOptions as $option) {
+    //                     $allAvailableOptions[] = [
+    //                         // 'id' => $option->id,
+    //                         'name' => $option->name,
+    //                         'value' => $option->value,
+    //                     ];
+    //                 }
+    //             }
+
+    //             // ✅ Handle multiple field types correctly
+    //             if (in_array($fieldType, ['select', 'radio'])) {
+    //                 $customFieldOption = DB::table('custom_field_options')
+    //                     ->where('id', $customFieldValue->custom_field_options_id)
+    //                     ->where('status', 1)
+    //                     ->first();
+    //                 $fieldValue = optional($customFieldOption)->name;
+    //             } elseif ($fieldType === 'checkbox') {
+    //                 $optionIds = explode(',', $customFieldValue->custom_field_options_id);
+    //                 $fieldValue = DB::table('custom_field_options')
+    //                     ->whereIn('id', $optionIds)
+    //                     ->where('status', 1)
+    //                     ->pluck('name')
+    //                     ->toArray();
+    //             } elseif (in_array($fieldType, ['media', 'file'])) {
+    //                 $fieldValue = json_decode($fieldValue, true) ?? [];
+    //                 if (!empty($fieldValue)) {
+    //                     $fieldValue = array_map(fn($fileName) => $baseURL . '/uploads/media/' . $fileName, (array) $fieldValue);
+    //                 }
+    //             }
+
+    //             return [
+    //                 'custom_field_id' => $customFieldValue->custom_field_id,
+    //                 'field_label' => $customField->field_label ?? 'Unknown Field',
+    //                 'placeholder' => $customField->field_placeholder,
+    //                 'field_type' => $fieldType,
+    //                 'field_value' => $fieldValue,
+    //                 'options' => $allAvailableOptions,
+    //             ];
+    //         });
+
+    //         return response()->json([
+    //             'id' => $projects->id,
+    //             'project_unique_id' => $projects->project_unique_id,
+    //             'name' => $projects->name,
+    //             'description' => $projects->description,
+    //             'address' => $projects->address,
+    //             'country_id' => $projects->country_id,
+    //             'country_name' => optional($projects->country)->name,
+    //             'state_id' => $projects->state_id,
+    //             'state_name' => optional($projects->state)->name,
+    //             'city_id' => $projects->city_id,
+    //             'city_name' => optional($projects->city)->name,
+    //             'featured_image' => $projects->featured_image,
+    //             'live_status' => $projects->live_status,
+    //             'status_reason' => $projects->status_reason,
+    //             'project_status' => $projects->project_status,
+    //             'user_id' => $projects->user_id,
+    //             'created_by' => $createdByData,
+    //             'updated_by' => $updatedByData,
+    //             'listed_by' => optional(optional($projects->user)->role)->name,
+    //             'purpose_id' => $projects->purpose_id,
+    //             'purpose_id_name' => optional($projects->purpose)->name,
+    //             'property_id' => $projects->property_id,
+    //             'property_id_name' => optional($projects->property)->name,
+    //             'property_status_id' => $projects->property_status_id,
+    //             'property_status_id_name' => optional($projects->propertystatus)->name,
+    //             'property_type_id' => $projects->property_type_id,
+    //             'property_type_id_name' => optional($projects->propertyType)->name,
+    //             'total_view' => $projects->analytics()->count(),
+    //             'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
+    //             'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
+    //             'timestamp' => $projects->created_at ? $projects->created_at->format('d m Y h:i A') : null,
+    //             'developer' => null,
+    //             'keyword' => $projects->importKeywords->pluck('id')->toArray() ?? [],
+    //             'repeater_fields' => $repeaterFields, // ✅ Added repeater fields dynamically
+    //         ]);
+
+    //     } catch (\Throwable $th) {
+    //         return response()->json(['error' => $th->getMessage()], 500);
+    //     }
+    // }
+
+    ######### new code get data by id ################
     public function getdatabyId(Request $request)
     {
         try {
@@ -674,14 +1130,12 @@ class ProjectlistingController extends Controller
                 'country',
                 'state',
                 'city',
-                // 'address',
-            ])->where('id', $request->id)->first(); // Fetch only one record
+            ])->where('id', $request->id)->first();
 
             if (!$projects) {
                 return response()->json(['error' => 'Project not found'], 200);
             }
 
-            // ✅ Handle Created By and Updated By
             $createdByData = $projects->createdBy ? [
                 'id' => $projects->createdBy->id,
                 'name' => $projects->createdBy->first_name,
@@ -696,55 +1150,125 @@ class ProjectlistingController extends Controller
                 'role' => optional($projects->updatedBy->role)->name,
             ] : null;
 
-
             if (!empty($projects->featured_image)) {
                 $projects->featured_image = filter_var($projects->featured_image, FILTER_VALIDATE_URL)
                     ? $projects->featured_image
                     : url($projects->featured_image);
             }
 
-            // ✅ Fetch repeater fields dynamically
-            $repeaterFields = $projects->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
+            $repeaterFields = $projects->customFieldValues->map(function ($customFieldValue) use ($baseURL, $projects) {
                 $customField = optional($customFieldValue->customField);
                 $fieldType = $customField->field_type ?? 'unknown';
                 $fieldValue = $customFieldValue->field_meta_value ?? '';
                 $allAvailableOptions = [];
 
-                // ✅ Fetch all available options dynamically
-                $availableOptions = DB::table('custom_field_options')
-                    ->where('custom_field_id', $customFieldValue->custom_field_id)
-                    ->where('status', 1) // Only fetch active options
-                    ->get(['id', 'name', 'value']);
-                // dd( $availableOptions);
-                if ($availableOptions->isNotEmpty()) {
+                if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
+                    $availableOptions = DB::table('custom_field_options')
+                        ->where('custom_field_id', $customFieldValue->custom_field_id)
+                        ->get(['id', 'name', 'value']);
+
                     foreach ($availableOptions as $option) {
                         $allAvailableOptions[] = [
-                            // 'id' => $option->id,
                             'name' => $option->name,
                             'value' => $option->value,
                         ];
                     }
                 }
 
-                // ✅ Handle multiple field types correctly
+                if ($fieldType === 'repeater') {
+                    $nestedRows = DB::table('custom_field_repeater_values')
+                        ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
+                        ->where('project_listing_id', $projects->id)
+                        ->get()
+                        ->groupBy('unique_id');
+
+                    $repeaterData = [];
+
+                    foreach ($nestedRows as $groupId => $rows) {
+                        $groupData = [];
+
+                        foreach ($rows as $row) {
+                            $value = $row->field_meta_value;
+                            $fieldTypeNested = $row->field_type;
+                            $nestedOptions = [];
+
+                            if (in_array($fieldTypeNested, ['select', 'radio'])) {
+                                $option = DB::table('custom_field_repeater_options')
+                                    ->where('id', $row->custom_field_repeater_options_id)
+                                    ->first();
+                                $value = optional($option)->name ?? $value;
+
+                                $nestedOptions = DB::table('custom_field_repeater_options')
+                                    ->where('custom_field_repeater_id', $row->custom_field_id)
+                                    ->get(['name', 'value'])
+                                    ->map(fn($opt) => [
+                                        'name' => $opt->name,
+                                        'value' => $opt->value,
+                                    ])->toArray();
+                            } elseif ($fieldTypeNested === 'checkbox') {
+                                $ids = explode(',', $row->custom_field_repeater_options_id);
+                                $value = DB::table('custom_field_repeater_options')
+                                    ->whereIn('id', $ids)
+                                    ->pluck('name')
+                                    ->toArray();
+
+                                $nestedOptions = DB::table('custom_field_repeater_options')
+                                    ->where('custom_field_repeater_id', $row->custom_field_id)
+                                    ->get(['name', 'value'])
+                                    ->map(fn($opt) => [
+                                        'name' => $opt->name,
+                                        'value' => $opt->value,
+                                    ])->toArray();
+                            } elseif ($fieldTypeNested === 'file') {
+                                $value = $value ? url($value) : null;
+                            } elseif ($fieldTypeNested === 'media') {
+                                $decoded = json_decode($value, true);
+                                $value = is_array($decoded)
+                                    ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                    : [];
+                            }
+
+                            $groupData[] = [
+                                'sub_field_id' => $row->custom_field_id,
+                                'field_type' => $fieldTypeNested,
+                                'field_value' => $value,
+                                'options' => $nestedOptions,
+                            ];
+                        }
+
+                        $repeaterData[] = $groupData;
+                    }
+
+                    return [
+                        'custom_field_id' => $customFieldValue->custom_field_id,
+                        'field_label' => $customField->field_label ?? 'Unknown Field',
+                        'placeholder' => $customField->field_placeholder,
+                        'field_type' => $fieldType,
+                        'field_value' => $repeaterData,
+                        'options' => [],
+                    ];
+                }
+
                 if (in_array($fieldType, ['select', 'radio'])) {
                     $customFieldOption = DB::table('custom_field_options')
                         ->where('id', $customFieldValue->custom_field_options_id)
-                        ->where('status', 1)
                         ->first();
                     $fieldValue = optional($customFieldOption)->name;
                 } elseif ($fieldType === 'checkbox') {
                     $optionIds = explode(',', $customFieldValue->custom_field_options_id);
                     $fieldValue = DB::table('custom_field_options')
                         ->whereIn('id', $optionIds)
-                        ->where('status', 1)
                         ->pluck('name')
                         ->toArray();
-                } elseif (in_array($fieldType, ['media', 'file'])) {
+                } elseif ($fieldType === 'media') {
                     $fieldValue = json_decode($fieldValue, true) ?? [];
                     if (!empty($fieldValue)) {
                         $fieldValue = array_map(fn($fileName) => $baseURL . '/uploads/media/' . $fileName, (array) $fieldValue);
                     }
+                } elseif ($fieldType === 'file') {
+                    $fieldValue = is_string($fieldValue) && !empty($fieldValue)
+                        ? $baseURL . '/storage/' . ltrim($fieldValue, '/')
+                        : null;
                 }
 
                 return [
@@ -754,6 +1278,7 @@ class ProjectlistingController extends Controller
                     'field_type' => $fieldType,
                     'field_value' => $fieldValue,
                     'options' => $allAvailableOptions,
+
                 ];
             });
 
@@ -791,7 +1316,7 @@ class ProjectlistingController extends Controller
                 'timestamp' => $projects->created_at ? $projects->created_at->format('d m Y h:i A') : null,
                 'developer' => null,
                 'keyword' => $projects->importKeywords->pluck('id')->toArray() ?? [],
-                'repeater_fields' => $repeaterFields, // ✅ Added repeater fields dynamically
+                'repeater_fields' => $repeaterFields,
             ]);
 
         } catch (\Throwable $th) {
@@ -799,6 +1324,7 @@ class ProjectlistingController extends Controller
         }
     }
 
+    ########### end get data by id ################
 
     // this is for update property status
     public function updateProjectStatus(Request $request)
