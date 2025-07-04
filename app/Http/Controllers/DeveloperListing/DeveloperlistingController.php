@@ -974,6 +974,219 @@ class DeveloperlistingController extends Controller
     // }
 
     ################ new code get data by id ##################
+    // public function getdatabyId(Request $request)
+    // {
+    //     try {
+    //         if (!$request->id) {
+    //             return response()->json(['error' => 'ID is required'], 400);
+    //         }
+
+    //         $baseURL = config('app.url');
+
+    //         $developer = Developerlist::with([
+    //             'country',
+    //             'state',
+    //             'city',
+    //             'user',
+    //             'propertyType',
+    //             'purpose',
+    //             'property',
+    //             'propertystatus',
+    //             'customFieldValues.customField',
+    //             'customFieldValues.customFieldOption',
+    //             'createdBy.role',
+    //             'updatedBy.role'
+    //         ])->where('id', $request->id)->first();
+
+    //         if (!$developer) {
+    //             return response()->json(['error' => 'Developer not found'], 200);
+    //         }
+
+    //         $createdByData = $developer->createdBy ? [
+    //             'id' => $developer->createdBy->id,
+    //             'name' => $developer->createdBy->first_name,
+    //             'email' => $developer->createdBy->email,
+    //             'role' => optional($developer->createdBy->role)->name,
+    //         ] : null;
+
+    //         $updatedByData = $developer->updatedBy ? [
+    //             'id' => $developer->updatedBy->id,
+    //             'name' => $developer->updatedBy->first_name,
+    //             'email' => $developer->updatedBy->email,
+    //             'role' => optional($developer->updatedBy->role)->name,
+    //         ] : null;
+
+    //         if (!empty($developer->featured_image)) {
+    //             $developer->featured_image = filter_var($developer->featured_image, FILTER_VALIDATE_URL)
+    //                 ? $developer->featured_image
+    //                 : url($developer->featured_image);
+    //         }
+
+    //         $repeaterFields = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL, $developer) {
+    //             $customField = optional($customFieldValue->customField);
+    //             $fieldType = $customField->field_type ?? 'unknown';
+    //             $fieldValue = $customFieldValue->field_meta_value ?? '';
+    //             $allAvailableOptions = [];
+
+    //             if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
+    //                 $availableOptions = DB::table('custom_field_options')
+    //                     ->where('custom_field_id', $customFieldValue->custom_field_id)
+    //                     ->get(['id', 'name', 'value']);
+
+    //                 foreach ($availableOptions as $option) {
+    //                     $allAvailableOptions[] = [
+    //                         'name' => $option->name,
+    //                         'value' => $option->value,
+    //                     ];
+    //                 }
+    //             }
+
+    //             if ($fieldType === 'repeater') {
+    //                 $nestedRows = DB::table('custom_field_repeater_values')
+    //                     ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
+    //                     ->where('developer_listing_id', $developer->id) // 👈 adjust if your foreign key is different
+    //                     ->get()
+    //                     ->groupBy('unique_id');
+
+    //                 $repeaterData = [];
+
+    //                 foreach ($nestedRows as $groupId => $rows) {
+    //                     $groupData = [];
+
+    //                     foreach ($rows as $row) {
+    //                         $value = $row->field_meta_value;
+    //                         $fieldTypeNested = $row->field_type;
+    //                         $nestedOptions = [];
+
+    //                         if (in_array($fieldTypeNested, ['select', 'radio'])) {
+    //                             $option = DB::table('custom_field_repeater_options')
+    //                                 ->where('id', $row->custom_field_repeater_options_id)
+    //                                 ->first();
+    //                             $value = optional($option)->name ?? $value;
+
+    //                             $nestedOptions = DB::table('custom_field_repeater_options')
+    //                                 ->where('custom_field_repeater_id', $row->custom_field_id)
+    //                                 ->get(['name', 'value'])
+    //                                 ->map(fn($opt) => [
+    //                                     'name' => $opt->name,
+    //                                     'value' => $opt->value,
+    //                                 ])->toArray();
+    //                         } elseif ($fieldTypeNested === 'checkbox') {
+    //                             $ids = explode(',', $row->custom_field_repeater_options_id);
+    //                             $value = DB::table('custom_field_repeater_options')
+    //                                 ->whereIn('id', $ids)
+    //                                 ->pluck('name')
+    //                                 ->toArray();
+
+    //                             $nestedOptions = DB::table('custom_field_repeater_options')
+    //                                 ->where('custom_field_repeater_id', $row->custom_field_id)
+    //                                 ->get(['name', 'value'])
+    //                                 ->map(fn($opt) => [
+    //                                     'name' => $opt->name,
+    //                                     'value' => $opt->value,
+    //                                 ])->toArray();
+    //                         } elseif ($fieldTypeNested === 'file') {
+    //                             $value = $value ? url($value) : null;
+    //                         } elseif ($fieldTypeNested === 'media') {
+    //                             $decoded = json_decode($value, true);
+    //                             $value = is_array($decoded)
+    //                                 ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+    //                                 : [];
+    //                         }
+
+    //                         $groupData[] = [
+    //                             'sub_field_id' => $row->custom_field_id,
+    //                             'field_type' => $fieldTypeNested,
+    //                             'field_value' => $value,
+    //                             'options' => $nestedOptions,
+    //                         ];
+    //                     }
+
+    //                     $repeaterData[] = $groupData;
+    //                 }
+
+    //                 return [
+    //                     'custom_field_id' => $customFieldValue->custom_field_id,
+    //                     'field_label' => $customField->field_label ?? 'Unknown Field',
+    //                     'placeholder' => $customField->field_placeholder,
+    //                     'field_type' => $fieldType,
+    //                     'field_value' => $repeaterData,
+    //                     'options' => [],
+    //                 ];
+    //             }
+
+    //             if (in_array($fieldType, ['select', 'radio'])) {
+    //                 $customFieldOption = DB::table('custom_field_options')
+    //                     ->where('id', $customFieldValue->custom_field_options_id)
+    //                     ->first();
+    //                 $fieldValue = optional($customFieldOption)->name;
+    //             } elseif ($fieldType === 'checkbox') {
+    //                 $optionIds = explode(',', $customFieldValue->custom_field_options_id);
+    //                 $fieldValue = DB::table('custom_field_options')
+    //                     ->whereIn('id', $optionIds)
+    //                     ->pluck('name')
+    //                     ->toArray();
+
+    //             } elseif ($fieldType === 'media') {
+    //                 $fieldValue = json_decode($fieldValue, true) ?? [];
+    //                 if (!empty($fieldValue)) {
+    //                     $fieldValue = array_map(fn($fileName) => $baseURL . '/uploads/media/' . $fileName, (array) $fieldValue);
+    //                 }
+    //             } elseif ($fieldType === 'file') {
+    //                 $fieldValue = is_string($fieldValue) && !empty($fieldValue)
+    //                     ? $baseURL . '/storage/' . ltrim($fieldValue, '/')
+    //                     : null;
+    //             }
+
+    //             return [
+    //                 'custom_field_id' => $customFieldValue->custom_field_id,
+    //                 'field_label' => $customField->field_label ?? 'Unknown Field',
+    //                 'placeholder' => $customField->field_placeholder,
+    //                 'field_type' => $fieldType,
+    //                 'field_value' => $fieldValue,
+    //                 'options' => $allAvailableOptions,
+    //             ];
+    //         });
+
+    //         return response()->json([
+    //             'id' => $developer->id,
+    //             'developer_unique_id' => $developer->developer_unique_id,
+    //             'name' => $developer->name,
+    //             'address' => $developer->address,
+    //             'description' => $developer->description,
+    //             'country_id' => $developer->country_id,
+    //             'country_name' => optional($developer->country)->name,
+    //             'state_id' => $developer->state_id,
+    //             'state_name' => optional($developer->state)->name,
+    //             'city_id' => $developer->city_id,
+    //             'city_name' => optional($developer->city)->name,
+    //             'featured_image' => $developer->featured_image,
+    //             'live_status' => $developer->live_status,
+    //             'status_reason' => $developer->status_reason,
+    //             'temporary_status' => $developer->temporary_status,
+    //             'user_id' => $developer->user_id,
+    //             'created_by' => $createdByData,
+    //             'updated_by' => $updatedByData,
+    //             'listed_by' => optional(optional($developer->user)->role)->name,
+    //             'purpose_id' => $developer->purpose_id,
+    //             'purpose_id_name' => optional($developer->purpose)->name,
+    //             'property_id' => $developer->property_id,
+    //             'property_id_name' => optional($developer->property)->name,
+    //             'property_status_id' => $developer->property_status_id,
+    //             'property_status_id_name' => optional($developer->propertystatus)->name,
+    //             'property_type_id' => $developer->property_type_id,
+    //             'property_type_id_name' => optional($developer->propertyType)->name,
+    //             'total_view' => 0,
+    //             'date' => $developer->created_at ? $developer->created_at->format('d m Y') : null,
+    //             'time' => $developer->created_at ? $developer->created_at->format('h:i A') : null,
+    //             'timestamp' => $developer->created_at ? $developer->created_at->format('d m Y h:i A') : null,
+    //             'repeater_fields' => $repeaterFields,
+    //         ]);
+    //     } catch (\Throwable $th) {
+    //         return response()->json(['error' => $th->getMessage()], 500);
+    //     }
+    // }
+
     public function getdatabyId(Request $request)
     {
         try {
@@ -1044,7 +1257,7 @@ class DeveloperlistingController extends Controller
                 if ($fieldType === 'repeater') {
                     $nestedRows = DB::table('custom_field_repeater_values')
                         ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
-                        ->where('developer_listing_id', $developer->id) // 👈 adjust if your foreign key is different
+                        ->where('developer_listing_id', $developer->id)
                         ->get()
                         ->groupBy('unique_id');
 
@@ -1126,7 +1339,6 @@ class DeveloperlistingController extends Controller
                         ->whereIn('id', $optionIds)
                         ->pluck('name')
                         ->toArray();
-
                 } elseif ($fieldType === 'media') {
                     $fieldValue = json_decode($fieldValue, true) ?? [];
                     if (!empty($fieldValue)) {
@@ -1138,7 +1350,7 @@ class DeveloperlistingController extends Controller
                         : null;
                 }
 
-                return [
+                $fieldArray = [
                     'custom_field_id' => $customFieldValue->custom_field_id,
                     'field_label' => $customField->field_label ?? 'Unknown Field',
                     'placeholder' => $customField->field_placeholder,
@@ -1146,6 +1358,12 @@ class DeveloperlistingController extends Controller
                     'field_value' => $fieldValue,
                     'options' => $allAvailableOptions,
                 ];
+
+                if ($fieldType === 'checkbox') {
+                    $fieldArray['checkbox_type'] = $customField->checkbox_type ?? null;
+                }
+
+                return $fieldArray;
             });
 
             return response()->json([
@@ -1186,6 +1404,7 @@ class DeveloperlistingController extends Controller
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
+
 
     ##############  end new code get data by id ##############
 

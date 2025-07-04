@@ -2512,7 +2512,8 @@ class CustomFieldController extends Controller
                         'required' => $customField->required,
                         'options' => $customField->options,
                         'model_fields' => $filteredModelFields,
-                        'repeater_fields' => $processedRepeaterFields,
+                        // 'repeater_fields' => $processedRepeaterFields,
+                        'field_value' => $processedRepeaterFields,
                     ];
 
                     if($customField->field_type == 'checkbox'){
