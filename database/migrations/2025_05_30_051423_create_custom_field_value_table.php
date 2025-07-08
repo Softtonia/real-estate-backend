@@ -17,7 +17,7 @@ return new class extends Migration
             $table->unsignedBigInteger('project_listing_id')->nullable();
             $table->unsignedBigInteger('developer_listing_id')->nullable();
             $table->unsignedBigInteger('custom_field_id')->nullable();
-            $table->unsignedBigInteger('custom_field_options_id')->nullable();
+            $table->string('custom_field_options_id')->nullable();
             $table->longText('field_meta_value')->nullable();
 
             $table->timestamp('created_at')->useCurrent()->useCurrentOnUpdate();
@@ -27,7 +27,7 @@ return new class extends Migration
             $table->foreign('project_listing_id')->references('id')->on('project_listings')->onDelete('set null');
             $table->foreign('developer_listing_id')->references('id')->on('developer_listings')->onDelete('set null');
             $table->foreign('custom_field_id')->references('id')->on('custom_fields')->onDelete('set null');
-            $table->foreign('custom_field_options_id')->references('id')->on('custom_field_options')->onDelete('set null');
+
         });
     }
 

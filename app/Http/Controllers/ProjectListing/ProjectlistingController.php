@@ -334,7 +334,7 @@ class ProjectlistingController extends Controller
                 $developer = $property->developer;
                 $developerData = $developer ? [
                     'id' => $developer->id,
-                    'fullname' => $developer->fullname,
+                    'fullname' => $developer->first_name,
                     'email' => $developer->email,
                     'phone' => $developer->phone,
                     'api_token' => $developer->api_token,
@@ -1538,7 +1538,7 @@ class ProjectlistingController extends Controller
                 'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
                 'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
                 'timestamp' => $projects->created_at ? $projects->created_at->format('d m Y h:i A') : null,
-                'developer' => null,
+                'developer' => $projects->developer_id,
                 'keyword' => $projects->importKeywords->pluck('id')->toArray() ?? [],
                 'repeater_fields' => $repeaterFields,
             ]);

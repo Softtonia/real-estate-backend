@@ -230,7 +230,7 @@ Route::middleware('api.token')->get('/user-properties', [PropertylistingControll
 
 Route::middleware('admin.token')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
 
-Route::get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
+Route::middleware('admin.token')->get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
 Route::post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);
 Route::get('get-temporary-statuses', [PropertylistingController::class, 'getTemporaryStatuses']);
 Route::get('get-property-statuses', [PropertylistingController::class, 'getPropertyStatuses']);
@@ -238,6 +238,9 @@ Route::middleware('admin.token')->post('update-property-status', [Propertylistin
 Route::post('get-all-project-by-location-id', [PropertylistingController::class, 'getAllProjectByLocationId']);
 Route::post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
 Route::post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
+
+#### Guest ######
+Route::get('guest-get-data-properties/{id}', [PropertylistingController::class, 'guestGetdatabyId']);
 
 // ============= Property Listing by agent and owner============
 Route::middleware('allow.owner.agent')->post('post-property-create', [PropertylistingController::class, 'storeByAgentOwner']);
