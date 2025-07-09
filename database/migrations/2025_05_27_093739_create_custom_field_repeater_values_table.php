@@ -16,7 +16,7 @@ return new class extends Migration
             $table->unsignedBigInteger('developer_listing_id')->nullable();
             $table->unsignedBigInteger('custom_field_id')->nullable();
             $table->unsignedBigInteger('custom_field_repeater_id')->nullable();
-            $table->unsignedBigInteger('custom_field_repeater_options_id')->nullable();
+            $table->string('custom_field_repeater_options_id')->nullable();
             $table->string('field_type', 255)->collation('utf8mb4_general_ci')->nullable();
             $table->text('field_meta_value')->collation('utf8mb4_general_ci')->nullable();
             $table->string('unique_id', 30)->collation('utf8mb4_general_ci')->nullable();

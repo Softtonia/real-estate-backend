@@ -1490,7 +1490,7 @@ class DeveloperlistingController extends Controller
         try {
             $baseURL = config('app.url');
             $basePath = public_path();
-            $projectData = [];
+            $developerData = [];
 
             // Validate: Ensure at least one of country_id, state_id, city_id is provided and not null
             $validator = Validator::make($request->all(), [
@@ -1517,22 +1517,22 @@ class DeveloperlistingController extends Controller
             }
 
             // Fetch matching projects
-            $projects = $query->get();
+            $developers = $query->get();
 
             // Return error if no data is found
-            if ($projects->isEmpty()) {
-                return response()->json(['error' => 'No projects found for the given location.'], 404);
+            if ($developers->isEmpty()) {
+                return response()->json(['error' => 'No developers found for the given location.'], 200);
             }
 
             // Process results
-            foreach ($projects as $row) {
-                $projectData[] = [
+            foreach ($developers as $row) {
+                $developerData[] = [
                     'id' => $row->id,
                     'name' => $row->name,
                 ];
             }
 
-            return response()->json($projectData);
+            return response()->json($developerData);
 
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
