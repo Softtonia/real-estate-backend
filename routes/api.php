@@ -188,27 +188,27 @@ Route::post('/error-logs/bulk-delete', [ErrorLogController::class, 'bulkDeleteEr
 Route::middleware('allow.admin_company')->post('add-project-listing', [ProjectlistingController::class, 'store']);
 Route::middleware('allow.admin_company')->post('edit-project-listing', [ProjectlistingController::class, 'update']);
 Route::middleware('allow.admin_company')->post('delete-project-listing', [ProjectlistingController::class, 'destroy']);
-Route::get('get-all-project-listing', [ProjectlistingController::class, 'index']);
 Route::middleware('admin.token')->get('get-all-project-listing-by-admin', [ProjectlistingController::class, 'indexByAdmin']);
 Route::middleware('api.token')->get('/user-project', [ProjectlistingController::class, 'getUserProject']);
 
-Route::get('get-data-project/{id}', [ProjectlistingController::class, 'getdatabyId']);
-Route::post('update-project-status', [ProjectlistingController::class, 'updateProjectStatus']);
+Route::middleware('allow.admin_company')->get('get-data-project/{id}', [ProjectlistingController::class, 'getdatabyId']);
+Route::middleware('allow.admin_company')->post('update-project-status', [ProjectlistingController::class, 'updateProjectStatus']);
 Route::middleware('admin.token')->post('update-project-status-by-admin', [ProjectlistingController::class, 'updateProjectStatusByAdmin']);
-Route::post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
-Route::post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
+Route::middleware('adminOrCurrentUser')->post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
+Route::middleware('allow.admin_company')->post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
 
 Route::middleware('admin.token')->post('update-project-temporary-status',[ProjectlistingController::class, 'updateTemporaryStatus']);
 Route::middleware('admin.token')->get('project-search',[ProjectlistingController::class, 'projectSearch']);
-
+### No Auth ###
+Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
+Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
 
 // ======Developer Listing============
 Route::middleware('allow.admin_developer')->post('add-developer-listing', [DeveloperlistingController::class, 'store']);
 Route::middleware('allow.admin_developer')->post('edit-developer-listing', [DeveloperlistingController::class, 'update']);
 Route::middleware('allow.admin_developer')->post('developer-delete', [DeveloperlistingController::class, 'destroy']);
-Route::get('fetch-all-developer-listing', [DeveloperlistingController::class, 'index']);
 Route::middleware('admin.token')->get('fetch-all-developer-listing-by-admin', [DeveloperlistingController::class, 'indexByAdmin']);
-Route::get('get-data-developer/{id}', [DeveloperlistingController::class, 'getdatabyId']);
+Route::middleware('allow.admin_developer')->get('get-data-developer/{id}', [DeveloperlistingController::class, 'getdatabyId']);
 Route::middleware('allow.admin_developer')->post('developer-bulk-delete', [DeveloperlistingController::class, 'bulkDelete']);
 Route::middleware('admin.token')->post('update-developer-status', [DeveloperlistingController::class, 'updateDeveloperStatus']);
 Route::middleware('api.token')->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
@@ -216,6 +216,10 @@ Route::post('get-all-developer-by-location-id', [DeveloperlistingController::cla
 
 Route::middleware('admin.token')->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
 Route::get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
+
+### No Auth ###
+Route::get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
+Route::get('get-data-developer-no-auth/{id}', [DeveloperlistingController::class, 'getdatabyIdNoAuth']);
 
 
 

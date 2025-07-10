@@ -1765,6 +1765,15 @@ class PropertylistingController extends Controller
                             $fieldTypeNested = $row->field_type;
                             $nestedOptions = [];
 
+                            // ✅ Fetch sub-field label and placeholder
+                            $repeaterMeta = DB::table('custom_field_repeaters')
+                                ->where('id', $row->custom_field_id)
+                                ->first();
+
+                            $fieldLabel = optional($repeaterMeta)->field_label ?? 'Unknown';
+                            $fieldPlaceholder = optional($repeaterMeta)->field_placeholder ?? null;
+
+
                             if (in_array($fieldTypeNested, ['select', 'radio'])) {
                                 $option = DB::table('custom_field_repeater_options')
                                     ->where('id', $row->custom_field_repeater_options_id)
@@ -1804,6 +1813,8 @@ class PropertylistingController extends Controller
                             $groupData[] = [
                                 'sub_field_id' => $row->custom_field_id,
                                 'field_type' => $fieldTypeNested,
+                                'field_label' => $fieldLabel,
+                                'placeholder' => $fieldPlaceholder,
                                 'field_value' => $value,
                                 'options' => $nestedOptions,
                             ];
@@ -1904,7 +1915,6 @@ class PropertylistingController extends Controller
         try {
             // Authenticate the user
             $user = $request->user();
-            ;
             if (!$user) {
                 return response()->json(['error' => 'Unauthorized.'], 401);
             }
