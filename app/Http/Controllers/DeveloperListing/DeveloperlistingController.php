@@ -714,6 +714,7 @@ class DeveloperlistingController extends Controller
     public function update(Request $request)
     {
         try {
+            $user = Auth::user();
             $userId = auth()->id();  // Using the authenticated user ID
 
             // Automatically set live_status for non-admin users
@@ -738,6 +739,15 @@ class DeveloperlistingController extends Controller
             if (!$developer) {
                 return response()->json(['error' => 'Invalid Developer Id'], 404);
             }
+
+            if ($user->role->name !== 'admin' && $developer->created_by !== $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only update your own developers.',
+                ], 403);
+            }
+
+
 
             // Store old image path
             $oldImage = $developer->featured_image;
@@ -950,28 +960,23 @@ class DeveloperlistingController extends Controller
     public function destroy(Request $request)
     {
 
-        $userToken = $request->header('Authorization'); // Assuming the token is passed in the Authorization header as 'Bearer {token}'
-        if (!$userToken || !str_starts_with($userToken, 'Bearer ')) {
-            return response()->json(['error' => 'API token is required'], 422);
-        }
-
-        $token = substr($userToken, 7); // Extract the token from 'Bearer {token}'
-
-        // Find the user associated with the token
-        $user = User::where('api_token', $token)->first();
-        if (!$user) {
-            return response()->json(['error' => 'Invalid API token'], 401);
-        }
-
         try {
+            $user = Auth::user();
             $id = $request->id;
-            $project = Developerlist::find($id);
+            $developer = Developerlist::find($id);
 
-            if (!$project) {
+            if (!$developer) {
                 return response()->json(['message' => 'No Developer found'], 404);
             }
 
-            $filePath = public_path('uploads/featured_image/' . $project->featured_image);
+            if ($user->role->name !== 'admin' && $developer->created_by !== $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only delete your own developers.',
+                ], 403);
+            }
+
+            $filePath = public_path('uploads/featured_image/' . $developer->featured_image);
 
             // Delete the file if it exists
             if (File::exists($filePath)) {
@@ -979,10 +984,10 @@ class DeveloperlistingController extends Controller
             }
 
             // Delete specific related records
-            $project->customFieldValues()->delete();
+            $developer->customFieldValues()->delete();
 
             // Delete the project
-            $project->delete();
+            $developer->delete();
 
             $returnRes = [
                 'status' => true,
@@ -1418,6 +1423,9 @@ class DeveloperlistingController extends Controller
                 return response()->json(['error' => 'ID is required'], 400);
             }
 
+            $user = Auth::user();
+            $createdBy = $user->id;
+
             $baseURL = config('app.url');
 
             $developer = Developerlist::with([
@@ -1437,6 +1445,16 @@ class DeveloperlistingController extends Controller
 
             if (!$developer) {
                 return response()->json(['error' => 'Developer not found'], 200);
+            }
+
+
+
+            // ✅ Check access permissions
+            if ($user->role->name !== 'admin' && $developer->created_by !== $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only view your own developers.',
+                ], 403);
             }
 
             $createdByData = $developer->createdBy ? [
@@ -2510,7 +2528,7 @@ class DeveloperlistingController extends Controller
                 'customFieldValues.customFieldOption',
                 'createdBy.role',
                 'updatedBy.role'
-            ])->where('live_status','Approve')->where('id', $request->id)->first();
+            ])->where('live_status', 'Approve')->where('id', $request->id)->first();
 
             if (!$developer) {
                 return response()->json(['error' => 'Developer not found'], 200);

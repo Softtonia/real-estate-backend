@@ -212,10 +212,10 @@ Route::middleware('allow.admin_developer')->get('get-data-developer/{id}', [Deve
 Route::middleware('allow.admin_developer')->post('developer-bulk-delete', [DeveloperlistingController::class, 'bulkDelete']);
 Route::middleware('admin.token')->post('update-developer-status', [DeveloperlistingController::class, 'updateDeveloperStatus']);
 Route::middleware('api.token')->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
-Route::post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
+Route::middleware('allow.admin_developer')->post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
 
 Route::middleware('admin.token')->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
-Route::get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
+Route::middleware('admin.token')->get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
 
 ### No Auth ###
 Route::get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
