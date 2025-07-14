@@ -15,19 +15,6 @@ class AboutusController extends Controller
 
 public function update(Request $request)
 {
-    // Check if API token is provided in the header
-    if ($request->header('api-token') == '') {
-        return response()->json(['error' => 'Please enter api token first.'], 422);
-    }
-
-    $requestToken = $request->header('api-token');
-    $expectedToken = config('constants.API_TOKEN');
-
-    // Validate API token
-    if ($requestToken !== $expectedToken) {
-        return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
-    }
-
     try {
         // Find the page by pagename
         $page = Page::where('page', 'Aboutus')->first();
@@ -77,5 +64,5 @@ public function index(Request $request)
 }
 
 
-    
+
 }

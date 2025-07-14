@@ -26,6 +26,10 @@ Route::get('/clear', function() {
     return "Cache is cleared";
 });
 
+Route::get('/link', function() {
+    Artisan::call('storage:link');
+    return "Storage link is created";
+});
 Route::get('/reset-password',[UserController::class,'resetPasswordLoad']);
 Route::post('/reset-password',[UserController::class,'resetPassword']);
 

@@ -292,11 +292,14 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
     Route::post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
     Route::post('/user-bulk-delete', [Admincontroller::class, 'userAllRecordBulksDelete']);
 
-    Route::post('/mail-config', [MailConfigController::class, 'store']);
-    Route::post('/mail-config/{id}', [MailConfigController::class, 'update']);
-    Route::post('/get-mail-config', [MailConfigController::class, 'getMailConfig']);
-    Route::post('/active-mail-config', [MailConfigController::class, 'ActiveMailConfig']);
-    Route::post('/mail-config-delete/{id}', [MailConfigController::class, 'deleteMailConfig']);
+    Route::middleware('admin.token')->post('/mail-config', [MailConfigController::class, 'store']);
+    Route::middleware('admin.token')->post('/mail-config/{id}', [MailConfigController::class, 'update']);
+    Route::middleware('admin.token')->post('/get-mail-config', [MailConfigController::class, 'getMailConfig']);
+    Route::middleware('admin.token')->post('/active-mail-config', [MailConfigController::class, 'ActiveMailConfig']);
+    Route::middleware('admin.token')->post('/mail-config-delete/{id}', [MailConfigController::class, 'deleteMailConfig']);
+    Route::middleware('admin.token')->post('/bulk-mail-configs-delete', [MailConfigController::class, 'bulkDeleteMailConfigs']);
+    Route::middleware('admin.token')->get('/search-mail-configs', [MailConfigController::class, 'searchMailConfigs']);
+
 
     Route::post('/create-role-prefix-repeater', [SystemController::class, 'CreateRolePrefixRepeater']);
     Route::post('/get-role-prefix-repeater', [SystemController::class, 'GetRolePrefixRepeater']);
@@ -420,6 +423,8 @@ Route::post('custom-field-listing-by-model-conditionid', [CustomFieldController:
 Route::get('get-custom-field-by-id/{id}', [CustomFieldController::class, 'getCustomFieldById']);
 Route::middleware('admin.token')->post('edit-custom-fields-by-id/{id}', [CustomFieldController::class, 'updateCustomFieldById']);
 
+Route::middleware('admin.token')->post('delete-custom-fields-by-id',[CustomFieldController::class, 'deleteCustomFieldById']);
+Route::middleware('admin.token')->post('bulk-delete-custom-fields-by-id',[CustomFieldController::class, 'bulkDeleteCustomFieldByIds']);
 
 
 
@@ -536,31 +541,31 @@ Route::get('media-list', [MediaController::class, 'index']);
 
 // =========Page=======
 // =========privacy-policy========
-Route::post('privacy-policy-update', [privacypolicycontroller::class, 'update']);
+Route::middleware('admin.token')->post('privacy-policy-update', [privacypolicycontroller::class, 'update']);
 Route::get('privacy-policy-list', [privacypolicycontroller::class, 'index']);
 
 // =========terms & condition========
-Route::post('terms-and-condition-update', [termsandconditioncontroller::class, 'update']);
+Route::middleware('admin.token')->post('terms-and-condition-update', [termsandconditioncontroller::class, 'update']);
 Route::get('terms-and-condition-list', [termsandconditioncontroller::class, 'index']);
 
 // =========About us========
-Route::post('aboutus-update', [AboutusController::class, 'update']);
+Route::middleware('admin.token')->post('aboutus-update', [AboutusController::class, 'update']);
 Route::get('aboutus-list', [AboutusController::class, 'index']);
 
 // =========Career========
-Route::post('career-update', [CareerController::class, 'update']);
+Route::middleware('admin.token')->post('career-update', [CareerController::class, 'update']);
 Route::get('career-list', [CareerController::class, 'index']);
 
 // =========Legal========
-Route::post('legal-update', [LegalController::class, 'update']);
+Route::middleware('admin.token')->post('legal-update', [LegalController::class, 'update']);
 Route::get('legal-list', [LegalController::class, 'index']);
 
 // =========Sales Refund========
-Route::post('sales-and-refund-update', [SalesRefundController::class, 'update']);
+Route::middleware('admin.token')->post('sales-and-refund-update', [SalesRefundController::class, 'update']);
 Route::get('sales-and-refund-list', [SalesRefundController::class, 'index']);
 
 // =========Property Valuation========
-Route::post('property-valuation-update', [PropertyValuationController::class, 'update']);
+Route::middleware('admin.token')->post('property-valuation-update', [PropertyValuationController::class, 'update']);
 Route::get('property-valuation-list', [PropertyValuationController::class, 'index']);
 
 

@@ -2486,7 +2486,7 @@ class CustomFieldController extends Controller
                             'repeater_fields_options' => $repeater->repeaterFieldsOptions,
                         ];
 
-                         if($repeaterData['field_type'] == 'checkbox'){
+                        if ($repeaterData['field_type'] == 'checkbox') {
                             $repeaterData['checkbox_type'] = $repeater->checkbox_type;
                         }
 
@@ -2516,7 +2516,7 @@ class CustomFieldController extends Controller
                         'field_value' => $processedRepeaterFields,
                     ];
 
-                    if($customField->field_type == 'checkbox'){
+                    if ($customField->field_type == 'checkbox') {
                         $response['checkbox_type'] = $customField->checkbox_type;
                     }
 
@@ -3271,4 +3271,92 @@ class CustomFieldController extends Controller
             ], 500);
         }
     }
+
+
+    ########## delete by custom field id 14-07-2025  ##########
+
+    public function deleteCustomFieldById(Request $request)
+    {
+        try {
+            // Validate the request
+            $request->validate([
+                'custom_field_id' => 'required|integer',
+            ]);
+
+            $customFieldId = $request->custom_field_id;
+
+            // Fetch the CustomField by ID
+            $customField = CustomField::find($customFieldId);
+            if (!$customField) {
+                return response()->json(['error' => 'Invalid Custom Field ID'], 200);
+            }
+
+            // Delete associated CustomFieldRepeaterOptions
+            $customFieldRepeaterIds = CustomFieldRepeater::where('custom_field_id', $customFieldId)->pluck('id');
+            CustomFieldRepeaterOption::whereIn('custom_field_repeater_id', $customFieldRepeaterIds)->delete();
+
+            // Delete associated CustomFieldRepeaters
+            CustomFieldRepeater::where('custom_field_id', $customFieldId)->delete();
+
+            // Delete associated CustomFieldOptions
+            CustomFieldOption::where('custom_field_id', $customFieldId)->delete();
+
+            // Delete the CustomField itself
+            $customField->delete();
+
+            return response()->json(['message' => 'CustomField and related data deleted successfully.'], 200);
+
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->errors()], 422);
+        } catch (Exception $e) {
+            Log::error('Error in deleteByCustomFieldId: ' . $e->getMessage());
+            return response()->json(['error' => 'Something went wrong.'], 500);
+        }
+    }
+
+    ########## bulk delete by custom field id 14-07-2025  ##########
+
+    public function bulkDeleteCustomFieldByIds(Request $request)
+    {
+        try {
+            // Validate the input
+            $request->validate([
+                'custom_field_ids' => 'required|array|min:1',
+                'custom_field_ids.*' => 'integer'
+            ]);
+
+            $customFieldIds = $request->custom_field_ids;
+
+            // Fetch only existing CustomField IDs
+            $existingIds = CustomField::whereIn('id', $customFieldIds)->pluck('id');
+
+            if ($existingIds->isEmpty()) {
+                return response()->json(['error' => 'No valid Custom Field IDs found'], 200);
+            }
+
+            // Get all repeater IDs linked to these fields
+            $customFieldRepeaterIds = CustomFieldRepeater::whereIn('custom_field_id', $existingIds)->pluck('id');
+
+            // Delete associated data
+            CustomFieldRepeaterOption::whereIn('custom_field_repeater_id', $customFieldRepeaterIds)->delete();
+            CustomFieldRepeater::whereIn('custom_field_id', $existingIds)->delete();
+            CustomFieldOption::whereIn('custom_field_id', $existingIds)->delete();
+            CustomField::whereIn('id', $existingIds)->delete();
+
+            return response()->json([
+                'message' => 'CustomFields and related data deleted successfully.',
+                'deleted_ids' => $existingIds
+            ], 200);
+
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->errors()], 422);
+        } catch (Exception $e) {
+            Log::error('Bulk delete error: ' . $e->getMessage());
+            return response()->json(['error' => 'Something went wrong during bulk delete.'], 500);
+        }
+    }
+
+
+
+
 }

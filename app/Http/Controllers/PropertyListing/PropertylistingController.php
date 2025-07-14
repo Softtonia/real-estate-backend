@@ -184,6 +184,11 @@ class PropertylistingController extends Controller
                                 ->pluck('id')
                                 ->implode(',');
                             $customFieldData['custom_field_options_id'] = $customFieldOptionsIds;
+
+
+
+
+
                             break;
 
                         // case 'media':
