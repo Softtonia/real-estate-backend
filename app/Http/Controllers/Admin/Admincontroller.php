@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\ImportKeyword;
-use App\Models\Projectlist;
+use App\Models\ProjectList;
 use App\Models\PropertyList;
 use App\Models\TicketStatus;
 use App\Models\Ticket;
@@ -240,16 +240,7 @@ class AdminController extends Controller
     public function overviewOfDashboard(Request $request)
     {
         try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
-            }
 
-            $requestToken = $request->header('api-token');
-            $expectedToken = config('constants.API_TOKEN');
-
-            if ($requestToken !== $expectedToken) {
-                return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
-            }
 
             $totalPropertyCount = PropertyList::count();
             $approvedPropertyCount = PropertyList::where('live_status', 'Approve')->count();

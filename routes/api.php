@@ -140,6 +140,7 @@ Route::get('listing-of-property-with-project', [UserController::class, 'listingO
 
 Route::get('get-all-pages', [UserController::class, 'getAllPages']);
 Route::get('overview-of-all-user-property', [UserController::class, 'overviewOfProperty']);
+Route::get('search-pages', [UserController::class, 'searchPage']);
 
 
 
@@ -317,7 +318,7 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
 Route::post('import-keywords', [Admincontroller::class, 'import']);
 Route::get('export-keywords', [Admincontroller::class, 'export']);
 Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
-Route::get('overview-of-dashboard', [Admincontroller::class, 'overviewOfDashboard']);
+Route::middleware('admin.token')->get('overview-of-dashboard', [Admincontroller::class, 'overviewOfDashboard']);
 Route::get('fetch-property-keywords', [Admincontroller::class, 'fetchPropertyKeywordList']);
 Route::get('fetch-project-keywords', [Admincontroller::class, 'fetchProjectKeywordList']);
 Route::get('fetch-developer-keywords', [Admincontroller::class, 'fetchDeveloperKeywordList']);
@@ -461,7 +462,10 @@ Route::middleware('adminOrCurrentUser')->post('tickets-create', [TicketControlle
 Route::middleware('allrole.token')->get('tickets-list', [TicketController::class, 'index']);
 Route::middleware('adminOrCurrentUser')->post('tickets-update', [TicketController::class, 'update']);
 Route::middleware('adminOrCurrentUser')->post('tickets-delete', [TicketController::class, 'destroy']);
+Route::middleware('adminOrCurrentUser')->post('tickets-bulk-delete', [TicketController::class, 'bulkDestroy']);
 Route::middleware('allrole.token')->post('get-tickets-by-id', [TicketController::class, 'show']);
+Route::middleware('adminOrCurrentUser')->post('tickets-search', [TicketController::class, 'searchByTicketNumber']);
+
 
 Route::middleware('adminOrCurrentUser')->post('get-tickets-by-token', [TicketController::class, 'getTicketByToken']);
 

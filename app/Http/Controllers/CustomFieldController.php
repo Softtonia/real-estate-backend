@@ -1085,7 +1085,7 @@ class CustomFieldController extends Controller
     {
         try {
             $data = CustomField::where('group_id', $request->group_id)
-                ->with(['groupname', 'options', 'repeaterFields.repeaterOptions'])
+                ->with(['groupname', 'options', 'repeaterFields.repeaterOptions', 'templateValue'])
                 ->get();
 
             if ($data->isEmpty()) {
@@ -1176,6 +1176,8 @@ class CustomFieldController extends Controller
                     'media_size' => $field->media_size,
                     'media_format' => explode(',', $field->media_format),
                     'checkbox_type' => $request->checkbox_type ?? 'manually',
+                    'template_id' => $field->template_id,
+                    'template' => $field->templateValue,
                     'created_at' => $field->created_at,
                     'updated_at' => $field->updated_at
                 ];

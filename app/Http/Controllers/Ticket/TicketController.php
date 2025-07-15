@@ -52,11 +52,16 @@ class TicketController extends Controller
         }
 
 
+
+
         $formattedTickets = [];
 
         // Loop through each ticket
         foreach ($tickets as $ticket) {
 
+            $mediaUrl = $ticket->media_attachment
+                ? url('attachments/' . $ticket->media_attachment)
+                : null;
             // Create an array to hold formatted ticket data
             $formattedTicket = [
                 'id' => $ticket->id,
@@ -76,6 +81,7 @@ class TicketController extends Controller
                 'ticket_department_id' => $ticket->ticket_department_id,
                 'ticket_department_name' => $ticket->ticket_department_name,
                 'media_attachment' => $ticket->media_attachment,
+                'media_attachment_url' => $mediaUrl,
                 'created_at' => $ticket->created_at,
                 'updated_at' => $ticket->updated_at
             ];
@@ -318,30 +324,74 @@ class TicketController extends Controller
     }
 
 
-    public function destroy(Request $request, Ticket $ticket)
+    // public function destroy(Request $request, Ticket $ticket)
+    // {
+    //     $user = $request->user();                     // Authenticated user
+    //     $isAdmin = $user->role && strcasecmp($user->role->name, 'admin') === 0;
+
+
+    //     if (
+    //         !$isAdmin &&
+    //         $ticket->user_id !== $user->id &&
+    //         $ticket->raised_by !== $user->id
+    //     ) {
+
+    //         return response()->json([
+    //             'error' => 'You are only allowed to delete your own tickets.'
+    //         ], 403);
+    //     }
+
+    //     $ticket->delete();
+
+    //     return response()->json([
+    //         'status' => true,
+    //         'message' => 'Ticket deleted successfully'
+    //     ], 200);
+    // }
+
+    ## new delete code by id 15-07-2025 ##
+
+    public function destroy(Request $request)
     {
-        $user = $request->user();                     // Authenticated user
+        $user = $request->user(); // Authenticated user
         $isAdmin = $user->role && strcasecmp($user->role->name, 'admin') === 0;
 
+        // Validate ticket_id
+        $request->validate([
+            'id' => 'required|integer|exists:tickets,id'
+        ]);
 
+        // Find the ticket
+        $ticket = Ticket::find($request->id);
+
+        if (!$ticket) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ticket not found.'
+            ], 200);
+        }
+
+        // Authorization check
         if (
             !$isAdmin &&
             $ticket->user_id !== $user->id &&
             $ticket->raised_by !== $user->id
         ) {
-
             return response()->json([
-                'error' => 'You are only allowed to delete your own tickets.'
+                'status' => false,
+                'message' => 'You are only allowed to delete your own tickets.'
             ], 403);
         }
 
-        $ticket->delete();
+        // Delete the ticket
+        $ticket->delete(); // Use forceDelete() if SoftDeletes is used and you want permanent deletion
 
         return response()->json([
             'status' => true,
-            'message' => 'Ticket deleted successfully'
+            'message' => 'Ticket deleted successfully.'
         ], 200);
     }
+
 
 
     public function respond(Request $request)
@@ -840,6 +890,131 @@ class TicketController extends Controller
             ]
         ], 200);
     }
+
+
+    ## Bulk Delete Tickets 15-07-2025 ##
+
+    public function bulkDestroy(Request $request)
+    {
+        $user = $request->user();
+        $isAdmin = $user->role && strcasecmp($user->role->name, 'admin') === 0;
+
+        // Validate input
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'integer|exists:tickets,id',
+        ]);
+
+        $ticketIds = $request->ids;
+        $deleted = [];
+        $skipped = [];
+
+        foreach ($ticketIds as $ticketId) {
+            $ticket = Ticket::find($ticketId);
+
+            if (!$ticket) {
+                $skipped[] = ['id' => $ticketId, 'reason' => 'Not found'];
+                continue;
+            }
+
+            if (
+                !$isAdmin &&
+                $ticket->user_id !== $user->id &&
+                $ticket->raised_by !== $user->id
+            ) {
+                $skipped[] = ['id' => $ticketId, 'reason' => 'Unauthorized'];
+                continue;
+            }
+
+            $ticket->delete(); // or $ticket->forceDelete() if using SoftDeletes
+            $deleted[] = $ticketId;
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Bulk delete completed.',
+            'deleted_ids' => $deleted,
+            'skipped' => $skipped,
+        ], 200);
+    }
+
+
+    ## Search By Ticket Number 15-07-2025 ##
+
+    public function searchByTicketNumber(Request $request)
+    {
+        $request->validate([
+            'ticket_number' => 'required|string'
+        ]);
+
+        $ticketNumber = $request->ticket_number;
+
+        // Fetch the ticket by ticket number with all related details
+        $ticket = DB::table('tickets')
+            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
+            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
+            ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
+            ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
+            ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
+            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
+            ->select(
+                'raised_users.id as raised_by_id',
+                'raised_users.first_name as raised_user_name',
+                'assigned_users.id as assigned_to_id',
+                'assigned_users.first_name as assigned_user_fullname',
+                'tickets.*',
+                'ticket_priorities.ticket_priority',
+                'ticket_status.ticket_status_name',
+                'ticket_types.ticket_type_name',
+                'ticket_departments.ticket_department_name'
+            )
+            ->where('tickets.ticket_number', $ticketNumber)
+            ->first();
+
+        // Ticket not found
+        if (!$ticket) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ticket not found',
+                'data' => null
+            ], 200);
+        }
+
+        $mediaUrl = $ticket->media_attachment
+            ? url('attachments/' . $ticket->media_attachment)
+            : null;
+
+        // Format the result
+        $formattedTicket = [
+            'id' => $ticket->id,
+            'raised_by' => $ticket->raised_by_id,
+            'raised_by_name' => $ticket->raised_user_name,
+            'user_id' => $ticket->assigned_to_id,
+            'user_name' => $ticket->assigned_user_fullname,
+            'status_id' => $ticket->status_id,
+            'status_name' => $ticket->ticket_status_name,
+            'priority_id' => $ticket->priority_id,
+            'priority_name' => $ticket->ticket_priority,
+            'ticket_number' => $ticket->ticket_number,
+            'subject' => $ticket->subject,
+            'message' => $ticket->message,
+            'ticket_type_id' => $ticket->ticket_type_id,
+            'ticket_type_name' => $ticket->ticket_type_name,
+            'ticket_department_id' => $ticket->ticket_department_id,
+            'ticket_department_name' => $ticket->ticket_department_name,
+            'media_attachment' => $ticket->media_attachment,
+            'media_attachment_url' => $mediaUrl,
+            'created_at' => $ticket->created_at,
+            'updated_at' => $ticket->updated_at
+        ];
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket found',
+            'data' => $formattedTicket
+        ], 200);
+    }
+
 
 
 
