@@ -46,7 +46,7 @@ class GroupController extends Controller
                 return response()->json([
                     'status' => false,
                     'message' => 'Group not found'
-                ], 404);
+                ], 200);
             }
 
             // Count the number of custom fields associated with the group
@@ -228,4 +228,44 @@ class GroupController extends Controller
             ], 500);
         }
     }
+
+
+    ### Search By Group Name 15-07-2025 ###
+
+    public function searchByGroupName(Request $request)
+    {
+        $keyword = $request->input('group_name');
+
+        if (!$keyword) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Please provide a group_name keyword to search.'
+            ], 400);
+        }
+
+        // Search groups by name
+        $groups = Groupname::where('group_name', 'like', "%$keyword%")->get();
+
+        if ($groups->isEmpty()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'No groups found matching the search keyword.'
+            ], 200);
+        }
+
+        // Add custom field count for each group
+        $groupsWithCounts = $groups->map(function ($group) {
+            $customFieldCount = CustomField::where('group_id', $group->id)->count();
+            $groupData = $group->toArray();
+            $groupData['custom_field_count'] = $customFieldCount;
+            return $groupData;
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Search results fetched successfully',
+            'data' => $groupsWithCounts
+        ], 200);
+    }
+
 }

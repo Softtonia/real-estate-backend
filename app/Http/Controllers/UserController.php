@@ -5537,37 +5537,6 @@ class UserController extends Controller
         }
     }
 
-    ### Search Pages 15-07-2025 ###
-
-    public function searchPage(Request $request)
-    {
-        try {
-            $query = Page::query();
-
-            // Only search in `page` and `title` fields
-            if ($request->filled('search')) {
-                $search = $request->search;
-                $query->where(function ($q) use ($search) {
-                    $q->where('page', 'like', "%$search%")
-                        ->orWhere('title', 'like', "%$search%");
-                });
-            }
-
-            $pages = $query->latest()->get();
-
-            return response()->json([
-                'status' => true,
-                'data' => $pages
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Something went wrong',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
 
 
     // this is for overview

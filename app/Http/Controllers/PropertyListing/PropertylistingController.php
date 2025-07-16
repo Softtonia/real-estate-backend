@@ -191,32 +191,124 @@ class PropertylistingController extends Controller
 
                             break;
 
-                        // case 'media':
-                        //     if ($request->hasFile("repeater_fields.{$repeaterField['custom_field_id']}.field_value")) {
-                        //         $files = $request->file("repeater_fields.{$repeaterField['custom_field_id']}.field_value");
-                        //         $fileNames = [];
-                        //         foreach ($files as $file) {
-                        //             if ($file->isValid()) {
-                        //                 $fileName = time() . '_' . $file->getClientOriginalName();
-                        //                 $file->move(public_path('uploads/media'), $fileName);
-                        //                 $fileNames[] = $fileName;
-                        //             }
-                        //         }
-                        //         $customFieldData['field_meta_value'] = json_encode($fileNames);
-                        //     }
-                        //     break;
+                        // new
+    // case 'checkbox':
+    // $checkboxType = DB::table('custom_fields')
+    //     ->where('id', $repeaterField['custom_field_id'])
+    //     ->value('checkbox_type');
 
-                        // case 'file':
-                        //     if ($request->hasFile("repeater_fields.{$repeaterField['custom_field_id']}.field_value")) {
-                        //         $file = $request->file("repeater_fields.{$repeaterField['custom_field_id']}.field_value");
-                        //         if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                        //             $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                        //             $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
-                        //             $customFieldData['field_meta_value'] = $filePath;
-                        //         } else {
-                        //             return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
-                        //         }
-                        //     }
+    // if ($checkboxType === 'import_from_amanities') {
+    //     $raw = $repeaterField['field_value']; // e.g. [bathroom{garden-view,courtyard-view},scenic-views{hair-dryer}]
+    //     preg_match_all('/([a-zA-Z0-9\-_ ]+)\{([a-zA-Z0-9\-_, ]+)\}/', $raw, $matches, PREG_SET_ORDER);
+
+    //     $formatted = [];
+    //     $optionLabels = []; // like [bathroom, scenic-views]
+    //     $slugMapping = [];  // like ['bathroom' => ['garden-view', 'courtyard-view']]
+
+    //     foreach ($matches as $match) {
+    //         $optionLabel = trim($match[1]);
+    //         $slugs = array_map('trim', explode(',', $match[2]));
+    //         $optionLabels[] = $optionLabel;
+    //         $slugMapping[$optionLabel] = $slugs;
+    //     }
+
+    //     // 1. Get [id => value] from custom_field_options
+    //     $optionMap = DB::table('custom_field_options')
+    //         ->whereIn('value', $optionLabels)
+    //         ->where('custom_field_id', $repeaterField['custom_field_id'])
+    //         ->pluck('value', 'id') // [id => "bathroom"]
+    //         ->toArray();
+
+    //     \Log::info('OptionMap: ' . json_encode(array_values($optionMap)));
+    //     \Log::info('SlugMapping: ' . json_encode($slugMapping));
+
+    //     // 2. Get [slug => id] from amenities_categories
+    //     $categoryMap = DB::table('amenities_categories')
+    //         ->whereIn('slug', array_values($optionMap))
+    //         ->pluck('id', 'slug') // [bathroom => 2]
+    //         ->toArray();
+
+    //     \Log::info('CategoryMap: ' . json_encode($categoryMap));
+
+    //     // 3. Map option_id to category_id
+    //     $optionToCategoryMap = [];
+    //     foreach ($optionMap as $optionId => $slug) {
+    //         if (isset($categoryMap[$slug])) {
+    //             $optionToCategoryMap[$optionId] = [
+    //                 'slug' => $slug,
+    //                 'category_id' => $categoryMap[$slug]
+    //             ];
+    //         }
+    //     }
+
+    //     // 4. Get all amenity slugs from user input
+    //     $allAmenitySlugs = array_merge(...array_values($slugMapping));
+
+    //     // 5. Fetch amenities by slug and category_id
+    //     $amenities = DB::table('amenities')
+    //         ->whereIn(DB::raw('LOWER(slug)'), array_map('strtolower', $allAmenitySlugs))
+    //         ->whereIn('amenities_categories_id', array_column($optionToCategoryMap, 'category_id'))
+    //         ->get();
+
+    //     \Log::info('Amenities fetched: ' . json_encode($amenities));
+
+    //     // 6. Group amenities by category and slug
+    //     $groupedAmenities = [];
+    //     foreach ($amenities as $a) {
+    //         $groupedAmenities[$a->amenities_categories_id][strtolower($a->slug)] = [
+    //             'id' => $a->id,
+    //             'slug' => $a->slug,
+    //             'name' => $a->name,
+    //         ];
+    //     }
+
+    //     // 7. Build the formatted response
+    //     foreach ($optionToCategoryMap as $optionId => $info) {
+    //         $catSlug = $info['slug'];
+    //         $categoryId = $info['category_id'];
+
+    //         $formatted[$optionId] = [
+    //             'amenities_cat' => $catSlug,
+    //             'amenities' => []
+    //         ];
+
+    //         foreach ($slugMapping[$catSlug] ?? [] as $slug) {
+    //             $slugLower = strtolower($slug);
+    //             if (isset($groupedAmenities[$categoryId][$slugLower])) {
+    //                 $a = $groupedAmenities[$categoryId][$slugLower];
+    //                 $formatted[$optionId]['amenities'][$a['id']] = [
+    //                     'id' => $a['id'],
+    //                     'slug' => $a['slug'],
+    //                 ];
+    //             }
+    //         }
+    //     }
+
+    //     // ✅ Store final data
+    //     $customFieldData['custom_field_options_id'] = implode(',', array_keys($formatted));
+    //     $customFieldData['field_meta_value'] = json_encode($formatted);
+    // } else {
+    //     // ✅ Normal checkbox
+    //     $values = explode(',', $repeaterField['field_value']);
+    //     $customFieldData['field_meta_value'] = implode(',', $values);
+
+    //     $customFieldOptionsIds = DB::table('custom_field_options')
+    //         ->whereIn('value', $values)
+    //         ->where('custom_field_id', $repeaterField['custom_field_id'])
+    //         ->pluck('id')
+    //         ->implode(',');
+
+    //     $customFieldData['custom_field_options_id'] = $customFieldOptionsIds;
+    // }
+    // break;
+
+
+
+
+
+
+
+
 
 
                         case 'media':
@@ -292,33 +384,8 @@ class PropertylistingController extends Controller
                                                 $repeaterFieldData['custom_field_repeater_options_id'] = $optionIds;
                                                 break;
 
-                                            // case 'file':
-                                            //     if ($request->hasFile("repeater_fields.{$repeaterField['custom_field_id']}.field_value")) {
-                                            //         $file = $request->file("repeater_fields.{$repeaterField['custom_field_id']}.field_value");
-                                            //         if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                            //             $fileName = time() . '_' . $file->getClientOriginalName();
-                                            //             $filePath = $file->storeAs('uploads/gallery', $fileName);
-                                            //             $repeaterFieldData['field_meta_value'] = $filePath;
-                                            //         } else {
-                                            //             return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
-                                            //         }
-                                            //     }
-                                            //     break;
 
-                                            // case 'media':
-                                            //     if ($request->hasFile("repeater_fields.{$repeaterField['custom_field_id']}.field_value")) {
-                                            //         $files = $request->file("repeater_fields.{$repeaterField['custom_field_id']}.field_value");
-                                            //         $fileNames = [];
-                                            //         foreach ($files as $file) {
-                                            //             if ($file->isValid()) {
-                                            //                 $fileName = time() . '_' . $file->getClientOriginalName();
-                                            //                 $file->move(public_path('uploads/media'), $fileName);
-                                            //                 $fileNames[] = $fileName;
-                                            //             }
-                                            //         }
-                                            //         $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
-                                            //     }
-                                            //     break;
+
 
                                             case 'media':
                                                 if (isset($subField['field_value']) && is_array($subField['field_value'])) {

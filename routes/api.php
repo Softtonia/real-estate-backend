@@ -3,6 +3,7 @@
 use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
+use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
 use App\Http\Controllers\TopFeature\TopFeatureController;
 use Illuminate\Http\Request;
@@ -140,7 +141,7 @@ Route::get('listing-of-property-with-project', [UserController::class, 'listingO
 
 Route::get('get-all-pages', [UserController::class, 'getAllPages']);
 Route::get('overview-of-all-user-property', [UserController::class, 'overviewOfProperty']);
-Route::get('search-pages', [UserController::class, 'searchPage']);
+
 
 
 
@@ -438,6 +439,8 @@ Route::middleware('admin.token')->post('groups-list', [GroupController::class, '
 Route::middleware('admin.token')->post('groups-delete/{id}', [GroupController::class, 'deleteGroup']);
 Route::get('/check-unique-group-name', [GroupController::class, 'checkUniqueGroupName']);
 Route::middleware('admin.token')->post('groups-bulk-delete', [GroupController::class, 'bulkDeleteGroups']);
+Route::middleware('admin.token')->get('groups-search', [GroupController::class, 'searchByGroupName']);
+
 
 
 // Group Route will end from here
@@ -544,6 +547,20 @@ Route::get('media-list', [MediaController::class, 'index']);
 
 
 // =========Page=======
+
+// =========16-07-2025=======
+
+Route::get('get-all-pages-list', [PageController::class, 'index']);
+Route::get('get-pages-by-id/{id}', [PageController::class, 'show']);
+Route::middleware('admin.token')->post('create-pages', [PageController::class, 'store']);
+Route::middleware('admin.token')->post('update-pages-by-id/{id}', [PageController::class, 'update']);
+Route::middleware('admin.token')->delete('delete-pages-by-id/{id}', [PageController::class, 'destroy']);
+Route::middleware('admin.token')->post('bulk-delete-pages', [PageController::class, 'bulkDestroy']);
+Route::get('search-pages', [PageController::class, 'searchPage']);
+Route::post('check-unique-pages', [PageController::class, 'checkUnique']);
+
+
+
 // =========privacy-policy========
 Route::middleware('admin.token')->post('privacy-policy-update', [privacypolicycontroller::class, 'update']);
 Route::get('privacy-policy-list', [privacypolicycontroller::class, 'index']);

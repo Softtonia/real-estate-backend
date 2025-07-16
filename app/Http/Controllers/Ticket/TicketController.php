@@ -944,13 +944,13 @@ class TicketController extends Controller
     public function searchByTicketNumber(Request $request)
     {
         $request->validate([
-            'ticket_number' => 'required|string'
+            'search' => 'required|string'
         ]);
 
-        $ticketNumber = $request->ticket_number;
+        $ticketNumber = $request->search;
 
-        // Fetch the ticket by ticket number with all related details
-        $ticket = DB::table('tickets')
+        // Fetch matching tickets using LIKE for partial match
+        $tickets = DB::table('tickets')
             ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
             ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
             ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
@@ -968,52 +968,53 @@ class TicketController extends Controller
                 'ticket_types.ticket_type_name',
                 'ticket_departments.ticket_department_name'
             )
-            ->where('tickets.ticket_number', $ticketNumber)
-            ->first();
+            ->where('tickets.ticket_number', 'like', "%$ticketNumber%")
+            ->get();
 
-        // Ticket not found
-        if (!$ticket) {
+        // If no ticket found
+        if ($tickets->isEmpty()) {
             return response()->json([
                 'status' => false,
-                'message' => 'Ticket not found',
-                'data' => null
+                'message' => 'No matching tickets found',
+                'data' => []
             ], 200);
         }
 
-        $mediaUrl = $ticket->media_attachment
-            ? url('attachments/' . $ticket->media_attachment)
-            : null;
-
-        // Format the result
-        $formattedTicket = [
-            'id' => $ticket->id,
-            'raised_by' => $ticket->raised_by_id,
-            'raised_by_name' => $ticket->raised_user_name,
-            'user_id' => $ticket->assigned_to_id,
-            'user_name' => $ticket->assigned_user_fullname,
-            'status_id' => $ticket->status_id,
-            'status_name' => $ticket->ticket_status_name,
-            'priority_id' => $ticket->priority_id,
-            'priority_name' => $ticket->ticket_priority,
-            'ticket_number' => $ticket->ticket_number,
-            'subject' => $ticket->subject,
-            'message' => $ticket->message,
-            'ticket_type_id' => $ticket->ticket_type_id,
-            'ticket_type_name' => $ticket->ticket_type_name,
-            'ticket_department_id' => $ticket->ticket_department_id,
-            'ticket_department_name' => $ticket->ticket_department_name,
-            'media_attachment' => $ticket->media_attachment,
-            'media_attachment_url' => $mediaUrl,
-            'created_at' => $ticket->created_at,
-            'updated_at' => $ticket->updated_at
-        ];
+        // Format all matched tickets
+        $formattedTickets = $tickets->map(function ($ticket) {
+            return [
+                'id' => $ticket->id,
+                'raised_by' => $ticket->raised_by_id,
+                'raised_by_name' => $ticket->raised_user_name,
+                'user_id' => $ticket->assigned_to_id,
+                'user_name' => $ticket->assigned_user_fullname,
+                'status_id' => $ticket->status_id,
+                'status_name' => $ticket->ticket_status_name,
+                'priority_id' => $ticket->priority_id,
+                'priority_name' => $ticket->ticket_priority,
+                'ticket_number' => $ticket->ticket_number,
+                'subject' => $ticket->subject,
+                'message' => $ticket->message,
+                'ticket_type_id' => $ticket->ticket_type_id,
+                'ticket_type_name' => $ticket->ticket_type_name,
+                'ticket_department_id' => $ticket->ticket_department_id,
+                'ticket_department_name' => $ticket->ticket_department_name,
+                'media_attachment' => $ticket->media_attachment,
+                'media_attachment_url' => $ticket->media_attachment
+                    ? url('attachments/' . $ticket->media_attachment)
+                    : null,
+                'created_at' => $ticket->created_at,
+                'updated_at' => $ticket->updated_at
+            ];
+        });
 
         return response()->json([
             'status' => true,
-            'message' => 'Ticket found',
-            'data' => $formattedTicket
+            'message' => 'Matching tickets found',
+            'data' => $formattedTickets
         ], 200);
     }
+
 
 
 
