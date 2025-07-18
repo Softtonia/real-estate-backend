@@ -34,3 +34,13 @@ Route::get('/reset-password',[UserController::class,'resetPasswordLoad']);
 Route::post('/reset-password',[UserController::class,'resetPassword']);
 
 Route::get('password/reset/{token}', [ResetPasswordController::class,'showResetForm'])->name('password.reset');
+
+
+Route::get('/check-file', function() {
+    $path = 'uploads/media_icons/1749013663_Scenic_views.png';
+    return response()->json([
+        'exists' => file_exists(public_path($path)),
+        'path' => public_path($path),
+        'url' => asset($path)
+    ]);
+});

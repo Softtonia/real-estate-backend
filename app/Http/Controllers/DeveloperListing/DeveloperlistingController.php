@@ -1743,11 +1743,26 @@ class DeveloperlistingController extends Controller
         // }
 
         try {
+
+            $user = Auth::user();
+            $createdBy = $user->id;
             // Find the builder by ID
             $delete_ids = explode(',', $request->id);
 
             foreach ($delete_ids as $row) {
                 $purpose = Developerlist::findOrFail($row);
+
+                // Check access: Only admin or creator can delete
+                if (
+                    strtolower(optional($user->role)->name) !== 'admin' &&
+                    $purpose->created_by !== $createdBy
+                ) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Unauthorized: You can only delete your own developers.',
+                    ], 403);
+                }
+
                 $filePath = public_path('uploads/featured_image/' . $purpose->featured_image);
 
                 // Delete the file if it exists

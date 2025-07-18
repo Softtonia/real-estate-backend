@@ -10,19 +10,20 @@ use App\Models\Amenity;
 use App\Models\PropertyType;
 use App\Models\Location;
 use App\Models\PropertyAnalytic;
-use App\Models\Customfieldvalue; 
+use App\Models\Customfieldvalue;
 use App\Models\AmenitiesCategory;
 use App\Models\Keyword;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class PropertylistingController extends Controller
 {
-    
-    
+
+
     // this is for store the data
     public function store(Request $request)
-    {        
+    {
         try {
 
             if ($request->header('api-token') == '') {
@@ -32,18 +33,18 @@ class PropertylistingController extends Controller
             $requestToken = $request->header('api-token');
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
             }
 
             $userId = $userData->id;
-        
+
             $property_unique_id = 'URP' . rand(111111, 999999);
-        
+
             // Upload files to public/uploads/
             $propertyData = [
                 'property_unique_id' => $property_unique_id,
@@ -59,7 +60,7 @@ class PropertylistingController extends Controller
                 'status' => 'pending',
                 'project_id' =>  $request->project_id,
             ];
-    
+
             // Handle file uploads
             foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'featured_image', 'brochure'] as $fileField) {
                 if ($request->hasFile($fileField)) {
@@ -69,7 +70,7 @@ class PropertylistingController extends Controller
                     $propertyData[$fileField] = $fileName;
                 }
             }
-        
+
             $property = Propertylist::create($propertyData);
 
             $lastInsertId = $property->id;
@@ -85,17 +86,17 @@ class PropertylistingController extends Controller
                     Keyword::create($inserData);
                 }
             }
-        
+
             // Handle repeater field values pawan
             if ($request->has('repeater_fields')) {
                 $repeaterFields = $request->repeater_fields;
-    
+
                 foreach ($repeaterFields as $repeaterFieldIndex => $repeaterField) {
                     $customFieldData = [
                         'properties_listing_id' => $property->id,
                         'custom_field_id' => $repeaterField['custom_field_id'],
                     ];
-    
+
                     // Check the field type and handle accordingly
                     switch ($repeaterField['field_type']) {
                         case 'text':
@@ -110,7 +111,7 @@ class PropertylistingController extends Controller
                                 ->where('custom_field_id', $repeaterField['custom_field_id'])
                                 ->where('value', $repeaterField['field_value'])
                                 ->first();
-    
+
                             if ($customFieldOptions) {
                                 $customFieldData['custom_field_options_id'] = $customFieldOptions->id;
                             }
@@ -119,10 +120,10 @@ class PropertylistingController extends Controller
                         case 'checkbox':
                             // For checkbox, assume multiple values can be selected
                             $values = explode(',', $repeaterField['field_value']); // Split the string into an array
-    
+
                             // Convert array to string
                             $customFieldData['field_meta_value'] = implode(',', $values);
-    
+
                             // Retrieve custom_field_options_id for each selected value
                             $customFieldOptionsIds = [];
                             foreach ($values as $value) {
@@ -130,7 +131,7 @@ class PropertylistingController extends Controller
                                     ->where('custom_field_id', $repeaterField['custom_field_id'])
                                     ->where('value', $value)
                                     ->first();
-    
+
                                 if ($customFieldOption) {
                                     $customFieldOptionsIds[] = $customFieldOption->id;
                                 }
@@ -142,7 +143,7 @@ class PropertylistingController extends Controller
                             if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
                                 $mediaArray = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
                                 $mediaFiles = [];
-    
+
                                 foreach ($mediaArray as $media) {
                                     // Ensure each file is valid and handle accordingly
                                     if ($media->isValid()) {
@@ -154,7 +155,7 @@ class PropertylistingController extends Controller
                                         return response()->json(['error' => 'Invalid media file.'], 400);
                                     }
                                 }
-    
+
                                 // Store the file paths array in the 'field_meta_value'
                                 $customFieldData['field_meta_value'] = json_encode($mediaFiles);
                             } else {
@@ -165,22 +166,22 @@ class PropertylistingController extends Controller
                         case 'file':
                             // Handling for file field
                             $filePaths = [];
-                            
+
                             // Ensure the 'field_value' is set and it's an array
                             if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
                                 // Retrieve the array of uploaded file objects
                                 $files = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
-                                
+
                                 // Process each uploaded file
                                 foreach ($files as $file) {
                                     // Ensure each file is a valid PDF
                                     if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
                                         // Generate unique filename for each file
                                         $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                                        
+
                                         // Move the file to the uploads/gallery directory
                                         $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
-                                        
+
                                         // Store the file path in the array
                                         $filePaths[] = $filePath;
                                     } else {
@@ -192,35 +193,35 @@ class PropertylistingController extends Controller
                                 // Handle case where 'field_value' is not set
                                 return response()->json(['error' => 'No files uploaded or invalid file data.'], 400);
                             }
-                            
+
                             // Store the array of file paths in the 'field_meta_value'
                             $customFieldData['field_meta_value'] = json_encode($filePaths);
                             break;
                         default:
                             return response()->json(['error' => 'Unsupported field type'], 400);
                     }
-    
+
                     Customfieldvalue::create($customFieldData);
                 }
             }
-        
+
             // Prepare the response data
             $responseData = $property;
-        
+
             $returnRes = [
                 'status' => true,
                 'message' => 'Data added successfully.',
                 'data' => $request->all(),
             ];
-        
+
             return response()->json($returnRes, 201);
         } catch (\Throwable $th) {
             // Log or handle the exception
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
-    
+
+
     // this is for listing
     public function index(Request $request)
     {
@@ -234,9 +235,9 @@ class PropertylistingController extends Controller
             $requestToken = $request->header('api-token');
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
@@ -246,17 +247,17 @@ class PropertylistingController extends Controller
 
             $baseURL = config('app.url');
             $basePath = public_path();
-            
+
             $properties = Propertylist::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus','project', 'customFieldValues.customField', 'customFieldValues.customFieldOption','keywords'])
             ->where('user_id', $userId)
             ->where('status','approved')
             ->get();
-            
+
             $propertiesData = $properties->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                     $customField = $customFieldValue->customField;
                     $customFieldOption = $customFieldValue->customFieldOption ?? null;
-                    
+
                     $fieldValue = $customFieldValue->field_meta_value;
                     if ($customField && $customField->field_type == 'checkbox') {
                         // For checkbox, explode the value to get an array
@@ -272,10 +273,10 @@ class PropertylistingController extends Controller
                         // For other field types or if $customField is null, keep the value as is
                         $fieldValueArray = $fieldValue;
                     }
-        
+
                     // Include all options for the field
                     $customFieldOptions = $customField ? $customField->options : null;
-                    
+
                     return [
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
@@ -284,7 +285,7 @@ class PropertylistingController extends Controller
                         // 'custom_field_options' => $customFieldOptions,
                     ];
                 });
-        
+
                 // Prepare property data
                 $propertyData = [
                     'id' => $property->id,
@@ -315,28 +316,28 @@ class PropertylistingController extends Controller
                     'timestamp' => date('d m Y h:m A',strtotime($property->created_at)),
                     'custom_field_values' => $formattedCustomFieldValues,
                 ];
-                
+
                 return $propertyData;
             });
-            
+
             return response()->json($propertiesData);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-  
-    
+
+
     // Function to append base URL to gallery images
-    private function appendBaseURL($gallery, $baseURL) 
+    private function appendBaseURL($gallery, $baseURL)
     {
         return array_map(function($image) use ($baseURL) {
         return $baseURL . '/public/uploads/gallery/'. $image;
         }, $gallery);
     }
-    
-    
+
+
     // Function to correct file paths for images and videos
-    private function correctFilePath($filePath, $baseURL, $basePath,$Fname) 
+    private function correctFilePath($filePath, $baseURL, $basePath,$Fname)
     {
         $publicPath = $basePath . '/public/';
         if (strpos($filePath, $publicPath) !== false) {
@@ -345,14 +346,14 @@ class PropertylistingController extends Controller
         }
         return $baseURL . '/public/uploads/'.$Fname .'/'. $filePath;
     }
-    
 
-    // this is for update the record 
+
+    // this is for update the record
     public function update(Request $request)
     {
-        
+
         try {
-            
+
             if ($request->header('api-token') == '') {
                 return response()->json(['error' => 'Please enter api token first.'], 422);
             }
@@ -360,24 +361,24 @@ class PropertylistingController extends Controller
             $requestToken = $request->header('api-token');
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
             }
 
             $userId = $userData->id;
-        
+
             $id = $request->id;
-        
+
             if (!Propertylist::where('id', $id)->exists()) {
                 return response()->json(['error' => 'Invalid Property Id'], 404);
             }
-        
+
             $property = Propertylist::findOrFail($id); // Find the property by ID
-        
+
             // Validate the request data
             $validatedData = $request->validate([
                 'name' => 'required|string',
@@ -395,9 +396,9 @@ class PropertylistingController extends Controller
             if ($request->has('property_type_id')) {
                 $property['property_type_id'] = json_encode($request->property_type_id);
             }
-        
+
             $validatedData['user_id'] = $userId;
-        
+
             // Handle file uploads
             foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'featured_image', 'brochure'] as $fileField) {
                 if ($request->hasFile($fileField)) {
@@ -407,7 +408,7 @@ class PropertylistingController extends Controller
                     $validatedData[$fileField] = $fileName;
                 }
             }
-        
+
             $property->update($validatedData);
 
             $lastInsertId = $id;
@@ -424,18 +425,18 @@ class PropertylistingController extends Controller
                     Keyword::create($inserData);
                 }
             }
-        
+
             // Handle repeater field values
             if ($request->has('repeater_fields')) {
                 Customfieldvalue::where('properties_listing_id', $property->id)->delete();
                     $repeaterFields = $request->repeater_fields;
-        
+
                     foreach ($repeaterFields as $repeaterFieldIndex => $repeaterField) {
                         $customFieldData = [
                             'properties_listing_id' => $property->id,
                             'custom_field_id' => $repeaterField['custom_field_id'],
                         ];
-        
+
                         // Check the field type and handle accordingly
                         switch ($repeaterField['field_type']) {
                             case 'text':
@@ -450,7 +451,7 @@ class PropertylistingController extends Controller
                                     ->where('custom_field_id', $repeaterField['custom_field_id'])
                                     ->where('value', $repeaterField['field_value'])
                                     ->first();
-        
+
                                 if ($customFieldOptions) {
                                     $customFieldData['custom_field_options_id'] = $customFieldOptions->id;
                                 }
@@ -459,10 +460,10 @@ class PropertylistingController extends Controller
                             case 'checkbox':
                                 // For checkbox, assume multiple values can be selected
                                 $values = explode(',', $repeaterField['field_value']); // Split the string into an array
-        
+
                                 // Convert array to string
                                 $customFieldData['field_meta_value'] = implode(',', $values);
-        
+
                                 // Retrieve custom_field_options_id for each selected value
                                 $customFieldOptionsIds = [];
                                 foreach ($values as $value) {
@@ -470,7 +471,7 @@ class PropertylistingController extends Controller
                                         ->where('custom_field_id', $repeaterField['custom_field_id'])
                                         ->where('value', $value)
                                         ->first();
-        
+
                                     if ($customFieldOption) {
                                         $customFieldOptionsIds[] = $customFieldOption->id;
                                     }
@@ -509,22 +510,22 @@ class PropertylistingController extends Controller
                             case 'file':
                                 // Handling for file field
                                 $filePaths = [];
-                                
+
                                 // Ensure the 'field_value' is set and it's an array
                                 if ($request->hasFile('repeater_fields.' . $repeaterFieldIndex . '.field_value')) {
                                     // Retrieve the array of uploaded file objects
                                     $files = $request->file('repeater_fields.' . $repeaterFieldIndex . '.field_value');
-                                    
+
                                     // Process each uploaded file
                                     foreach ($files as $file) {
                                         // Ensure each file is a valid PDF
                                         if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
                                             // Generate unique filename for each file
                                             $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                                            
+
                                             // Move the file to the uploads/gallery directory
                                             $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
-                                            
+
                                             // Store the file path in the array
                                             $filePaths[] = $filePath;
                                         } else {
@@ -536,33 +537,33 @@ class PropertylistingController extends Controller
                                     // Handle case where 'field_value' is not set
                                     return response()->json(['error' => 'No files uploaded or invalid file data.'], 400);
                                 }
-                                
+
                                 // Store the array of file paths in the 'field_meta_value'
                                 $customFieldData['field_meta_value'] = json_encode($filePaths);
                                 break;
                             default:
                                 return response()->json(['error' => 'Unsupported field type'], 400);
                         }
-        
+
                         Customfieldvalue::create($customFieldData);
                     }
                 }
-        
+
             // Prepare the response data
             $responseData = $property;
-        
+
             $returnRes = [
                 'status' => true,
                 'message' => 'Data updated successfully.'
             ];
-        
+
             return response()->json($returnRes);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
-    
+
+
     // this is for delete the record
     public function destroy(Request $request)
     {
@@ -575,9 +576,9 @@ class PropertylistingController extends Controller
             $requestToken = $request->header('api-token');
 
             $userId = null;
-        
+
             $userData = User::where('api_token', $requestToken)->first();
-        
+
             // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
@@ -587,29 +588,29 @@ class PropertylistingController extends Controller
 
             $id = $request->id;
             $property = Propertylist::find($id);
-            
+
             if (!$property) {
             return response()->json(['message' => 'Data not found'], 404);
             }
-            
+
             // Delete specific related records
             $property->customFieldValues()->delete();
-            
+
             // Delete the property
             $property->delete();
-            
+
             $returnRes = [
             'status' => true,
             'message' => 'Data deleted successfully.'
             ];
-            
+
             return response()->json($returnRes,200);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-    
-    
+
+
     // this is foe get data by id
     public function getdatabyId(Request $request)
     {
@@ -617,17 +618,17 @@ class PropertylistingController extends Controller
             if ($request->id == '') {
                 return response()->json(['error' => 'ID is required'], 400);
             }
-            
+
             $baseURL = config('app.url');
             $basePath = public_path();
-            
+
             $properties = Propertylist::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus','project', 'customFieldValues.customField', 'customFieldValues.customFieldOption','keywords'])->where('id', $request->id)->get();
-            
+
             $propertiesData = $properties->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                     $customField = $customFieldValue->customField;
                     $customFieldOption = $customFieldValue->customFieldOption ?? null;
-                    
+
                     $fieldValue = $customFieldValue->field_meta_value;
                     if ($customField && $customField->field_type == 'checkbox') {
                         // For checkbox, explode the value to get an array
@@ -643,10 +644,10 @@ class PropertylistingController extends Controller
                         // For other field types or if $customField is null, keep the value as is
                         $fieldValueArray = $fieldValue;
                     }
-        
+
                     // Include all options for the field
                     $customFieldOptions = $customField ? $customField->options : null;
-                    
+
                     return [
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
@@ -655,7 +656,7 @@ class PropertylistingController extends Controller
                         'custom_field_options' => $customFieldOptions,
                     ];
                 });
-        
+
                 // Prepare property data
                 $propertyData = [
                     'id' => $property->id,
@@ -684,47 +685,54 @@ class PropertylistingController extends Controller
                     'total_view' => $property->analytics()->count(),
                     'custom_field_values' => $formattedCustomFieldValues,
                 ];
-                
+
                 return $propertyData;
             });
-            
+
             return response()->json($propertiesData);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
 
-    
+
 
     // this is for overview
     public function overviewOfProperty(Request $request)
     {
         try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
+            // if ($request->header('api-token') == '') {
+            //     return response()->json(['error' => 'Please enter api token first.'], 422);
+            // }
+
+            // $requestToken = $request->header('api-token');
+            // $userData = User::where('api_token', $requestToken)->first();
+
+            // // Validate that the user exists in the database
+            // if (!$userData) {
+            //     return response()->json(['error' => 'User not found'], 404);
+            // }
+
+            $AuthUser = Auth::user();
+
+             // Validate that the user exists in the database
+            if (!$AuthUser) {
+                return response()->json(['error' => 'User not found'], 200);
             }
 
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
+            $userId = $AuthUser->id;
 
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'User not found'], 404);
-            }
-
-            $userId = $userData->id;
-
-            $totalPropertyCount = Propertylist::where('user_id', $userId)->count();
-            $approvedCount = Propertylist::where('user_id', $userId)->where('status', 'approved')->count();
-            $rejectCount = Propertylist::where('user_id', $userId)->where('status', 'reject')->count();
-            $pendingCount = Propertylist::where('user_id', $userId)->where('status', 'pending')->count();
+            $totalPropertyCount = Propertylist::where('created_by', $userId)->count();
+            $approvedCount = Propertylist::where('created_by', $userId)->where('live_status', 'Approve')->count();
+            $rejectCount = Propertylist::where('created_by', $userId)->where('live_status', 'Reject')->count();
+            $underReviewCount = Propertylist::where('created_by', $userId)->where('live_status', 'Under Review')->count();
 
             // Construct the return data
             $return = [
                 'total_property_count' => $totalPropertyCount,
                 'approved_property_count' => $approvedCount,
                 'reject_property_count' => $rejectCount,
-                'pending_property_count' => $pendingCount,
+                'under_review_property_count' => $underReviewCount,
             ];
 
             return response()->json($return);
@@ -756,7 +764,7 @@ class PropertylistingController extends Controller
         return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-        
+
 
     // This is for list of property analytics
     public function listPropertyAnalytics()
@@ -852,6 +860,6 @@ class PropertylistingController extends Controller
             ->where('type', 'view')
             ->count();
     }
-    
-    
+
+
 }

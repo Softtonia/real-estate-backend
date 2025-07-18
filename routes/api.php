@@ -259,7 +259,7 @@ Route::middleware('api.token')->get('get-all-propety-listing-byusertoken', [Prop
 // frontend site
 // =======Front Property Listing============
 
-Route::get('overview-of-user-property', [frontPropertylistingController::class, 'overviewOfProperty']);
+Route::middleware('api.token')->get('overview-of-user-property', [frontPropertylistingController::class, 'overviewOfProperty']);
 Route::post('store-property-analytics', [frontPropertylistingController::class, 'storePropertyAnalytics']);
 Route::get('list-property-analytics', [frontPropertylistingController::class, 'listPropertyAnalytics']);
 Route::get('view-property-analytics', [frontPropertylistingController::class, 'viewPropertyAnalytics']);

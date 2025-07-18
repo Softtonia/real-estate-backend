@@ -831,6 +831,15 @@ class ProjectlistingController extends Controller
             // Find the project
             $project = ProjectList::findOrFail($request->id);
 
+            // ✅ Check access permissions
+            if ($user->role->name !== 'admin' && $project->created_by !== $userId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only update your own project.',
+                ], 403);
+            }
+
+
             // Set `temporary_status`: Default to "active" unless provided
             $temporaryStatus = $request->has('temporary_status') ? $request->temporary_status : 'active';
 
@@ -1633,6 +1642,9 @@ class ProjectlistingController extends Controller
                 return response()->json(['error' => 'ID is required'], 400);
             }
 
+            $user = Auth::user();
+            $createdBy = $user->id;
+
             $baseURL = config('app.url');
 
             $projects = ProjectList::with([
@@ -1654,6 +1666,14 @@ class ProjectlistingController extends Controller
 
             if (!$projects) {
                 return response()->json(['error' => 'Project not found'], 200);
+            }
+
+            // ✅ Check access permissions
+            if ($user->role->name !== 'admin' && $projects->created_by !== $createdBy) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only view your own projects.',
+                ], 403);
             }
 
             $createdByData = $projects->createdBy ? [
