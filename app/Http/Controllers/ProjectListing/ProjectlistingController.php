@@ -170,19 +170,33 @@ class ProjectlistingController extends Controller
                             break;
 
                         case 'file':
-                            // ✅ Fix: Handle single file uploads correctly
-                            if ($request->hasFile("repeater_fields.$repeaterFieldIndex.field_value")) {
-                                $file = $request->file("repeater_fields.$repeaterFieldIndex.field_value");
+                        //  Fix: Handle multiple file uploads correctly
+                        if ($request->hasFile("repeater_fields.$repeaterFieldIndex.field_value")) {
+                            $files = $request->file("repeater_fields.$repeaterFieldIndex.field_value");
+                            $filePaths = [];
 
-                                if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                    $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                                    $filePath = $file->storeAs('uploads/gallery', $uniqueFileName);
-                                    $customFieldData['field_meta_value'] = $filePath;
-                                } else {
-                                    return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+                            foreach ((array) $files as $file) {
+                                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                    if (strtolower($file->getClientOriginalExtension()) === 'pdf') {
+                                        $uniqueFileName = time() . '_' . $file->getClientOriginalName();
+                                        $relativePath = 'storage/uploads/customfield/projects/files/' . $uniqueFileName;
+
+                                        // Store to: storage/app/public/uploads/gallery
+                                        $file->storeAs('public/uploads/customfield/projects/files', $uniqueFileName);
+
+                                        $filePaths[] = $relativePath;
+                                    } else {
+                                        return response()->json([
+                                            'error' => 'Invalid file format. Only PDF files are allowed.'
+                                        ], 400);
+                                    }
                                 }
                             }
-                            break;
+
+                            $customFieldData['field_meta_value'] = json_encode($filePaths); // Save JSON-encoded array
+                        }
+                        break;
+
 
                         case 'repeater':
                             if (!empty($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
@@ -242,15 +256,22 @@ class ProjectlistingController extends Controller
                                                 break;
 
                                             case 'file':
-                                                if (isset($subField['field_value']) && $subField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
-                                                    $file = $subField['field_value'];
-                                                    if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                                        $fileName = time() . '_' . $file->getClientOriginalName();
-                                                        $filePath = $file->storeAs('uploads/gallery', $fileName);
-                                                        $nestedFieldData['field_meta_value'] = $filePath;
-                                                    } else {
-                                                        return response()->json(['error' => 'Invalid file format in repeater. Only PDF files allowed.'], 400);
+                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+                                                    $filePaths = [];
+                                                    foreach ($subField['field_value'] as $file) {
+                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                                            if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
+                                                                $fileName = time() . '_' . $file->getClientOriginalName();
+                                                                $relativePath = 'storage/uploads/customfield/projects/files/' . $fileName;
+
+                                                                $file->storeAs('public/uploads/customfield/projects/files', $fileName);
+                                                                $filePaths[] = $relativePath;
+                                                            } else {
+                                                                return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX files allowed.'], 400);
+                                                            }
+                                                        }
                                                     }
+                                                    $nestedFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
                                                 }
                                                 break;
                                         }
@@ -402,7 +423,9 @@ class ProjectlistingController extends Controller
                 'country',
                 'state',
                 'city'
-            ])->where('live_status', 'Approve')->paginate($request->get('per_page', 10));
+            ])
+            ->where('live_status', 'Approve')
+            ->paginate($request->get('per_page', 10));
 
             $projectsData = $projects->map(function ($property) use ($baseURL) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL, $property) {
@@ -411,8 +434,8 @@ class ProjectlistingController extends Controller
                     $fieldType = $customField->field_type ?? null;
                     $fieldValue = $customFieldValue->field_meta_value;
 
-                    $templateData = optional($customField->templateValue)?->toArray();
-                    $templateId = optional($customField->templateValue)?->id;
+                    $templateData = optional(optional($customField)->templateValue)?->toArray();
+                    $templateId = optional(optional($customField)->templateValue)?->id;
 
                     $fieldValueFormatted = null;
                     $options = [];
@@ -448,7 +471,7 @@ class ProjectlistingController extends Controller
                         case 'file':
                             $decoded = json_decode($fieldValue, true);
                             $fieldValueFormatted = is_array($decoded)
-                                ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                ? array_map(fn($file) => $baseURL . '/' . $file, $decoded)
                                 : [];
                             break;
 
@@ -497,7 +520,10 @@ class ProjectlistingController extends Controller
                                                 'value' => $opt->value,
                                             ])->toArray();
                                     } elseif ($nestedType === 'file') {
-                                        $nestedValue = $nestedValue ? url($nestedValue) : null;
+                                         $decoded = is_string($nestedValue) ? json_decode($nestedValue, true) : $nestedValue;
+                                         $nestedValue = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
                                     } elseif ($nestedType === 'media') {
                                         $decoded = json_decode($nestedValue, true);
                                         $nestedValue = is_array($decoded)
@@ -1069,15 +1095,24 @@ class ProjectlistingController extends Controller
                             break;
 
                         case 'file':
-                            if (isset($repeaterField['field_value']) && $repeaterField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
-                                $file = $repeaterField['field_value'];
-                                if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                    $fileName = time() . '_' . $file->getClientOriginalName();
-                                    $filePath = $file->storeAs('uploads/gallery', $fileName);
-                                    $customFieldData['field_meta_value'] = $filePath;
-                                } else {
-                                    return response()->json(['error' => 'Invalid file format. Only PDF files are allowed.'], 400);
+                             if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
+                                $filePaths = [];
+                                foreach ($repeaterField['field_value'] as $file) {
+                                    if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                        if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
+                                            $fileName = time() . '_' . $file->getClientOriginalName();
+                                            $relativePath = 'storage/uploads/customfield/projects/files/' . $fileName;
+
+                                            // Store the file in the desired folder
+                                            $file->storeAs('public/uploads/customfield/projects/files', $fileName); // goes to storage/app/public/uploads/customFiles
+
+                                            $filePaths[] = $relativePath;
+                                        } else {
+                                            return response()->json(['error' => 'Invalid file format. Only PDF, DOC, DOCX allowed.'], 400);
+                                        }
+                                    }
                                 }
+                                $customFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
                             }
                             break;
 
@@ -1139,13 +1174,22 @@ class ProjectlistingController extends Controller
                                                 break;
 
                                             case 'file':
-                                                if (isset($subField['field_value']) && $subField['field_value'] instanceof \Illuminate\Http\UploadedFile) {
-                                                    $file = $subField['field_value'];
-                                                    if ($file->isValid() && $file->getClientOriginalExtension() === 'pdf') {
-                                                        $fileName = time() . '_' . $file->getClientOriginalName();
-                                                        $filePath = $file->storeAs('uploads/gallery', $fileName);
-                                                        $nestedData['field_meta_value'] = $filePath;
+                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+                                                    $filePaths = [];
+                                                    foreach ($subField['field_value'] as $file) {
+                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                                            if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
+                                                                $fileName = time() . '_' . $file->getClientOriginalName();
+                                                                $relativePath = 'storage/uploads/customfield/projects/files/' . $fileName;
+
+                                                                $file->storeAs('public/uploads/customfield/projects/files', $fileName);
+                                                                $filePaths[] = $relativePath;
+                                                            } else {
+                                                                return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX files allowed.'], 400);
+                                                            }
+                                                        }
                                                     }
+                                                    $nestedData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
                                                 }
                                                 break;
                                         }
@@ -1704,7 +1748,10 @@ class ProjectlistingController extends Controller
                                         'value' => $opt->value,
                                     ])->toArray();
                             } elseif ($fieldTypeNested === 'file') {
-                                $value = $value ? url($value) : null;
+                                $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
                             } elseif ($fieldTypeNested === 'media') {
                                 $decoded = json_decode($value, true);
                                 $value = is_array($decoded)
@@ -1752,9 +1799,10 @@ class ProjectlistingController extends Controller
                         $fieldValue = array_map(fn($fileName) => $baseURL . '/uploads/media/' . $fileName, (array) $fieldValue);
                     }
                 } elseif ($fieldType === 'file') {
-                    $fieldValue = is_string($fieldValue) && !empty($fieldValue)
-                        ? $baseURL . '/storage/' . ltrim($fieldValue, '/')
-                        : null;
+                    $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => url($file), $decoded)
+                            : [];
                 }
 
                 $fieldArray = [
@@ -2114,7 +2162,10 @@ class ProjectlistingController extends Controller
                                             'value' => $opt->value,
                                         ])->toArray();
                                 } elseif ($fieldTypeNested === 'file') {
-                                    $value = $value ? url($value) : null;
+                                     $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
                                 } elseif ($fieldTypeNested === 'media') {
                                     $decoded = json_decode($value, true);
                                     $value = is_array($decoded)
@@ -2594,7 +2645,10 @@ class ProjectlistingController extends Controller
                                         'value' => $opt->value,
                                     ])->toArray();
                             } elseif ($fieldTypeNested === 'file') {
-                                $value = $value ? url($value) : null;
+                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
                             } elseif ($fieldTypeNested === 'media') {
                                 $decoded = json_decode($value, true);
                                 $value = is_array($decoded)
@@ -2652,9 +2706,10 @@ class ProjectlistingController extends Controller
                         $fieldValue = array_map(fn($fileName) => $baseURL . '/uploads/media/' . $fileName, (array) $fieldValue);
                     }
                 } elseif ($fieldType === 'file') {
-                    $fieldValue = is_string($fieldValue) && !empty($fieldValue)
-                        ? $baseURL . '/storage/' . ltrim($fieldValue, '/')
-                        : null;
+                    $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => url($file), $decoded)
+                            : [];
                 }
 
                 $fieldArray = [
