@@ -80,9 +80,9 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // User route will start from here
 
 Route::post('/register', [UserController::class, 'register']);
-Route::post('email-verify-otp', [UserController::class, 'emailverifyOTP']);
+
 Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
-Route::post('login', [UserController::class, 'loginOldUser']);
+// Route::post('login', [UserController::class, 'loginOldUser']);
 Route::post('login', [UserController::class, 'login']);
 Route::get('/logout', [UserController::class, 'logout']);
 Route::post('/check-unique', [UserController::class, 'checkUnique']);
@@ -191,7 +191,7 @@ Route::middleware('allow.admin_company')->post('add-project-listing', [Projectli
 Route::middleware('allow.admin_company')->post('edit-project-listing', [ProjectlistingController::class, 'update']);
 Route::middleware('allow.admin_company')->post('delete-project-listing', [ProjectlistingController::class, 'destroy']);
 Route::middleware('admin.token')->get('get-all-project-listing-by-admin', [ProjectlistingController::class, 'indexByAdmin']);
-Route::middleware('api.token')->get('/user-project', [ProjectlistingController::class, 'getUserProject']);
+Route::middleware('allow.admin_company')->get('/user-project', [ProjectlistingController::class, 'getUserProject']);
 
 Route::middleware('allow.admin_company')->get('get-data-project/{id}', [ProjectlistingController::class, 'getdatabyId']);
 Route::middleware('allow.admin_company')->post('update-project-status', [ProjectlistingController::class, 'updateProjectStatus']);
@@ -199,8 +199,8 @@ Route::middleware('admin.token')->post('update-project-status-by-admin', [Projec
 Route::middleware('adminOrCurrentUser')->post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
 Route::middleware('allow.admin_company')->post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
 
-Route::middleware('admin.token')->post('update-project-temporary-status',[ProjectlistingController::class, 'updateTemporaryStatus']);
-Route::middleware('admin.token')->get('project-search',[ProjectlistingController::class, 'projectSearch']);
+Route::middleware('allow.admin_company')->post('update-project-temporary-status',[ProjectlistingController::class, 'updateTemporaryStatus']);
+Route::middleware('allow.admin_company')->get('project-search',[ProjectlistingController::class, 'projectSearch']);
 ### No Auth ###
 Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
 Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
@@ -213,11 +213,11 @@ Route::middleware('admin.token')->get('fetch-all-developer-listing-by-admin', [D
 Route::middleware('allow.admin_developer')->get('get-data-developer/{id}', [DeveloperlistingController::class, 'getdatabyId']);
 Route::middleware('allow.admin_developer')->post('developer-bulk-delete', [DeveloperlistingController::class, 'bulkDelete']);
 Route::middleware('admin.token')->post('update-developer-status', [DeveloperlistingController::class, 'updateDeveloperStatus']);
-Route::middleware('api.token')->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
+Route::middleware('allow.admin_developer')->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
 Route::middleware('allow.admin_developer')->post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
 
-Route::middleware('admin.token')->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
-Route::middleware('admin.token')->get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
+Route::middleware('allow.admin_developer')->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
+Route::middleware('allow.admin_developer')->get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
 
 ### No Auth ###
 Route::get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
@@ -227,19 +227,19 @@ Route::get('get-data-developer-no-auth/{id}', [DeveloperlistingController::class
 
 
 // =======Property Listing============
-Route::middleware('api.token')->post('add-properties-listing', [PropertylistingController::class, 'store']);
-Route::middleware('api.token')->post('edit-properties-listing', [PropertylistingController::class, 'update']);
-Route::middleware('api.token')->post('delete-properties-listing', [PropertylistingController::class, 'destroy']);
-Route::middleware('admin.token')->get('get-all-properties-listing-by-admin', [PropertylistingController::class, 'indexByadmin']);
+Route::middleware('allow.property.listing')->post('add-properties-listing', [PropertylistingController::class, 'store']);
+Route::middleware('allow.property.listing')->post('edit-properties-listing', [PropertylistingController::class, 'update']);
+Route::middleware('allow.property.listing')->post('delete-properties-listing', [PropertylistingController::class, 'destroy']);
+Route::middleware('allow.property.listing')->get('get-all-properties-listing', [PropertylistingController::class, 'indexByadmin']);
 
 Route::middleware('admin.token')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
 
-Route::middleware('admin.token')->get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
-Route::middleware('api.token')->post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);
+Route::middleware('allow.property.listing')->get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
+Route::middleware('allow.property.listing')->post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);
 Route::middleware('api.token')->get('get-temporary-statuses', [PropertylistingController::class, 'getTemporaryStatuses']);
 Route::middleware('api.token')->get('get-property-statuses', [PropertylistingController::class, 'getPropertyStatuses']);
 Route::middleware('admin.token')->post('update-property-status', [PropertylistingController::class, 'updatePropertyStatus']);
-Route::middleware('api.token')->post('get-all-project-by-location-id', [PropertylistingController::class, 'getAllProjectByLocationId']);
+Route::middleware('allow.property.listing')->post('get-all-project-by-location-id', [PropertylistingController::class, 'getAllProjectByLocationId']);
 Route::middleware('allow.admin_company')->post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
 Route::middleware('adminOrCurrentUser')->post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
 //
@@ -249,8 +249,8 @@ Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class
 Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
 
 // ============= Property Listing by agent and owner============
-Route::middleware('allow.owner.agent')->post('post-property-create', [PropertylistingController::class, 'storeByAgentOwner']);
-Route::middleware('api.token')->get('get-all-propety-listing-byusertoken', [PropertylistingController::class, 'getUserPropertiesByToken']);
+// Route::middleware('allow.owner.agent')->post('post-property-create', [PropertylistingController::class, 'storeByAgentOwner']);
+// Route::middleware('api.token')->get('get-all-propety-listing-byusertoken', [PropertylistingController::class, 'getUserPropertiesByToken']);
 
 
 
@@ -351,7 +351,7 @@ Route::post('amenity-bulk-delete', [Amenitycontroller::class, 'bulkDelete']);
 // =======Property Type============
 Route::post('property-type-create', [Propertytypecontroller::class, 'store']);
 Route::post('property-type-update', [Propertytypecontroller::class, 'update']);
-Route::get('property-type-listing', [Propertytypecontroller::class, 'index']);
+Route::middleware('api.token')->get('property-type-listing', [Propertytypecontroller::class, 'index']);
 Route::post('property-type', [Propertytypecontroller::class, 'destroy']);
 Route::post('getdatabyId-property-type', [Propertytypecontroller::class, 'getdatabyId']);
 Route::get('/property-ids', [Propertytypecontroller::class, 'getPropertyIds']);
@@ -363,7 +363,7 @@ Route::get('property-type-search', [Propertytypecontroller::class, 'searchByName
 // =======Status============
 Route::post('status-create', [statuscontroller::class, 'store']);
 Route::post('status-update', [statuscontroller::class, 'update']);
-Route::get('status-listing', [statuscontroller::class, 'index']);
+Route::middleware('api.token')->get('status-listing', [statuscontroller::class, 'index']);
 Route::post('status', [statuscontroller::class, 'destroy']);
 Route::get('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
 Route::post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
@@ -372,7 +372,7 @@ Route::get('status-search', [statuscontroller::class, 'searchByName'])->name('st
 // =======Purpose============
 Route::post('purpose-create', [PurposeController::class, 'store']);
 Route::post('purpose-update', [PurposeController::class, 'update']);
-Route::get('purpose-listing', [PurposeController::class, 'index']);
+Route::middleware('api.token')->get('purpose-listing', [PurposeController::class, 'index']);
 Route::post('purpose', [PurposeController::class, 'destroy']);
 Route::post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
 Route::post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
@@ -380,7 +380,7 @@ Route::get('purpose-search', [PurposeController::class, 'searchByName'])->name('
 // =======Property============
 Route::post('property-create', [Propertycontroller::class, 'store']);
 Route::post('property-update', [Propertycontroller::class, 'update']);
-Route::get('property-listing', [Propertycontroller::class, 'index']);
+Route::middleware('api.token')->get('property-listing', [Propertycontroller::class, 'index']);
 Route::post('property', [Propertycontroller::class, 'destroy']);
 Route::get('properties/{id}', [PropertyController::class, 'getPropertyAndType']);
 Route::post('property-bulk-delete', [PropertyController::class, 'bulkDelete']);
@@ -683,10 +683,10 @@ Route::get('get-faq', [FaqController::class, 'index']); //Done By softtonia
 Route::middleware('admin.token')->get('get-faq-by-id/{id}', [FaqController::class, 'getdatabyId']); //Done By softtonia
 
 // Otp Route
-Route::post('/verify-email-otp', [OtpController::class, 'emailVerifyOtp']);
+Route::middleware('api.token')->post('/verify-email-otp', [OtpController::class, 'emailVerifyOtp']);
 Route::post('send-otp', [OtpController::class, 'sendOtp']);
 Route::post('verify-otp', [OtpController::class, 'verifyOtp']);
-Route::post('/verify-email-otp', [OtpController::class, 'emailVerifyOtp']);
+
 
 
 // With otp password forget

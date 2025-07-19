@@ -378,52 +378,7 @@ class UserController extends Controller
 
 
 
-    public function emailverifyOTP(Request $request)
-    {
-        // Validate input
-        $validator = Validator::make($request->all(), [
-            'email' => 'required|exists:users,email',
-            'otp' => 'required|digits:4',
-        ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        // Retrieve OTP record
-        $otpRecord = OTP::where('email', $request->email)
-            ->where('otp', $request->otp)
-            ->where('isOTPVerified', false)
-            ->first();
-
-        if (!$otpRecord) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired OTP',
-            ], 400);
-        }
-
-        // Mark OTP as verified
-        $otpRecord->isOTPVerified = 1;
-        $otpRecord->save();
-
-        // Retrieve the user associated with the phone number
-        $user = User::where('email', $request->email)->first();
-        if ($user) {
-            // Update user's isapproved status if necessary (if applicable to your use case)
-            $user->isapproved = 1;  // or any value depending on your needs
-            $user->save();
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => 'OTP verified successfully',
-        ], 200);
-    }
 
 
     // for forgot password
@@ -541,68 +496,68 @@ class UserController extends Controller
     }
 
     // for login
-    public function loginOldUser(Request $request)
-    {
+    // public function loginOldUser(Request $request)
+    // {
 
-        // Validate input
-        $request->validate([
-            'login' => 'required',
-            'password' => 'required',
-        ]);
+    //     // Validate input
+    //     $request->validate([
+    //         'login' => 'required',
+    //         'password' => 'required',
+    //     ]);
 
-        // Get input from user
-        $credentials = $request->only('login', 'password');
+    //     // Get input from user
+    //     $credentials = $request->only('login', 'password');
 
-        try {
-            // Find the user by email or phone
-            $user = User::where('email', $credentials['login'])
-                ->orWhere('phone', $credentials['login'])
-                ->first();
+    //     try {
+    //         // Find the user by email or phone
+    //         $user = User::where('email', $credentials['login'])
+    //             ->orWhere('phone', $credentials['login'])
+    //             ->first();
 
-            // Check if the user exists
-            if (!$user) {
-                // Check if the login is an email or phone
-                if (filter_var($credentials['login'], FILTER_VALIDATE_EMAIL)) {
-                    return response()->json(['email' => 'Invalid email'], 401);
-                } else {
-                    return response()->json(['phone' => 'Invalid phone number'], 401);
-                }
-            }
+    //         // Check if the user exists
+    //         if (!$user) {
+    //             // Check if the login is an email or phone
+    //             if (filter_var($credentials['login'], FILTER_VALIDATE_EMAIL)) {
+    //                 return response()->json(['email' => 'Invalid email'], 401);
+    //             } else {
+    //                 return response()->json(['phone' => 'Invalid phone number'], 401);
+    //             }
+    //         }
 
-            // Check if the password matches
-            if (!Hash::check($credentials['password'], $user->password)) {
-                return response()->json(['password' => 'Invalid password'], 401);
-            }
+    //         // Check if the password matches
+    //         if (!Hash::check($credentials['password'], $user->password)) {
+    //             return response()->json(['password' => 'Invalid password'], 401);
+    //         }
 
-            // Load the role relationship
-            $user->load('role');
+    //         // Load the role relationship
+    //         $user->load('role');
 
-            // Generate a new API token
-            $api_token = Str::random(60);
+    //         // Generate a new API token
+    //         $api_token = Str::random(60);
 
-            // Update the user's API token
-            $user->api_token = $api_token;
-            $user->save();
+    //         // Update the user's API token
+    //         $user->api_token = $api_token;
+    //         $user->save();
 
-            // Return the response with user details
-            return response()->json([
-                'id' => $user->id,
-                'fullname' => $user->fullname,
-                'phone' => $user->phone,
-                'email' => $user->email,
-                'role' => $user->role->name,
-                'token' => $user->api_token,
-                'isapproved' => $user->isapproved,
-            ], 200);
+    //         // Return the response with user details
+    //         return response()->json([
+    //             'id' => $user->id,
+    //             'fullname' => $user->fullname,
+    //             'phone' => $user->phone,
+    //             'email' => $user->email,
+    //             'role' => $user->role->name,
+    //             'token' => $user->api_token,
+    //             'isapproved' => $user->isapproved,
+    //         ], 200);
 
-        } catch (\Exception $e) {
-            // Log the error for debugging purposes
-            Log::error('Login Error: ' . $e->getMessage());
+    //     } catch (\Exception $e) {
+    //         // Log the error for debugging purposes
+    //         Log::error('Login Error: ' . $e->getMessage());
 
-            // Return the actual error message
-            return response()->json(['error' => 'An unexpected error occurred. Please try again later.'], 500);
-        }
-    }
+    //         // Return the actual error message
+    //         return response()->json(['error' => 'An unexpected error occurred. Please try again later.'], 500);
+    //     }
+    // }
 
     // public function login(Request $request)
     // {
@@ -765,17 +720,7 @@ class UserController extends Controller
                 'status' => true,
                 'message' => 'Login successful',
                 'token' => $token,
-                'user' => [
-                    'id' => $user->id,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'api_token' => $token,
-                    'created_at' => $user->created_at,
-                    'updated_at' => $user->updated_at,
-                    'role' => $role,
-                ],
+
             ], 200);
         } else {
             // Return an error response for invalid credentials

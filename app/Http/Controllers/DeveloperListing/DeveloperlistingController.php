@@ -1790,27 +1790,54 @@ class DeveloperlistingController extends Controller
     }
     public function getUserDeveloper(Request $request)
     {
-        try {
-            // Authenticate the user
+         try {
             $user = Auth::user();
             if (!$user) {
                 return response()->json(['error' => 'Unauthorized.'], 401);
             }
 
-            // Fetch properties where created_by or updated_by matches the user ID
-            $project = Developerlist::where('created_by', $user->id)
-                ->orWhere('updated_by', $user->id)
-                ->get();
+            $isAdmin = $user->role->name === 'admin';
 
-            // If no properties found, return empty array
-            if ($project->isEmpty()) {
-                return response()->json(['message' => 'No Project found.'], 200);
+            // Base query
+            $query = Developerlist::query();
+
+            if ($isAdmin) {
+                // Admin logic
+                if ($request->has('user_id') && is_numeric($request->user_id)) {
+                    $query->where(function ($q) use ($request) {
+                        $q->where('created_by', $request->user_id)
+                            ->orWhere('updated_by', $request->user_id);
+                    });
+                }
+                // else: no filter, show all projects
+            } else {
+                // Non-admin user can only see their own projects
+                $query->where(function ($q) use ($user) {
+                    $q->where('created_by', $user->id)
+                        ->orWhere('updated_by', $user->id);
+                });
             }
+
+            $developers = $query->get();
+
+            if ($developers->isEmpty()) {
+                return response()->json(['message' => 'No Developer found.'], 200);
+            }
+
+            // Format featured_image URL
+            $developers = $developers->map(function ($developer) {
+                if (!empty($developer->featured_image)) {
+                    $developer->featured_image = filter_var($developer->featured_image, FILTER_VALIDATE_URL)
+                        ? $developer->featured_image
+                        : url(ltrim($developer->featured_image, '/'));
+                }
+                return $developer;
+            });
 
             return response()->json([
                 'status' => true,
-                'message' => 'Project retrieved successfully.',
-                'data' => $project
+                'message' => 'Developer retrieved successfully.',
+                'data' => $developers
             ], 200);
 
         } catch (\Throwable $th) {
@@ -1818,9 +1845,14 @@ class DeveloperlistingController extends Controller
         }
     }
 
+
+
     public function getAllDeveloperByLocationId(Request $request)
     {
         try {
+
+
+            $user= Auth::user();
             $baseURL = config('app.url');
             $basePath = public_path();
             $developerData = [];
@@ -1843,19 +1875,36 @@ class DeveloperlistingController extends Controller
             // Build query dynamically based on provided parameters
             $query = Developerlist::query();
 
+
+
             if (!empty($request->country_id) && !empty($request->state_id) && !empty($request->city_id)) {
                 $query->where('country_id', $request->country_id)
                     ->where('state_id', $request->state_id)
                     ->where('city_id', $request->city_id);
             }
 
+             // If user is admin and user_id is provided, filter by that user's developers
+            if ($user->role->name === 'admin') {
+                if (!empty($request->user_id)) {
+                    $query->where('created_by', $request->user_id);
+                }
+            } else {
+                // Non-admin: restrict to their own developers
+                $query->where('created_by', $user->id);
+            }
+
             // Fetch matching projects
             $developers = $query->get();
+
 
             // Return error if no data is found
             if ($developers->isEmpty()) {
                 return response()->json(['error' => 'No developers found for the given location.'], 200);
             }
+
+
+
+
 
             // Process results
             foreach ($developers as $row) {
@@ -1876,6 +1925,7 @@ class DeveloperlistingController extends Controller
     public function updateTemporaryStatus(Request $request)
     {
         try {
+            $user = Auth::user();
             // Validate the request
             $validatedData = $request->validate([
                 'developer_id' => 'required|exists:developer_listings,id',
@@ -1902,6 +1952,15 @@ class DeveloperlistingController extends Controller
 
             // Find the developer and update the status
             $developer = Developerlist::findOrFail($request->developer_id);
+            $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
+            $isOwner = $developer->created_by == $user->id;
+
+            if (!$isAdmin && !$isOwner) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only update your own developers.',
+                ], 403);
+            }
             $developer->temporary_status = $request->temporary_status;
             $developer->save();
 
@@ -1925,6 +1984,7 @@ class DeveloperlistingController extends Controller
     public function developerSearch(Request $request)
     {
         try {
+            $user = Auth::user(); // Get the authenticated user
             $search = $request->input('search'); // name query from frontend
             $baseURL = config('app.url');
 
@@ -1948,6 +2008,15 @@ class DeveloperlistingController extends Controller
                 ])
                 ->get();
 
+
+                $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
+                if (!$isAdmin) {
+                    $developers = $developers->filter(function ($developer) use ($user) {
+                        return $developer->created_by == $user->id;
+                    })->values(); // Reset keys
+                }
+
+
             $developersData = $developers->map(function ($developer) use ($baseURL) {
                 $formattedCustomFieldValues = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                     $customField = $customFieldValue->customField;
@@ -1959,6 +2028,11 @@ class DeveloperlistingController extends Controller
                         $fieldValueArray = json_decode($fieldValue);
                         $fieldValueArray = collect($fieldValueArray)->map(function ($file) use ($baseURL) {
                             return $baseURL . '/uploads/media/' . $file;
+                        });
+                    }elseif ($customField && $customField->field_type == 'file') {
+                        $fieldValueArray = json_decode($fieldValue);
+                        $fieldValueArray = collect($fieldValueArray)->map(function ($file) use ($baseURL) {
+                            return $baseURL . '/' . $file;
                         });
                     } else {
                         $fieldValueArray = $fieldValue;
@@ -2008,7 +2082,13 @@ class DeveloperlistingController extends Controller
                 ];
             });
 
-            return response()->json($developersData);
+            return response()->json([
+                'status' => true,
+                'message' => $isAdmin
+                    ? 'Admin: Showing all matched developers.'
+                    : 'Showing only your own matched developers.',
+                'data' => $developersData,
+            ]);
 
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()], 500);

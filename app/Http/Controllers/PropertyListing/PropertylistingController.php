@@ -127,15 +127,7 @@ class PropertylistingController extends Controller
                 'featured_image' => $featuredImage, // ✅ Store as `/uploads/properties/{file_name}`
             ];
 
-            // Handle file uploads
-            foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'brochure'] as $fileField) {
-                if ($request->hasFile($fileField)) {
-                    $file = $request->file($fileField);
-                    $fileName = time() . '_' . $file->getClientOriginalName();
-                    $file->move(public_path('uploads/' . $fileField), $fileName);
-                    $propertyData[$fileField] = $fileName;
-                }
-            }
+
 
             // Create the property
             $property = PropertyList::create($propertyData);
@@ -467,6 +459,8 @@ class PropertylistingController extends Controller
     public function indexByAdmin(Request $request)
     {
         try {
+
+            $user = Auth::user();
             $baseURL = url('/'); // ✅ Get full base URL dynamically
 
             // Fetch all projects in descending order by created_at
@@ -488,6 +482,13 @@ class PropertylistingController extends Controller
             ])
                 ->orderBy('created_at', 'desc') // 🔹 Sorting by latest first
                 ->get();
+
+                $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
+                if (!$isAdmin) {
+                    $properties = $properties->filter(function ($developer) use ($user) {
+                        return $developer->created_by == $user->id;
+                    })->values(); // Reset keys
+                }
 
             $projectsData = $properties->map(function ($property) use ($baseURL) {
                 return [
@@ -532,7 +533,14 @@ class PropertylistingController extends Controller
                 ];
             });
 
-            return response()->json($projectsData);
+            return response()->json(
+                [
+                'status' => true,
+                'message' => $isAdmin
+                    ? 'Admin: Showing all properties.'
+                    : 'Showing only your own properties.',
+                'data' => $projectsData
+                ],200);
 
         } catch (\Throwable $th) {
             return response()->json([
@@ -1135,6 +1143,14 @@ class PropertylistingController extends Controller
             // Find the property by ID
             $property = PropertyList::findOrFail($request->id);
 
+            // ✅ Check access permissions
+            if ($user->role->name !== 'admin' && $property->created_by !== $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only update your own properties.',
+                ], 403);
+            }
+
             // ✅ Handle `featured_image` properly
             if ($request->hasFile('featured_image')) {
                 $file = $request->file('featured_image');
@@ -1367,38 +1383,22 @@ class PropertylistingController extends Controller
     // this is for delete the record
     public function destroy(Request $request)
     {
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
         try {
+            $user = Auth::user();
             $id = $request->id;
             $property = PropertyList::find($id);
 
             if (!$property) {
                 return response()->json(['message' => 'Data not found'], 404);
+            }
+
+            // ✅ Check access permissions
+            if ($user->role->name !== 'admin' && $property->created_by !== $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only delete your own properties.',
+                ], 403);
             }
 
             $filePath = public_path($property->featured_image);
@@ -1802,6 +1802,8 @@ class PropertylistingController extends Controller
                 return response()->json(['error' => 'ID is required'], 400);
             }
 
+            $user = Auth::user();
+
             $baseURL = config('app.url');
 
             $property = PropertyList::with([
@@ -1825,6 +1827,14 @@ class PropertylistingController extends Controller
 
             if (!$property) {
                 return response()->json(['error' => 'Property not found'], 200);
+            }
+
+            // ✅ Check access permissions
+            if ($user->role->name !== 'admin' && $property->created_by !== $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only view your own properties.',
+                ], 403);
             }
 
             $createdByData = optional($property->createdBy) ? [
@@ -2132,10 +2142,18 @@ class PropertylistingController extends Controller
             ]);
 
 
-            $property = PropertyList::findOrFail($request->property_id);
+            $property = PropertyList::findOrFail($validatedData['property_id']);
+
+            if (!$property) {
+                return response()->json(['error' => 'Property not found'], 200);
+            }
+
             // ✅ Optional (extra safety): Check if the user is admin or creator
             if ($user->id !== $property->created_by && strtolower(optional($user->role)->name) !== 'admin') {
-                return response()->json(['error' => 'Unauthorized.'], 403);
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized : You can only update your own properties.'
+                ], 403);
             }
 
             // Fetch allowed enum values dynamically
@@ -2267,53 +2285,16 @@ class PropertylistingController extends Controller
 
 
     // this is for all project listing by location iD
-    //     public function getAllProjectByLocationId(Request $request)
-    //     {
-    //         try {
-    //             $baseURL = config('app.url');
-    //             $basePath = public_path();
-    //             $projectData= [];
 
-    //             $location = Location::where('id',$request->location_id)->first();
-
-    //             if(!$location){
-    //                 return response()->json(['error' => 'Location not found'], 404);
-    //             }
-
-    //             $projects = ProjectList::where('location_id',$request->location_id)->get();
-
-
-    //             if(count($projects)){
-    //                 foreach($projects as $row){
-    //                     $projectData[] = [ // Append to array using []
-    //                       'id' => $row->id,
-    //                       'name' => $row->name,
-    //                     ];
-
-    //                 }
-    //             }
-
-    //             return response()->json($projectData);
-
-    //         } catch (\Throwable $th) {
-    //             return response()->json(['error' => $th->getMessage()], 500);
-    //         }
-    // }
     public function getAllProjectByLocationId(Request $request)
     {
         try {
+            $user = Auth::user();
             $baseURL = config('app.url');
             $basePath = public_path();
             $projectData = [];
 
-            // Validate: Ensure at least one of country_id, state_id, city_id is provided and not null
-            // if (
-            //     (!isset($request->country_id) || $request->country_id === null) &&
-            //     (!isset($request->state_id) || $request->state_id === null) &&
-            //     (!isset($request->city_id) || $request->city_id === null)
-            // ) {
-            //     return response()->json(['error' => 'Please provide at least one of country_id, state_id, or city_id.'], 422);
-            // }
+
 
             $validator = Validator::make($request->all(), [
                 'country_id' => 'required|integer|exists:countries,id',
@@ -2332,15 +2313,21 @@ class PropertylistingController extends Controller
             // Build query dynamically based on provided parameters
             $query = ProjectList::query();
 
-            if (!empty($request->country_id)) {
-                $query->where('country_id', $request->country_id);
+            if (!empty($request->country_id) && !empty($request->state_id) && !empty($request->city_id)) {
+                $query->where('country_id', $request->country_id)
+                ->where('state_id', $request->state_id)
+                    ->where('city_id', $request->city_id);
             }
-            if (!empty($request->state_id)) {
-                $query->where('state_id', $request->state_id);
+
+              if ($user->role->name === 'admin') {
+                if (!empty($request->user_id)) {
+                    $query->where('created_by', $request->user_id);
+                }
+            } else {
+                // Non-admin: restrict to their own users
+                $query->where('created_by', $user->id);
             }
-            if (!empty($request->city_id)) {
-                $query->where('city_id', $request->city_id);
-            }
+
 
             // Fetch matching projects
             $projects = $query->get();
@@ -3105,6 +3092,7 @@ class PropertylistingController extends Controller
     public function propertiesSearch(Request $request)
     {
         try {
+            $user = Auth::user();
             $search = $request->input('search'); // 🔍 Single input for both name & unique ID
             $baseURL = url('/');
 
@@ -3132,6 +3120,13 @@ class PropertylistingController extends Controller
                 ])
                 ->orderBy('created_at', 'desc')
                 ->get();
+
+               $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
+                if (!$isAdmin) {
+                    $projects = $projects->filter(function ($pro) use ($user) {
+                        return $pro->created_by == $user->id;
+                    })->values(); // Reset keys
+                }
 
             $projectsData = $projects->map(function ($property) use ($baseURL) {
                 return [
@@ -3174,7 +3169,14 @@ class PropertylistingController extends Controller
                 ];
             });
 
-            return response()->json($projectsData);
+            return response()->json(
+                [
+                'status' => true,
+                'message' => $isAdmin
+                    ? 'Admin: Showing matching properties.'
+                    : 'Showing only your  own  properties.',
+                'data' => $projectsData
+                ],200);
 
         } catch (\Throwable $th) {
             return response()->json([

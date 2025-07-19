@@ -170,32 +170,32 @@ class ProjectlistingController extends Controller
                             break;
 
                         case 'file':
-                        //  Fix: Handle multiple file uploads correctly
-                        if ($request->hasFile("repeater_fields.$repeaterFieldIndex.field_value")) {
-                            $files = $request->file("repeater_fields.$repeaterFieldIndex.field_value");
-                            $filePaths = [];
+                            //  Fix: Handle multiple file uploads correctly
+                            if ($request->hasFile("repeater_fields.$repeaterFieldIndex.field_value")) {
+                                $files = $request->file("repeater_fields.$repeaterFieldIndex.field_value");
+                                $filePaths = [];
 
-                            foreach ((array) $files as $file) {
-                                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                                    if (strtolower($file->getClientOriginalExtension()) === 'pdf') {
-                                        $uniqueFileName = time() . '_' . $file->getClientOriginalName();
-                                        $relativePath = 'storage/uploads/customfield/projects/files/' . $uniqueFileName;
+                                foreach ((array) $files as $file) {
+                                    if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                        if (strtolower($file->getClientOriginalExtension()) === 'pdf') {
+                                            $uniqueFileName = time() . '_' . $file->getClientOriginalName();
+                                            $relativePath = 'storage/uploads/customfield/projects/files/' . $uniqueFileName;
 
-                                        // Store to: storage/app/public/uploads/gallery
-                                        $file->storeAs('public/uploads/customfield/projects/files', $uniqueFileName);
+                                            // Store to: storage/app/public/uploads/gallery
+                                            $file->storeAs('public/uploads/customfield/projects/files', $uniqueFileName);
 
-                                        $filePaths[] = $relativePath;
-                                    } else {
-                                        return response()->json([
-                                            'error' => 'Invalid file format. Only PDF files are allowed.'
-                                        ], 400);
+                                            $filePaths[] = $relativePath;
+                                        } else {
+                                            return response()->json([
+                                                'error' => 'Invalid file format. Only PDF files are allowed.'
+                                            ], 400);
+                                        }
                                     }
                                 }
-                            }
 
-                            $customFieldData['field_meta_value'] = json_encode($filePaths); // Save JSON-encoded array
-                        }
-                        break;
+                                $customFieldData['field_meta_value'] = json_encode($filePaths); // Save JSON-encoded array
+                            }
+                            break;
 
 
                         case 'repeater':
@@ -424,8 +424,8 @@ class ProjectlistingController extends Controller
                 'state',
                 'city'
             ])
-            ->where('live_status', 'Approve')
-            ->paginate($request->get('per_page', 10));
+                ->where('live_status', 'Approve')
+                ->paginate($request->get('per_page', 10));
 
             $projectsData = $projects->map(function ($property) use ($baseURL) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL, $property) {
@@ -520,10 +520,10 @@ class ProjectlistingController extends Controller
                                                 'value' => $opt->value,
                                             ])->toArray();
                                     } elseif ($nestedType === 'file') {
-                                         $decoded = is_string($nestedValue) ? json_decode($nestedValue, true) : $nestedValue;
-                                         $nestedValue = is_array($decoded)
-                                        ? array_map(fn($file) => url($file), $decoded)
-                                        : [];
+                                        $decoded = is_string($nestedValue) ? json_decode($nestedValue, true) : $nestedValue;
+                                        $nestedValue = is_array($decoded)
+                                            ? array_map(fn($file) => url($file), $decoded)
+                                            : [];
                                     } elseif ($nestedType === 'media') {
                                         $decoded = json_decode($nestedValue, true);
                                         $nestedValue = is_array($decoded)
@@ -645,26 +645,45 @@ class ProjectlistingController extends Controller
     }
 
     ### end new index function 10/07/2025 ####
+
+
     public function getUserProject(Request $request)
     {
         try {
-            // Authenticate the user
             $user = Auth::user();
             if (!$user) {
                 return response()->json(['error' => 'Unauthorized.'], 401);
             }
 
-            // Fetch project where created_by or updated_by matches the user ID
-            $projects = ProjectList::where('created_by', $user->id)
-                ->orWhere('updated_by', $user->id)
-                ->get();
+            $isAdmin = $user->role->name === 'admin';
 
-            // If no projects found, return empty array
+            // Base query
+            $query = ProjectList::query();
+
+            if ($isAdmin) {
+                // Admin logic
+                if ($request->has('user_id') && is_numeric($request->user_id)) {
+                    $query->where(function ($q) use ($request) {
+                        $q->where('created_by', $request->user_id)
+                            ->orWhere('updated_by', $request->user_id);
+                    });
+                }
+                // else: no filter, show all projects
+            } else {
+                // Non-admin user can only see their own projects
+                $query->where(function ($q) use ($user) {
+                    $q->where('created_by', $user->id)
+                        ->orWhere('updated_by', $user->id);
+                });
+            }
+
+            $projects = $query->get();
+
             if ($projects->isEmpty()) {
                 return response()->json(['message' => 'No Project found.'], 200);
             }
 
-            // Generate full featured_image URL
+            // Format featured_image URL
             $projects = $projects->map(function ($project) {
                 if (!empty($project->featured_image)) {
                     $project->featured_image = filter_var($project->featured_image, FILTER_VALIDATE_URL)
@@ -684,6 +703,7 @@ class ProjectlistingController extends Controller
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
+
 
     public function indexByAdmin(Request $request)
     {
@@ -1104,7 +1124,7 @@ class ProjectlistingController extends Controller
                             break;
 
                         case 'file':
-                             if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
+                            if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
                                 $filePaths = [];
                                 foreach ($repeaterField['field_value'] as $file) {
                                     if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
@@ -1732,7 +1752,7 @@ class ProjectlistingController extends Controller
                             $fieldTypeNested = $row->field_type;
                             $nestedOptions = [];
 
-                             // ✅ Fetch sub-field label and placeholder
+                            // ✅ Fetch sub-field label and placeholder
                             $repeaterMeta = DB::table('custom_field_repeaters')
                                 ->where('id', $row->custom_field_id)
                                 ->first();
@@ -1769,9 +1789,9 @@ class ProjectlistingController extends Controller
                                     ])->toArray();
                             } elseif ($fieldTypeNested === 'file') {
                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => url($file), $decoded)
-                                        : [];
+                                $value = is_array($decoded)
+                                    ? array_map(fn($file) => url($file), $decoded)
+                                    : [];
                             } elseif ($fieldTypeNested === 'media') {
                                 $decoded = json_decode($value, true);
                                 $value = is_array($decoded)
@@ -1820,9 +1840,9 @@ class ProjectlistingController extends Controller
                     }
                 } elseif ($fieldType === 'file') {
                     $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                        $fieldValue = is_array($decoded)
-                            ? array_map(fn($file) => url($file), $decoded)
-                            : [];
+                    $fieldValue = is_array($decoded)
+                        ? array_map(fn($file) => url($file), $decoded)
+                        : [];
                 }
 
                 $fieldArray = [
@@ -2182,7 +2202,7 @@ class ProjectlistingController extends Controller
                                             'value' => $opt->value,
                                         ])->toArray();
                                 } elseif ($fieldTypeNested === 'file') {
-                                     $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
                                     $value = is_array($decoded)
                                         ? array_map(fn($file) => url($file), $decoded)
                                         : [];
@@ -2386,6 +2406,9 @@ class ProjectlistingController extends Controller
     public function updateTemporaryStatus(Request $request)
     {
         try {
+
+            $user = Auth::user();
+
             // Validate the request
             $validatedData = $request->validate([
                 'project_id' => 'required|exists:project_listings,id',
@@ -2412,6 +2435,19 @@ class ProjectlistingController extends Controller
 
             // Find the project and update the status
             $project = ProjectList::findOrFail($request->project_id);
+            // permission check
+            $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
+            $isOwner = $project->created_by == $user->id;
+
+            if (!$isAdmin && !$isOwner) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized: You can only update your own projects.',
+                ], 403);
+            }
+
+
+
             $project->temporary_status = $request->temporary_status;
             $project->save();
 
@@ -2437,6 +2473,7 @@ class ProjectlistingController extends Controller
     public function projectSearch(Request $request)
     {
         try {
+            $user = Auth::user();
             $search = $request->input('search'); //  one search input
             $baseURL = config('app.url');
             $basePath = public_path();
@@ -2466,6 +2503,15 @@ class ProjectlistingController extends Controller
                 ])
                 ->get();
 
+
+            $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
+            if (!$isAdmin) {
+                $projects = $projects->filter(function ($project) use ($user) {
+                    return $project->created_by == $user->id;
+                })->values(); // Reset keys
+            }
+
+
             $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                     $customField = $customFieldValue->customField;
@@ -2476,6 +2522,9 @@ class ProjectlistingController extends Controller
                     } elseif ($customField && $customField->field_type === 'media') {
                         $fieldValueArray = json_decode($fieldValue);
                         $fieldValueArray = collect($fieldValueArray)->map(fn($file) => $baseURL . '/uploads/media/' . $file);
+                    } elseif ($customField && $customField->field_type === 'file') {
+                        $fieldValueArray = json_decode($fieldValue);
+                        $fieldValueArray = collect($fieldValueArray)->map(fn($file) => $baseURL . '/' . $file);
                     } else {
                         $fieldValueArray = $fieldValue;
                     }
@@ -2536,7 +2585,13 @@ class ProjectlistingController extends Controller
                 ];
             });
 
-            return response()->json($projectsData);
+            return response()->json([
+                'status' => true,
+                'message' => $isAdmin
+                    ? 'Admin: Showing all matched projects.'
+                    : 'Showing only your own matched projects.',
+                'data' => $projectsData,
+            ]);
 
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()], 500);
@@ -2665,10 +2720,10 @@ class ProjectlistingController extends Controller
                                         'value' => $opt->value,
                                     ])->toArray();
                             } elseif ($fieldTypeNested === 'file') {
-                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => url($file), $decoded)
-                                        : [];
+                                $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                $value = is_array($decoded)
+                                    ? array_map(fn($file) => url($file), $decoded)
+                                    : [];
                             } elseif ($fieldTypeNested === 'media') {
                                 $decoded = json_decode($value, true);
                                 $value = is_array($decoded)
@@ -2727,9 +2782,9 @@ class ProjectlistingController extends Controller
                     }
                 } elseif ($fieldType === 'file') {
                     $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                        $fieldValue = is_array($decoded)
-                            ? array_map(fn($file) => url($file), $decoded)
-                            : [];
+                    $fieldValue = is_array($decoded)
+                        ? array_map(fn($file) => url($file), $decoded)
+                        : [];
                 }
 
                 $fieldArray = [

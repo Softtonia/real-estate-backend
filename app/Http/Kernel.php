@@ -85,6 +85,10 @@ class Kernel extends HttpKernel
         'adminOrCurrentUser' => \App\Http\Middleware\AdminCurrentUser::class,
         'allow.owner.agent' => \App\Http\Middleware\AllowOwnerAndAgent::class,
 
+        'allow.property.listing' => \App\Http\Middleware\AllowPropertyListing::class,
+
+
+
 
     ];
 }

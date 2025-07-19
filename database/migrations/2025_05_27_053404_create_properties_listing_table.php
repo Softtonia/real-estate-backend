@@ -26,13 +26,9 @@ return new class extends Migration
             $table->string('name', 200)->nullable();
             $table->longText('description')->nullable();
             $table->string('property_address', 255)->nullable();
-            $table->string('video_url', 255)->nullable();
-            $table->string('property_video', 255)->nullable();
-            $table->string('virtual_tour', 200)->nullable();
-            $table->string('video_thumbnail', 255)->nullable();
-            $table->text('gallery')->nullable();
+
             $table->string('featured_image', 200)->nullable();
-            $table->string('brochure', 200)->nullable();
+
             $table->integer('purpose_id')->nullable();
             $table->integer('property_id')->nullable();
             $table->integer('property_status_id')->nullable();
