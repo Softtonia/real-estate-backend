@@ -1457,6 +1457,7 @@ class UserController extends Controller
         }
 
         $user = User::find($request->id);
+        // \Log::info($user);
         if (!$user) {
             return response()->json(['error' => 'User not found.'], 404);
         }
@@ -1503,6 +1504,8 @@ class UserController extends Controller
 
             UserDetail::where('user_id', $user->id)->update($userDetail);
 
+
+
             // Check role and required fields for KYC update
             $rolesForKYC = ['agent', 'company', 'consultancy', 'developer'];
             $role = Role::find($request->role_id);
@@ -1512,7 +1515,7 @@ class UserController extends Controller
                     $request->business_phone && $request->country_id && $request->state_id && $request->city_id &&
                     $request->address && $request->pin_code && $request->license_number
                 ) {
-                    $user->kyc = 1;
+                    $user->isapproved = 3;
                     $user->save();
                 }
             }
@@ -5918,54 +5921,9 @@ class UserController extends Controller
         }
     }
 
-    public function getKYCStatus(Request $request)
-    {
-        // Retrieve the authenticated user based on the token
-        $user = Auth::user();
 
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unauthorized access'
-            ], 401);
-        }
 
-        return response()->json([
-            'status' => true,
-            'message' => 'KYC status retrieved successfully',
-            'kyc_status' => $user->kyc
-        ], 200);
-    }
 
-    public function updateKYCStatus(Request $request)
-    {
-        // Retrieve the authenticated user
-        $user = Auth::user();
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unauthorized access'
-            ], 401);
-        }
-
-        $request->validate([
-            'kyc_status' => 'required|in:0,1' // Only allow 0 (not complete) or 1 (complete)
-        ]);
-
-        // Update the user's KYC status
-        $user->kyc = $request->kyc_status;
-        $user->save();
-
-        return response()->json([
-            'status' => true,
-            'message' => 'KYC status updated successfully',
-            'user' => [
-                'id' => $user->id,
-                'kyc_status' => $user->kyc
-            ]
-        ], 200);
-    }
 
 
     //     public function updateProfile(Request $request)

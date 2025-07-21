@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\DashboardAnalyticsController;
 use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
+use App\Http\Controllers\Kyc\KycController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
 use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
@@ -97,7 +98,7 @@ Route::middleware('admin.token')->get('all-user-listing', [UserController::class
 
 
 Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
-Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
+// Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
 Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
 Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);
 Route::middleware('admin.token')->post('create-user', [UserController::class, 'createUser']);
@@ -156,8 +157,7 @@ Route::get('get-all-company-listing', [UserController::class, 'allCompanyListing
 Route::get('get-all-agent-listing', [UserController::class, 'allAgentListing']); //website
 
 
-Route::middleware('allrole.token')->get('/kyc', [UserController::class, 'getKYCStatus']); // Get KYC status // Done By softtonia
-Route::middleware('allrole.token')->post('/kyc/update', [UserController::class, 'updateKYCStatus']); // Done By softtonia
+
 Route::middleware('admin.token')->get('get-all-consultancy-listing', [UserController::class, 'allConsultancyListing']); //Done By softtonia
 Route::middleware(['admin_or_consultancy'])->get('get-consultancy-agents/{id}', [UserController::class, 'getConsultancyAgents']);
 Route::middleware('company.admin')->get('get-all-consultancy-listing-by-company', [UserController::class, 'getAllConsultancyListingByCompany']); //Done By softtonia
