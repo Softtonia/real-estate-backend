@@ -30,19 +30,7 @@ class DeveloperlistingController extends Controller
     public function store(Request $request)
     {
         try {
-            // Check if token is provided and validate if it's in the users table
-            $userToken = $request->header('Authorization'); // Assuming the token is passed in the Authorization header as 'Bearer {token}'
-            if (!$userToken || !str_starts_with($userToken, 'Bearer ')) {
-                return response()->json(['error' => 'API token is required'], 422);
-            }
-
-            $token = substr($userToken, 7); // Extract the token from 'Bearer {token}'
-
-            // Find the user associated with the token
-            $user = User::where('api_token', $token)->first();
-            if (!$user) {
-                return response()->json(['error' => 'Invalid API token'], 401);
-            }
+           $user = Auth::user();
 
             // Get the user ID
             $userId = $user->id;

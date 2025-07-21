@@ -483,12 +483,12 @@ class PropertylistingController extends Controller
                 ->orderBy('created_at', 'desc') // 🔹 Sorting by latest first
                 ->get();
 
-                $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
-                if (!$isAdmin) {
-                    $properties = $properties->filter(function ($developer) use ($user) {
-                        return $developer->created_by == $user->id;
-                    })->values(); // Reset keys
-                }
+            $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
+            if (!$isAdmin) {
+                $properties = $properties->filter(function ($developer) use ($user) {
+                    return $developer->created_by == $user->id;
+                })->values(); // Reset keys
+            }
 
             $projectsData = $properties->map(function ($property) use ($baseURL) {
                 return [
@@ -535,12 +535,14 @@ class PropertylistingController extends Controller
 
             return response()->json(
                 [
-                'status' => true,
-                'message' => $isAdmin
-                    ? 'Admin: Showing all properties.'
-                    : 'Showing only your own properties.',
-                'data' => $projectsData
-                ],200);
+                    'status' => true,
+                    'message' => $isAdmin
+                        ? 'Admin: Showing all properties.'
+                        : 'Showing only your own properties.',
+                    'data' => $projectsData
+                ],
+                200
+            );
 
         } catch (\Throwable $th) {
             return response()->json([
@@ -1161,15 +1163,7 @@ class PropertylistingController extends Controller
                 $validatedData['featured_image'] = $request->featured_image; // Store full URL if provided
             }
 
-            // Handle file uploads for other fields
-            foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'brochure'] as $fileField) {
-                if ($request->hasFile($fileField)) {
-                    $file = $request->file($fileField);
-                    $fileName = time() . '_' . $file->getClientOriginalName();
-                    $file->move(public_path('uploads/' . $fileField), $fileName);
-                    $validatedData[$fileField] = '/uploads/' . $fileField . '/' . $fileName; // Store only relative path
-                }
-            }
+
 
             // Update property data
             $property->update(array_merge($validatedData, [
@@ -1239,43 +1233,88 @@ class PropertylistingController extends Controller
                             break;
 
                         ########## new code media & file handle 28/06/2025 ###########
+                        // case 'media':
+                        //     if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
+                        //         $fileNames = [];
+                        //         foreach ($repeaterField['field_value'] as $file) {
+                        //             if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                        //                 $fileName = time() . '_' . $file->getClientOriginalName();
+                        //                 $file->move(public_path('uploads/media'), $fileName);
+                        //                 $fileNames[] = $fileName;
+                        //             }
+                        //         }
+                        //         $customFieldData['field_meta_value'] = json_encode($fileNames);
+                        //     }
+                        //     break;
+
+                        // //  FILE after
+                        // case 'file':
+
+                        //     if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
+                        //         $filePaths = [];
+                        //         foreach ($repeaterField['field_value'] as $file) {
+                        //             if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                        //                 if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
+                        //                     $fileName = time() . '_' . $file->getClientOriginalName();
+                        //                     $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
+
+                        //                     // Store the file in the desired folder
+                        //                     $file->storeAs('public/uploads/customfield/properties/files', $fileName); // goes to storage/app/public/uploads/customFiles
+
+                        //                     $filePaths[] = $relativePath;
+                        //                 } else {
+                        //                     return response()->json(['error' => 'Invalid file format. Only PDF, DOC, DOCX allowed.'], 400);
+                        //                 }
+                        //             }
+                        //         }
+                        //         $customFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
+                        //     }
+                        //     break;
+
                         case 'media':
+                            $existingMedia = isset($repeaterField['existing_value']) ? json_decode($repeaterField['existing_value'], true) : [];
+                            $fileNames = is_array($existingMedia) ? $existingMedia : [];
+
                             if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
-                                $fileNames = [];
                                 foreach ($repeaterField['field_value'] as $file) {
                                     if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
                                         $fileName = time() . '_' . $file->getClientOriginalName();
                                         $file->move(public_path('uploads/media'), $fileName);
                                         $fileNames[] = $fileName;
+                                    } elseif (is_string($file)) {
+                                        $fileNames[] = $file;
                                     }
                                 }
+                            }
+
+                            if (!empty($fileNames)) {
                                 $customFieldData['field_meta_value'] = json_encode($fileNames);
                             }
                             break;
-
-                        //  FILE after
                         case 'file':
+                            $existingFiles = isset($repeaterField['existing_value']) ? json_decode($repeaterField['existing_value'], true) : [];
+                            $filePaths = is_array($existingFiles) ? $existingFiles : [];
 
                             if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
-                                $filePaths = [];
                                 foreach ($repeaterField['field_value'] as $file) {
                                     if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
                                         if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
                                             $fileName = time() . '_' . $file->getClientOriginalName();
                                             $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
-
-                                            // Store the file in the desired folder
-                                            $file->storeAs('public/uploads/customfield/properties/files', $fileName); // goes to storage/app/public/uploads/customFiles
-
+                                            $file->storeAs('public/uploads/customfield/properties/files', $fileName);
                                             $filePaths[] = $relativePath;
-                                        } else {
-                                            return response()->json(['error' => 'Invalid file format. Only PDF, DOC, DOCX allowed.'], 400);
                                         }
+                                    } elseif (is_string($file)) {
+                                        $filePaths[] = $file;
                                     }
                                 }
-                                $customFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
+                            }
+
+                            if (!empty($filePaths)) {
+                                $customFieldData['field_meta_value'] = json_encode($filePaths);
                             }
                             break;
+
 
                         case 'repeater':
                             if (!empty($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
@@ -1320,39 +1359,85 @@ class PropertylistingController extends Controller
                                                 $repeaterFieldData['custom_field_repeater_options_id'] = $optionIds;
                                                 break;
 
+                                            // case 'media':
+                                            //     if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+                                            //         $fileNames = [];
+                                            //         foreach ($subField['field_value'] as $file) {
+                                            //             if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                            //                 $fileName = time() . '_' . $file->getClientOriginalName();
+                                            //                 $file->move(public_path('uploads/media'), $fileName);
+                                            //                 $fileNames[] = $fileName;
+                                            //             }
+                                            //         }
+                                            //         $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
+                                            //     }
+                                            //     break;
+
+                                            // case 'file':
+                                            //     if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+                                            //         $filePaths = [];
+                                            //         foreach ($subField['field_value'] as $file) {
+                                            //             if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                            //                 if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
+                                            //                     $fileName = time() . '_' . $file->getClientOriginalName();
+                                            //                     $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
+
+                                            //                     $file->storeAs('public/uploads/customfield/properties/files', $fileName);
+                                            //                     $filePaths[] = $relativePath;
+                                            //                 } else {
+                                            //                     return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX files allowed.'], 400);
+                                            //                 }
+                                            //             }
+                                            //         }
+                                            //         $repeaterFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
+                                            //     }
+
                                             case 'media':
-                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
-                                                    $fileNames = [];
-                                                    foreach ($subField['field_value'] as $file) {
-                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                                                            $fileName = time() . '_' . $file->getClientOriginalName();
-                                                            $file->move(public_path('uploads/media'), $fileName);
-                                                            $fileNames[] = $fileName;
-                                                        }
-                                                    }
-                                                    $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
-                                                }
+        $existingMedia = isset($subField['existing_value']) ? json_decode($subField['existing_value'], true) : [];
+        $fileNames = is_array($existingMedia) ? $existingMedia : [];
+
+        if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+            foreach ($subField['field_value'] as $file) {
+                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                    $fileName = time() . '_' . $file->getClientOriginalName();
+                    $file->move(public_path('uploads/media'), $fileName);
+                    $fileNames[] = $fileName;
+                } elseif (is_string($file)) {
+                    $fileNames[] = $file; // already existing file
+                }
+            }
+        }
+
+        if (!empty($fileNames)) {
+            $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
+        }
+        break;
+
+    case 'file':
+        $existingFiles = isset($subField['existing_value']) ? json_decode($subField['existing_value'], true) : [];
+        $filePaths = is_array($existingFiles) ? $existingFiles : [];
+
+        if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+            foreach ($subField['field_value'] as $file) {
+                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                    if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
+                        $fileName = time() . '_' . $file->getClientOriginalName();
+                        $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
+                        $file->storeAs('public/uploads/customfield/properties/files', $fileName);
+                        $filePaths[] = $relativePath;
+                    } else {
+                        return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX allowed.'], 400);
+                    }
+                } elseif (is_string($file)) {
+                    $filePaths[] = $file; // already existing file path
+                }
+            }
+        }
+
+        if (!empty($filePaths)) {
+            $repeaterFieldData['field_meta_value'] = json_encode($filePaths);
+        }
                                                 break;
-
-                                            case 'file':
-                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
-                                                    $filePaths = [];
-                                                    foreach ($subField['field_value'] as $file) {
-                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                                                            if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
-                                                                $fileName = time() . '_' . $file->getClientOriginalName();
-                                                                $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
-
-                                                                $file->storeAs('public/uploads/customfield/properties/files', $fileName);
-                                                                $filePaths[] = $relativePath;
-                                                            } else {
-                                                                return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX files allowed.'], 400);
-                                                            }
-                                                        }
-                                                    }
-                                                    $repeaterFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
-                                                }
-                                            break;
                                         }
 
                                         CustomFieldRepeaterValues::create($repeaterFieldData);
@@ -1939,12 +2024,12 @@ class PropertylistingController extends Controller
                                 //     : [];
 
                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
-                                $value = is_array($decoded)
-                                    ? array_map(fn($file) => [
-                                        'file_name' => $file,
-                                        'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : url($file)
-                                    ], $decoded)
-                                    : [];
+
+                                    $existingValue = is_array($decoded) ? $decoded : [];
+
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
 
 
 
@@ -1954,24 +2039,40 @@ class PropertylistingController extends Controller
                                 //     ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
                                 //     : [];
 
-                                $decoded = is_string($value) ? json_decode($value, true) : $value;
-                                $value = is_array($decoded)
-                                    ? array_map(fn($file) => [
-                                        'file_name' => $file,
-                                        'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : $baseURL . '/uploads/media/' . $file
-                                    ], $decoded)
-                                    : [];
+                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
+
+                                    $existingValue = is_array($decoded) ? $decoded : [];
+
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                        : [];
 
                             }
 
-                            $groupData[] = [
-                                'sub_field_id' => $row->custom_field_id,
-                                'field_type' => $fieldTypeNested,
-                                'field_label' => $fieldLabel,
-                                'placeholder' => $fieldPlaceholder,
-                                'field_value' => $value,
-                                'options' => $nestedOptions,
-                            ];
+                            // $groupData[] = [
+                            //     'sub_field_id' => $row->custom_field_id,
+                            //     'field_type' => $fieldTypeNested,
+                            //     'field_label' => $fieldLabel,
+                            //     'placeholder' => $fieldPlaceholder,
+                            //     'field_value' => $value,
+                            //     'options' => $nestedOptions,
+                            // ];
+
+                            $subField = [
+    'sub_field_id' => $row->custom_field_id,
+    'field_type' => $fieldTypeNested,
+    'field_label' => $fieldLabel,
+    'placeholder' => $fieldPlaceholder,
+    'field_value' => $value,
+    'options' => $nestedOptions,
+];
+
+// ✅ Add existing_value for media/file
+if (in_array($fieldTypeNested, ['file', 'media'])) {
+    $subField['existing_value'] = $existingValue ?? [];
+}
+
+$groupData[] = $subField;
                         }
 
                         $repeaterData[] = $groupData;
@@ -2005,13 +2106,14 @@ class PropertylistingController extends Controller
                     //     ? array_map(fn($file) => url($file), $decoded)
                     //     : [];
 
-                         $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                        $fieldValue = is_array($decoded)
-                            ? array_map(fn($file) => [
-                                'file_name' => $file,
-                                'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : url($file)
-                            ], $decoded)
-                            : [];
+                    $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+
+                $fieldValue = is_array($decoded)
+                    ? array_map(fn($file) => url($file), $decoded)
+                    : [];
+
+                $existingValue = is_array($decoded) ? $decoded : [];
+
 
 
                 } elseif ($fieldType === 'media') {
@@ -2020,13 +2122,14 @@ class PropertylistingController extends Controller
                     //     ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
                     //     : [];
 
-                   $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                $fieldValue = is_array($decoded)
-                    ? array_map(fn($file) => [
-                        'file_name' => $file,
-                        'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : $baseURL . '/uploads/media/' . $file
-                    ], $decoded)
-                    : [];
+                    $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+
+    $fieldValue = is_array($decoded)
+        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+        : [];
+
+    $existingValue = is_array($decoded) ? $decoded : [];
+
 
                 }
 
@@ -2038,7 +2141,13 @@ class PropertylistingController extends Controller
                     'field_type' => $fieldType,
                     'field_value' => $fieldValue,
                     'options' => $allAvailableOptions,
+
                 ];
+
+                // Add existing_value only for media or file
+                if (in_array($fieldType, ['media', 'file'])) {
+                    $fieldArray['existing_value'] = $existingValue ?? null;
+                }
 
                 if ($fieldType === 'checkbox') {
                     $fieldArray['checkbox_type'] = $customField->checkbox_type ?? null;
@@ -2354,18 +2463,11 @@ class PropertylistingController extends Controller
 
             if (!empty($request->country_id) && !empty($request->state_id) && !empty($request->city_id)) {
                 $query->where('country_id', $request->country_id)
-                ->where('state_id', $request->state_id)
+                    ->where('state_id', $request->state_id)
                     ->where('city_id', $request->city_id);
             }
 
-              if ($user->role->name === 'admin') {
-                if (!empty($request->user_id)) {
-                    $query->where('created_by', $request->user_id);
-                }
-            } else {
-                // Non-admin: restrict to their own users
-                $query->where('created_by', $user->id);
-            }
+
 
 
             // Fetch matching projects
@@ -2396,19 +2498,7 @@ class PropertylistingController extends Controller
     public function getComapnyProjectByLocationId(Request $request)
     {
         try {
-            // if ($request->header('api-token') == '') {
-            //     return response()->json(['error' => 'Please enter api token first.'], 422);
-            // }
 
-            // $requestToken = $request->header('api-token');
-            // $userId = null;
-
-            // $userData = User::where('api_token', $requestToken)->first();
-
-            // // Validate that the user exists in the database
-            // if (!$userData) {
-            //     return response()->json(['error' => 'Company not found'], 404);
-            // }
 
             $authUser = Auth::user();
             $userData = $authUser;
@@ -2522,608 +2612,7 @@ class PropertylistingController extends Controller
 
 
 
-    // store properties listing by agent owner
-    public function storeByAgentOwner(Request $request)
-    {
-        // \Log::info($request->all());
 
-        try {
-            // Fetch authenticated user
-            $user = Auth::user();
-            if (!$user) {
-                return response()->json(['error' => 'User not authenticated'], 401);
-            }
-
-            // Fetch required fields dynamically from `model_fields` JSON column
-            $requiredFields = DB::table('custom_fields')
-                ->where('post_type', 'property_list')
-                ->where('required', 'yes')
-                ->get();
-
-            $requiredFieldIds = [];
-
-            foreach ($requiredFields as $field) {
-                if (!empty($field->model_fields)) {
-                    $modelFields = json_decode($field->model_fields, true);
-                    foreach ($modelFields as $modelField) {
-                        if (
-                            isset($request->{$modelField['model']}) &&
-                            in_array($request->{$modelField['model']}, $modelField['condition'])
-                        ) {
-                            $requiredFieldIds[] = $field->id;
-                        }
-                    }
-                }
-            }
-
-            // Validation errors array
-            $validationErrors = [];
-            foreach ($requiredFieldIds as $customFieldId) {
-                $customFieldName = DB::table('custom_fields')->where('id', $customFieldId)->value('field_name');
-                if (empty($request->input("custom_fields.{$customFieldId}"))) {
-                    $validationErrors[$customFieldId] = $customFieldName . ' is required';
-                }
-            }
-
-            if (!empty($validationErrors)) {
-                return response()->json(['errors' => $validationErrors], 422);
-            }
-
-            // Validate status_reason only when live_status is "Reject"
-            $request->validate([
-                'live_status' => 'required|in:Approve,Disapprove,Reject,Under Review,Modify Review',
-                'status_reason' => $request->live_status === 'Reject' ? 'required|string' : 'nullable',
-                'country_id' => 'required|exists:countries,id',
-                'state_id' => 'required|exists:states,id',
-                'city_id' => 'required|exists:cities,id',
-            ]);
-
-            // Set `live_status` for non-admin users
-            if ($user->role->name !== 'admin') {
-                $request->merge(['live_status' => 'Under Review']);
-            }
-
-            // Generate a unique property ID
-            $property_unique_id = 'URP' . rand(111111, 999999);
-            // Handle `featured_image` (Store as `/uploads/properties/{file_name}`)
-
-            if ($request->hasFile('featured_image')) {
-                $file = $request->file('featured_image');
-                $name = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName()); // Replace spaces with underscores
-                $file->move(public_path('uploads/properties'), $name); // Move file to folder
-
-                // ✅ Store only `/uploads/properties/{file_name}`
-                $featuredImage = '/uploads/properties/' . $name;
-            } elseif (!empty($request->featured_image) && filter_var($request->featured_image, FILTER_VALIDATE_URL)) {
-                $featuredImage = $request->featured_image; // Store URL directly if provided
-            } else {
-                $featuredImage = null; // If empty, store null
-            }
-
-            // Store property data
-            $propertyData = [
-                'property_unique_id' => $property_unique_id,
-                'name' => $request->name,
-                'description' => $request->description,
-                'property_address' => $request->property_address,
-                'purpose_id' => $request->purpose_id,
-                'property_id' => $request->property_id,
-                'property_status_id' => $request->property_status_id,
-                'property_type_id' => $request->property_type_id,
-                'live_status' => $request->live_status,
-                'project_id' => $request->project_id,
-                'country_id' => $request->country_id,
-                'state_id' => $request->state_id,
-                'city_id' => $request->city_id,
-                'status_reason' => $request->status_reason,
-                'created_by' => $user->id,
-                'temporary_status' => $request->temporary_status,
-                'featured_image' => $featuredImage, // ✅ Store as `/uploads/properties/{file_name}`
-            ];
-
-            // Handle file uploads
-            foreach (['property_video', 'virtual_tour', 'video_thumbnail', 'brochure'] as $fileField) {
-                if ($request->hasFile($fileField)) {
-                    $file = $request->file($fileField);
-                    $fileName = time() . '_' . $file->getClientOriginalName();
-                    $file->move(public_path('uploads/' . $fileField), $fileName);
-                    $propertyData[$fileField] = $fileName;
-                }
-            }
-
-            // Create the property
-            $property = PropertyList::create($propertyData);
-
-            // Store keywords
-            if (!empty($request->keyword)) {
-                $keywords = explode(',', $request->keyword);
-                foreach ($keywords as $keyword) {
-                    Keyword::create(['property_id' => $property->id, 'keyword' => $keyword]);
-                }
-            }
-
-            // Handle repeater fields
-            if ($request->has('repeater_fields')) {
-                foreach ($request->repeater_fields as $repeaterField) {
-                    $customFieldData = [
-                        'properties_listing_id' => $property->id,
-                        'custom_field_id' => $repeaterField['custom_field_id'],
-                    ];
-
-                    switch ($repeaterField['field_type']) {
-                        case 'text':
-                        case 'textarea':
-                        case 'texteditor':
-                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
-                            break;
-
-                        case 'select':
-                        case 'radio':
-                            $customFieldOption = DB::table('custom_field_options')
-                                ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                ->where('value', $repeaterField['field_value'])
-                                ->first();
-                            if ($customFieldOption) {
-                                $customFieldData['custom_field_options_id'] = $customFieldOption->id;
-                            }
-                            $customFieldData['field_meta_value'] = $repeaterField['field_value'];
-                            break;
-
-                        case 'checkbox':
-                            $values = explode(',', $repeaterField['field_value']);
-                            $customFieldData['field_meta_value'] = implode(',', $values);
-                            $customFieldOptionsIds = DB::table('custom_field_options')
-                                ->whereIn('value', $values)
-                                ->where('custom_field_id', $repeaterField['custom_field_id'])
-                                ->pluck('id')
-                                ->implode(',');
-                            $customFieldData['custom_field_options_id'] = $customFieldOptionsIds;
-                            break;
-
-                        case 'media':
-                            if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
-                                $fileNames = [];
-                                foreach ($repeaterField['field_value'] as $file) {
-                                    if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                                        $fileName = time() . '_' . $file->getClientOriginalName();
-                                        $file->move(public_path('uploads/media'), $fileName);
-                                        $fileNames[] = $fileName;
-                                    }
-                                }
-                                $customFieldData['field_meta_value'] = json_encode($fileNames);
-                            }
-                            break;
-
-                        case 'file':
-                            if (isset($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
-                                $filePaths = [];
-                                foreach ($repeaterField['field_value'] as $file) {
-                                    if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                                        if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
-                                            $fileName = time() . '_' . $file->getClientOriginalName();
-                                            $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
-
-                                            // Store the file in the desired folder
-                                            $file->storeAs('public/uploads/customfield/properties/files', $fileName); // goes to storage/app/public/uploads/customFiles
-
-                                            $filePaths[] = $relativePath;
-                                        } else {
-                                            return response()->json(['error' => 'Invalid file format. Only PDF, DOC, DOCX allowed.'], 400);
-                                        }
-                                    }
-                                }
-                                $customFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
-                            }
-                            break;
-
-                        case 'repeater':
-                            if (!empty($repeaterField['field_value']) && is_array($repeaterField['field_value'])) {
-                                foreach ($repeaterField['field_value'] as $row) {
-                                    $uniqueRowId = uniqid('repeater_');
-                                    foreach ($row as $subField) {
-                                        $repeaterFieldData = [
-                                            'custom_field_id' => $subField['sub_field_id'],
-                                            'custom_field_repeater_id' => $repeaterField['custom_field_id'],
-                                            'field_type' => $subField['field_type'],
-                                            'unique_id' => $uniqueRowId,
-                                            'properties_listing_id' => $property->id,
-                                        ];
-
-                                        switch ($subField['field_type']) {
-                                            case 'text':
-                                            case 'textarea':
-                                            case 'texteditor':
-                                                $repeaterFieldData['field_meta_value'] = $subField['field_value'];
-                                                break;
-
-                                            case 'select':
-                                            case 'radio':
-                                                $option = DB::table('custom_field_repeater_options')
-                                                    ->where('custom_field_repeater_id', $subField['sub_field_id'])
-                                                    ->where('value', $subField['field_value'])
-                                                    ->first();
-                                                if ($option) {
-                                                    $repeaterFieldData['custom_field_repeater_options_id'] = $option->id;
-                                                }
-                                                $repeaterFieldData['field_meta_value'] = $subField['field_value'];
-                                                break;
-
-                                            case 'checkbox':
-                                                $values = explode(',', $subField['field_value']);
-                                                $repeaterFieldData['field_meta_value'] = implode(',', $values);
-                                                $optionIds = DB::table('custom_field_repeater_options')
-                                                    ->whereIn('value', $values)
-                                                    ->where('custom_field_repeater_id', $subField['sub_field_id'])
-                                                    ->pluck('id')
-                                                    ->implode(',');
-                                                $repeaterFieldData['custom_field_repeater_options_id'] = $optionIds;
-                                                break;
-
-                                            case 'media':
-                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
-                                                    $fileNames = [];
-                                                    foreach ($subField['field_value'] as $file) {
-                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                                                            $fileName = time() . '_' . $file->getClientOriginalName();
-                                                            $file->move(public_path('uploads/media'), $fileName);
-                                                            $fileNames[] = $fileName;
-                                                        }
-                                                    }
-                                                    $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
-                                                }
-                                                break;
-
-                                            case 'file':
-                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
-                                                    $filePaths = [];
-                                                    foreach ($subField['field_value'] as $file) {
-                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                                                            if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
-                                                                $fileName = time() . '_' . $file->getClientOriginalName();
-                                                                $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
-
-                                                                $file->storeAs('public/uploads/customfield/properties/files', $fileName);
-                                                                $filePaths[] = $relativePath;
-                                                            } else {
-                                                                return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX files allowed.'], 400);
-                                                            }
-                                                        }
-                                                    }
-                                                    $repeaterFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
-                                                }
-                                                break;
-                                        }
-
-                                        CustomFieldRepeaterValues::create($repeaterFieldData);
-                                    }
-                                }
-                            }
-                            break;
-                    }
-
-                    Customfieldvalue::create($customFieldData);
-                }
-            }
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Data added successfully.',
-                'data' => $property,
-            ], 201);
-
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
-
-
-
-    //  property listing by user token
-
-    // public function getUserPropertiesByToken(Request $request)
-    // {
-    //     $user = Auth::user();
-    //     try {
-    //         $baseURL = url('/'); // ✅ Get full base URL dynamically
-
-    //         // Fetch all projects in descending order by created_at
-    //         $projects = PropertyList::with([
-    //             'user',
-    //             'propertyType',
-    //             'purpose',
-    //             'property',
-    //             'propertystatus',
-    //             'customFieldValues.customField',
-    //             'customFieldValues.customFieldOption',
-    //             'importKeywords',
-    //             'developer.userDetails',
-    //             'createdBy.role',
-    //             'updatedBy.role',
-    //             'country',
-    //             'state',
-    //             'city'
-    //         ])->where('created_by', $user->id)
-    //             ->orderBy('created_at', 'desc') // 🔹 Sorting by latest first
-    //             ->get();
-
-    //         $projectsData = $projects->map(function ($property) use ($baseURL) {
-    //             return [
-    //                 'id' => $property->id,
-    //                 'property_unique_id' => $property->property_unique_id,
-    //                 'name' => $property->name,
-    //                 'description' => $property->description,
-    //                 'live_status' => $property->live_status,
-    //                 'status_reason' => $property->status_reason,
-    //                 'temporary_status' => $property->temporary_status,
-    //                 'project_status' => $property->project_status,
-    //                 'user_id' => $property->user_id,
-    //                 'created_by' => $property->created_by,
-    //                 'created_by_role' => optional($property->createdBy)->role->name ?? 'N/A',
-    //                 'updated_by' => $property->updated_by,
-    //                 'updated_by_role' => optional($property->updatedBy)->role->name ?? 'N/A',
-    //                 'listed_by' => optional(optional($property->user)->role)->name ?? 'N/A',
-    //                 'purpose_id' => $property->purpose_id,
-    //                 'purpose_id_name' => optional($property->purpose)->name,
-    //                 'property_id' => $property->property_id,
-    //                 'property_id_name' => optional($property->property)->name,
-    //                 'property_status_id' => $property->property_status_id,
-    //                 'property_status_id_name' => optional($property->propertystatus)->name,
-    //                 'property_type_id' => $property->property_type_id,
-    //                 'property_type_id_name' => optional($property->propertyType)->name,
-    //                 'total_view' => $property->analytics()->count(),
-    //                 'date' => date('d m Y', strtotime($property->created_at)),
-    //                 'time' => date('h:i A', strtotime($property->created_at)),
-    //                 'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
-    //                 'keyword' => $property->importKeywords,
-    //                 'featured_image' => !empty($property->featured_image)
-    //                     ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
-    //                         ? $property->featured_image // ✅ If it's already a full URL, use as is
-    //                         : $baseURL . $property->featured_image) // ✅ Convert relative path to full URL
-    //                     : null,
-    //                 'country' => $property->country,
-    //                 'state' => $property->state,
-    //                 'city' => $property->city,
-    //             ];
-    //         });
-
-    //         return response()->json($projectsData);
-
-    //     } catch (\Throwable $th) {
-    //         return response()->json([
-    //             'error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()
-    //         ], 500);
-    //     }
-    // }
-
-    ##### new code property listing by user token #########
-
-    public function getUserPropertiesByToken(Request $request)
-    {
-        $user = Auth::user();
-
-        try {
-            $baseURL = url('/');
-
-            $projects = PropertyList::with([
-                'user',
-                'propertyType',
-                'purpose',
-                'property',
-                'propertystatus',
-                'customFieldValues.customField',
-                'customFieldValues.customFieldOption',
-                'importKeywords',
-                'developer.userDetails',
-                'createdBy.role',
-                'updatedBy.role',
-                'country',
-                'state',
-                'city'
-            ])
-                ->where('created_by', $user->id)
-                ->orderBy('created_at', 'desc')
-                ->get();
-
-            $projectsData = $projects->map(function ($property) use ($baseURL) {
-                $customFields = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL, $property) {
-                    $customField = optional($customFieldValue->customField);
-                    $templateData = $customField->templateValue ?? null;
-                    $fieldType = $customField->field_type ?? 'unknown';
-                    $fieldValue = $customFieldValue->field_meta_value ?? '';
-                    $allAvailableOptions = [];
-
-                    if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
-                        $availableOptions = DB::table('custom_field_options')
-                            ->where('custom_field_id', $customFieldValue->custom_field_id)
-                            ->get(['id', 'name', 'value']);
-
-                        foreach ($availableOptions as $option) {
-                            $allAvailableOptions[] = [
-                                'name' => $option->name,
-                                'value' => $option->value,
-                            ];
-                        }
-                    }
-
-                    if ($fieldType === 'repeater') {
-                        $nestedRows = DB::table('custom_field_repeater_values')
-                            ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
-                            ->where('properties_listing_id', $property->id)
-                            ->get()
-                            ->groupBy('unique_id');
-
-                        $repeaterData = [];
-
-                        foreach ($nestedRows as $groupId => $rows) {
-                            $groupData = [];
-
-                            foreach ($rows as $row) {
-                                $value = $row->field_meta_value;
-                                $fieldTypeNested = $row->field_type;
-                                $nestedOptions = [];
-
-                                $nestedCustomField = DB::table('custom_fields')
-                                    ->where('id', $row->custom_field_id)
-                                    ->first();
-
-                                $templateDetails = DB::table('custom_field_unique_codes')
-                                    ->where('id', $nestedCustomField->template_id ?? null)
-                                    ->first();
-
-                                if (in_array($fieldTypeNested, ['select', 'radio'])) {
-                                    $option = DB::table('custom_field_repeater_options')
-                                        ->where('id', $row->custom_field_repeater_options_id)
-                                        ->first();
-                                    $value = optional($option)->name ?? $value;
-
-                                    $nestedOptions = DB::table('custom_field_repeater_options')
-                                        ->where('custom_field_repeater_id', $row->custom_field_id)
-                                        ->get(['name', 'value'])
-                                        ->map(fn($opt) => [
-                                            'name' => $opt->name,
-                                            'value' => $opt->value,
-                                        ])->toArray();
-                                } elseif ($fieldTypeNested === 'checkbox') {
-                                    $ids = explode(',', $row->custom_field_repeater_options_id);
-                                    $value = DB::table('custom_field_repeater_options')
-                                        ->whereIn('id', $ids)
-                                        ->pluck('name')
-                                        ->toArray();
-
-                                    $nestedOptions = DB::table('custom_field_repeater_options')
-                                        ->where('custom_field_repeater_id', $row->custom_field_id)
-                                        ->get(['name', 'value'])
-                                        ->map(fn($opt) => [
-                                            'name' => $opt->name,
-                                            'value' => $opt->value,
-                                        ])->toArray();
-                                } elseif ($fieldTypeNested === 'file') {
-                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => url($file), $decoded)
-                                        : [];
-                                } elseif ($fieldTypeNested === 'media') {
-                                    $decoded = json_decode($value, true);
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-                                        : [];
-                                }
-
-                                $groupData[] = [
-                                    'sub_field_id' => $row->custom_field_id,
-                                    'template_id' => $nestedCustomField->template_id ?? null,
-                                    'template' => $templateDetails ?? null,
-                                    'field_type' => $fieldTypeNested,
-                                    'field_value' => $value,
-                                    'options' => $nestedOptions,
-                                ];
-                            }
-
-                            $repeaterData[] = $groupData;
-                        }
-
-                        return [
-                            'custom_field_id' => $customFieldValue->custom_field_id,
-                            'template_id' => $customField->template_id ?? null,
-                            'template' => $templateData ?? null,
-                            'field_label' => $customField->field_label ?? 'Unknown Field',
-                            'placeholder' => $customField->field_placeholder,
-                            'field_type' => $fieldType,
-                            'field_value' => $repeaterData,
-                            'options' => [],
-                        ];
-                    }
-
-                    if (in_array($fieldType, ['select', 'radio'])) {
-                        $customFieldOption = DB::table('custom_field_options')
-                            ->where('id', $customFieldValue->custom_field_options_id)
-                            ->first();
-                        $fieldValue = optional($customFieldOption)->name;
-                    } elseif ($fieldType === 'checkbox') {
-                        $optionIds = explode(',', $customFieldValue->custom_field_options_id);
-                        $fieldValue = DB::table('custom_field_options')
-                            ->whereIn('id', $optionIds)
-                            ->pluck('name')
-                            ->toArray();
-                    } elseif ($fieldType === 'file') {
-                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                        $fieldValue = is_array($decoded)
-                            ? array_map(fn($file) => url($file), $decoded)
-                            : [];
-                    } elseif ($fieldType === 'media') {
-                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                        $fieldValue = is_array($decoded)
-                            ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-                            : [];
-
-                    }
-
-                    $fieldArray = [
-                        'custom_field_id' => $customFieldValue->custom_field_id,
-                        'template_id' => $customField->template_id ?? null,
-                        'template' => $templateData ?? null,
-                        'field_label' => $customField->field_label ?? 'Unknown Field',
-                        'placeholder' => $customField->field_placeholder,
-                        'field_type' => $fieldType,
-                        'field_value' => $fieldValue,
-                        'options' => $allAvailableOptions,
-                    ];
-
-                    if ($fieldType === 'checkbox') {
-                        $fieldArray['checkbox_type'] = $customField->checkbox_type ?? null;
-                    }
-
-                    return $fieldArray;
-                });
-
-                return [
-                    'id' => $property->id,
-                    'property_unique_id' => $property->property_unique_id,
-                    'name' => $property->name,
-                    'description' => $property->description,
-                    'live_status' => $property->live_status,
-                    'status_reason' => $property->status_reason,
-                    'temporary_status' => $property->temporary_status,
-                    'project_status' => $property->project_status,
-                    'user_id' => $property->user_id,
-                    'created_by' => $property->created_by,
-                    'created_by_role' => optional($property->createdBy)->role->name ?? 'N/A',
-                    'updated_by' => $property->updated_by,
-                    'updated_by_role' => optional($property->updatedBy)->role->name ?? 'N/A',
-                    'listed_by' => optional(optional($property->user)->role)->name ?? 'N/A',
-                    'purpose_id' => $property->purpose_id,
-                    'purpose_id_name' => optional($property->purpose)->name,
-                    'property_id' => $property->property_id,
-                    'property_id_name' => optional($property->property)->name,
-                    'property_status_id' => $property->property_status_id,
-                    'property_status_id_name' => optional($property->propertystatus)->name,
-                    'property_type_id' => $property->property_type_id,
-                    'property_type_id_name' => optional($property->propertyType)->name,
-                    'total_view' => $property->analytics()->count(),
-                    'date' => date('d m Y', strtotime($property->created_at)),
-                    'time' => date('h:i A', strtotime($property->created_at)),
-                    'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
-                    'keyword' => $property->importKeywords,
-                    'featured_image' => !empty($property->featured_image)
-                        ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
-                            ? $property->featured_image
-                            : $baseURL . $property->featured_image)
-                        : null,
-                    'country' => $property->country,
-                    'state' => $property->state,
-                    'city' => $property->city,
-                    'custom_fields' => $customFields,
-                ];
-            });
-
-            return response()->json($projectsData);
-
-        } catch (\Throwable $th) {
-            return response()->json([
-                'error' => $th->getMessage() . ' on line ' . $th->getLine() . ' in ' . $th->getFile()
-            ], 500);
-        }
-    }
 
 
     // properties search by name , property_unique_id
@@ -3160,12 +2649,7 @@ class PropertylistingController extends Controller
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-               $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
-                if (!$isAdmin) {
-                    $projects = $projects->filter(function ($pro) use ($user) {
-                        return $pro->created_by == $user->id;
-                    })->values(); // Reset keys
-                }
+
 
             $projectsData = $projects->map(function ($property) use ($baseURL) {
                 return [
@@ -3210,12 +2694,10 @@ class PropertylistingController extends Controller
 
             return response()->json(
                 [
-                'status' => true,
-                'message' => $isAdmin
-                    ? 'Admin: Showing matching properties.'
-                    : 'Showing only your  own  properties.',
-                'data' => $projectsData
-                ],200);
+                    'data' => $projectsData
+                ],
+                200
+            );
 
         } catch (\Throwable $th) {
             return response()->json([

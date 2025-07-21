@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\Admin\DashboardAnalyticsController;
 use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
+use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
 use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
 use App\Http\Controllers\TopFeature\TopFeatureController;
@@ -232,14 +234,14 @@ Route::middleware('allow.property.listing')->post('edit-properties-listing', [Pr
 Route::middleware('allow.property.listing')->post('delete-properties-listing', [PropertylistingController::class, 'destroy']);
 Route::middleware('allow.property.listing')->get('get-all-properties-listing', [PropertylistingController::class, 'indexByadmin']);
 
-Route::middleware('allow.property.listing')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
+Route::middleware('api.token')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
 
 Route::middleware('allow.property.listing')->get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
 Route::middleware('allow.property.listing')->post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);
 Route::middleware('api.token')->get('get-temporary-statuses', [PropertylistingController::class, 'getTemporaryStatuses']);
 Route::middleware('api.token')->get('get-property-statuses', [PropertylistingController::class, 'getPropertyStatuses']);
 Route::middleware('admin.token')->post('update-property-status', [PropertylistingController::class, 'updatePropertyStatus']);
-Route::middleware('allow.property.listing')->post('get-all-project-by-location-id', [PropertylistingController::class, 'getAllProjectByLocationId']);
+Route::middleware('api.token')->post('get-all-project-by-location-id', [PropertylistingController::class, 'getAllProjectByLocationId']);
 Route::middleware('allow.admin_company')->post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
 Route::middleware('adminOrCurrentUser')->post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
 //
@@ -247,10 +249,6 @@ Route::middleware('adminOrCurrentUser')->post('properties-bulk-delete', [Propert
 Route::get('get-all-properties-listing-no-auth', [PropertylistingController::class, 'index']);
 Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
 Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
-
-// ============= Property Listing by agent and owner============
-// Route::middleware('allow.owner.agent')->post('post-property-create', [PropertylistingController::class, 'storeByAgentOwner']);
-// Route::middleware('api.token')->get('get-all-propety-listing-byusertoken', [PropertylistingController::class, 'getUserPropertiesByToken']);
 
 
 
@@ -319,7 +317,7 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
 Route::post('import-keywords', [Admincontroller::class, 'import']);
 Route::get('export-keywords', [Admincontroller::class, 'export']);
 Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
-Route::middleware('admin.token')->get('overview-of-dashboard', [Admincontroller::class, 'overviewOfDashboard']);
+Route::middleware('admin.token')->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
 Route::get('fetch-property-keywords', [Admincontroller::class, 'fetchPropertyKeywordList']);
 Route::get('fetch-project-keywords', [Admincontroller::class, 'fetchProjectKeywordList']);
 Route::get('fetch-developer-keywords', [Admincontroller::class, 'fetchDeveloperKeywordList']);
