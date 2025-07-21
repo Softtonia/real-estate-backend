@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use App\Models\Otp;
 use App\Models\User;
@@ -104,7 +105,7 @@ class OtpController extends Controller
     }
 
 
-     public function verifyOtp(Request $request)
+    public function verifyOtp(Request $request)
     {
 
         $otp = $request->input('otp');
@@ -174,28 +175,81 @@ class OtpController extends Controller
         }
     }
 
+    // original
+    // public function emailVerifyOtp(Request $request)
+    // {
+    //     $request->validate([
+    //         'user_id' => 'required|exists:users,id',
+    //         'email_otp' => 'required|numeric',
+    //     ]);
+
+    //     // Fetch the OTP record for the user
+    //     $otpRecord = DB::table('otps')->where('user_id', $request->user_id)->first();
+
+    //     if (!$otpRecord) {
+    //         return response()->json([
+    //             'status' => 'error',
+    //             'message' => 'No OTP record found for the user.',
+    //         ], 404);
+    //     }
+
+    //     if ($otpRecord->otp == $request->email_otp) {
+    //         // Check if OTP has expired (assuming you store expiration time in `created_at` or a similar column)
+    //         $otpExpirationTime = Carbon::parse($otpRecord->created_at)->addMinutes(10); // Example: OTP valid for 10 minutes
+
+    //         if (Carbon::now()->greaterThan($otpExpirationTime)) {
+    //             return response()->json([
+    //                 'status' => 'error',
+    //                 'message' => 'OTP has expired.',
+    //             ], 400);
+    //         }
+
+    //         // Mark OTP as verified
+    //         DB::table('otps')->where('user_id', $request->user_id)->update([
+    //             'isOTPVerified' => true,
+    //         ]);
+
+    //         return response()->json([
+    //             'status' => 'success',
+    //             'message' => 'OTP verified successfully.',
+    //         ], 200);
+    //     }
+
+    //     return response()->json([
+    //         'status' => 'error',
+    //         'message' => 'Invalid OTP.',
+    //     ], 400);
+    // }
+
     public function emailVerifyOtp(Request $request)
-{
-    $request->validate([
-        'user_id' => 'required|exists:users,id',
-        'email_otp' => 'required|numeric',
-    ]);
+    {
+        $authUser = Auth::user();
+        $authUserId = $authUser->id;
 
-    // Fetch the OTP record for the user
-    $otpRecord = DB::table('otps')->where('user_id', $request->user_id)->first();
+        $request->validate([
+            'email_otp' => 'required|numeric',
+        ]);
 
-    if (!$otpRecord) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'No OTP record found for the user.',
-        ], 404);
-    }
+        // Fetch the OTP record for the user
+        $otpRecord = DB::table('otps')->where('user_id', $authUserId)->first();
 
-    if ($otpRecord->otp == $request->email_otp) {
-        // Check if OTP has expired (assuming you store expiration time in `created_at` or a similar column)
-        $otpExpirationTime = Carbon::parse($otpRecord->created_at)->addMinutes(10); // Example: OTP valid for 10 minutes
+        if (!$otpRecord) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No OTP record found for the user.',
+            ], 200);
+        }
 
-        if (Carbon::now()->greaterThan($otpExpirationTime)) {
+        // Compare provided OTP
+        if ($otpRecord->otp != $request->email_otp) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid OTP.',
+            ], 400);
+        }
+
+        // Check expiration using expire_date_time column
+        if (Carbon::now()->greaterThan(Carbon::parse($otpRecord->expire_date_time))) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'OTP has expired.',
@@ -203,21 +257,31 @@ class OtpController extends Controller
         }
 
         // Mark OTP as verified
-        DB::table('otps')->where('user_id', $request->user_id)->update([
+        DB::table('otps')->where('user_id', $authUserId)->update([
             'isOTPVerified' => true,
         ]);
 
+        $isOTPVerifiedUser = DB::table('otps')->where('user_id', $authUserId)->where('isOTPVerified', true)->first();
+
+        if ($isOTPVerifiedUser) {
+            // ✅ Also mark user as approved
+            DB::table('users')->where('id', $authUserId)->update([
+                'isApproved' => true,  // Or 1, depending on your column type
+            ]);
+        }
+        else {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to verify OTP.',
+                ], 400);
+        }
+
         return response()->json([
             'status' => 'success',
-            'message' => 'OTP verified successfully.',
+            'message' => 'OTP verified successfully and user approved.',
         ], 200);
     }
 
-    return response()->json([
-        'status' => 'error',
-        'message' => 'Invalid OTP.',
-    ], 400);
-}
 
 
     // public function emailVerifyOtp(Request $request)
@@ -225,7 +289,7 @@ class OtpController extends Controller
     //     $user = User::where('id', $request->user_id)->first();
     //     // dd($user);
     //     if ($user && $user->email_otp == $request->email_otp) {
-            
+
     //         if (Carbon::now()->lessThanOrEqualTo($user->email_otp_expires_at)) {
 
     //             return response()->json([

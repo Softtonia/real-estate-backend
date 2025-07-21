@@ -339,7 +339,7 @@ class UserController extends Controller
             'otp' => $otp,
             'user_id' => $user->id,
             'isOTPVerified' => false,
-            'expire_date_time' => Carbon::now()->addMinutes(5), // Add 5 minutes to the current time
+            'expire_date_time' => Carbon::now()->addMinutes(2), // Add 5 minutes to the current time
         ]);
 
         $fullName = $user->first_name . ' ' . $user->last_name;
