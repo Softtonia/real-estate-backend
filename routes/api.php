@@ -232,7 +232,7 @@ Route::middleware('allow.property.listing')->post('edit-properties-listing', [Pr
 Route::middleware('allow.property.listing')->post('delete-properties-listing', [PropertylistingController::class, 'destroy']);
 Route::middleware('allow.property.listing')->get('get-all-properties-listing', [PropertylistingController::class, 'indexByadmin']);
 
-Route::middleware('admin.token')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
+Route::middleware('allow.property.listing')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
 
 Route::middleware('allow.property.listing')->get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
 Route::middleware('allow.property.listing')->post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);

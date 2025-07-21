@@ -1933,15 +1933,35 @@ class PropertylistingController extends Controller
                                         'value' => $opt->value,
                                     ])->toArray();
                             } elseif ($fieldTypeNested === 'file') {
+                                // $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                // $value = is_array($decoded)
+                                //     ? array_map(fn($file) => url($file), $decoded)
+                                //     : [];
+
                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
                                 $value = is_array($decoded)
-                                    ? array_map(fn($file) => url($file), $decoded)
+                                    ? array_map(fn($file) => [
+                                        'file_name' => $file,
+                                        'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : url($file)
+                                    ], $decoded)
                                     : [];
+
+
+
                             } elseif ($fieldTypeNested === 'media') {
-                                $decoded = json_decode($value, true);
+                                // $decoded = json_decode($value, true);
+                                // $value = is_array($decoded)
+                                //     ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                //     : [];
+
+                                $decoded = is_string($value) ? json_decode($value, true) : $value;
                                 $value = is_array($decoded)
-                                    ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                    ? array_map(fn($file) => [
+                                        'file_name' => $file,
+                                        'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : $baseURL . '/uploads/media/' . $file
+                                    ], $decoded)
                                     : [];
+
                             }
 
                             $groupData[] = [
@@ -1979,15 +1999,34 @@ class PropertylistingController extends Controller
                         ->pluck('name')
                         ->toArray();
                 } elseif ($fieldType === 'file') {
-                    $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                    $fieldValue = is_array($decoded)
-                        ? array_map(fn($file) => url($file), $decoded)
-                        : [];
+
+                    // $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                    // $fieldValue = is_array($decoded)
+                    //     ? array_map(fn($file) => url($file), $decoded)
+                    //     : [];
+
+                         $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => [
+                                'file_name' => $file,
+                                'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : url($file)
+                            ], $decoded)
+                            : [];
+
+
                 } elseif ($fieldType === 'media') {
-                    $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
-                    $fieldValue = is_array($decoded)
-                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-                        : [];
+                    // $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                    // $fieldValue = is_array($decoded)
+                    //     ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                    //     : [];
+
+                   $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                $fieldValue = is_array($decoded)
+                    ? array_map(fn($file) => [
+                        'file_name' => $file,
+                        'file_url' => filter_var($file, FILTER_VALIDATE_URL) ? $file : $baseURL . '/uploads/media/' . $file
+                    ], $decoded)
+                    : [];
 
                 }
 
