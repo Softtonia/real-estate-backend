@@ -6,6 +6,7 @@ use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\Kyc\KycController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
+use App\Http\Controllers\OvervewAnalytics\OwnerDashboardAnalyticsController;
 use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
 use App\Http\Controllers\TopFeature\TopFeatureController;
@@ -143,7 +144,7 @@ Route::get('site-setting', [SiteSettingController::class, 'siteSetting']);
 Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
 
 Route::get('get-all-pages', [UserController::class, 'getAllPages']);
-Route::get('overview-of-all-user-property', [UserController::class, 'overviewOfProperty']);
+Route::get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
 
 
 
