@@ -44,6 +44,7 @@ class Kernel extends HttpKernel
     \Illuminate\Routing\Middleware\SubstituteBindings::class,
 
 ],
+
     ];
 
     /**
@@ -87,6 +88,9 @@ class Kernel extends HttpKernel
 
         'allow.property.listing' => \App\Http\Middleware\AllowPropertyListing::class,
         'allow.owner.role' => \App\Http\Middleware\AllowOwnerRole::class,
+
+        'validate.api.client' => \App\Http\Middleware\ValidateApiClient::class,
+
 
 
 

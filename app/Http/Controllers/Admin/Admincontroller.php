@@ -154,89 +154,177 @@ class AdminController extends Controller
     }
 
 
-    public function fetchProjectKeywordList()
-    {
-        try {
-            $importKeywordData = ImportKeyword::where('keyword_type', 'project_keyword')->get()->groupBy('keyword_name');
+    // public function fetchProjectKeywordList()
+    // {
+    //     try {
+    //         $importKeywordData = ImportKeyword::where('keyword_type', 'project_keyword')->get()->groupBy('keyword_name');
 
-            // Convert the grouped collection to an array
-            $result = [];
-            foreach ($importKeywordData as $keyword => $items) {
-                // Get the first item from the group as a representative
-                $item = $items->first();
-                $result[] = [
-                    'id' => $item->id,
-                    'keyword_name' => $item->keyword_name,
-                    'slug' => $item->slug,
-                    'keyword_type' => $item->keyword_type,
-                    'created_at' => $item->created_at,
-                    'updated_at' => $item->updated_at
-                ];
-            }
+    //         // Convert the grouped collection to an array
+    //         $result = [];
+    //         foreach ($importKeywordData as $keyword => $items) {
+    //             // Get the first item from the group as a representative
+    //             $item = $items->first();
+    //             $result[] = [
+    //                 'id' => $item->id,
+    //                 'keyword_name' => $item->keyword_name,
+    //                 'slug' => $item->slug,
+    //                 'keyword_type' => $item->keyword_type,
+    //                 'created_at' => $item->created_at,
+    //                 'updated_at' => $item->updated_at
+    //             ];
+    //         }
 
-            return response()->json(['data' => $result], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+    //         return response()->json(['data' => $result], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+    //     }
+    // }
+
+
+    // public function fetchPropertyKeywordList()
+    // {
+    //     try {
+    //         $importKeywordData = ImportKeyword::where('keyword_type', 'property_keyword')->get()->groupBy('keyword_name');
+
+    //         // Convert the grouped collection to an array
+    //         $result = [];
+    //         foreach ($importKeywordData as $keyword => $items) {
+    //             // Get the first item from the group as a representative
+    //             $item = $items->first();
+    //             $result[] = [
+    //                 'id' => $item->id,
+    //                 'keyword_name' => $item->keyword_name,
+    //                 'slug' => $item->slug,
+    //                 'keyword_type' => $item->keyword_type,
+    //                 'created_at' => $item->created_at,
+    //                 'updated_at' => $item->updated_at
+    //             ];
+    //         }
+
+    //         return response()->json(['data' => $result], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+    //     }
+    // }
+
+
+    // public function fetchDeveloperKeywordList()
+    // {
+    //     try {
+    //         $importKeywordData = ImportKeyword::where('keyword_type', 'developer_keyword')->get()->groupBy('keyword_name');
+
+    //         // Convert the grouped collection to an array
+    //         $result = [];
+    //         foreach ($importKeywordData as $keyword => $items) {
+    //             // Get the first item from the group as a representative
+    //             $item = $items->first();
+    //             $result[] = [
+    //                 'id' => $item->id,
+    //                 'keyword_name' => $item->keyword_name,
+    //                 'slug' => $item->slug,
+    //                 'keyword_type' => $item->keyword_type,
+    //                 'created_at' => $item->created_at,
+    //                 'updated_at' => $item->updated_at
+    //             ];
+    //         }
+
+    //         return response()->json(['data' => $result], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+    //     }
+    // }
+
+
+
+
+    // public function getKeywordbykeywordtype(Request $request)
+    // {
+    //     try {
+    //         $keywordType = $request->keyword_type;
+    //         $importKeywordData = ImportKeyword::where('keyword_type', $keywordType)->get()->groupBy('keyword_name');
+
+    //         // Convert the grouped collection to an array
+    //         $result = [];
+    //         foreach ($importKeywordData as $keyword => $items) {
+    //             // Get the first item from the group as a representative
+    //             $item = $items->first();
+    //             $result[] = [
+    //                 'id' => $item->id,
+    //                 'keyword_name' => $item->keyword_name,
+    //                 'slug' => $item->slug,
+    //                 'keyword_type' => $item->keyword_type,
+    //                 'created_at' => $item->created_at,
+    //                 'updated_at' => $item->updated_at
+    //             ];
+    //         }
+
+    //         return response()->json(['data' => $result], 200);
+    //     } catch (\Exception $e) {
+    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+    //     }
+    // }
+
+    public function getKeywordbykeywordtype(Request $request)
+{
+    try {
+        // Validate request
+        $validator = Validator::make($request->all(), [
+            'keyword_type' => 'required|string',
+            'search' => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors()
+            ], 422);
         }
+
+        $keywordType = $request->keyword_type;
+        $searchTerm = $request->search;
+
+        $query = ImportKeyword::where('keyword_type', $keywordType)
+            ->when($searchTerm, function($query) use ($searchTerm) {
+                return $query->where('keyword_name', 'LIKE', '%'.$searchTerm.'%');
+            })
+            ->orderBy('keyword_name');
+
+        // Get paginated results (10 per page)
+        $keywords = $query->paginate(10);
+
+        // Transform the results
+        $result = $keywords->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'keyword_name' => $item->keyword_name,
+                'slug' => $item->slug,
+                'keyword_type' => $item->keyword_type,
+                'created_at' => $item->created_at,
+                'updated_at' => $item->updated_at
+            ];
+        });
+
+        return response()->json([
+            'status' => true,
+            'data' => $result,
+            'pagination' => [
+                'total' => $keywords->total(),
+                'per_page' => $keywords->perPage(),
+                'current_page' => $keywords->currentPage(),
+                'last_page' => $keywords->lastPage(),
+                'from' => $keywords->firstItem(),
+                'to' => $keywords->lastItem(),
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => false,
+            'message' => 'Failed to fetch keywords',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
     }
-
-
-    public function fetchPropertyKeywordList()
-    {
-        try {
-            $importKeywordData = ImportKeyword::where('keyword_type', 'property_keyword')->get()->groupBy('keyword_name');
-
-            // Convert the grouped collection to an array
-            $result = [];
-            foreach ($importKeywordData as $keyword => $items) {
-                // Get the first item from the group as a representative
-                $item = $items->first();
-                $result[] = [
-                    'id' => $item->id,
-                    'keyword_name' => $item->keyword_name,
-                    'slug' => $item->slug,
-                    'keyword_type' => $item->keyword_type,
-                    'created_at' => $item->created_at,
-                    'updated_at' => $item->updated_at
-                ];
-            }
-
-            return response()->json(['data' => $result], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-
-    public function fetchDeveloperKeywordList()
-    {
-        try {
-            $importKeywordData = ImportKeyword::where('keyword_type', 'developer_keyword')->get()->groupBy('keyword_name');
-
-            // Convert the grouped collection to an array
-            $result = [];
-            foreach ($importKeywordData as $keyword => $items) {
-                // Get the first item from the group as a representative
-                $item = $items->first();
-                $result[] = [
-                    'id' => $item->id,
-                    'keyword_name' => $item->keyword_name,
-                    'slug' => $item->slug,
-                    'keyword_type' => $item->keyword_type,
-                    'created_at' => $item->created_at,
-                    'updated_at' => $item->updated_at
-                ];
-            }
-
-            return response()->json(['data' => $result], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-
-
-
+}
 
     public function LoginActiveInactive(Request $request)
     {

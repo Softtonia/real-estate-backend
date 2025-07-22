@@ -37,6 +37,7 @@ class DatabaseSeeder extends Seeder
         $this->call(HelpCategorySeeder::class);
         $this->call(HelpSubcategorySeeder::class);
          $this->call(HelpChildcategorySeeder::class);
+         $this->call([ApiClientTableSeeder::class]);
 
 
     }
