@@ -86,6 +86,7 @@ class Kernel extends HttpKernel
         'allow.owner.agent' => \App\Http\Middleware\AllowOwnerAndAgent::class,
 
         'allow.property.listing' => \App\Http\Middleware\AllowPropertyListing::class,
+        'allow.owner.role' => \App\Http\Middleware\AllowOwnerRole::class,
 
 
 

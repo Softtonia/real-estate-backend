@@ -5196,6 +5196,7 @@ class UserController extends Controller
             'facebook' => 'nullable|string',
             'instagram' => 'nullable|string',
             'twitter' => 'nullable|string',
+            'ticket_prefix' => 'nullable|string'
         ]);
 
         // Handle website_logo file upload

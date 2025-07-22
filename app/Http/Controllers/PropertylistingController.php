@@ -697,49 +697,7 @@ class PropertylistingController extends Controller
 
 
 
-    // this is for overview
-    public function overviewOfProperty(Request $request)
-    {
-        try {
-            // if ($request->header('api-token') == '') {
-            //     return response()->json(['error' => 'Please enter api token first.'], 422);
-            // }
 
-            // $requestToken = $request->header('api-token');
-            // $userData = User::where('api_token', $requestToken)->first();
-
-            // // Validate that the user exists in the database
-            // if (!$userData) {
-            //     return response()->json(['error' => 'User not found'], 404);
-            // }
-
-            $AuthUser = Auth::user();
-
-             // Validate that the user exists in the database
-            if (!$AuthUser) {
-                return response()->json(['error' => 'User not found'], 200);
-            }
-
-            $userId = $AuthUser->id;
-
-            $totalPropertyCount = Propertylist::where('created_by', $userId)->count();
-            $approvedCount = Propertylist::where('created_by', $userId)->where('live_status', 'Approve')->count();
-            $rejectCount = Propertylist::where('created_by', $userId)->where('live_status', 'Reject')->count();
-            $underReviewCount = Propertylist::where('created_by', $userId)->where('live_status', 'Under Review')->count();
-
-            // Construct the return data
-            $return = [
-                'total_property_count' => $totalPropertyCount,
-                'approved_property_count' => $approvedCount,
-                'reject_property_count' => $rejectCount,
-                'under_review_property_count' => $underReviewCount,
-            ];
-
-            return response()->json($return);
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
 
     // this of for stote property analytics

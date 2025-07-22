@@ -6,6 +6,7 @@ use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\Kyc\KycController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
+use App\Http\Controllers\OvervewAnalytics\BusinessDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\OwnerDashboardAnalyticsController;
 use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
@@ -258,7 +259,7 @@ Route::middleware('adminOrCurrentUser')->get('/user-properties', [Propertylistin
 // frontend site
 // =======Front Property Listing============
 
-Route::middleware('api.token')->get('overview-of-user-property', [frontPropertylistingController::class, 'overviewOfProperty']);
+
 Route::post('store-property-analytics', [frontPropertylistingController::class, 'storePropertyAnalytics']);
 Route::get('list-property-analytics', [frontPropertylistingController::class, 'listPropertyAnalytics']);
 Route::get('view-property-analytics', [frontPropertylistingController::class, 'viewPropertyAnalytics']);
@@ -273,7 +274,7 @@ Route::post('update-website-project-status', [frontProjectlistingController::cla
 Route::post('store-project-analytics', [frontProjectlistingController::class, 'storeProjectAnalytics']);
 Route::get('list-project-analytics', [frontProjectlistingController::class, 'listProjectAnalytics']);
 Route::get('view-project-analytics', [frontProjectlistingController::class, 'viewProjectAnalytics']);
-Route::get('overview-of-project', [frontProjectlistingController::class, 'overviewOfProject']);
+
 
 // admin route will start from here
 Route::post('admin/login', [AdminController::class, 'login'])->name('login');
@@ -315,13 +316,16 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
     Route::post('roles/search', [RoleController::class, 'searchRole']);
 });
 
-Route::post('import-keywords', [Admincontroller::class, 'import']);
-Route::get('export-keywords', [Admincontroller::class, 'export']);
+Route::middleware('admin.token')->post('import-keywords', [Admincontroller::class, 'import']);
+Route::middleware('admin.token')->get('export-keywords', [Admincontroller::class, 'export']);
 Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
-Route::middleware('admin.token')->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
 Route::get('fetch-property-keywords', [Admincontroller::class, 'fetchPropertyKeywordList']);
 Route::get('fetch-project-keywords', [Admincontroller::class, 'fetchProjectKeywordList']);
 Route::get('fetch-developer-keywords', [Admincontroller::class, 'fetchDeveloperKeywordList']);
+// ======= Analytics =========
+Route::middleware('admin.token')->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
+Route::middleware('api.token')->get('business-dashboard-analytics', [BusinessDashboardAnalyticsController::class, 'businessDashboardAnalytics']);
+Route::middleware('allow.owner.role')->get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
 
 // =======Location============
 Route::post('location-create', [Locationcontroller::class, 'store']);

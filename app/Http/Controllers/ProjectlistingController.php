@@ -759,42 +759,7 @@ class ProjectlistingController extends Controller
     }
 
 
-    // this is for overview
-    public function overviewOfProject(Request $request)
-    {
-        try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
-            }
 
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
-
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'User not found'], 404);
-            }
-
-            $userId = $userData->id;
-
-            $totalProjectCount = Projectlist::where('user_id', $userId)->count();
-            $approvedCount = Projectlist::where('user_id', $userId)->where('status', 'approved')->count();
-            $rejectCount = Projectlist::where('user_id', $userId)->where('status', 'reject')->count();
-            $pendingCount = Projectlist::where('user_id', $userId)->where('status', 'pending')->count();
-
-            // Construct the return data
-            $return = [
-                'total_project_count' => $totalProjectCount,
-                'approved_project_count' => $approvedCount,
-                'reject_project_count' => $rejectCount,
-                'pending_project_count' => $pendingCount,
-            ];
-
-            return response()->json($return);
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
 
 

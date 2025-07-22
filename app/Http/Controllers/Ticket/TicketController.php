@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Ticket;
 
 use App\Http\Controllers\Controller;
+use App\Models\SiteSetting;
 use Illuminate\Http\Request;
 use App\Models\Ticket;
 use Illuminate\Support\Facades\Auth;
@@ -130,7 +131,12 @@ class TicketController extends Controller
 
 
         // Generate random 4-digit number for ticket_number
-        $ticketNumber = str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
+        // $ticketNumber = str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
+
+        // Generate ticket number with prefix
+        $prefix = optional(SiteSetting::first())->ticket_prefix ?? 'TCKT';
+        $ticketNumber = $this->generateUniqueTicketNumber($prefix);
+
 
         // Set default status_id to 'open'
         $data = $request->all();
@@ -168,6 +174,16 @@ class TicketController extends Controller
         $response = $ticket;
 
         return response()->json($response, 201); // 201 Created status code
+    }
+
+    // Helper function to generate unique ticket number
+    private function generateUniqueTicketNumber($prefix)
+    {
+        do {
+            $number = sprintf('%s%s%04d', $prefix, date('Ym'), rand(1, 9999));
+        } while (Ticket::where('ticket_number', $number)->exists());
+
+        return $number;
     }
 
 

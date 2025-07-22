@@ -408,10 +408,22 @@ class AdminController extends Controller
 
     // export keywords csv
 
-    public function export()
+    public function export(Request $request)
     {
         $fileName = 'import_keywords_' . now()->format('Ymd_His') . '.csv';
-        $keywords = ImportKeyword::all();
+
+
+        // Get keyword_type filter from request
+       $keywordType = $request->input('keyword_type');
+       // Build query with optional filtering
+        $query = ImportKeyword::query();
+
+        if (!empty($keywordType)) {
+            $query->where('keyword_type', $keywordType);
+        }
+
+        $keywords = $query->get();
+
 
         if ($keywords->isEmpty()) {
             return response()->json([
@@ -470,21 +482,51 @@ class AdminController extends Controller
     //     ]);
     // }
 
-    public function fetchKeywordList()
-    {
-        $keywords = ImportKeyword::select('id', 'keyword_name', 'slug', 'keyword_type')
-            ->orderBy('keyword_name')
-            ->get();
+    public function fetchKeywordList(Request $request)
+{
+    try {
+        $perPage = $request->input('per_page', 10); // Default to 10 items per page
+        $page = $request->input('page', 1); // Default to first page
+
+        $keywords = ImportKeyword::select(
+            'id',
+            'keyword_name',
+            'slug',
+            'keyword_type',
+            DB::raw('DATE(created_at) as created_date'),
+            DB::raw('DATE(updated_at) as updated_date')
+        )
+        ->orderBy('keyword_name')
+        ->paginate($perPage, ['*'], 'page', $page);
 
         return response()->json([
             'status' => true,
             'message' => $keywords->isEmpty()
-                ? ' No import keywords found.'
-                : ' Import keywords fetched successfully.',
-            'total' => $keywords->count(),
-            'data' => $keywords,
+                ? 'No import keywords found.'
+                : 'Import keywords fetched successfully.',
+            'total' => $keywords->total(),
+            'per_page' => $keywords->perPage(),
+            'current_page' => $keywords->currentPage(),
+            'last_page' => $keywords->lastPage(),
+            'from' => $keywords->firstItem(),
+            'to' => $keywords->lastItem(),
+            'data' => $keywords->items(),
+            'links' => [
+                'first_page_url' => $keywords->url(1),
+                'last_page_url' => $keywords->url($keywords->lastPage()),
+                'prev_page_url' => $keywords->previousPageUrl(),
+                'next_page_url' => $keywords->nextPageUrl(),
+            ],
         ]);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => false,
+            'message' => 'Failed to fetch keywords.',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
 
 }
