@@ -407,7 +407,7 @@ Route::middleware('api.token')->get('property-search', [PropertyController::clas
 
 
 // =======Amenity Categories============
-Route::middleware(['validate.api.client'])->group(function () {
+
 Route::middleware('admin.token')->post('add-amenities-categories', [AmenitycategoriesController::class, 'store']);
 Route::middleware('admin.token')->post('edit-amenities-categories', [AmenitycategoriesController::class, 'update']);
 Route::middleware('api.token')->get('list-amenities-categories', [AmenitycategoriesController::class, 'index']);
@@ -779,11 +779,4 @@ Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [To
     Route::middleware('admin.token')->get('generate-api-client-id', [ApiClientController::class, 'generateApiClientId']);
     Route::middleware('admin.token')->get('generate-api-client-secret', [ApiClientController::class, 'generateApiClientSecret']);
     Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClientController::class, 'getAppTypes']);
-
-
-
-
-
-
-
 
