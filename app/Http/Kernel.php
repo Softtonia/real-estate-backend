@@ -44,7 +44,7 @@ class Kernel extends HttpKernel
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
 
              // ✅ Your custom middleware
-        \App\Http\Middleware\ValidateApiClient::class,
+        // \App\Http\Middleware\ValidateApiClient::class,
 
         ],
 

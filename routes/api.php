@@ -769,6 +769,7 @@ Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [To
 
     Route::middleware('admin.token')->get('generate-api-client-id', [ApiClientController::class, 'generateApiClientId']);
     Route::middleware('admin.token')->get('generate-api-client-secret', [ApiClientController::class, 'generateApiClientSecret']);
+    Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClientController::class, 'getAppTypes']);
 
 
 
