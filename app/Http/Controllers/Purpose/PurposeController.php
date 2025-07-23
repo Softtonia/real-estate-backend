@@ -94,7 +94,7 @@ class PurposeController extends Controller
 
         // Check if the purpose exists
         if (!$purpose) {
-            return response()->json(['error' => 'Purpose not found'], 404);
+            return response()->json(['error' => 'Purpose not found'], 200);
         }
 
         // Calculate the property count for the purpose
@@ -241,7 +241,13 @@ class PurposeController extends Controller
         try {
             // Find the builder by ID
             $id = $request->id;
-            $purpose = Purpose::findOrFail($id);
+            $purpose = Purpose::find($id);
+
+            if(!$purpose) {
+                return response()->json([
+                    'message' => 'purpose not found',
+                ], 200);
+            }
 
             // $filePath = public_path('uploads/purposes/' . $purpose->icon);
 
@@ -263,7 +269,7 @@ class PurposeController extends Controller
             ], 200);
         } catch (ModelNotFoundException $e) {
             // Handle model not found errors
-            return response()->json(['error' => 'purpose not found'], 404);
+            return response()->json(['error' => 'purpose not found'], 200);
         } catch (\Exception $e) {
             // Handle other unexpected errors
             return response()->json(['error' => 'Something went wrong'], 500);

@@ -110,29 +110,7 @@ class Propertytypecontroller extends Controller
 
     public function store(Request $request)
     {
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve and validate the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        $requestToken = substr($authorizationHeader, 7);
-
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the API token in the database
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         try {
             // Validate the request data
@@ -274,7 +252,7 @@ class Propertytypecontroller extends Controller
 
             // Check if the property type exists
             if (!$propertyType) {
-                return response()->json(['error' => 'Property type not found'], 404);
+                return response()->json(['error' => 'Property type not found'], 200);
             }
 
             // Calculate the property count for this property type
@@ -309,31 +287,6 @@ class Propertytypecontroller extends Controller
 
     public function update(Request $request)
     {
-        // Check for Authorization header
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => ['authorization' => ['Please provide an API token.']]], 422);
-        }
-
-        $authorizationHeader = $request->header('Authorization');
-
-        // Validate Authorization header format
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => ['authorization' => ['Invalid token format. Token must start with "Bearer ".']]], 422);
-        }
-
-        // Extract the token
-        $requestToken = substr($authorizationHeader, 7);
-
-        if (empty($requestToken)) {
-            return response()->json(['error' => ['authorization' => ['Token is missing.']]], 422);
-        }
-
-        // Verify the token
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => ['authorization' => ['Unauthorized. Invalid API token.']]], 401);
-        }
 
         try {
             $id = $request->id;
@@ -416,7 +369,7 @@ class Propertytypecontroller extends Controller
             ], 200);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json(['error' => ['property_type' => ['Property type not found.']]], 404);
+            return response()->json(['error' => ['property_type' => ['Property type not found.']]], 200);
         } catch (\Throwable $th) {
             return response()->json(['error' => ['server' => ['An unexpected error occurred: ' . $th->getMessage()]]], 500);
         }
@@ -428,36 +381,14 @@ class Propertytypecontroller extends Controller
     public function destroy(Request $request)
     {
 
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         try {
             $id = $request->id;
-            $property = PropertyType::findOrFail($id); // Find the property by ID
+            $property = PropertyType::find($id); // Find the property by ID
+            if (!$property) {
+                return response()->json(['error' => ['property_type' => ['Property type not found.']], 200]);
+            }
 
             $filePath = public_path($property->image);
 
@@ -475,92 +406,15 @@ class Propertytypecontroller extends Controller
     }
 
 
-    public function getPropertyIds()
-    {
-        try {
-            // Retrieve all property IDs
-            $propertyIds = Property::pluck('id', 'name');
-
-            // Return property IDs along with the form as JSON response
-            return response()->json(['property_ids' => $propertyIds]);
-        } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
 
-    public function storePropertyType(Request $request)
-    {
-
-        if ($request->header('api-token') == '') {
-            return response()->json(['error' => 'Please enter api token first.'], 422);
-        }
-
-        $requestToken = $request->header('api-token');
-
-        $expectedToken = config('constants.API_TOKEN');
-
-        if ($requestToken !== $expectedToken) {
-            return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
-        }
-
-        try {
-            // Validate the incoming request data
-            $validatedData = $request->validate([
-                'name' => 'required|string|max:255',
-                'image' => 'nullable|string|max:255',
-                'display_property_types_order' => 'required|string|max:255',
-                'property_id' => 'required|exists:properties,id'
-            ]);
-
-            // Create the property type
-            $propertyType = PropertyType::create([
-                'name' => $validatedData['name'],
-                'image' => $validatedData['image'],
-                'display_property_types_order' => $validatedData['display_property_types_order'],
-                'property_id' => $validatedData['property_id']
-            ]);
-
-            // Return success response
-            return response()->json(['message' => 'Property type created successfully', 'data' => $propertyType], 201);
-        } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
 
 
     public function bulkDelete(Request $request)
     {
 
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         try {
             // Find the builder by ID
@@ -586,7 +440,7 @@ class Propertytypecontroller extends Controller
             ], 200);
         } catch (ModelNotFoundException $e) {
             // Handle model not found errors
-            return response()->json(['error' => 'purpose not found'], 404);
+            return response()->json(['error' => 'purpose not found'], 200);
         } catch (\Exception $e) {
             // Handle other unexpected errors
             return response()->json(['error' => 'Something went wrong'], 500);
@@ -657,29 +511,7 @@ class Propertytypecontroller extends Controller
 
     public function searchByName(Request $request)
     {
-        // Check for API token
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        $authorizationHeader = $request->header('Authorization');
-
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        $requestToken = substr($authorizationHeader, 7);
-
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify API token
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         // Validate search input
         $validatedData = $request->validate([

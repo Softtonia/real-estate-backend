@@ -324,7 +324,7 @@ Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
 // Route::get('fetch-project-keywords', [Admincontroller::class, 'fetchProjectKeywordList']);
 // Route::get('fetch-developer-keywords', [Admincontroller::class, 'fetchDeveloperKeywordList']);
 
-Route::middleware(['throttle:6,1'])->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
+Route::middleware(['throttle:30,1'])->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
 // ======= Analytics =========
 Route::middleware('admin.token')->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
 Route::middleware('api.token')->get('business-dashboard-analytics', [BusinessDashboardAnalyticsController::class, 'businessDashboardAnalytics']);
@@ -347,23 +347,28 @@ Route::get('/all-location-list', [LocationController::class, 'locationList']);
 Route::post('bulk-upload-location-csv', [Locationcontroller::class, 'bulkUploadCSC']);
 
 // =======Amenity============
-Route::post('amenity-create', [Amenitycontroller::class, 'store']);
-Route::post('amenity-update', [Amenitycontroller::class, 'update']);
-Route::get('amenity-listing', [Amenitycontroller::class, 'index']);
-Route::post('amenity', [Amenitycontroller::class, 'destroy']);
-Route::post('getdatabyId-amenity', [Amenitycontroller::class, 'getdatabyId']);
-Route::post('amenity-bulk-delete', [Amenitycontroller::class, 'bulkDelete']);
+
+
+    Route::middleware('admin.token')->post('amenity-create', [Amenitycontroller::class, 'store']);
+    Route::middleware('admin.token')->post('amenity-update', [Amenitycontroller::class, 'update']);
+    Route::middleware('api.token')->get('amenity-listing', [Amenitycontroller::class, 'index']);
+    Route::middleware('admin.token')->post('amenity', [Amenitycontroller::class, 'destroy']);
+    Route::post('getdatabyId-amenity', [Amenitycontroller::class, 'getdatabyId']);
+    Route::middleware('admin.token')->post('amenity-bulk-delete', [Amenitycontroller::class, 'bulkDelete']);
+
 
 // =======Property Type============
-Route::post('property-type-create', [Propertytypecontroller::class, 'store']);
-Route::post('property-type-update', [Propertytypecontroller::class, 'update']);
+
+
+Route::middleware('admin.token')->post('property-type-create', [Propertytypecontroller::class, 'store']);
+Route::middleware('admin.token')->post('property-type-update', [Propertytypecontroller::class, 'update']);
 Route::middleware('api.token')->get('property-type-listing', [Propertytypecontroller::class, 'index']);
-Route::post('property-type', [Propertytypecontroller::class, 'destroy']);
-Route::post('getdatabyId-property-type', [Propertytypecontroller::class, 'getdatabyId']);
-Route::get('/property-ids', [Propertytypecontroller::class, 'getPropertyIds']);
-Route::post('/property-types', [Propertytypecontroller::class, 'storePropertyType']);
-Route::post('property-type-bulk-delete', [Propertytypecontroller::class, 'bulkDelete']);
-Route::get('property-type-search', [Propertytypecontroller::class, 'searchByName'])->name('propertytype.search');
+Route::middleware('admin.token')->post('property-type-delete', [Propertytypecontroller::class, 'destroy']);
+Route::middleware('api.token')->post('getdatabyId-property-type', [Propertytypecontroller::class, 'getdatabyId']);
+
+
+Route::middleware('admin.token')->post('property-type-bulk-delete', [Propertytypecontroller::class, 'bulkDelete']);
+Route::middleware('api.token')->get('property-type-search', [Propertytypecontroller::class, 'searchByName'])->name('propertytype.search');
 
 
 // =======Status============
@@ -382,32 +387,36 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::middleware('admin.token')->post('purpose-create', [PurposeController::class, 'store']);
     Route::middleware('admin.token')->post('purpose-update', [PurposeController::class, 'update']);
     Route::middleware('api.token')->get('purpose-listing', [PurposeController::class, 'index']);
-    Route::middleware('admin.token')->post('purpose', [PurposeController::class, 'destroy']);
+    Route::middleware('admin.token')->post('purpose-delete', [PurposeController::class, 'destroy']);
     Route::middleware('api.token')->post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
     Route::middleware('admin.token')->post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
     Route::middleware('api.token')->get('purpose-search', [PurposeController::class, 'searchByName'])->name('purposes.search');
 
 });
+
+
 // =======Property============
-Route::post('property-create', [Propertycontroller::class, 'store']);
-Route::post('property-update', [Propertycontroller::class, 'update']);
+Route::middleware('admin.token')->post('property-create', [Propertycontroller::class, 'store']);
+Route::middleware('admin.token')->post('property-update', [Propertycontroller::class, 'update']);
 Route::middleware('api.token')->get('property-listing', [Propertycontroller::class, 'index']);
-Route::post('property', [Propertycontroller::class, 'destroy']);
-Route::get('properties/{id}', [PropertyController::class, 'getPropertyAndType']);
-Route::post('property-bulk-delete', [PropertyController::class, 'bulkDelete']);
-Route::get('property-search', [PropertyController::class, 'searchByName'])->name('property.search');
+Route::middleware('admin.token')->post('property-delete', [Propertycontroller::class, 'destroy']);
+Route::middleware('api.token')->get('properties/{id}', [PropertyController::class, 'getPropertyAndType']);
+Route::middleware('admin.token')->post('property-bulk-delete', [PropertyController::class, 'bulkDelete']);
+Route::middleware('api.token')->get('property-search', [PropertyController::class, 'searchByName'])->name('property.search');
 
 
 
 // =======Amenity Categories============
-Route::post('add-amenities-categories', [AmenitycategoriesController::class, 'store']);
-Route::post('edit-amenities-categories', [AmenitycategoriesController::class, 'update']);
-Route::get('list-amenities-categories', [AmenitycategoriesController::class, 'index']);
-Route::post('delete-amenities-categories', [AmenitycategoriesController::class, 'destroy']);
-Route::post('getdatabyId-amenitycategories', [AmenitycategoriesController::class, 'getdatabyId']);
-Route::post('amenities-categories-bulk-delete', [AmenitycategoriesController::class, 'bulkDelete']);
+Route::middleware(['validate.api.client'])->group(function () {
+Route::middleware('admin.token')->post('add-amenities-categories', [AmenitycategoriesController::class, 'store']);
+Route::middleware('admin.token')->post('edit-amenities-categories', [AmenitycategoriesController::class, 'update']);
+Route::middleware('api.token')->get('list-amenities-categories', [AmenitycategoriesController::class, 'index']);
+Route::middleware('admin.token')->post('delete-amenities-categories', [AmenitycategoriesController::class, 'destroy']);
+Route::middleware('api.token')->post('getdatabyId-amenitycategories', [AmenitycategoriesController::class, 'getdatabyId']);
+Route::middleware('admin.token')->post('amenities-categories-bulk-delete', [AmenitycategoriesController::class, 'bulkDelete']);
 
-Route::get('search-amenities-categories', [AmenitycategoriesController::class, 'searchByName']);
+Route::middleware('api.token')->get('search-amenities-categories', [AmenitycategoriesController::class, 'searchByName']);
+
 // admin route will end from here
 
 
