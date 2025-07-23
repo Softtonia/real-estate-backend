@@ -5,13 +5,21 @@ namespace App\Http\Controllers\Admin\ApiClient;
 use App\Http\Controllers\Controller;
 use App\Models\ApiClient;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
+
 
 class ApiClientController extends Controller
 {
-    // List all clients
+     // List all clients
     public function index()
     {
-        return response()->json(ApiClient::all());
+        $client = ApiClient::all();
+        return response()->json([
+            'status' => 200,
+            'message' => 'List of all clients',
+            'data' => $client
+        ]);
     }
 
     // Create new client with auto-generated ID & secret
@@ -21,7 +29,8 @@ class ApiClientController extends Controller
             'client_name' => 'required|string|max:255',
             'app-type' => ['nullable', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
             'status' => ['required', Rule::in(['0', '1'])],
-            'allowed_domain' => 'required|url',
+            'allowed_domain' => 'required|array',
+            'allowed_domain.*' => 'url',
         ]);
 
         // Ensure unique client_id
@@ -37,7 +46,7 @@ class ApiClientController extends Controller
             'client_secret'   => $clientSecret,
             'app-type'        => $validated['app-type'] ?? null,
             'status'          => $validated['status'],
-            'allowed_domain'  => $validated['allowed_domain'],
+            'allowed_domain'  => $validated['allowed_domain'], // array saved as JSON
         ]);
 
         return response()->json($client, 201);
@@ -46,20 +55,31 @@ class ApiClientController extends Controller
     // Show one client
     public function show($id)
     {
-        $client = ApiClient::findOrFail($id);
-        return response()->json($client);
+        $client = ApiClient::find($id);
+
+        if(!$client){
+            return response()->json(['error' => 'Client not found'], 200);
+        }
+        return response()->json([
+            'status' => 200,
+            'message' => 'Client details',
+            'data' => $client
+        ]);
     }
 
     // Update an existing client
     public function update(Request $request, $id)
     {
-        $client = ApiClient::findOrFail($id);
-
+        $client = ApiClient::find($id);
+       if(!$client){
+            return response()->json(['error' => 'Client not found'], 200);
+        }
         $validated = $request->validate([
             'client_name' => 'sometimes|required|string|max:255',
             'app-type' => ['nullable', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
             'status' => ['sometimes', Rule::in(['0', '1'])],
-            'allowed_domain' => 'sometimes|required|url',
+            'allowed_domain' => 'sometimes|required|array',
+            'allowed_domain.*' => 'url',
         ]);
 
         $client->update($validated);
@@ -70,9 +90,34 @@ class ApiClientController extends Controller
     // Delete a client
     public function destroy($id)
     {
-        $client = ApiClient::findOrFail($id);
+        $client = ApiClient::find($id);
+         if(!$client){
+            return response()->json(['error' => 'Client not found'], 200);
+        }
         $client->delete();
 
         return response()->json(['message' => 'Client deleted successfully']);
+    }
+
+
+    public function generateApiClientId()
+    {
+        $clientId = $this->generateUniqueValue('client_id', 15);
+        return response()->json(['client_id' => $clientId]);
+    }
+
+    public function generateApiClientSecret()
+    {
+        $secretId = $this->generateUniqueValue('client_secret', 15);
+        return response()->json(['client_secret' => $secretId]);
+    }
+
+    private function generateUniqueValue($column, $length = 15)
+    {
+        do {
+            $random = Str::upper(Str::random($length)); // Capital letters + numbers
+        } while (ApiClient::where($column, $random)->exists());
+
+        return $random;
     }
 }

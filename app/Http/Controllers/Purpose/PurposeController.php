@@ -20,32 +20,7 @@ class PurposeController extends Controller
     public function store(Request $request)
     {
 
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         try {
             // Validate the request data
@@ -150,23 +125,7 @@ class PurposeController extends Controller
 
     public function update(Request $request)
     {
-        // Check for Authorization header
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        $authorizationHeader = $request->header('Authorization');
-        if (strpos($authorizationHeader, 'Bearer ') !== 0) {
-            return response()->json(['error' => 'Invalid token format.'], 422);
-        }
-
-        // Extract the token
-        $requestToken = substr($authorizationHeader, 7);
-        $user = User::where('api_token', $requestToken)->first();
-
-        if (!$user) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         $id = $request->id;
 
@@ -279,38 +238,6 @@ class PurposeController extends Controller
     {
 
 
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
-
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (strpos($authorizationHeader, 'Bearer ') !== 0) {
-            return response()->json(['error' => 'Invalid token format.'], 422);
-        }
-
-        // Extract the token by removing "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
-
-        $userId = null;
-
-        $userData = User::where('api_token', $requestToken)->first();
-
-        $userId = $userData->id;
-
-        // Validate that the user exists in the database
-        if ($userId && !User::where('id', $userId)->exists()) {
-            return response()->json(['error' => 'User not found'], 404);
-        }
         try {
             // Find the builder by ID
             $id = $request->id;
@@ -347,27 +274,7 @@ class PurposeController extends Controller
     public function bulkDelete(Request $request)
     {
 
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (strpos($authorizationHeader, 'Bearer ') !== 0) {
-            return response()->json(['error' => 'Invalid token format.'], 422);
-        }
-
-        // Extract the token by removing "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         try {
             // Find the builder by ID
@@ -402,28 +309,6 @@ class PurposeController extends Controller
     public function searchByName(Request $request)
     {
         // Check for API token
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
-
-        $authorizationHeader = $request->header('Authorization');
-
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        $requestToken = substr($authorizationHeader, 7);
-
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify API token
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',

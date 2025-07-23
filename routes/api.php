@@ -204,8 +204,8 @@ Route::middleware('admin.token')->post('update-project-status-by-admin', [Projec
 Route::middleware('adminOrCurrentUser')->post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
 Route::middleware('allow.admin_company')->post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
 
-Route::middleware('allow.admin_company')->post('update-project-temporary-status',[ProjectlistingController::class, 'updateTemporaryStatus']);
-Route::middleware('allow.admin_company')->get('project-search',[ProjectlistingController::class, 'projectSearch']);
+Route::middleware('allow.admin_company')->post('update-project-temporary-status', [ProjectlistingController::class, 'updateTemporaryStatus']);
+Route::middleware('allow.admin_company')->get('project-search', [ProjectlistingController::class, 'projectSearch']);
 ### No Auth ###
 Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
 Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
@@ -280,8 +280,8 @@ Route::get('view-project-analytics', [frontProjectlistingController::class, 'vie
 // admin route will start from here
 Route::post('admin/login', [AdminController::class, 'login'])->name('login');
 
-    Route::middleware('admin.token')->post('/profile/update', [AdminController::class, 'update']);
-    // Add other routes here if needed
+Route::middleware('admin.token')->post('/profile/update', [AdminController::class, 'update']);
+// Add other routes here if needed
 
 
 // Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
@@ -319,7 +319,7 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
 
 Route::middleware('admin.token')->post('import-keywords', [Admincontroller::class, 'import']);
 Route::middleware('admin.token')->get('export-keywords', [Admincontroller::class, 'export']);
-// Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
+Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
 // Route::get('fetch-property-keywords', [Admincontroller::class, 'fetchPropertyKeywordList']);
 // Route::get('fetch-project-keywords', [Admincontroller::class, 'fetchProjectKeywordList']);
 // Route::get('fetch-developer-keywords', [Admincontroller::class, 'fetchDeveloperKeywordList']);
@@ -376,13 +376,18 @@ Route::post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
 Route::get('status-search', [statuscontroller::class, 'searchByName'])->name('status.search');
 
 // =======Purpose============
-Route::post('purpose-create', [PurposeController::class, 'store']);
-Route::post('purpose-update', [PurposeController::class, 'update']);
-Route::middleware('api.token')->get('purpose-listing', [PurposeController::class, 'index']);
-Route::post('purpose', [PurposeController::class, 'destroy']);
-Route::post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
-Route::post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
-Route::get('purpose-search', [PurposeController::class, 'searchByName'])->name('purposes.search');
+
+Route::middleware(['validate.api.client'])->group(function () {
+
+    Route::middleware('admin.token')->post('purpose-create', [PurposeController::class, 'store']);
+    Route::middleware('admin.token')->post('purpose-update', [PurposeController::class, 'update']);
+    Route::middleware('api.token')->get('purpose-listing', [PurposeController::class, 'index']);
+    Route::middleware('admin.token')->post('purpose', [PurposeController::class, 'destroy']);
+    Route::middleware('api.token')->post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
+    Route::middleware('admin.token')->post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
+    Route::middleware('api.token')->get('purpose-search', [PurposeController::class, 'searchByName'])->name('purposes.search');
+
+});
 // =======Property============
 Route::post('property-create', [Propertycontroller::class, 'store']);
 Route::post('property-update', [Propertycontroller::class, 'update']);
@@ -431,8 +436,8 @@ Route::post('custom-field-listing-by-model-conditionid', [CustomFieldController:
 Route::get('get-custom-field-by-id/{id}', [CustomFieldController::class, 'getCustomFieldById']);
 Route::middleware('admin.token')->post('edit-custom-fields-by-id/{id}', [CustomFieldController::class, 'updateCustomFieldById']);
 
-Route::middleware('admin.token')->post('delete-custom-fields-by-id',[CustomFieldController::class, 'deleteCustomFieldById']);
-Route::middleware('admin.token')->post('bulk-delete-custom-fields-by-id',[CustomFieldController::class, 'bulkDeleteCustomFieldByIds']);
+Route::middleware('admin.token')->post('delete-custom-fields-by-id', [CustomFieldController::class, 'deleteCustomFieldById']);
+Route::middleware('admin.token')->post('bulk-delete-custom-fields-by-id', [CustomFieldController::class, 'bulkDeleteCustomFieldByIds']);
 
 
 
@@ -505,7 +510,7 @@ Route::post('tickets-priority-delete', [ticketprioritycontroller::class, 'destro
 Route::post('tickets-priority-bulk-delete', [ticketprioritycontroller::class, 'bulkDelete']);
 Route::middleware('admin.token')->post('get-tickets-priority-byid', [ticketprioritycontroller::class, 'show']); //Done By softtonia
 
-Route::middleware('admin.token')->get('search-tickets-priority',[ticketprioritycontroller::class,'searchTicketPriority']);
+Route::middleware('admin.token')->get('search-tickets-priority', [ticketprioritycontroller::class, 'searchTicketPriority']);
 
 Route::middleware('admin.token')->post('tickets-type-create', [TicketTypeController::class, 'store']);
 Route::middleware('admin.token')->post('tickets-type-update', [TicketTypeController::class, 'update']);
@@ -513,7 +518,7 @@ Route::get('tickets-type-list', [TicketTypeController::class, 'index']);
 Route::middleware('admin.token')->post('tickets-type-delete', [TicketTypeController::class, 'destroy']);
 Route::post('get-tickets-type-byid', [TicketTypeController::class, 'show']);
 Route::middleware('admin.token')->delete('/tickets-type-bulk-delete', [TicketTypeController::class, 'bulkDelete']);
-Route::get('search-tickets-type',[TicketTypeController::class,'searchTicketType']);
+Route::get('search-tickets-type', [TicketTypeController::class, 'searchTicketType']);
 
 
 Route::middleware('allrole.token')->post('tickets/respond', [TicketController::class, 'respond']);
@@ -742,7 +747,7 @@ Route::middleware('admin.token')->post('add-template-id-listings', [CustomFieldC
 Route::get('/get-template-id-listings-by-id', [CustomFieldController::class, 'showCustomFieldUniqueCodeById']);
 Route::middleware('admin.token')->post('update-template-id-listings', [CustomFieldController::class, 'updateCustomFieldUniqueCode']);
 Route::middleware('admin.token')->delete('delete-template-id-listings', [CustomFieldController::class, 'destroyCustomFieldUniqueCode']);
-Route::middleware('admin.token')->post('bulk-delete-template-id-listings',[CustomFieldController::class, 'bulkDeleteCustomFieldUniqueCode']);
+Route::middleware('admin.token')->post('bulk-delete-template-id-listings', [CustomFieldController::class, 'bulkDeleteCustomFieldUniqueCode']);
 
 
 // Top Features
@@ -755,10 +760,16 @@ Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [To
 
 
 // API Client
-Route::middleware('validate.api.client')->get('api-client-secrect-list', [ApiClientController::class, 'index']);
-Route::middleware('admin.token')->post('api-client-secrect-store', [ApiClientController::class, 'store']);
-Route::middleware('admin.token')->post('api-client-secrect-update/{id}', [ApiClientController::class, 'update']);
-Route::middleware('admin.token')->post('api-client-secrect-delete/{id}', [ApiClientController::class, 'destroy']);
+
+    Route::middleware('admin.token')->get('api-client-secrect-list', [ApiClientController::class, 'index']);
+    Route::middleware('admin.token')->post('api-client-secrect-store', [ApiClientController::class, 'store']);
+    Route::middleware('admin.token')->get('api-client-secrect-show-by-id/{id}', [ApiClientController::class, 'show']);
+    Route::middleware('admin.token')->post('api-client-secrect-update/{id}', [ApiClientController::class, 'update']);
+    Route::middleware('admin.token')->post('api-client-secrect-delete/{id}', [ApiClientController::class, 'destroy']);
+
+    Route::middleware('admin.token')->get('generate-api-client-id', [ApiClientController::class, 'generateApiClientId']);
+    Route::middleware('admin.token')->get('generate-api-client-secret', [ApiClientController::class, 'generateApiClientSecret']);
+
 
 
 

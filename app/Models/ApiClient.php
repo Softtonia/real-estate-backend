@@ -10,4 +10,9 @@ class ApiClient extends Model
     use HasFactory;
 
      protected $fillable = ['client_name', 'client_id', 'client_secret', 'allowed_domain','app-type','status'];
+
+     protected $casts = [
+    'allowed_domain' => 'array',
+    ];
+
 }
