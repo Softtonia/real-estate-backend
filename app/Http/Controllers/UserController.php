@@ -379,45 +379,45 @@ class UserController extends Controller
         ], 200);
     }
 
-//  check username availability
-     public function checkUsernameAvailability(Request $request)
+    //  check username availability
+    public function checkUsernameAvailability(Request $request)
     {
         // Advanced validation with custom rules
-    $validator = Validator::make($request->all(), [
-        'user_name' => [
-            'required',
-            'string',
-            'min:3',
-            'max:20',
-            'regex:/^[a-zA-Z0-9._]+$/', // Alphanumeric + underscore + dot
-        ],
-    ], [
-        'user_name.regex' => 'Username can only contain letters, numbers, underscores, and dots.',
-    ]);
+        $validator = Validator::make($request->all(), [
+            'user_name' => [
+                'required',
+                'string',
+                'min:3',
+                'max:20',
+                'regex:/^[a-zA-Z0-9._]+$/', // Alphanumeric + underscore + dot
+            ],
+        ], [
+            'user_name.regex' => 'Username can only contain letters, numbers, underscores, and dots.',
+        ]);
 
-    // Return validation errors in a structured format
-    if ($validator->fails()) {
+        // Return validation errors in a structured format
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $username = $request->input('user_name');
+
+        // Check if the username exists in the database (case-insensitive)
+        $exists = User::whereRaw('LOWER(user_name) = ?', [strtolower($username)])->exists();
+
         return response()->json([
-            'success' => false,
-            'errors' => $validator->errors(),
-        ], 422);
-    }
-
-    $username = $request->input('user_name');
-
-    // Check if the username exists in the database (case-insensitive)
-    $exists = User::whereRaw('LOWER(user_name) = ?', [strtolower($username)])->exists();
-
-    return response()->json([
-        'success' => true,
-        'data' => [
-            'username' => $username,
-            'available' => !$exists,
-        ],
-        'message' => $exists
-            ? 'Username is already taken.'
-            : 'Username is available.',
-    ], 200);
+            'success' => true,
+            'data' => [
+                'username' => $username,
+                'available' => !$exists,
+            ],
+            'message' => $exists
+                ? 'Username is already taken.'
+                : 'Username is available.',
+        ], 200);
     }
 
 
@@ -1218,6 +1218,7 @@ class UserController extends Controller
                     'users.id',
                     'users.first_name',
                     'users.last_name',
+                    'users.user_name',
                     'users.email',
                     'users.phone',
                     'users.role_id',
@@ -1258,6 +1259,7 @@ class UserController extends Controller
                 'id' => $userData->id,
                 'first_name' => $userData->first_name,
                 'last_name' => $userData->last_name,
+                'user_name' => $userData->user_name,
                 'email' => $userData->email,
                 'phone' => $userData->phone,
                 'role_id' => $userData->role_id,
@@ -1486,11 +1488,22 @@ class UserController extends Controller
                 'password' => [
                     'nullable',
                     'min:8',
-                    'regex:/[A-Z]/',
-                    'regex:/[a-z]/',
-                    'regex:/[0-9]/',
-                    'regex:/[@$!%*#?&]/',
+                    'regex:/[A-Z]/',        // at least one uppercase
+                    'regex:/[a-z]/',        // at least one lowercase
+                    'regex:/[0-9]/',        // at least one digit
+                    'regex:/[@$!%*#?&]/',   // at least one special character
                 ],
+                'user_name' => [
+                    'required',
+                    'string',
+                    'min:3',
+                    'max:20',
+                    'regex:/^[a-zA-Z0-9._]+$/',
+                    Rule::unique('users', 'user_name')->ignore($request->id),
+                ],
+            ], [
+                'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
+                'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json(['error' => $e->errors()], 400);
@@ -1508,6 +1521,8 @@ class UserController extends Controller
 
         $user->first_name = $request->first_name;
         $user->last_name = $request->last_name;
+        $user->user_name = $request->user_name;
+        $user->email = $request->email;
         $user->phone = $request->phone;
         $user->role_id = $request->role_id;
         $user->isapproved = $request->isapproved;
@@ -2146,16 +2161,22 @@ class UserController extends Controller
         $authUser = Auth::user();
 
         try {
-            $request->validate([
+            $validated = $request->validate([
                 'first_name' => 'required|string|max:255',
                 'last_name' => 'required|string|max:255',
                 'phone' => 'required|unique:users',
                 'email' => 'required|email|unique:users',
                 'role_id' => 'required|exists:roles,id',
                 'password' => 'required',
+                'user_name' => 'required|string|min:3|max:20|unique:users,user_name|regex:/^[a-zA-Z0-9._]+$/',
+            ], [
+                'user_name.regex' => 'Only letters, numbers, dot and underscore are allowed in username.',
             ]);
         } catch (ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
+            return response()->json([
+                'message' => 'Validation Failed',
+                'errors' => $e->errors()
+            ], 422);
         }
 
         // Fetch the role using role_id
@@ -2192,6 +2213,7 @@ class UserController extends Controller
             $user = User::create([
                 'first_name' => $request->first_name,
                 'last_name' => $request->last_name,
+                'user_name' => $request->user_name,
                 'email' => $request->email,
                 'phone' => $request->phone,
                 'api_token' => $token,
