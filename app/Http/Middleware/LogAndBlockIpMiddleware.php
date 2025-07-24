@@ -176,19 +176,101 @@ class LogAndBlockIpMiddleware
     // }
 
 
+    // public function handle(Request $request, Closure $next): Response
+    // {
+    //     $ip = $request->ip();
+    //     $user = Auth::user();
+    //     $userId = $user?->id;
+
+    //     // 🛡️ If user is logged in and has admin role, bypass IP check
+    //     if ($user && $user->role && $user->role->name === 'admin') {
+    //         \Log::info("Admin IP bypassed: {$ip}");
+    //         return $next($request);
+    //     }
+
+    //     // 🔒 Check if IP is blocked
+    //     $ipLog = UserIpLog::where('ip_address', $ip)->first();
+
+    //     if ($ipLog && $ipLog->status === 'blocked') {
+    //         return response()->json([
+    //             'error' => 'Your IP address has been blocked. Please contact the administrator.'
+    //         ], 403);
+    //     }
+
+    //     // 📝 Update user_id if missing
+    //     if ($ipLog && !$ipLog->user_id && $userId) {
+    //         $ipLog->user_id = $userId;
+    //         $ipLog->save();
+    //     }
+
+    //     // 📌 Log new IP entry if not present
+    //     if (!$ipLog) {
+    //         $location = Location::get($ip);
+    //         UserIpLog::create([
+    //             'user_id' => $userId,
+    //             'ip_address' => $ip,
+    //             'country' => $location?->countryName ?? 'Localhost',
+    //             'city' => $location?->cityName ?? 'Unknown',
+    //             'region' => $location?->regionName ?? 'Local Network',
+    //             'country_code' => $location?->countryCode ?? null,
+    //             'region_code' => $location?->regionCode ?? null,
+    //             'lat' => $location?->latitude ?? null,
+    //             'lon' => $location?->longitude ?? null,
+    //             'timezone' => $location?->timezone ?? null,
+    //             'isp' => $location?->isp ?? null,
+    //             'org' => $location?->organization ?? null,
+    //             'as' => $location?->asn ?? null,
+    //             'query' => $location?->ip ?? $ip,
+    //             'status' => 'active',
+    //         ]);
+    //     }
+
+    //     // ⏱️ Allow request and check for too many attempts (429)
+    //     $response = $next($request);
+
+    //     if ($response->getStatusCode() === 429) {
+    //         $ipToBlock = UserIpLog::where('ip_address', $ip)->first();
+    //         if ($ipToBlock && $ipToBlock->status !== 'blocked') {
+    //             $ipToBlock->status = 'blocked';
+    //             $ipToBlock->save();
+    //             \Log::info("IP auto-blocked due to too many requests: {$ip}");
+    //         }
+    //     }
+
+    //     return $response;
+    // }
+
+
     public function handle(Request $request, Closure $next): Response
     {
         $ip = $request->ip();
-        $user = Auth::user();
-        $userId = $user?->id;
+        $authHeader = $request->header('Authorization');
+        $user = null;
+        $userId = null;
 
-        // 🛡️ If user is logged in and has admin role, bypass IP check
+        // 🔐 Extract and validate Bearer token
+        if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
+            $token = str_replace('Bearer ', '', $authHeader);
+            $user = User::where('api_token', $token)->with('role')->first();
+            $userId = $user?->id;
+        }
+
+        // 🛡️ Admin bypass
         if ($user && $user->role && $user->role->name === 'admin') {
             \Log::info("Admin IP bypassed: {$ip}");
             return $next($request);
         }
 
-        // 🔒 Check if IP is blocked
+        // 🔓 Allow login routes to bypass IP block
+        $routePath = $request->path();
+        $loginRoutes = ['api/login', 'api/admin/login', 'login'];
+
+        if (in_array($routePath, $loginRoutes)) {
+            \Log::info("Bypassing IP block for login route: {$routePath} from IP: {$ip}");
+            return $next($request);
+        }
+
+        // 🔒 Blocked IP check
         $ipLog = UserIpLog::where('ip_address', $ip)->first();
 
         if ($ipLog && $ipLog->status === 'blocked') {
@@ -197,13 +279,13 @@ class LogAndBlockIpMiddleware
             ], 403);
         }
 
-        // 📝 Update user_id if missing
+        // 📝 Update user_id if available but missing
         if ($ipLog && !$ipLog->user_id && $userId) {
             $ipLog->user_id = $userId;
             $ipLog->save();
         }
 
-        // 📌 Log new IP entry if not present
+        // 🌍 Log IP if not already recorded
         if (!$ipLog) {
             $location = Location::get($ip);
             UserIpLog::create([
@@ -225,9 +307,10 @@ class LogAndBlockIpMiddleware
             ]);
         }
 
-        // ⏱️ Allow request and check for too many attempts (429)
+        // 🚦 Proceed to next middleware
         $response = $next($request);
 
+        // ⛔ Auto-block if too many requests (Rate Limit)
         if ($response->getStatusCode() === 429) {
             $ipToBlock = UserIpLog::where('ip_address', $ip)->first();
             if ($ipToBlock && $ipToBlock->status !== 'blocked') {
