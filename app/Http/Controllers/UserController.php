@@ -263,6 +263,7 @@ class UserController extends Controller
             ],
             'role_id' => 'required',
             'email' => 'required|email|unique:users,email', // Added email validation for sending mail
+            'user_name' => 'required|string|min:3|max:20|unique:users,user_name|regex:/^[a-zA-Z0-9._]+$/',
         ]);
 
         if ($validator->fails()) {
@@ -319,8 +320,10 @@ class UserController extends Controller
         // Generate OTP
         $otp = random_int(1000, 9999); // 4-digit OTP
 
+
         // Save user and OTP data
         $user = new User();
+        $user->user_name = $request->input('user_name');
         $user->phone = $request->phone;
         $user->email = $request->email;
         $user->password = Hash::make($request->password);
@@ -374,6 +377,47 @@ class UserController extends Controller
             'status' => true,
             'message' => 'User registered successfully. OTP sent via email.',
         ], 200);
+    }
+
+//  check username availability
+     public function checkUsernameAvailability(Request $request)
+    {
+        // Advanced validation with custom rules
+    $validator = Validator::make($request->all(), [
+        'user_name' => [
+            'required',
+            'string',
+            'min:3',
+            'max:20',
+            'regex:/^[a-zA-Z0-9._]+$/', // Alphanumeric + underscore + dot
+        ],
+    ], [
+        'user_name.regex' => 'Username can only contain letters, numbers, underscores, and dots.',
+    ]);
+
+    // Return validation errors in a structured format
+    if ($validator->fails()) {
+        return response()->json([
+            'success' => false,
+            'errors' => $validator->errors(),
+        ], 422);
+    }
+
+    $username = $request->input('user_name');
+
+    // Check if the username exists in the database (case-insensitive)
+    $exists = User::whereRaw('LOWER(user_name) = ?', [strtolower($username)])->exists();
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'username' => $username,
+            'available' => !$exists,
+        ],
+        'message' => $exists
+            ? 'Username is already taken.'
+            : 'Username is available.',
+    ], 200);
     }
 
 

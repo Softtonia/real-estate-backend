@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\DashboardAnalyticsController;
 use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
+use App\Http\Controllers\IpLog\IpLogController;
 use App\Http\Controllers\Kyc\KycController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\BusinessDashboardAnalyticsController;
@@ -86,6 +87,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // User route will start from here
 
 Route::post('/register', [UserController::class, 'register']);
+Route::post('/check-username', [UserController::class, 'checkUsernameAvailability']);
 
 Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
 // Route::post('login', [UserController::class, 'loginOldUser']);
@@ -324,7 +326,7 @@ Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
 // Route::get('fetch-project-keywords', [Admincontroller::class, 'fetchProjectKeywordList']);
 // Route::get('fetch-developer-keywords', [Admincontroller::class, 'fetchDeveloperKeywordList']);
 
-Route::middleware(['throttle:30,1'])->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
+Route::middleware(['throttle:3,1'])->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
 // ======= Analytics =========
 Route::middleware('admin.token')->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
 Route::middleware('api.token')->get('business-dashboard-analytics', [BusinessDashboardAnalyticsController::class, 'businessDashboardAnalytics']);
@@ -779,4 +781,10 @@ Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [To
     Route::middleware('admin.token')->get('generate-api-client-id', [ApiClientController::class, 'generateApiClientId']);
     Route::middleware('admin.token')->get('generate-api-client-secret', [ApiClientController::class, 'generateApiClientSecret']);
     Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClientController::class, 'getAppTypes']);
+
+// IpLog
+
+    Route::get('/admin/ip-logs', [IpLogController::class, 'index']);
+    Route::post('/admin/ip-logs/unblock', [IpLogController::class, 'unblock']);
+    Route::post('/admin/ip-logs/block', [IpLogController::class, 'block']);
 

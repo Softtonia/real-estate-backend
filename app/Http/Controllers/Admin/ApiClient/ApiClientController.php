@@ -30,7 +30,7 @@ class ApiClientController extends Controller
         try {
             $validated = $request->validate([
                 'client_name' => 'required|string|max:255',
-                'app-type' => ['nullable', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
+                'app_type' => ['nullable', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
                 'status' => ['required', Rule::in(['0', '1'])],
                 'allowed_domain' => 'required|array',
                 'allowed_domain.*' => 'url',
@@ -42,7 +42,7 @@ class ApiClientController extends Controller
                 'client_name' => $validated['client_name'],
                 'client_id' => $validated['client_id'],
                 'client_secret' => $validated['client_secret'],
-                'app-type' => $validated['app-type'] ?? null,
+                'app_type' => $validated['app_type'] ?? null,
                 'status' => $validated['status'],
                 'allowed_domain' => $validated['allowed_domain'], // array saved as JSON
             ]);
@@ -91,7 +91,7 @@ class ApiClientController extends Controller
         try {
             $validated = $request->validate([
                 'client_name' => 'sometimes|required|string|max:255',
-                'app-type' => ['nullable', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
+                'app_type' => ['nullable', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
                 'status' => ['sometimes', Rule::in(['0', '1'])],
                 'allowed_domain' => 'sometimes|required|array',
                 'allowed_domain.*' => 'url',
@@ -154,7 +154,7 @@ class ApiClientController extends Controller
     public function getAppTypes()
     {
         try {
-            $type = DB::select("SHOW COLUMNS FROM api_clients WHERE Field = 'app-type'")[0]->Type;
+            $type = DB::select("SHOW COLUMNS FROM api_clients WHERE Field = 'app_type'")[0]->Type;
 
             preg_match('/enum\((.*)\)/', $type, $matches);
             $enumValues = [];

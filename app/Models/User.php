@@ -30,7 +30,7 @@ protected $fillable = [
         'deactive_reason',
         'token_created_at',
         'unique_id',
-        'isapproved','google_id'
+        'isapproved','google_id','username'
     ];
 
         protected $table='users';
