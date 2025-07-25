@@ -15,32 +15,7 @@ class AmenitycategoriesController extends Controller
 {
     public function store(Request $request)
     {
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
         try {
             // Validate the request data
             $validatedData = $request->validate([
@@ -177,8 +152,10 @@ class AmenitycategoriesController extends Controller
         try {
             // Fetch the amenity category with the specified ID along with its related media
             $id = $request->id;
-            $amenitiesCategory = AmenitiesCategory::with('media')->findOrFail($id);
-
+            $amenitiesCategory = AmenitiesCategory::with('media')->find($id);
+            if (!$amenitiesCategory) {
+                return response()->json(['error' => 'Amenities category not found'], 200);
+            }
             // Initialize an array to hold formatted data for the amenity category
             $formattedData = [
                 'id' => $amenitiesCategory->id,
@@ -216,32 +193,6 @@ class AmenitycategoriesController extends Controller
 
     public function update(Request $request)
     {
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
-
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         try {
             $id = $request->id;
@@ -250,7 +201,7 @@ class AmenitycategoriesController extends Controller
             $amenitiesCategory = AmenitiesCategory::find($id);
 
             if (!$amenitiesCategory) {
-                return response()->json(['error' => 'Amenities category not found.'], 404);
+                return response()->json(['error' => 'Amenities category not found.'], 200);
             }
 
             try {
@@ -351,38 +302,7 @@ class AmenitycategoriesController extends Controller
 
     public function destroy(Request $request)
     {
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
         try {
             $id = $request->id;
             $amenityCategory = AmenitiesCategory::findOrFail($id); // Find the amenity category by ID
@@ -392,7 +312,7 @@ class AmenitycategoriesController extends Controller
             return response()->json(['message' => 'Amenity category deleted successfully']);
         } catch (ModelNotFoundException $e) {
             // Handle the case where the ID is not found
-            return response()->json(['error' => 'Amenity category not found.'], 404);
+            return response()->json(['error' => 'Amenity category not found.'], 200);
         } catch (\Throwable $th) {
             // Handle any other exceptions and return an error response
             return response()->json(['error' => $th->getMessage()], 500);
@@ -403,32 +323,7 @@ class AmenitycategoriesController extends Controller
     public function bulkDelete(Request $request)
     {
 
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
 
-        // Retrieve the Authorization header
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check if the header starts with "Bearer "
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract the token by removing the "Bearer " prefix
-        $requestToken = substr($authorizationHeader, 7);
-
-        // Check if the token is empty after removing "Bearer "
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Verify the token dynamically (e.g., check in the database)
-        $tokenExists = DB::table('users')->where('api_token', $requestToken)->exists();
-
-        if (!$tokenExists) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
 
         try {
             // Find the builder by ID
@@ -447,7 +342,7 @@ class AmenitycategoriesController extends Controller
             ], 200);
         } catch (ModelNotFoundException $e) {
             // Handle model not found errors
-            return response()->json(['error' => 'purpose not found'], 404);
+            return response()->json(['error' => 'Amenities category not found'], 200);
         } catch (\Exception $e) {
             // Handle other unexpected errors
             return response()->json(['error' => 'Something went wrong'], 500);

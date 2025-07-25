@@ -360,7 +360,7 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::middleware('admin.token')->post('amenity-update', [Amenitycontroller::class, 'update']);
     Route::middleware('api.token')->get('amenity-listing', [Amenitycontroller::class, 'index']);
     Route::middleware('admin.token')->post('amenity', [Amenitycontroller::class, 'destroy']);
-    Route::post('getdatabyId-amenity', [Amenitycontroller::class, 'getdatabyId']);
+    Route::middleware('api.token')->post('getdatabyId-amenity', [Amenitycontroller::class, 'getdatabyId']);
     Route::middleware('admin.token')->post('amenity-bulk-delete', [Amenitycontroller::class, 'bulkDelete']);
 
 
@@ -379,13 +379,13 @@ Route::middleware(['validate.api.client'])->group(function () {
 
 
     // =======Status============
-    Route::post('status-create', [statuscontroller::class, 'store']);
-    Route::post('status-update', [statuscontroller::class, 'update']);
+    Route::middleware('admin.token')->post('status-create', [statuscontroller::class, 'store']);
+    Route::middleware('admin.token')->post('status-update', [statuscontroller::class, 'update']);
     Route::middleware('api.token')->get('status-listing', [statuscontroller::class, 'index']);
-    Route::post('status', [statuscontroller::class, 'destroy']);
-    Route::get('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
-    Route::post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
-    Route::get('status-search', [statuscontroller::class, 'searchByName'])->name('status.search');
+    Route::middleware('admin.token')->post('status', [statuscontroller::class, 'destroy']);
+    Route::middleware('api.token')->get('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
+    Route::middleware('admin.token')->post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
+    Route::middleware('api.token')->get('status-search', [statuscontroller::class, 'searchByName'])->name('status.search');
 
     // =======Purpose============
 
@@ -790,9 +790,9 @@ Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClient
 // IpLog
 
 Route::middleware(['admin.token','throttle:3,1'])->get('admin/ip-logs', [IpLogController::class, 'index']);
-Route::middleware(['admin.token'])->post('admin/ip-logs/unblock', [IpLogController::class, 'unblock']);
-Route::middleware(['admin.token'])->post('admin/ip-logs/block', [IpLogController::class, 'block']);
+Route::middleware(['admin.token'])->post('admin/ip-logs-update-status', [IpLogController::class, 'updateIpStatus']);
 
 Route::middleware(['admin.token'])->get('admin/ip-logs-by-ip-address', [IpLogController::class, 'getByIpAddress']);
 Route::middleware(['admin.token'])->get('admin/ip-logs-by-user-id', [IpLogController::class, 'getByUserId']);
 Route::middleware(['admin.token'])->get('admin/ip-logs-by-id', [IpLogController::class, 'getById']);
+Route::middleware(['admin.token'])->post('admin/ip-logs-update-status-by-ip', [IpLogController::class, 'updateStatusByIp']);

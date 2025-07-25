@@ -37,33 +37,35 @@ class IpLogController extends Controller
 
 
 
-    public function unblock(Request $request)
+    public function updateIpStatus(Request $request)
     {
         $id = $request->input('id');
-        $ip = UserIpLog::findOrFail($id);
+        $action = $request->input(key: 'status'); // 'block' or 'unblock'
 
-        if(!$ip){
-            return response()->json(['error' => 'Ip not found'], 200);
+        $ip = UserIpLog::find($id);
+
+        if (!$ip) {
+            return response()->json(['error' => 'IP not found'], 200);
         }
 
-        $ip->status = 'active';
-        $ip->save();
-
-        return response()->json(['message' => 'IP unblocked successfully.']);
-    }
-
-    public function block(Request $request)
-    {
-        $id = $request->input('id');
-        $ip = UserIpLog::findOrFail($id);
-        if(!$ip){
-            return response()->json(['error' => 'Ip not found'], 200);
+        switch ($action) {
+            case 'block':
+                $ip->status = 'blocked';
+                $message = 'IP blocked successfully.';
+                break;
+            case 'unblock':
+                $ip->status = 'active';
+                $message = 'IP unblocked successfully.';
+                break;
+            default:
+                return response()->json(['error' => 'Invalid action. Use block or unblock.'], 422);
         }
-        $ip->status = 'blocked';
+
         $ip->save();
 
-        return response()->json(['message' => 'IP blocked successfully.']);
+        return response()->json(['message' => $message]);
     }
+
 
     public function getByIpAddress(Request $request)
     {
@@ -105,6 +107,36 @@ class IpLogController extends Controller
 
         return response()->json($iplog);
     }
+
+    public function updateStatusByIp(Request $request)
+    {
+        $ipAddress = $request->input('ip');
+        $action = $request->input('status'); // 'block' or 'unblock'
+
+        $ipLog = UserIpLog::where('ip_address', $ipAddress)->first();
+
+        if (!$ipLog) {
+            return response()->json(['error' => 'IP not found.'], 200);
+        }
+
+        switch ($action) {
+            case 'block':
+                $ipLog->status = 'blocked';
+                $message = 'IP blocked successfully.';
+                break;
+            case 'unblock':
+                $ipLog->status = 'active';
+                $message = 'IP unblocked successfully.';
+                break;
+            default:
+                return response()->json(['error' => 'Invalid action. Use block or unblock.'], 422);
+        }
+
+        $ipLog->save();
+
+        return response()->json(['message' => $message]);
+    }
+
 
 
 }
