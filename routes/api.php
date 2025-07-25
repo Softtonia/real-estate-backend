@@ -789,7 +789,10 @@ Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClient
 
 // IpLog
 
-Route::middleware(['admin.token','throttle:3,1'])->get('/admin/ip-logs', [IpLogController::class, 'index']);
-Route::middleware(['admin.token'])->post('/admin/ip-logs/unblock', [IpLogController::class, 'unblock']);
-Route::middleware(['admin.token'])->post('/admin/ip-logs/block', [IpLogController::class, 'block']);
+Route::middleware(['admin.token','throttle:3,1'])->get('admin/ip-logs', [IpLogController::class, 'index']);
+Route::middleware(['admin.token'])->post('admin/ip-logs/unblock', [IpLogController::class, 'unblock']);
+Route::middleware(['admin.token'])->post('admin/ip-logs/block', [IpLogController::class, 'block']);
 
+Route::middleware(['admin.token'])->get('admin/ip-logs-by-ip-address', [IpLogController::class, 'getByIpAddress']);
+Route::middleware(['admin.token'])->get('admin/ip-logs-by-user-id', [IpLogController::class, 'getByUserId']);
+Route::middleware(['admin.token'])->get('admin/ip-logs-by-id', [IpLogController::class, 'getById']);

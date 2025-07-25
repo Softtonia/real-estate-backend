@@ -21,7 +21,7 @@ class ApiClientTableSeeder extends Seeder
                 'client_secret'   => 'secret987',
                 'app_type'        => 'admin',
                 'status'          => '1',
-                'allowed_domain'  => '["http://admin.urbanrealities.com/","http://127.0.0.1:8000/","http://localhost:5173/"]',
+                'allowed_domain'  => '["http://admin.urbanrealities.com","http://127.0.0.1:8000","http://localhost:5173"]',
             ],
 
             [
@@ -30,7 +30,7 @@ class ApiClientTableSeeder extends Seeder
                 'client_secret'   => 'secret123',
                 'app_type'        => 'business',
                 'status'          => '1',
-                'allowed_domain'  => '["http://business.urbanrealities.com/","http://127.0.0.1:8000/","http://localhost:5173/"]',
+                'allowed_domain'  => '["http://business.urbanrealities.com","http://127.0.0.1:8000","http://localhost:5173"]',
             ],
             [
                 'client_name'     => 'Main Website',
@@ -38,7 +38,7 @@ class ApiClientTableSeeder extends Seeder
                 'client_secret'   => 'secret456',
                 'app_type'        => 'website',
                 'status'          => '1',
-                'allowed_domain'  => '["http://www.urbanrealities.com/","http://127.0.0.1:8000/","http://localhost:5173/"]',
+                'allowed_domain'  => '["http://www.urbanrealities.com","http://127.0.0.1:8000","http://localhost:5173"]',
             ],
             [
                 'client_name'     => 'Mobile App',
