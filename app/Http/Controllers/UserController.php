@@ -1031,43 +1031,50 @@ class UserController extends Controller
     }
 
     // for all user list
+    // public function alluserlist(Request $request)
+    // {
+    //     try {
+
+
+    //         $users = User::where('role_id', '!=', 1)
+    //             ->with('role')
+    //             ->get();
+
+    //         // Extract the necessary information from each user
+    //         $userList = $users->map(function ($user) {
+    //             $roleName = $user->role ? $user->role->name : null; // Check if role is loaded
+    //             return [
+    //                 'id' => $user->id,
+    //                 'first_name' => $user->first_name,
+    //                 'last_name' => $user->last_name,
+    //                 'email' => $user->email,
+    //                 'phone' => $user->phone,
+    //                 'role_name' => $roleName,
+    //                 'unique_id' => $user->unique_id,
+    //                 'isapproved' => $user->isapproved,
+    //                 // Add more fields as needed
+    //             ];
+    //         });
+
+    //         // Return the user list as JSON response
+    //         return response()->json($userList, 200);
+    //     } catch (\Throwable $th) {
+    //         // Handle any exceptions and return an error response
+    //         return response()->json(['error' => $th->getMessage()], 500);
+    //     }
+    // }
+
     public function alluserlist(Request $request)
     {
         try {
-            if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-                return response()->json(['error' => 'Please provide an API token.'], 422);
-            }
-
-            // Retrieve the Authorization header
-            $authorizationHeader = $request->header('Authorization');
-
-            // Check if the header starts with "Bearer "
-            if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-                return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-            }
-
-            // Extract the token by removing the "Bearer " prefix
-            $requestToken = substr($authorizationHeader, 7);
-
-            // Check if the token is empty after removing "Bearer "
-            if (empty($requestToken)) {
-                return response()->json(['error' => 'Token is missing.'], 422);
-            }
-
-            // Verify the token dynamically (check in the database)
-            $user = User::where('api_token', $requestToken)->first();
-
-            if (!$user) {
-                return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-            }
+            $perPage = $request->input('per_page', 20);
 
             $users = User::where('role_id', '!=', 1)
                 ->with('role')
-                ->get();
+                ->paginate($perPage);
 
-            // Extract the necessary information from each user
-            $userList = $users->map(function ($user) {
-                $roleName = $user->role ? $user->role->name : null; // Check if role is loaded
+            $userList = $users->getCollection()->map(function ($user) {
+                $roleName = $user->role ? $user->role->name : null;
                 return [
                     'id' => $user->id,
                     'first_name' => $user->first_name,
@@ -1077,17 +1084,37 @@ class UserController extends Controller
                     'role_name' => $roleName,
                     'unique_id' => $user->unique_id,
                     'isapproved' => $user->isapproved,
-                    // Add more fields as needed
                 ];
             });
 
-            // Return the user list as JSON response
-            return response()->json($userList, 200);
+            // Build pagination links
+            $baseUrl = $request->url();
+            $queryParams = $request->query();
+            $queryParams['per_page'] = $users->perPage();
+
+            $firstPageUrl = $baseUrl . '?' . http_build_query(array_merge($queryParams, ['page' => 1]));
+            $lastPageUrl = $baseUrl . '?' . http_build_query(array_merge($queryParams, ['page' => $users->lastPage()]));
+
+            return response()->json([
+                'message' => 'All Users List',
+                'data' => $userList,
+                'current_page' => $users->currentPage(),
+                'last_page' => $users->lastPage(),
+                'per_page' => $users->perPage(),
+                'total' => $users->total(),
+                'links' => [
+                    'first' => $firstPageUrl,
+                    'last' => $lastPageUrl,
+                    'next' => $users->nextPageUrl(),
+                    'prev' => $users->previousPageUrl(),
+                ],
+            ], 200);
         } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
+
+
     // for get details by user_id
 //         public function getdetailsbyuserid(Request $request)
 // {
@@ -1513,10 +1540,35 @@ class UserController extends Controller
             return response()->json(['error' => 'You cannot create the admin role as it already exists.'], 400);
         }
 
+        $role = Role::find($request->role_id);
+        if (!$role) {
+            return response()->json(['error' => 'Invalid role provided.'], 400);
+        }
+
+
+
+        // Conditional validation based on role
+        $conditionalRoles = ['agent', 'company', 'developer', 'consultancy'];
+        if (in_array(strtolower($role->name), $conditionalRoles)) {
+            try {
+                $request->validate([
+                    'bussiness_name' => 'required|string|max:255',
+                    'business_phone' => 'required|string|max:20',
+                    'bussiness_email' => 'required|email',
+                    'country_id' => 'required|numeric|exists:countries,id',
+                    'state_id' => 'required|numeric|exists:states,id',
+                    'city_id' => 'required|numeric|exists:cities,id',
+                    'license_number' => 'required|string|max:100',
+                ]);
+            } catch (ValidationException $e) {
+                return response()->json(['error' => $e->errors()], 400);
+            }
+        }
+
         $user = User::find($request->id);
         // \Log::info($user);
         if (!$user) {
-            return response()->json(['error' => 'User not found.'], 404);
+            return response()->json(['error' => 'User not found.'], 200);
         }
 
         $user->first_name = $request->first_name;
@@ -2190,6 +2242,29 @@ class UserController extends Controller
             return response()->json(['error' => 'You cannot create an admin role.'], 400);
         }
 
+        // Conditional validation for specific roles
+        $conditionalRoles = ['agent', 'company', 'developer', 'consultancy'];
+        if (in_array(strtolower($role->name), $conditionalRoles)) {
+            try {
+                $request->validate([
+                    'bussiness_name' => 'required|string|max:255',
+                    'business_phone' => 'required|string|max:20',
+                    'bussiness_email' => 'required|email',
+                    'country_id' => 'required|numeric|exists:countries,id',
+                    'state_id' => 'required|numeric|exists:states,id',
+                    'city_id' => 'required|numeric|exists:cities,id',
+                    'license_number' => 'required|string|max:100',
+                ]);
+            } catch (ValidationException $e) {
+                return response()->json([
+                    'message' => 'Validation Failed (Additional Fields)',
+                    'errors' => $e->errors()
+                ], 422);
+            }
+        }
+
+
+
         $prefix = $role->prefix ?? '';
         $uniqueIDModel = new UniqueID();
         $uniqueIDModel->unique_id = $prefix . str_pad(UniqueID::count() + 1, 3, '0', STR_PAD_LEFT);
@@ -2274,6 +2349,7 @@ class UserController extends Controller
                 'email' => 'required|unique:users,email,' . $request->id,
                 'role_id' => 'required|exists:roles,id',
                 'password' => 'nullable',
+
             ]);
         } catch (ValidationException $e) {
             return response()->json(['error' => $e->errors()], 400);
@@ -2289,11 +2365,40 @@ class UserController extends Controller
             return response()->json(['error' => 'Invalid role provided.'], 400);
         }
 
+
+
+        // Conditional validation based on role
+        $conditionalRoles = ['agent', 'company', 'developer', 'consultancy'];
+        if (in_array(strtolower($role->name), $conditionalRoles)) {
+            try {
+                $request->validate([
+                    'bussiness_name' => 'required|string|max:255',
+                    'business_phone' => 'required|string|max:20',
+                    'bussiness_email' => 'required|email',
+                    'country_id' => 'required|numeric|exists:countries,id',
+                    'state_id' => 'required|numeric|exists:states,id',
+                    'city_id' => 'required|numeric|exists:cities,id',
+                    'license_number' => 'required|string|max:100',
+                ]);
+            } catch (ValidationException $e) {
+                return response()->json(['error' => $e->errors()], 400);
+            }
+        }
+
+
+
         $id = $request->id;
         $user = User::find($id);
+
+        if(!$user){
+            return response()->json(['error' => 'User not found.'], 200);
+        }
+        $user->first_name = $request->first_name;
+        $user->last_name = $request->last_name;
         $user->email = $request->email;
         $user->phone = $request->phone;
         $user->role_id = $request->role_id;
+        $user->user_name = $request->user_name;
 
         // Update password only if provided
         if ($request->filled('password')) {

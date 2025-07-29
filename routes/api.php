@@ -146,7 +146,7 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::get('listing-of-property-for-buy', [UserController::class, 'listingOfPropertyForBuy']);
     Route::get('listing-of-property-for-rent', [UserController::class, 'listingOfPropertyForRent']);
     Route::middleware('admin.token')->post('update-site-setting', [UserController::class, 'updateSiteSetting']);
-    Route::middleware(['throttle:3,1'])->get('site-setting', [SiteSettingController::class, 'siteSetting']);
+    Route::middleware(['throttle:30,1'])->get('site-setting', [SiteSettingController::class, 'siteSetting']);
     Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
 
     Route::get('get-all-pages', [UserController::class, 'getAllPages']);
