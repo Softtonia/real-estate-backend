@@ -114,7 +114,7 @@ class AdminController extends Controller
         // dd( $user);
         // Check if the user is found
         if (!$user) {
-            return response()->json(['message' => 'User not found'], 404);
+            return response()->json(['message' => 'User not found'], 200);
         }
 
         // Update the fields with validated data
