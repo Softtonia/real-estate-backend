@@ -106,7 +106,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
         Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
-// Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
+       // Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
         Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
         Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);
         Route::middleware('admin.token')->post('create-user', [UserController::class, 'createUser']);
@@ -253,7 +253,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::middleware('allow.admin_company')->post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
         Route::middleware('adminOrCurrentUser')->post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
         //
-#### No Auth ######
+       #### No Auth ######
         Route::get('get-all-properties-listing-no-auth', [PropertylistingController::class, 'index']);
         Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
         Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
@@ -263,14 +263,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
         // frontend site
-// =======Front Property Listing============
+       // =======Front Property Listing============
 
 
         Route::post('store-property-analytics', [frontPropertylistingController::class, 'storePropertyAnalytics']);
         Route::get('list-property-analytics', [frontPropertylistingController::class, 'listPropertyAnalytics']);
         Route::get('view-property-analytics', [frontPropertylistingController::class, 'viewPropertyAnalytics']);
         // frontend side
-// =======Front Project Listing============
+       // =======Front Project Listing============
         Route::post('add-website-project-listing', [frontProjectlistingController::class, 'store']);
         Route::post('edit-website-project-listing', [frontProjectlistingController::class, 'update']);
         Route::post('delete-website-project-listing', [frontProjectlistingController::class, 'destroy']);
@@ -290,7 +290,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
     // Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
-// dd(1);
+    // dd(1);
 
     Route::middleware(['validate.api.client'])->group(function () {
 
@@ -732,8 +732,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::middleware('allrole.token')->post('business-role-update-profile', [UserController::class, 'updateProfile']);
 
 
-        Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle']);
-        Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback']);
+        // Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle']);
+        // Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback']);
 
 
         //Un-used Route
@@ -799,3 +799,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['admin.token'])->post('admin/ip-logs-update-status-by-ip', [IpLogController::class, 'updateStatusByIp']);
 
 });
+
+
+Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle']);
+Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback']);

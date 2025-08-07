@@ -2221,6 +2221,15 @@ class UserController extends Controller
                 'email' => 'required|email|unique:users',
                 'role_id' => 'required|exists:roles,id',
                 'password' => 'required',
+                'country_id' => 'required|exists:countries,id',
+                'state_id' => 'required|exists:states,id',
+                'city_id' => 'required|exists:cities,id',
+                'area' => 'nullable|string',
+                'locality' => 'nullable|string',
+                'colony'=> 'nullable|string',
+                'street_address' => 'nullable|string',
+                'pin_code' => 'required|numeric|min:6',
+                'about' => 'nullable|string',
                 'user_name' => 'required|string|min:3|max:20|unique:users,user_name|regex:/^[a-zA-Z0-9._]+$/',
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot and underscore are allowed in username.',
@@ -2251,10 +2260,16 @@ class UserController extends Controller
                     'bussiness_name' => 'required|string|max:255',
                     'business_phone' => 'required|string|max:20',
                     'bussiness_email' => 'required|email',
-                    'country_id' => 'required|numeric|exists:countries,id',
-                    'state_id' => 'required|numeric|exists:states,id',
-                    'city_id' => 'required|numeric|exists:cities,id',
+                    'business_country_id' => 'required|numeric|exists:countries,id',
+                    'business_state_id' => 'required|numeric|exists:states,id',
+                    'business_city_id' => 'required|numeric|exists:cities,id',
                     'license_number' => 'required|string|max:100',
+                    'business_area' => 'nullable|string',
+                    'business_locality' => 'nullable|string',
+                    'business_colony'=> 'nullable|string',
+                    'business_street_address' => 'nullable|string',
+                    'business_pin_code' => 'required|numeric|min:6',
+                    'about_me' => 'nullable|string',
                 ]);
             } catch (ValidationException $e) {
                 return response()->json([
@@ -2299,6 +2314,15 @@ class UserController extends Controller
                 'password' => Hash::make($request->password),
                 'isapproved' => $request->isapproved,
                 'created_by' => $authUser->id,
+                'country_id' => $request->country_id,
+                'state_id' => $request->state_id,
+                'city_id' => $request->city_id,
+                'area' => $request->area,
+                'locality' => $request->locality,
+                'colony' => $request->colony,
+                'street_address' => $request->street_address,
+                'pin_code' => $request->pin_code,
+                'about' => $request->about
             ]);
             // dd($user);
             DB::table('user_has_unique_ids')->insert([
@@ -2313,17 +2337,21 @@ class UserController extends Controller
                 'bussiness_address' => $request->bussiness_address,
                 'bussiness_email' => $request->bussiness_email,
                 'business_phone' => $request->business_phone,
-                'country_id' => $request->country_id,
-                'state_id' => $request->state_id,
-                'city_id' => $request->city_id,
-                'address' => $request->address,
-                'pin_code' => $request->pin_code,
+                'country_id' => $request->business_country_id,
+                'state_id' => $request->business_state_id,
+                'city_id' => $request->business_city_id,
+                'address' => $request->business_address,
+                'pin_code' => $request->business_pin_code,
                 'license_number' => $request->license_number,
                 'alternate_number' => $request->alternate_number,
                 'no_of_employees' => $request->no_of_employees,
                 'profile_photo' => $profilePhotoPath,
                 'created_by' => $authUser->id,
-                'about_us' => $request->about_us
+                'about_us' => $request->about_us,
+                'area' => $request->business_area,
+                'locality' => $request->business_locality,
+                'colony' => $request->business_colony,
+                'street_address' => $request->business_street_address,
             ]);
 
             DB::commit();

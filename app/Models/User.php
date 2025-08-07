@@ -14,24 +14,24 @@ class User extends Authenticatable implements CanResetPassword
 {
 use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
-protected $fillable = [
-        'first_name',
-        'last_name',
-        'fullname',
-        'email',
-        'password',
-        'role_id',
-        'phone',
-        'api_token',
-        'country_code',
-        'requestId',
-	    'email_otp',
-        'email_otp_expires_at',
-        'deactive_reason',
-        'token_created_at',
-        'unique_id',
-        'isapproved','google_id','user_name'
-    ];
+// protected $fillable = [
+//         'first_name',
+//         'last_name',
+//         'fullname',
+//         'email',
+//         'password',
+//         'role_id',
+//         'phone',
+//         'api_token',
+//         'country_code',
+//         'requestId',
+// 	    'email_otp',
+//         'email_otp_expires_at',
+//         'deactive_reason',
+//         'token_created_at',
+//         'unique_id',
+//         'isapproved','google_id','user_name'
+//     ];
 
         protected $table='users';
         protected $guarded=[];
