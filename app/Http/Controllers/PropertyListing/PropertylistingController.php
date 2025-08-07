@@ -82,6 +82,11 @@ class PropertylistingController extends Controller
                 'country_id' => 'required|exists:countries,id',
                 'state_id' => 'required|exists:states,id',
                 'city_id' => 'required|exists:cities,id',
+                'area' => 'nullable|string',
+                'locality' => 'nullable|string',
+                'colony' => 'nullable|string',
+                'street_address' => 'nullable|string',
+                'pin_code' => 'required|numeric|digits:6',
             ]);
 
             // Set `live_status` for non-admin users
@@ -125,6 +130,11 @@ class PropertylistingController extends Controller
                 'created_by' => $user->id,
                 'temporary_status' => $request->temporary_status,
                 'featured_image' => $featuredImage, // ✅ Store as `/uploads/properties/{file_name}`
+                'area' => $request->area,
+                'locality' => $request->locality,
+                'colony' => $request->colony,
+                'street_Address' => $request->street_address,
+                'pin_code' => $request->pin_code,
             ];
 
 
@@ -528,6 +538,11 @@ class PropertylistingController extends Controller
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
+                    'area' => $property->area,
+                    'locality' => $property->locality,
+                    'colony' => $property->colony,
+                    'street_address' => $property->street_address,
+                    'pin_code' => $property->pin_code,
                     'top_featured_id' => $property->top_featured_id,
                     'featured' => $property->top_featured_id !== null, // true if not null, else false
                 ];
@@ -1028,6 +1043,11 @@ class PropertylistingController extends Controller
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
+                    'area' => $property->area,
+                    'locality' => $property->locality,
+                    'colony' => $property->colony,
+                    'street_address' => $property->street_address,
+                    'pin_code' => $property->pin_code,
                     'property_address' => $property->property_address,
                     'live_status' => $property->live_status,
                     'temporary_status' => $property->temporary_status,
@@ -1140,6 +1160,12 @@ class PropertylistingController extends Controller
                 'property_status_id' => 'nullable',
                 'property_type_id' => 'nullable',
                 'project_id' => 'nullable|exists:project_listings,id',
+                'area' => 'nullable|string',
+                'locality' => 'nullable|string',
+                'colony' => 'nullable|string',
+                'street_address' => 'nullable|string',
+                'pin_code' => 'required|numeric|digits:6',
+
             ]);
 
             // Find the property by ID
@@ -1393,50 +1419,50 @@ class PropertylistingController extends Controller
                                             //     }
 
                                             case 'media':
-        $existingMedia = isset($subField['existing_value']) ? json_decode($subField['existing_value'], true) : [];
-        $fileNames = is_array($existingMedia) ? $existingMedia : [];
+                                                $existingMedia = isset($subField['existing_value']) ? json_decode($subField['existing_value'], true) : [];
+                                                $fileNames = is_array($existingMedia) ? $existingMedia : [];
 
-        if (isset($subField['field_value']) && is_array($subField['field_value'])) {
-            foreach ($subField['field_value'] as $file) {
-                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                    $fileName = time() . '_' . $file->getClientOriginalName();
-                    $file->move(public_path('uploads/media'), $fileName);
-                    $fileNames[] = $fileName;
-                } elseif (is_string($file)) {
-                    $fileNames[] = $file; // already existing file
-                }
-            }
-        }
+                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+                                                    foreach ($subField['field_value'] as $file) {
+                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                                            $fileName = time() . '_' . $file->getClientOriginalName();
+                                                            $file->move(public_path('uploads/media'), $fileName);
+                                                            $fileNames[] = $fileName;
+                                                        } elseif (is_string($file)) {
+                                                            $fileNames[] = $file; // already existing file
+                                                        }
+                                                    }
+                                                }
 
-        if (!empty($fileNames)) {
-            $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
-        }
-        break;
+                                                if (!empty($fileNames)) {
+                                                    $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
+                                                }
+                                                break;
 
-    case 'file':
-        $existingFiles = isset($subField['existing_value']) ? json_decode($subField['existing_value'], true) : [];
-        $filePaths = is_array($existingFiles) ? $existingFiles : [];
+                                            case 'file':
+                                                $existingFiles = isset($subField['existing_value']) ? json_decode($subField['existing_value'], true) : [];
+                                                $filePaths = is_array($existingFiles) ? $existingFiles : [];
 
-        if (isset($subField['field_value']) && is_array($subField['field_value'])) {
-            foreach ($subField['field_value'] as $file) {
-                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                    if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
-                        $fileName = time() . '_' . $file->getClientOriginalName();
-                        $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
-                        $file->storeAs('public/uploads/customfield/properties/files', $fileName);
-                        $filePaths[] = $relativePath;
-                    } else {
-                        return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX allowed.'], 400);
-                    }
-                } elseif (is_string($file)) {
-                    $filePaths[] = $file; // already existing file path
-                }
-            }
-        }
+                                                if (isset($subField['field_value']) && is_array($subField['field_value'])) {
+                                                    foreach ($subField['field_value'] as $file) {
+                                                        if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                                                            if (in_array($file->getClientOriginalExtension(), ['pdf', 'doc', 'docx'])) {
+                                                                $fileName = time() . '_' . $file->getClientOriginalName();
+                                                                $relativePath = 'storage/uploads/customfield/properties/files/' . $fileName;
+                                                                $file->storeAs('public/uploads/customfield/properties/files', $fileName);
+                                                                $filePaths[] = $relativePath;
+                                                            } else {
+                                                                return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX allowed.'], 400);
+                                                            }
+                                                        } elseif (is_string($file)) {
+                                                            $filePaths[] = $file; // already existing file path
+                                                        }
+                                                    }
+                                                }
 
-        if (!empty($filePaths)) {
-            $repeaterFieldData['field_meta_value'] = json_encode($filePaths);
-        }
+                                                if (!empty($filePaths)) {
+                                                    $repeaterFieldData['field_meta_value'] = json_encode($filePaths);
+                                                }
                                                 break;
                                         }
 
@@ -2025,11 +2051,11 @@ class PropertylistingController extends Controller
 
                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
 
-                                    $existingValue = is_array($decoded) ? $decoded : [];
+                                $existingValue = is_array($decoded) ? $decoded : [];
 
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => url($file), $decoded)
-                                        : [];
+                                $value = is_array($decoded)
+                                    ? array_map(fn($file) => url($file), $decoded)
+                                    : [];
 
 
 
@@ -2039,13 +2065,13 @@ class PropertylistingController extends Controller
                                 //     ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
                                 //     : [];
 
-                                 $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                $decoded = is_string($value) ? json_decode($value, true) : $value;
 
-                                    $existingValue = is_array($decoded) ? $decoded : [];
+                                $existingValue = is_array($decoded) ? $decoded : [];
 
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-                                        : [];
+                                $value = is_array($decoded)
+                                    ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                    : [];
 
                             }
 
@@ -2059,20 +2085,20 @@ class PropertylistingController extends Controller
                             // ];
 
                             $subField = [
-    'sub_field_id' => $row->custom_field_id,
-    'field_type' => $fieldTypeNested,
-    'field_label' => $fieldLabel,
-    'placeholder' => $fieldPlaceholder,
-    'field_value' => $value,
-    'options' => $nestedOptions,
-];
+                                'sub_field_id' => $row->custom_field_id,
+                                'field_type' => $fieldTypeNested,
+                                'field_label' => $fieldLabel,
+                                'placeholder' => $fieldPlaceholder,
+                                'field_value' => $value,
+                                'options' => $nestedOptions,
+                            ];
 
-// ✅ Add existing_value for media/file
-if (in_array($fieldTypeNested, ['file', 'media'])) {
-    $subField['existing_value'] = $existingValue ?? [];
-}
+                            // ✅ Add existing_value for media/file
+                            if (in_array($fieldTypeNested, ['file', 'media'])) {
+                                $subField['existing_value'] = $existingValue ?? [];
+                            }
 
-$groupData[] = $subField;
+                            $groupData[] = $subField;
                         }
 
                         $repeaterData[] = $groupData;
@@ -2108,11 +2134,11 @@ $groupData[] = $subField;
 
                     $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
 
-                $fieldValue = is_array($decoded)
-                    ? array_map(fn($file) => url($file), $decoded)
-                    : [];
+                    $fieldValue = is_array($decoded)
+                        ? array_map(fn($file) => url($file), $decoded)
+                        : [];
 
-                $existingValue = is_array($decoded) ? $decoded : [];
+                    $existingValue = is_array($decoded) ? $decoded : [];
 
 
 
@@ -2124,11 +2150,11 @@ $groupData[] = $subField;
 
                     $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
 
-    $fieldValue = is_array($decoded)
-        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-        : [];
+                    $fieldValue = is_array($decoded)
+                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                        : [];
 
-    $existingValue = is_array($decoded) ? $decoded : [];
+                    $existingValue = is_array($decoded) ? $decoded : [];
 
 
                 }
@@ -2167,7 +2193,13 @@ $groupData[] = $subField;
                 'country' => $property->country,
                 'state' => $property->state,
                 'city' => $property->city,
+
                 'property_address' => $property->property_address,
+                'area' => $property->area,
+                'locality' => $property->locality,
+                'colony' => $property->colony,
+                'street_address' => $property->street_address,
+                'pin_code' => $property->pin_code,
                 'live_status' => $property->live_status,
                 'temporary_status' => $property->temporary_status,
                 'status_reason' => $property->status_reason,
@@ -2937,6 +2969,11 @@ $groupData[] = $subField;
                 'country' => $property->country,
                 'state' => $property->state,
                 'city' => $property->city,
+                'area' => $property->area,
+                    'locality' => $property->locality,
+                    'colony' => $property->colony,
+                    'street_address' => $property->street_address,
+                    'pin_code' => $property->pin_code,
                 'property_address' => $property->property_address,
                 'live_status' => $property->live_status,
                 'temporary_status' => $property->temporary_status,
