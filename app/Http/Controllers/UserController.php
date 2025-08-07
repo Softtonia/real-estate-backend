@@ -336,6 +336,11 @@ class UserController extends Controller
 
         $user->save();
 
+        $token = Str::random(80);
+
+        // Update the user's API token in the database
+        $user->update(['api_token' => $token]);
+
         DB::table('otps')->insert([
             // 'phone' => $request->phone,
             // 'email' => $request->email,
@@ -376,6 +381,7 @@ class UserController extends Controller
         return response()->json([
             'status' => true,
             'message' => 'User registered successfully. OTP sent via email.',
+            'api_token' => $token,
         ], 200);
     }
 
@@ -1209,28 +1215,6 @@ class UserController extends Controller
     public function getdetailsbyuserid(Request $request)
     {
         try {
-            // Get the authenticated user
-            // $user = Auth::guard('sanctum')->user();
-
-            // if (!$user) {
-            //     return response()->json(['error' => 'Unauthorized.'], 401);
-            // }
-
-            // $userId = $user->id;
-
-            // // Fetch the role of the authenticated user
-            // $userRole = DB::table('roles')
-            //     ->where('id', $user->role_id)
-            //     ->value('name');
-
-            // // Debugging: Log the authenticated user's role
-            // \Log::info('Authenticated user role:', ['role' => $userRole]);
-
-            // // If the user is an admin, block the request
-            // if (strtolower($userRole) === 'admin') {
-            //     return response()->json(['error' => 'Admins are not allowed to access this data.'], 403);
-            // }
-
 
             $userId = $request->id;
 
@@ -1241,6 +1225,9 @@ class UserController extends Controller
                 ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
                 ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
                 ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+                ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
+                ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
+                ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
                 ->where('users.id', $userId)
                 ->select(
                     'users.id',
@@ -1253,16 +1240,38 @@ class UserController extends Controller
                     DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
                     'users.unique_id',
                     'users.isapproved',
-                    // 'users.kyc',
+
+                    'users.country_id',
+                    'users.state_id',
+                    'users.city_id',
+                    'user_countries.name as country',
+                    'user_states.name as state',
+                    'user_cities.name as city',
+                    'users.area',
+                    'users.locality',
+                    'users.colony',
+                    'users.street_address',
+                    'users.pin_code',
+                    'users.about',
+
                     'user_details.bussiness_name',
                     'user_details.bussiness_address',
                     'user_details.bussiness_email',
                     'user_details.business_phone',
-                    'countries.name as country',
-                    'states.name as state',
-                    'cities.name as city',
+                    'user_details.country_id as business_country_id',
+                    'user_details.state_id as business_state_id',
+                    'user_details.city_id as business_city_id',
+                    'countries.name as business_country',
+                    'states.name as business_state',
+                    'cities.name as business_city',
+                    'user_details.area as business_area',
+                    'user_details.locality as business_locality',
+                    'user_details.colony as business_colony',
+                    'user_details.street_address as business_street_address',
+                    'user_details.pin_code as business_pin_code',
+                    // 'user_details.about_us as business_about_us',
+
                     'user_details.address',
-                    'user_details.pin_code',
                     'user_details.profile_photo',
                     'user_details.license_number',
                     'user_details.alternate_number',
@@ -1270,9 +1279,7 @@ class UserController extends Controller
                     'user_details.about_us',
                     'users.created_at',
                     'users.updated_at',
-                    'user_details.country_id',
-                    'user_details.state_id',
-                    'user_details.city_id'
+
                 )
                 ->first();
 
@@ -1295,15 +1302,35 @@ class UserController extends Controller
                 'unique_id' => $userData->unique_id,
                 'isapproved' => $userData->isapproved,
                 // 'kyc' => $userData->kyc,
+                'country_id' => $userData->country_id ?? 'N/A',
+                'state_id' => $userData->state_id ?? 'N/A',
+                'city_id' => $userData->city_id ?? 'N/A',
+                'country' => $userData->country ?? 'N/A',
+                'state' => $userData->state ?? 'N/A',
+                'city' => $userData->city ?? 'N/A',
+                'area' => $userData->area ?? 'N/A',
+                'locality' => $userData->locality ?? 'N/A',
+                'colony' => $userData->colony ?? 'N/A',
+                'street_address' => $userData->street_address ?? 'N/A',
+                'pin_code' => $userData->pin_code ?? 'N/A',
+                'about' => $userData->about,
+                //
                 'bussiness_name' => $userData->bussiness_name,
                 'bussiness_address' => $userData->bussiness_address,
                 'bussiness_email' => $userData->bussiness_email,
                 'business_phone' => $userData->business_phone,
-                'country_id' => $userData->country_id ?? 'N/A',
-                'state_id' => $userData->state_id ?? 'N/A',
-                'city_id' => $userData->city_id ?? 'N/A',
+                'business_country_id' => $userData->business_country_id ?? 'N/A',
+                'business_state_id' => $userData->business_state_id ?? 'N/A',
+                'business_city_id' => $userData->business_city_id ?? 'N/A',
+                'business_country' => $userData->business_country ?? 'N/A',
+                'business_state' => $userData->business_state ?? 'N/A',
+                'business_city' => $userData->business_city ?? 'N/A',
+                'business_area' => $userData->business_area ?? 'N/A',
+                'business_locality' => $userData->business_locality ?? 'N/A',
+                'business_colony' => $userData->business_colony ?? 'N/A',
+                'business_street_address' => $userData->business_street_address ?? 'N/A',
+                'business_pin_code' => $userData->business_pin_code ?? 'N/A',
                 'address' => $userData->address,
-                'pin_code' => $userData->pin_code,
                 'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
                 'license_number' => $userData->license_number,
                 'alternate_number' => $userData->alternate_number,
@@ -1529,6 +1556,15 @@ class UserController extends Controller
                     'regex:/^[a-zA-Z0-9._]+$/',
                     Rule::unique('users', 'user_name')->ignore($request->id),
                 ],
+                'country_id' => ['required','exists:countries,id'],
+                'state_id' => ['required','exists:states,id'],
+                'city_id' => ['required','exists:cities,id'],
+                'area' => ['nullable','string'],
+                'locality' => ['nullable','string'],
+                'colony'=> ['nullable','string'],
+                'street_address' => ['nullable','string'],
+                'pin_code' => ['required','numeric','min:6'],
+                'about' => ['nullable','string'],
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
                 'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
@@ -1560,6 +1596,15 @@ class UserController extends Controller
                     'state_id' => 'required|numeric|exists:states,id',
                     'city_id' => 'required|numeric|exists:cities,id',
                     'license_number' => 'required|string|max:100',
+                    'business_country_id' => 'required|numeric|exists:countries,id',
+                    'business_state_id' => 'required|numeric|exists:states,id',
+                    'business_city_id' => 'required|numeric|exists:cities,id',
+                    'business_area' => 'nullable|string',
+                    'business_locality' => 'nullable|string',
+                    'business_colony'=> 'nullable|string',
+                    'business_street_address' => 'nullable|string',
+                    'business_pin_code' => 'required|numeric|min:6',
+                    'about_me' => 'nullable|string',
                 ]);
             } catch (ValidationException $e) {
                 return response()->json(['error' => $e->errors()], 400);
@@ -1580,6 +1625,15 @@ class UserController extends Controller
         $user->role_id = $request->role_id;
         $user->isapproved = $request->isapproved;
         $user->reject_reason = $request->reject_reason;
+        $user->country_id = $request->country_id;
+        $user->state_id = $request->state_id;
+        $user->city_id = $request->city_id;
+        $user->area = $request->area;
+        $user->locality = $request->locality;
+        $user->colony = $request->colony;
+        $user->street_address = $request->street_address;
+        $user->pin_code = $request->pin_code;
+        $user->about = $request->about;
 
         if ($request->filled('password')) {
             $user->password = Hash::make($request->password);
@@ -1596,15 +1650,19 @@ class UserController extends Controller
                 'bussiness_address' => $request->bussiness_address,
                 'bussiness_email' => $request->bussiness_email,
                 'business_phone' => $request->business_phone,
-                'country_id' => $request->country_id ?? null,
-                'state_id' => $request->state_id ?? null,
-                'city_id' => $request->city_id ?? null,
+                'country_id' => $request->business_country_id ?? null,
+                'state_id' => $request->business_state_id ?? null,
+                'city_id' => $request->business_city_id ?? null,
                 'address' => $request->address,
-                'pin_code' => $request->pin_code,
+                'pin_code' => $request->business_pin_code,
                 'license_number' => $request->license_number,
                 'alternate_number' => $request->alternate_number,
                 'no_of_employees' => $request->no_of_employees,
-                'about_us' => $request->about_us
+                'about_us' => $request->about_us,
+                'area' => $request->business_area,
+                'locality' => $request->business_locality,
+                'colony' => $request->business_colony,
+                'street_address' => $request->business_street_address,
             ];
 
             if ($request->hasFile('profile_photo')) {
@@ -1625,7 +1683,9 @@ class UserController extends Controller
                 if (
                     $request->bussiness_name && $request->bussiness_address && $request->bussiness_email &&
                     $request->business_phone && $request->country_id && $request->state_id && $request->city_id &&
-                    $request->address && $request->pin_code && $request->license_number
+                    $request->address && $request->pin_code && $request->license_number && $request->business_country_id &&
+                    $request->business_state_id && $request->business_city_id && $request->business_area &&
+                    $request->business_locality && $request->business_colony && $request->business_street_address && $request->business_pin_code
                 ) {
                     $user->isapproved = 3;
                     $user->save();
