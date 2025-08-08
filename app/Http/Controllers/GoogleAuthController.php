@@ -104,14 +104,32 @@ class GoogleAuthController extends Controller
         try {
             $googleUser = Socialite::driver('google')->stateless()->user();
 
-            $user = User::firstOrCreate(
-                ['email' => $googleUser->getEmail()],
-                [
+            // Default role id set karo (maan lo 2 = Normal User)
+            $defaultRoleId = 2;
+
+            // Request me role_id aaya toh use le lo, warna default
+            $roleId = $request->input('role_id', $defaultRoleId);
+
+            // Check if user already exists
+            $user = User::where('email', $googleUser->getEmail())->first();
+
+            if (!$user) {
+                // Naya user create karo
+                $user = User::create([
                     'first_name' => $googleUser->getName(),
+                    'email' => $googleUser->getEmail(),
                     'google_id' => $googleUser->getId(),
+                    'role_id' => $roleId,
                     'password' => Hash::make(uniqid()), // dummy password
-                ]
-            );
+                    'isapproved' => 1, // isapproved = 1
+                ]);
+            } else {
+                // Agar user pehle se hai toh google_id aur role_id update karo
+                $user->update([
+                    'google_id' => $googleUser->getId(),
+                    'role_id' => $roleId ?? $user->role_id,
+                ]);
+            }
 
             $token = $user->createToken('auth_token')->plainTextToken;
 

@@ -1556,15 +1556,15 @@ class UserController extends Controller
                     'regex:/^[a-zA-Z0-9._]+$/',
                     Rule::unique('users', 'user_name')->ignore($request->id),
                 ],
-                'country_id' => ['required','exists:countries,id'],
-                'state_id' => ['required','exists:states,id'],
-                'city_id' => ['required','exists:cities,id'],
-                'area' => ['nullable','string'],
-                'locality' => ['nullable','string'],
-                'colony'=> ['nullable','string'],
-                'street_address' => ['nullable','string'],
-                'pin_code' => ['required','numeric','min:6'],
-                'about' => ['nullable','string'],
+                'country_id' => ['required', 'exists:countries,id'],
+                'state_id' => ['required', 'exists:states,id'],
+                'city_id' => ['required', 'exists:cities,id'],
+                'area' => ['nullable', 'string'],
+                'locality' => ['nullable', 'string'],
+                'colony' => ['nullable', 'string'],
+                'street_address' => ['nullable', 'string'],
+                'pin_code' => ['required', 'numeric', 'min:6'],
+                'about' => ['nullable', 'string'],
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
                 'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
@@ -1601,7 +1601,7 @@ class UserController extends Controller
                     'business_city_id' => 'required|numeric|exists:cities,id',
                     'business_area' => 'nullable|string',
                     'business_locality' => 'nullable|string',
-                    'business_colony'=> 'nullable|string',
+                    'business_colony' => 'nullable|string',
                     'business_street_address' => 'nullable|string',
                     'business_pin_code' => 'required|numeric|min:6',
                     'about_me' => 'nullable|string',
@@ -1781,36 +1781,35 @@ class UserController extends Controller
     }
 
     // for user logout
+
+
     public function logout(Request $request)
     {
-
         try {
-            $request->validate([
-                'id' => 'required',
-            ]);
-        } catch (ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
-        }
+            $user = Auth::user();
 
-        try {
-
-            $lastSegment = $request->id;
-
-            $user = User::where('api_token', $lastSegment)->first();
-
-            // If user not found
             if (!$user) {
-                return response()->json(['error' => 'Invalid Id'], 401);
+                return response()->json([
+                    'error' => 'Unauthorized'
+                ], 401);
             }
+
+            // Token invalidate
+            $user->api_token = null;
+            $user->save();
+
+            Auth::logout();
 
             return response()->json([
                 'is_login' => false,
-                'message' => 'Logged out successfully',
+                'message' => 'Logged out successfully.'
             ], 200);
 
         } catch (\Exception $e) {
-            // Return the actual error message
-            return response()->json(['error' => $e->getMessage()], 500);
+            return response()->json([
+                'error' => 'Something went wrong.',
+                'details' => $e->getMessage()
+            ], 500);
         }
     }
 
@@ -2286,7 +2285,7 @@ class UserController extends Controller
                 'city_id' => 'required|exists:cities,id',
                 'area' => 'nullable|string',
                 'locality' => 'nullable|string',
-                'colony'=> 'nullable|string',
+                'colony' => 'nullable|string',
                 'street_address' => 'nullable|string',
                 'pin_code' => 'required|numeric|min:6',
                 'about' => 'nullable|string',
@@ -2326,7 +2325,7 @@ class UserController extends Controller
                     'license_number' => 'required|string|max:100',
                     'business_area' => 'nullable|string',
                     'business_locality' => 'nullable|string',
-                    'business_colony'=> 'nullable|string',
+                    'business_colony' => 'nullable|string',
                     'business_street_address' => 'nullable|string',
                     'business_pin_code' => 'required|numeric|min:6',
                     'about_me' => 'nullable|string',
@@ -2479,7 +2478,7 @@ class UserController extends Controller
         $id = $request->id;
         $user = User::find($id);
 
-        if(!$user){
+        if (!$user) {
             return response()->json(['error' => 'User not found.'], 200);
         }
         $user->first_name = $request->first_name;

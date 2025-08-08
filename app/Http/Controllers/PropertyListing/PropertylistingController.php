@@ -2218,7 +2218,13 @@ class PropertylistingController extends Controller
                 'project_id' => $property->project_id,
                 'project_id_name' => optional($property->project)->name,
                 'total_view' => $property->analytics()->count(),
-                'keyword' => $property->importKeywords->pluck('id')->toArray() ?? null,
+                // 'keyword' => $property->importKeywords->pluck('id')->toArray() ?? null,
+                'keyword' => $property->importKeywords->map(function ($kw) {
+                    return [
+                        'id' => $kw->id,
+                        'name' => $kw->keyword_name
+                    ];
+                }),
                 'created_by' => $createdByData,
                 'updated_by' => $updatedByData,
                 'repeater_fields' => $repeaterFields,
@@ -2970,10 +2976,10 @@ class PropertylistingController extends Controller
                 'state' => $property->state,
                 'city' => $property->city,
                 'area' => $property->area,
-                    'locality' => $property->locality,
-                    'colony' => $property->colony,
-                    'street_address' => $property->street_address,
-                    'pin_code' => $property->pin_code,
+                'locality' => $property->locality,
+                'colony' => $property->colony,
+                'street_address' => $property->street_address,
+                'pin_code' => $property->pin_code,
                 'property_address' => $property->property_address,
                 'live_status' => $property->live_status,
                 'temporary_status' => $property->temporary_status,
