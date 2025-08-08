@@ -11,7 +11,7 @@ class Keyword extends Model
     protected $guarded=[];
     protected $table='keywords';
 
-    
+
     /**
      * Get the property associated with the keyword.
      */
@@ -30,6 +30,6 @@ class Keyword extends Model
      */
     public function project()
     {
-        return $this->belongsTo(Projectlist::class, 'project_id');
+        return $this->belongsTo(ProjectList::class, 'project_id');
     }
 }

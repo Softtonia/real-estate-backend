@@ -73,6 +73,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -131,13 +132,19 @@ class GoogleAuthController extends Controller
                 ]);
             }
 
-            $token = $user->createToken('auth_token')->plainTextToken;
+            // $token = $user->createToken('auth_token')->plainTextToken;
+
+             if (!$user->api_token || !$user->token_created_at || $user->token_created_at < now()->subHours(24)) {
+                $user->api_token = Str::random(80);
+                $user->token_created_at = now();
+                $user->save();
+            }
 
             return response()->json([
                 'status' => true,
                 'message' => 'Login Successful',
                 'user' => $user,
-                'token' => $token
+                'token' => $user->api_token,
             ]);
 
         } catch (\Exception $e) {

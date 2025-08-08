@@ -14,15 +14,15 @@ class ImportKeyword extends Model
         'slug',
         'keyword_type'
     ];
-    
-    
+
+
     public function properties()
     {
         return $this->belongsToMany(Propertylist::class, 'keywords', 'keyword', 'property_id');
     }
-    
+
     public function projects()
     {
-        return $this->belongsToMany(Projectlist::class, 'keywords', 'keyword', 'project_id');
+        return $this->belongsToMany(ProjectList::class, 'keywords', 'keyword', 'project_id');
     }
 }

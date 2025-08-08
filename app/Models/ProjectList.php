@@ -81,7 +81,7 @@ class ProjectList extends Model
 
     public function importKeywords()
     {
-        return $this->belongsToMany(ImportKeyword::class, 'keywords', 'property_id', 'keyword');
+        return $this->belongsToMany(ImportKeyword::class, 'keywords', 'project_id', 'keyword');
     }
        public function developer()
     {

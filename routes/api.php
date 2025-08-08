@@ -95,7 +95,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
         // Route::post('login', [UserController::class, 'loginOldUser']);
         Route::post('login', [UserController::class, 'login']);
-        Route::get('/logout', [UserController::class, 'logout']);
+        Route::post('/logout', [UserController::class, 'logout'])->middleware('api.token');
         Route::post('/check-unique', [UserController::class, 'checkUnique']);
         Route::post('/admin/profile/change-password', [UserController::class, 'changePassword'])->middleware('api.token');
         Route::post('forget-password', [Usercontroller::class, 'ForgetPassword']);
@@ -769,8 +769,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         // Top Features
 
-        // Route::middleware('admin.token')->post('create-top-features', [TopFeatureController::class, 'createTopFeatureStore']);
-// Route::middleware('admin.token')->post('update-top-features/{id}', [TopFeatureController::class, 'editTopFeatureUpdate']);
+
         Route::get('top-features-list', [TopFeatureController::class, 'index']);
         Route::get('/get-top-features-by-id', [TopFeatureController::class, 'getTopFeaturesById']);
         Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [TopFeatureController::class, 'createOrUpdateTopFeature']);

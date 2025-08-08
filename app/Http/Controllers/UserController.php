@@ -1786,7 +1786,8 @@ class UserController extends Controller
     public function logout(Request $request)
     {
         try {
-            $user = Auth::user();
+            // $user = Auth::user();
+            $user = $request->user();
 
             if (!$user) {
                 return response()->json([

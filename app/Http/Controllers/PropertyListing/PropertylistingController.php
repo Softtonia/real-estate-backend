@@ -2999,7 +2999,12 @@ class PropertylistingController extends Controller
                 'project_id' => $property->project_id,
                 'project_id_name' => $property->project->name ?? null,
                 'total_view' => $property->analytics()->count(),
-                'keyword' => $property->importKeywords->pluck('id')->toArray() ?? null,
+               'keyword' => $property->importKeywords->map(function ($kw) {
+                    return [
+                        'id' => $kw->id,
+                        'name' => $kw->keyword_name
+                    ];
+                }),
                 'created_by' => $createdByData,
                 'updated_by' => $updatedByData,
                 'repeater_fields' => $repeaterFields,
