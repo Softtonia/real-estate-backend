@@ -53,6 +53,10 @@ class DeveloperlistingController extends Controller
                 'property_type_id' => 'nullable',
                 'live_status' => 'nullable|in:Approve,Disapprove,Reject,Under Review,Modify Review',
                 'status_reason' => $request->live_status === 'Reject' ? 'required|string|max:500' : 'nullable',
+                'area_locality' => 'nullable|string',
+                'colony' => 'nullable|string',
+                'street_address' => 'nullable|string',
+                'pin_code' => 'required|numeric|digits:6',
 
             ]);
 
@@ -610,6 +614,10 @@ class DeveloperlistingController extends Controller
                     'state_name' => optional($developer->state)->name,
                     'city_id' => $developer->city_id,
                     'city_name' => optional($developer->city)->name,
+                    'area_locality' => $developer->area_locality,
+                    'colony' => $developer->colony,
+                    'street_address' => $developer->street_address,
+                    'pin_code' => $developer->pin_code,
                     'date' => date('d m Y', strtotime($developer->created_at)),
                     'time' => date('h:i A', strtotime($developer->created_at)),
                     'timestamp' => date('d m Y h:i A', strtotime($developer->created_at)),
@@ -722,6 +730,10 @@ class DeveloperlistingController extends Controller
                     'state_name' => optional($property->state)->name,
                     'city_id' => $property->city_id,
                     'city_name' => optional($property->city)->name,
+                    'area_locality' => $property->area_locality,
+                    'colony' => $property->colony,
+                    'street_area' => $property->street_address,
+                    'pin_code' => $property->pin_code,
 
                     'date' => date('d m Y', strtotime($property->created_at)),
                     'time' => date('h:i A', strtotime($property->created_at)),
@@ -826,6 +838,10 @@ class DeveloperlistingController extends Controller
                 'updated_by' => $userId,  // Store the user ID in the updated_by field
                 'address' => $request->address,
                 'featured_image' => $featuredImage,
+                'area_locality' => $request->area_locality,
+                'colony' => $request->colony,
+                'street_address' => $request->street_address,
+                'pin_code' => $request->pin_code,
             ]);
 
             // Handle repeater fields (custom fields)
@@ -1684,6 +1700,10 @@ class DeveloperlistingController extends Controller
                 'state_name' => optional($developer->state)->name,
                 'city_id' => $developer->city_id,
                 'city_name' => optional($developer->city)->name,
+                'area_locality' => $developer->area_locality,
+                'colony' => $developer->colony,
+                'street_address' => $developer->street_address,
+                'pin_code' => $developer->pin_code,
                 'featured_image' => $developer->featured_image,
                 'live_status' => $developer->live_status,
                 'status_reason' => $developer->status_reason,
@@ -2063,6 +2083,10 @@ class DeveloperlistingController extends Controller
                     'state_name' => optional($developer->state)->name,
                     'city_id' => $developer->city_id,
                     'city_name' => optional($developer->city)->name,
+                    'area_locality' => $developer->area_locality,
+                    'colony' => $developer->colony,
+                    'street_address' => $developer->street_address,
+                    'pin_code' => $developer->pin_code,
                     'date' => date('d m Y', strtotime($developer->created_at)),
                     'time' => date('h:i A', strtotime($developer->created_at)),
                     'timestamp' => date('d m Y h:i A', strtotime($developer->created_at)),
@@ -2873,6 +2897,10 @@ class DeveloperlistingController extends Controller
                 'state_name' => optional($developer->state)->name,
                 'city_id' => $developer->city_id,
                 'city_name' => optional($developer->city)->name,
+                'area_locality' => $developer->area_locality,
+                'colony' => $developer->colony,
+                'street_address' => $developer->street_address,
+                'pin_code' => $developer->pin_code,
                 'featured_image' => $developer->featured_image,
                 'live_status' => $developer->live_status,
                 'status_reason' => $developer->status_reason,

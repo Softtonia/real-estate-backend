@@ -12,9 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('user_details', function (Blueprint $table) {
-            $table->string('area')->nullable()->after('city_id');
-            $table->string('locality')->nullable()->after('area');
-            $table->string('colony')->nullable()->after('locality');
+            $table->text('area_locality')->nullable()->after('city_id');
+            $table->string('colony')->nullable()->after('area_locality');
             $table->string('street_address')->nullable()->after('colony');
 
         });
@@ -27,8 +26,7 @@ return new class extends Migration
     {
         Schema::table('user_details', function (Blueprint $table) {
             $table->dropColumn([
-                'area',
-                'locality',
+                'area_locality',
                 'colony',
                 'street_address',
             ]);

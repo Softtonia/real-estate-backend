@@ -1247,8 +1247,7 @@ class UserController extends Controller
                     'user_countries.name as country',
                     'user_states.name as state',
                     'user_cities.name as city',
-                    'users.area',
-                    'users.locality',
+                    'users.area_locality',
                     'users.colony',
                     'users.street_address',
                     'users.pin_code',
@@ -1264,8 +1263,7 @@ class UserController extends Controller
                     'countries.name as business_country',
                     'states.name as business_state',
                     'cities.name as business_city',
-                    'user_details.area as business_area',
-                    'user_details.locality as business_locality',
+                    'user_details.area_locality as business_area_locality',
                     'user_details.colony as business_colony',
                     'user_details.street_address as business_street_address',
                     'user_details.pin_code as business_pin_code',
@@ -1308,8 +1306,7 @@ class UserController extends Controller
                 'country' => $userData->country ?? 'N/A',
                 'state' => $userData->state ?? 'N/A',
                 'city' => $userData->city ?? 'N/A',
-                'area' => $userData->area ?? 'N/A',
-                'locality' => $userData->locality ?? 'N/A',
+                'area_locality' => $userData->area_locality ?? 'N/A',
                 'colony' => $userData->colony ?? 'N/A',
                 'street_address' => $userData->street_address ?? 'N/A',
                 'pin_code' => $userData->pin_code ?? 'N/A',
@@ -1325,8 +1322,7 @@ class UserController extends Controller
                 'business_country' => $userData->business_country ?? 'N/A',
                 'business_state' => $userData->business_state ?? 'N/A',
                 'business_city' => $userData->business_city ?? 'N/A',
-                'business_area' => $userData->business_area ?? 'N/A',
-                'business_locality' => $userData->business_locality ?? 'N/A',
+                'business_area_locality' => $userData->business_area_locality ?? 'N/A',
                 'business_colony' => $userData->business_colony ?? 'N/A',
                 'business_street_address' => $userData->business_street_address ?? 'N/A',
                 'business_pin_code' => $userData->business_pin_code ?? 'N/A',
@@ -1559,8 +1555,7 @@ class UserController extends Controller
                 'country_id' => ['required', 'exists:countries,id'],
                 'state_id' => ['required', 'exists:states,id'],
                 'city_id' => ['required', 'exists:cities,id'],
-                'area' => ['nullable', 'string'],
-                'locality' => ['nullable', 'string'],
+                'area_locality' => ['nullable', 'string'],
                 'colony' => ['nullable', 'string'],
                 'street_address' => ['nullable', 'string'],
                 'pin_code' => ['required', 'numeric', 'min:6'],
@@ -1599,8 +1594,7 @@ class UserController extends Controller
                     'business_country_id' => 'required|numeric|exists:countries,id',
                     'business_state_id' => 'required|numeric|exists:states,id',
                     'business_city_id' => 'required|numeric|exists:cities,id',
-                    'business_area' => 'nullable|string',
-                    'business_locality' => 'nullable|string',
+                    'business_area_locality' => 'nullable|string',
                     'business_colony' => 'nullable|string',
                     'business_street_address' => 'nullable|string',
                     'business_pin_code' => 'required|numeric|min:6',
@@ -1628,8 +1622,7 @@ class UserController extends Controller
         $user->country_id = $request->country_id;
         $user->state_id = $request->state_id;
         $user->city_id = $request->city_id;
-        $user->area = $request->area;
-        $user->locality = $request->locality;
+        $user->area_locality = $request->area_locality;
         $user->colony = $request->colony;
         $user->street_address = $request->street_address;
         $user->pin_code = $request->pin_code;
@@ -1659,8 +1652,7 @@ class UserController extends Controller
                 'alternate_number' => $request->alternate_number,
                 'no_of_employees' => $request->no_of_employees,
                 'about_us' => $request->about_us,
-                'area' => $request->business_area,
-                'locality' => $request->business_locality,
+                'area_locality' => $request->business_area_locality,
                 'colony' => $request->business_colony,
                 'street_address' => $request->business_street_address,
             ];
@@ -1684,8 +1676,7 @@ class UserController extends Controller
                     $request->bussiness_name && $request->bussiness_address && $request->bussiness_email &&
                     $request->business_phone && $request->country_id && $request->state_id && $request->city_id &&
                     $request->address && $request->pin_code && $request->license_number && $request->business_country_id &&
-                    $request->business_state_id && $request->business_city_id && $request->business_area &&
-                    $request->business_locality && $request->business_colony && $request->business_street_address && $request->business_pin_code
+                    $request->business_state_id && $request->business_city_id && $request->business_area_locality  && $request->business_colony && $request->business_street_address && $request->business_pin_code
                 ) {
                     $user->isapproved = 3;
                     $user->save();
@@ -2284,8 +2275,7 @@ class UserController extends Controller
                 'country_id' => 'required|exists:countries,id',
                 'state_id' => 'required|exists:states,id',
                 'city_id' => 'required|exists:cities,id',
-                'area' => 'nullable|string',
-                'locality' => 'nullable|string',
+                'area_locality' => 'nullable|string',
                 'colony' => 'nullable|string',
                 'street_address' => 'nullable|string',
                 'pin_code' => 'required|numeric|min:6',
@@ -2324,8 +2314,7 @@ class UserController extends Controller
                     'business_state_id' => 'required|numeric|exists:states,id',
                     'business_city_id' => 'required|numeric|exists:cities,id',
                     'license_number' => 'required|string|max:100',
-                    'business_area' => 'nullable|string',
-                    'business_locality' => 'nullable|string',
+                    'business_area_locality' => 'nullable|string',
                     'business_colony' => 'nullable|string',
                     'business_street_address' => 'nullable|string',
                     'business_pin_code' => 'required|numeric|min:6',
@@ -2377,8 +2366,7 @@ class UserController extends Controller
                 'country_id' => $request->country_id,
                 'state_id' => $request->state_id,
                 'city_id' => $request->city_id,
-                'area' => $request->area,
-                'locality' => $request->locality,
+                'area_locality' => $request->area_locality,
                 'colony' => $request->colony,
                 'street_address' => $request->street_address,
                 'pin_code' => $request->pin_code,
@@ -2408,8 +2396,7 @@ class UserController extends Controller
                 'profile_photo' => $profilePhotoPath,
                 'created_by' => $authUser->id,
                 'about_us' => $request->about_us,
-                'area' => $request->business_area,
-                'locality' => $request->business_locality,
+                'area_locality' => $request->business_area_locality,
                 'colony' => $request->business_colony,
                 'street_address' => $request->business_street_address,
             ]);

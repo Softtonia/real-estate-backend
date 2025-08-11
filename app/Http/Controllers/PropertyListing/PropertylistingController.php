@@ -82,8 +82,7 @@ class PropertylistingController extends Controller
                 'country_id' => 'required|exists:countries,id',
                 'state_id' => 'required|exists:states,id',
                 'city_id' => 'required|exists:cities,id',
-                'area' => 'nullable|string',
-                'locality' => 'nullable|string',
+                'area_locality' => 'nullable|string',
                 'colony' => 'nullable|string',
                 'street_address' => 'nullable|string',
                 'pin_code' => 'required|numeric|digits:6',
@@ -130,8 +129,7 @@ class PropertylistingController extends Controller
                 'created_by' => $user->id,
                 'temporary_status' => $request->temporary_status,
                 'featured_image' => $featuredImage, // ✅ Store as `/uploads/properties/{file_name}`
-                'area' => $request->area,
-                'locality' => $request->locality,
+                'area_locality' => $request->area_locality,
                 'colony' => $request->colony,
                 'street_Address' => $request->street_address,
                 'pin_code' => $request->pin_code,
@@ -538,8 +536,7 @@ class PropertylistingController extends Controller
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
-                    'area' => $property->area,
-                    'locality' => $property->locality,
+                    'area_locality' => $property->area_locality,
                     'colony' => $property->colony,
                     'street_address' => $property->street_address,
                     'pin_code' => $property->pin_code,
@@ -1043,8 +1040,7 @@ class PropertylistingController extends Controller
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
-                    'area' => $property->area,
-                    'locality' => $property->locality,
+                    'area_locality' => $property->area_locality,
                     'colony' => $property->colony,
                     'street_address' => $property->street_address,
                     'pin_code' => $property->pin_code,
@@ -1055,8 +1051,13 @@ class PropertylistingController extends Controller
                     'user_id' => $property->user_id,
                     'created_by' => $property->created_by,
                     'listed_by' => optional(optional($property->user)->role)->name,
-                    'featured_image' => $property->featured_image
-                        ? $this->correctFilePath($property->featured_image, $baseURL, $basePath, 'featured_image')
+                    // 'featured_image' => $property->featured_image
+                    //     ? $this->correctFilePath($property->featured_image, $baseURL, $basePath, 'featured_image')
+                    //     : null,
+                    'featured_image' => !empty($property->featured_image)
+                        ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
+                            ? $property->featured_image // ✅ If it's already a full URL, use as is
+                            : $baseURL . $property->featured_image) // ✅ Convert relative path to full URL
                         : null,
                     'purpose_id' => $property->purpose_id,
                     'purpose_id_name' => optional($property->purpose)->name,
@@ -1160,8 +1161,7 @@ class PropertylistingController extends Controller
                 'property_status_id' => 'nullable',
                 'property_type_id' => 'nullable',
                 'project_id' => 'nullable|exists:project_listings,id',
-                'area' => 'nullable|string',
-                'locality' => 'nullable|string',
+                'area_locality' => 'nullable|string',
                 'colony' => 'nullable|string',
                 'street_address' => 'nullable|string',
                 'pin_code' => 'required|numeric|digits:6',
@@ -1169,7 +1169,11 @@ class PropertylistingController extends Controller
             ]);
 
             // Find the property by ID
-            $property = PropertyList::findOrFail($request->id);
+            $property = PropertyList::find($request->id);
+
+            if (!$property) {
+                return response()->json(['error' => 'Property not found'], 200);
+            }
 
             // ✅ Check access permissions
             if ($user->role->name !== 'admin' && $property->created_by !== $user->id) {
@@ -2195,8 +2199,8 @@ class PropertylistingController extends Controller
                 'city' => $property->city,
 
                 'property_address' => $property->property_address,
-                'area' => $property->area,
-                'locality' => $property->locality,
+                'area_locality' => $property->area_locality,
+
                 'colony' => $property->colony,
                 'street_address' => $property->street_address,
                 'pin_code' => $property->pin_code,
@@ -2727,6 +2731,10 @@ class PropertylistingController extends Controller
                     'country' => $property->country,
                     'state' => $property->state,
                     'city' => $property->city,
+                    'area_locality' => $property->area_locality,
+                    'colony' => $property->colony,
+                    'street_address' => $property->street_address,
+                    'pin_code' => $property->pin_code
                 ];
             });
 
@@ -2975,8 +2983,7 @@ class PropertylistingController extends Controller
                 'country' => $property->country,
                 'state' => $property->state,
                 'city' => $property->city,
-                'area' => $property->area,
-                'locality' => $property->locality,
+                'area_locality' => $property->area_locality,
                 'colony' => $property->colony,
                 'street_address' => $property->street_address,
                 'pin_code' => $property->pin_code,

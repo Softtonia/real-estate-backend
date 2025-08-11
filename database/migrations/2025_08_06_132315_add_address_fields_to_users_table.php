@@ -16,9 +16,8 @@ return new class extends Migration
             $table->unsignedBigInteger('state_id')->nullable()->after('country_id');
             $table->unsignedBigInteger('city_id')->nullable()->after('state_id');
 
-            $table->string('area')->nullable()->after('city_id');
-            $table->string('locality')->nullable()->after('area');
-            $table->string('colony')->nullable()->after('locality');
+            $table->string('area_locality')->nullable()->after('city_id');
+            $table->string('colony')->nullable()->after('area_locality');
             $table->string('street_address')->nullable()->after('colony');
             $table->string('pin_code', 10)->nullable()->after('street_address');
             $table->text('about')->nullable()->after('pin_code');
@@ -41,7 +40,7 @@ return new class extends Migration
             $table->dropForeign(['city_id']);
 
             $table->dropColumn([
-                'country_id', 'state_id', 'city_id', 'area', 'locality', 'colony',
+                'country_id', 'state_id', 'city_id', 'area_locality', 'colony',
                 'street_address', 'pincode', 'about'
             ]);
         });
