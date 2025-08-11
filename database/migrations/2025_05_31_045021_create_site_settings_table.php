@@ -22,9 +22,9 @@ return new class extends Migration
             $table->string('mobile_number', 15)->nullable();
             $table->string('email', 100)->nullable();
             $table->string('copyright_text', 255)->nullable();
-            $table->string('disclaimer', 255)->nullable();
-            $table->text('site_short_description')->nullable();
-            $table->text('subscribe_short_description')->nullable();
+            $table->longText('disclaimer')->nullable();
+            $table->longText('site_short_description')->nullable();
+            $table->longText('subscribe_short_description')->nullable();
             $table->string('facebook', 100)->nullable();
             $table->string('instagram', 100)->nullable();
             $table->string('twitter', 100)->nullable();

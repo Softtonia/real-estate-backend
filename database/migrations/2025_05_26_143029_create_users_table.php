@@ -33,6 +33,7 @@ return new class extends Migration
             $table->timestamp('token_created_at')->nullable();
             $table->timestamps();
 
+
         });
     }
 

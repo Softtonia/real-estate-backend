@@ -72,6 +72,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Role;
+use App\Models\UniqueID;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
@@ -102,27 +104,67 @@ class GoogleAuthController extends Controller
 
     public function handleGoogleCallback(Request $request)
     {
+        // Default role id set karo (maan lo 2 = Normal User)
+        $defaultRoleId = 2;
+
+        // Request me role_id aaya toh use le lo, warna default
+        $roleId = $request->input('role_id', $defaultRoleId);
+
+        if ((int) $roleId === 1) {
+            return response()->json([
+                'status' => false,
+                'message' => 'You are not allowed to select this role.',
+                'error' => 'Unauthorized Role',
+            ], 200);
+        }
         try {
             $googleUser = Socialite::driver('google')->stateless()->user();
-
-            // Default role id set karo (maan lo 2 = Normal User)
-            $defaultRoleId = 2;
-
-            // Request me role_id aaya toh use le lo, warna default
-            $roleId = $request->input('role_id', $defaultRoleId);
 
             // Check if user already exists
             $user = User::where('email', $googleUser->getEmail())->first();
 
+
+
             if (!$user) {
+
+                $role = Role::find($roleId); // Assuming Role model exists
+
+                if ($role) {
+                    $userRoleCount = User::where('role_id', $role->id)->count();
+
+                    if ($userRoleCount == 0) {
+                        // If no users exist for this role, start from 001
+                        $uniqueIDModel = new UniqueID();
+                        $uniqueIDModel->unique_id = $role->prefix . str_pad(1, 3, '0', STR_PAD_LEFT);
+                        $uniqueIDModel->save();
+                    } else {
+                        // Fetch last unique_id for this role
+                        $lastUniqueID = UniqueID::where('unique_id', 'like', $role->prefix . '%')
+                            ->orderBy('unique_id', 'desc')
+                            ->first();
+
+                        $lastCount = $lastUniqueID
+                            ? (int) substr($lastUniqueID->unique_id, strlen($role->prefix))
+                            : 0;
+
+                        $newUniqueID = $role->prefix . str_pad($lastCount + 1, 3, '0', STR_PAD_LEFT);
+
+                        $uniqueIDModel = new UniqueID();
+                        $uniqueIDModel->unique_id = $newUniqueID;
+                        $uniqueIDModel->save();
+                    }
+                }
+
                 // Naya user create karo
                 $user = User::create([
                     'first_name' => $googleUser->getName(),
                     'email' => $googleUser->getEmail(),
+                    'user_name' => $googleUser->getEmail(),
                     'google_id' => $googleUser->getId(),
                     'role_id' => $roleId,
                     'password' => Hash::make(uniqid()), // dummy password
                     'isapproved' => 1, // isapproved = 1
+                    'unique_id' => $uniqueIDModel->unique_id,
                 ]);
             } else {
                 // Agar user pehle se hai toh google_id aur role_id update karo
@@ -134,7 +176,7 @@ class GoogleAuthController extends Controller
 
             // $token = $user->createToken('auth_token')->plainTextToken;
 
-             if (!$user->api_token || !$user->token_created_at || $user->token_created_at < now()->subHours(24)) {
+            if (!$user->api_token || !$user->token_created_at || $user->token_created_at < now()->subHours(24)) {
                 $user->api_token = Str::random(80);
                 $user->token_created_at = now();
                 $user->save();

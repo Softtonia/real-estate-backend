@@ -17,37 +17,13 @@ class ApiClientTableSeeder extends Seeder
         $clients = [
             [
                 'client_name'     => 'Admin Panel',
-                'client_id'       => 'frontend123',
-                'client_secret'   => 'secret987',
+                'client_id'       => 'RHTYTHHQWA614EL',
+                'client_secret'   => 'JQRCQYYKGT66RQY',
                 'app_type'        => 'admin',
-                'status'          => '1',
-                'allowed_domain'  => '["http://admin.urbanrealities.com","http://127.0.0.1:8000","http://localhost:5173"]',
+                'status'         => '1',
+                'allowed_domain'  => '["https://www.urbanrealities.com","https://urbanrealities.com","http://127.0.0.1:8000","https://admin.urbanrealities.com","http://admin.urbanrealities.com","http://localhost:5173","http://localhost:3000","https://api.urbanrealities.com/public"]',
             ],
 
-            [
-                'client_name'     => 'Business Dashboard',
-                'client_id'       => 'business123',
-                'client_secret'   => 'secret123',
-                'app_type'        => 'business',
-                'status'          => '1',
-                'allowed_domain'  => '["http://business.urbanrealities.com","http://127.0.0.1:8000","http://localhost:5173"]',
-            ],
-            [
-                'client_name'     => 'Main Website',
-                'client_id'       => 'website123',
-                'client_secret'   => 'secret456',
-                'app_type'        => 'website',
-                'status'          => '1',
-                'allowed_domain'  => '["http://www.urbanrealities.com","http://127.0.0.1:8000","http://localhost:5173"]',
-            ],
-            [
-                'client_name'     => 'Mobile App',
-                'client_id'       => 'mobile123',
-                'client_secret'   => 'secret789',
-                'app_type'        => 'mobile-app',
-                'status'          => '1',
-                'allowed_domain'  => '*', // Allow all
-            ],
 
         ];
 

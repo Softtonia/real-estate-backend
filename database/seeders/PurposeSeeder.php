@@ -18,17 +18,9 @@ class PurposeSeeder extends Seeder
     {
         $purposes = [
             [
-                'name' => 'Buy',
-                'slug' => Str::slug('Buy'),
-                'purpose_display_order' => '1',
-                'icon' => null,
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
-            ],
-            [
                 'name' => 'Sell',
                 'slug' => Str::slug('Sell'),
-                'purpose_display_order' => '2',
+                'purpose_display_order' => '1',
                 'icon' => null,
                 'created_at' => Carbon::now(),
                 'updated_at' => Carbon::now(),
@@ -36,7 +28,7 @@ class PurposeSeeder extends Seeder
             [
                 'name' => 'Rent',
                 'slug' => Str::slug('Rent'),
-                'purpose_display_order' => '3',
+                'purpose_display_order' => '2',
                 'icon' => null,
                 'created_at' => Carbon::now(),
                 'updated_at' => Carbon::now(),

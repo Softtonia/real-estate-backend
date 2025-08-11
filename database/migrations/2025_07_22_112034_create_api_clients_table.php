@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('client_secret');
             $table->enum('app_type', ['admin', 'business', 'website', 'mobile-app', 'custom'])->nullable();
             $table->enum('status', ['0', '1'])->comment('0 = inactive, 1 = active');
-            $table->string('allowed_domain'); // e.g., https://frontend.com
+            $table->longText('allowed_domain'); // e.g., https://frontend.com
             $table->timestamps();
         });
     }

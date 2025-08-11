@@ -5438,16 +5438,83 @@ class UserController extends Controller
     }
 
     // This is for site setting
+    // public function updateSiteSetting(Request $request)
+    // {
+    //     // Validate inputs
+    //     $data = $request->validate([
+    //         'website_logo' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
+    //         'mobile_logo' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
+    //         'site_name' => 'nullable|string',
+    //         'favicon' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
+    //         'address' => 'nullable|string',
+    //         'mobile_number' => 'nullable|numeric|min:10',
+    //         'email' => 'nullable|string|email',
+    //         'copyright_text' => 'nullable|string',
+    //         'disclaimer' => 'nullable|string',
+    //         'site_short_description' => 'nullable|string',
+    //         'subscribe_short_description' => 'nullable|string',
+    //         'facebook' => 'nullable|string',
+    //         'instagram' => 'nullable|string',
+    //         'twitter' => 'nullable|string',
+    //         'ticket_prefix' => 'nullable|string'
+    //     ]);
+
+
+
+    //     // Handle website_logo file upload
+    //     if ($request->hasFile('website_logo')) {
+    //         $file = $request->file('website_logo');
+    //         $fileName = time() . '_' . $file->getClientOriginalName();
+    //         $file->move(public_path('uploads/website_logo'), $fileName);
+    //         $data['website_logo'] = $fileName;
+    //     }
+
+    //     // Handle mobile_logo file upload
+    //     if ($request->hasFile('mobile_logo')) {
+    //         $file = $request->file('mobile_logo');
+    //         $fileName = time() . '_' . $file->getClientOriginalName();
+    //         $file->move(public_path('uploads/mobile_logo'), $fileName);
+    //         $data['mobile_logo'] = $fileName;
+    //     }
+
+    //     // Handle favicon file upload
+    //     if ($request->hasFile('favicon')) {
+    //         $file = $request->file('favicon');
+    //         $fileName = time() . '_' . $file->getClientOriginalName();
+    //         $file->move(public_path('uploads/favicon'), $fileName);
+    //         $data['favicon'] = $fileName;
+    //     }
+
+    //     // Retrieve the first site setting or create a new one if it doesn't exist
+    //     $setting = SiteSetting::first();
+    //     if ($setting) {
+    //         // Update only the fields that are present in the request
+    //         foreach ($data as $key => $value) {
+    //             if ($request->has($key)) {
+    //                 $setting->$key = $value;
+    //             }
+    //         }
+    //         $setting->save();
+    //     } else {
+    //         $setting = SiteSetting::create($data);
+    //     }
+
+    //     // Return a JSON response
+    //     return response()->json(['message' => 'Settings updated successfully', 'settings' => $setting]);
+    // }
+
+
+
     public function updateSiteSetting(Request $request)
     {
-        // Validate inputs
-        $data = $request->validate([
-            'website_logo' => 'nullable',
-            'mobile_logo' => 'nullable',
+        // Manual validator
+        $validator = Validator::make($request->all(), [
+            'website_logo' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
+            'mobile_logo' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
             'site_name' => 'nullable|string',
-            'favicon' => 'nullable',
+            'favicon' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
             'address' => 'nullable|string',
-            'mobile_number' => 'nullable|string',
+            'mobile_number' => 'nullable|numeric|digits:10',
             'email' => 'nullable|string|email',
             'copyright_text' => 'nullable|string',
             'disclaimer' => 'nullable|string',
@@ -5459,7 +5526,18 @@ class UserController extends Controller
             'ticket_prefix' => 'nullable|string'
         ]);
 
-        // Handle website_logo file upload
+        // If validation fails, return JSON
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Get validated data
+        $data = $validator->validated();
+
+        // Handle website_logo upload
         if ($request->hasFile('website_logo')) {
             $file = $request->file('website_logo');
             $fileName = time() . '_' . $file->getClientOriginalName();
@@ -5467,7 +5545,7 @@ class UserController extends Controller
             $data['website_logo'] = $fileName;
         }
 
-        // Handle mobile_logo file upload
+        // Handle mobile_logo upload
         if ($request->hasFile('mobile_logo')) {
             $file = $request->file('mobile_logo');
             $fileName = time() . '_' . $file->getClientOriginalName();
@@ -5475,7 +5553,7 @@ class UserController extends Controller
             $data['mobile_logo'] = $fileName;
         }
 
-        // Handle favicon file upload
+        // Handle favicon upload
         if ($request->hasFile('favicon')) {
             $file = $request->file('favicon');
             $fileName = time() . '_' . $file->getClientOriginalName();
@@ -5483,23 +5561,24 @@ class UserController extends Controller
             $data['favicon'] = $fileName;
         }
 
-        // Retrieve the first site setting or create a new one if it doesn't exist
+        // Update or create settings
         $setting = SiteSetting::first();
         if ($setting) {
-            // Update only the fields that are present in the request
             foreach ($data as $key => $value) {
-                if ($request->has($key)) {
-                    $setting->$key = $value;
-                }
+                $setting->$key = $value;
             }
             $setting->save();
         } else {
             $setting = SiteSetting::create($data);
         }
 
-        // Return a JSON response
-        return response()->json(['message' => 'Settings updated successfully', 'settings' => $setting]);
+        return response()->json([
+            'status' => true,
+            'message' => 'Settings updated successfully',
+            'settings' => $setting
+        ]);
     }
+
 
 
 
