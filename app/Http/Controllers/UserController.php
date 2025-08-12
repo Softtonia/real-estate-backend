@@ -1756,20 +1756,6 @@ class UserController extends Controller
 
     //     return response()->json(['data' => $statuses]);
     // }
-    public function getallstatus(Request $request)
-    {
-        $statuses = ['Active', 'Deactive', 'Under Review', 'Reject'];
-
-        // Transform statuses into desired format
-        $formattedStatuses = array_map(function ($status, $index) {
-            return [
-                'name' => $status,
-                'value' => $index + 1 // Assign value starting from 1
-            ];
-        }, $statuses, array_keys($statuses));
-
-        return response()->json(['data' => $formattedStatuses]);
-    }
 
     // for user logout
 
@@ -1848,246 +1834,12 @@ class UserController extends Controller
         }
     }
 
-    // for owner listing
-    public function allOwnerListing(Request $request)
-    {
-        try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
-            }
-            $requestToken = $request->header('api-token');
-            $expectedToken = config('constants.API_TOKEN');
-            if ($requestToken !== $expectedToken) {
-                return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
-            }
-
-            $users = User::where('role_id', 2)
-                ->with('role')
-                ->with('userDetails')
-                ->get();
-
-            // Extract the necessary information from each user
-            $userList = $users->map(function ($user) {
-                $roleName = $user->role ? $user->role->name : null;
-                $userDetails = $user->userDetails ?? null;
-
-                return [
-                    'id' => $user->id,
-                    'fullname' => $user->fullname,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role_name' => $roleName,
-                    'role_id' => $user->role_id,
-                    'api_token' => $user->uid,
-                    'uid' => $user->uid,
-                    'unique_id' => $user->unique_id,
-                    'isapproved' => $user->isapproved,
-                    'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
-                    'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
-                    'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
-                    'business_phone' => $userDetails ? $userDetails->business_phone : null,
-                    'profile_photo' => $userDetails ? $userDetails->profile_photo : null,
-                    'address' => $userDetails ? $userDetails->address : null,
-                    'country' => $userDetails ? $userDetails->country : null,
-                    'state' => $userDetails ? $userDetails->state : null,
-                    'city' => $userDetails ? $userDetails->city : null,
-                    'pin_code' => $userDetails ? $userDetails->pin_code : null,
-                    'license_number' => $userDetails ? $userDetails->license_number : null,
-                    'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
-                ];
-            });
 
 
-            // Return the user list as JSON response
-            return response()->json($userList, 200);
-        } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
 
-    // // for developer listing
-    // public function allDeveloperListing(Request $request)
-    // {
-    //     try {
-    //         if ($request->header('api-token') == '') {
-    //             return response()->json(['error' => 'Please enter api token first.'], 422);
-    //         }
-    //         $requestToken = $request->header('api-token');
-    //         $expectedToken = config('constants.API_TOKEN');
-    //         if ($requestToken !== $expectedToken) {
-    //             return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
-    //         }
-
-    //         $users = User::where('role_id', 6)
-    //             ->with('role')
-    //             ->with('userDetails')
-    //             ->get();
-
-    //         // Extract the necessary information from each user
-    //         $userList = $users->map(function ($user) {
-    //             $roleName = $user->role ? $user->role->name : null;
-    //             $userDetails = $user->userDetails ?? null;
-
-    //             return [
-    //                 'id' => $user->id,
-    //                 'fullname' => $user->fullname,
-    //                 'email' => $user->email,
-    //                 'phone' => $user->phone,
-    //                 'role_name' => $roleName,
-    //                 'role_id' => $user->role_id,
-    //                 'api_token' => $user->uid,
-    //                 'uid' => $user->uid,
-    //                 'unique_id' => $user->unique_id,
-    //                 'isapproved' => $user->isapproved,
-    //                 'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
-    //                 'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
-    //                 'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
-    //                 'business_phone' => $userDetails ? $userDetails->business_phone : null,
-    //                 'profile_photo' => $userDetails ? $userDetails->profile_photo : null,
-    //                 'address' => $userDetails ? $userDetails->address : null,
-    //                 'country' => $userDetails ? $userDetails->country : null,
-    //                 'state' => $userDetails ? $userDetails->state : null,
-    //                 'city' => $userDetails ? $userDetails->city : null,
-    //                 'pin_code' => $userDetails ? $userDetails->pin_code : null,
-    //                 'license_number' => $userDetails ? $userDetails->license_number : null,
-    //                 'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
-    //             ];
-    //         });
 
 
-    //         // Return the user list as JSON response
-    //         return response()->json($userList, 200);
-    //     } catch (\Throwable $th) {
-    //         // Handle any exceptions and return an error response
-    //         return response()->json(['error' => $th->getMessage()], 500);
-    //     }
-    // }
-
-
-    // for company listing
-    public function allCompanyListing(Request $request)
-    {
-        try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
-            }
-            $requestToken = $request->header('api-token');
-            $expectedToken = config('constants.API_TOKEN');
-            if ($requestToken !== $expectedToken) {
-                return response()->json(['error' => 'Unauthorized. Invalid api token.'], 401);
-            }
-
-            $users = User::where('role_id', 4)
-                ->with('role')
-                ->with('userDetails')
-                ->get();
-
-            // Extract the necessary information from each user
-            $userList = $users->map(function ($user) {
-                $roleName = $user->role ? $user->role->name : null;
-                $userDetails = $user->userDetails ?? null;
-
-                return [
-                    'id' => $user->id,
-                    'fullname' => $user->fullname,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role_name' => $roleName,
-                    'role_id' => $user->role_id,
-                    'api_token' => $user->uid,
-                    'uid' => $user->uid,
-                    'unique_id' => $user->unique_id,
-                    'isapproved' => $user->isapproved,
-                    'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
-                    'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
-                    'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
-                    'business_phone' => $userDetails ? $userDetails->business_phone : null,
-                    'profile_photo' => $userDetails ? $userDetails->profile_photo : null,
-                    'address' => $userDetails ? $userDetails->address : null,
-                    'country' => $userDetails ? $userDetails->country : null,
-                    'state' => $userDetails ? $userDetails->state : null,
-                    'city' => $userDetails ? $userDetails->city : null,
-                    'pin_code' => $userDetails ? $userDetails->pin_code : null,
-                    'license_number' => $userDetails ? $userDetails->license_number : null,
-                    'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
-                ];
-            });
-
-
-            // Return the user list as JSON response
-            return response()->json($userList, 200);
-        } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
-
-
-    public function allAgentListing(Request $request)
-    {
-        try {
-            // Fetch only approved users with the role name 'agent'
-            $users = User::whereHas('role', function ($query) {
-                $query->where('name', 'agent');
-            })
-                ->where('isapproved', 1) // Ensure only approved users are fetched
-                ->with('role')
-                ->with([
-                    'userDetails' => function ($query) {
-                        $query->with(['country', 'state', 'city']); // Load country, state, and city relationships
-                    }
-                ])
-                ->get();
-
-            // Extract the necessary information from each user
-            $userList = $users->map(function ($user) {
-                $roleName = $user->role ? $user->role->name : null;
-                $userDetails = $user->userDetails ?? null;
-
-                // Generate the profile photo URL if available
-                $profilePhotoUrl = $userDetails && $userDetails->profile_photo
-                    ? url($userDetails->profile_photo)
-                    : null;
-
-                return [
-                    'id' => $user->id,
-                    'fullname' => $user->first_name . ' ' . $user->last_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role_name' => $roleName,
-                    'role_id' => $user->role_id,
-                    'unique_id' => $user->unique_id,
-                    'isapproved' => $user->isapproved,
-                    'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
-                    'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
-                    'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
-                    'business_phone' => $userDetails ? $userDetails->business_phone : null,
-                    'profile_photo' => $profilePhotoUrl, // Include the full URL to the profile photo
-                    'address' => $userDetails ? $userDetails->address : null,
-
-                    // Include country, state, and city details
-                    'country_id' => $userDetails && $userDetails->country ? $userDetails->country->id : null,
-                    'country_name' => $userDetails && $userDetails->country ? $userDetails->country->name : null,
-                    'state_id' => $userDetails && $userDetails->state ? $userDetails->state->id : null,
-                    'state_name' => $userDetails && $userDetails->state ? $userDetails->state->name : null,
-                    'city_id' => $userDetails && $userDetails->city ? $userDetails->city->id : null,
-                    'city_name' => $userDetails && $userDetails->city ? $userDetails->city->name : null,
-
-                    'pin_code' => $userDetails ? $userDetails->pin_code : null,
-                    'license_number' => $userDetails ? $userDetails->license_number : null,
-                    'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
-                ];
-            });
-
-            // Return the user list as JSON response
-            return response()->json($userList, 200);
-        } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
 
     public function allAgentListingByAdmin(Request $request)
@@ -5667,7 +5419,7 @@ class UserController extends Controller
     {
         // Validate the email
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email|unique:subscribed_emails,email',
+            'subscribe_email' => 'required|email|unique:subscribed_emails,subscribe_email',
         ]);
 
         if ($validator->fails()) {
@@ -5677,7 +5429,8 @@ class UserController extends Controller
         // Save the email to the database
         // Assuming you have a Subscription model and subscriptions table
         $subscription = new SubscribedEmail();
-        $subscription->email = $request->email;
+        $subscription->subscribe_email = $request->subscribe_email;
+        $subscription->is_subscribed = true;
         $subscription->save();
 
         return response()->json(['message' => 'Subscription successful'], 200);
@@ -5931,13 +5684,7 @@ class UserController extends Controller
                 ->get();
         }
 
-        // Return appropriate response if no users are found
-        // if ($users->isEmpty()) {
-        //     return response()->json([
-        //         'status' => false,
-        //         'message' => 'No user found'
-        //     ], 404);
-        // }
+
 
         return response()->json([
             'status' => true,
@@ -6116,57 +5863,7 @@ class UserController extends Controller
         ], 200);
     }
 
-    // public function getConsultancyAgents(Request $request, $id)
-    // {
-    //     // dd(1);
-    //     try {
-    //         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-    //             return response()->json(['error' => 'Please provide an API token.'], 422);
-    //         }
 
-    //         // Retrieve the Authorization header
-    //         $authorizationHeader = $request->header('Authorization');
-
-    //         // Check if the header starts with "Bearer "
-    //         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-    //             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-    //         }
-
-    //         // Extract the token by removing the "Bearer " prefix
-    //         $requestToken = substr($authorizationHeader, 7);
-
-    //         // Check if the token is empty after removing "Bearer "
-    //         if (empty($requestToken)) {
-    //             return response()->json(['error' => 'Token is missing.'], 422);
-    //         }
-
-    //         // Verify the token dynamically (check in the database)
-    //         $user = User::where('api_token', $requestToken)->first();
-
-    //         if (!$user) {
-    //             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-    //         }
-    //         $role = Role::find($id);
-
-    //         // Step 2: Check if the role exists and if the role is 'consultancy'
-    //         if (!$role) {
-    //             return response()->json(['error' => 'Role not found'], 404);
-    //         }
-
-    //         if ($role->name !== 'consultancy') {
-    //             return response()->json(['error' => 'This role is not consultancy'], 400);
-    //         }
-
-    //         // Step 3: Fetch users with role_id matching the consultancy role
-    //         $agents = User::where('role_id', $id)->get();
-
-    //         // Step 4: Return the list of agents as a response
-    //         return response()->json($agents, 200);
-    //     } catch (\Exception $e) {
-    //         // Handle any exceptions
-    //         return response()->json(['error' => $e->getMessage()], 500);
-    //     }
-    // }
 
     public function getConsultancyAgents(Request $request, $id)
     {
@@ -6195,110 +5892,6 @@ class UserController extends Controller
 
 
 
-
-
-    //     public function updateProfile(Request $request)
-// {
-//     try {
-//         // Validate input data
-//         $request->validate([
-//             'id' => ['required', 'exists:users,id'],
-//             'first_name' => ['required', 'string', 'max:255'],
-//             'last_name' => ['required', 'string', 'max:255'],
-//             'role_id' => ['required', 'exists:roles,id'],
-//             'password' => [
-//                 'nullable',
-//                 'min:8',
-//                 'regex:/[A-Z]/',
-//                 'regex:/[a-z]/',
-//                 'regex:/[0-9]/',
-//                 'regex:/[@$!%*#?&]/',
-//             ],
-//         ]);
-//     } catch (\Illuminate\Validation\ValidationException $e) {
-//         return response()->json(['error' => $e->errors()], 400);
-//     }
-
-    //     // Get the authenticated user
-//     $authUser = Auth::user();
-
-    //     // Fetch the role name for the requested update
-//     $role = Role::find($request->role_id);
-
-    //     // Allowed roles for updating profile
-//     $allowedRoles = ['agent', 'company', 'consultancy', 'developer'];
-
-    //     // Check if the authenticated user has permission to update the profile
-//     if (!$role || !in_array(strtolower($role->name), $allowedRoles)) {
-//         return response()->json(['error' => 'Unauthorized. You do not have permission to update this profile.'], 403);
-//     }
-
-    //     // Check if the user to be updated exists
-//     $user = User::find($request->id);
-//     if (!$user) {
-//         return response()->json(['error' => 'User not found.'], 404);
-//     }
-
-    //     // Update user details
-//     $user->first_name = $request->first_name;
-//     $user->last_name = $request->last_name;
-//     $user->phone = $request->phone;
-//     $user->role_id = $request->role_id;
-//     $user->isapproved = $request->isapproved;
-//     $user->reject_reason = $request->reject_reason;
-
-    //     if ($request->filled('password')) {
-//         $user->password = Hash::make($request->password);
-//     }
-
-    //     DB::beginTransaction();
-//     try {
-//         $user->save();
-
-    //         $userDetail = [
-//             'user_id' => $user->id,
-//             'role_id' => $request->role_id,
-//             'bussiness_name' => $request->bussiness_name,
-//             'bussiness_address' => $request->bussiness_address,
-//             'bussiness_email' => $request->bussiness_email,
-//             'business_phone' => $request->business_phone,
-//             'country_id' => $request->country_id ?? null,
-//             'state_id' => $request->state_id ?? null,
-//             'city_id' => $request->city_id ?? null,
-//             'address' => $request->address,
-//             'pin_code' => $request->pin_code,
-//             'license_number' => $request->license_number,
-//             'alternate_number' => $request->alternate_number,
-//             'no_of_employees' => $request->no_of_employees,
-//             'about_us' => $request->about_us
-//         ];
-
-    //         if ($request->hasFile('profile_photo')) {
-//             $file = $request->file('profile_photo');
-//             $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
-//             $file->move(public_path('uploads/users'), $fileName);
-//             $userDetail['profile_photo'] = 'uploads/users/' . $fileName;
-//         }
-
-    //         UserDetail::where('user_id', $user->id)->update($userDetail);
-
-    //         // Check required fields for KYC update
-//         if ($request->bussiness_name && $request->bussiness_address && $request->bussiness_email &&
-//             $request->business_phone && $request->country_id && $request->state_id && $request->city_id &&
-//             $request->address && $request->pin_code && $request->license_number) {
-//             $user->kyc = 1;
-//             $user->save();
-//         }
-
-    //         DB::commit();
-
-    //         return response()->json(['status' => true, 'message' => 'User updated successfully.'], 200);
-//     } catch (\Exception $e) {
-//         DB::rollBack();
-//         \Log::error($e->getMessage());
-//         return response()->json(['error' => 'Failed to update user. ' . $e->getMessage()], 500);
-//     }
-// }
 
 
     public function updateProfile(Request $request)

@@ -152,18 +152,13 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
 
 
-        Route::get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
+        Route::middleware('allow.owner.role')->get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
 
 
 
 
         Route::get('property-listing-by-location', [UserController::class, 'propertyListingByLocation']);
-        Route::get('get-user-status', [UserController::class, 'getallstatus']);
 
-        Route::get('get-all-owner-listing', [UserController::class, 'allOwnerListing']);
-
-        Route::get('get-all-company-listing', [UserController::class, 'allCompanyListing']);
-        Route::get('get-all-agent-listing', [UserController::class, 'allAgentListing']); //website
 
 
 
@@ -181,12 +176,12 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
         // ========== Subscribe Emails Import ===============
-        Route::post('insert-subscribe-email', [UserController::class, 'insertSubscribeEmail'])->middleware('api.token');
-        Route::get('listing-subscribe-email', [UserController::class, 'listingOfSubscribedEmails'])->middleware('api.token');
-        Route::post('import-subscribed-emails', [UserController::class, 'importSubscribedEmails'])->middleware('api.token');
+        Route::post('insert-subscribe-email', [UserController::class, 'insertSubscribeEmail']);
+        Route::get('listing-subscribe-email', [UserController::class, 'listingOfSubscribedEmails'])->middleware('admin.token');
+        Route::post('import-subscribed-emails', [UserController::class, 'importSubscribedEmails'])->middleware('admin.token');
 
         // ========= Subscribe Emails Export ===============
-        Route::get('/subscribed-emails/export/{format}', [UserController::class, 'exportSubscribedEmails'])->name('subscribed_emails.export')->middleware('api.token');
+        Route::get('/subscribed-emails/export/{format}', [UserController::class, 'exportSubscribedEmails'])->name('subscribed_emails.export')->middleware('admin.token');
 
         // =======Error Log Listing=================
         Route::get('error-logs', [ErrorLogController::class, 'listErrorLogs'])->middleware('api.token');
