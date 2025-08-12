@@ -107,7 +107,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
         Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
-       // Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
+        // Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
         Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
         Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);
         Route::middleware('admin.token')->post('create-user', [UserController::class, 'createUser']);
@@ -151,7 +151,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('site-setting', [SiteSettingController::class, 'siteSetting']);
         Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
 
-        Route::get('get-all-pages', [UserController::class, 'getAllPages']);
+
         Route::get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
 
 
@@ -254,7 +254,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::middleware('allow.admin_company')->post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
         Route::middleware('adminOrCurrentUser')->post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
         //
-       #### No Auth ######
+        #### No Auth ######
         Route::get('get-all-properties-listing-no-auth', [PropertylistingController::class, 'index']);
         Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
         Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
@@ -264,14 +264,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
         // frontend site
-       // =======Front Property Listing============
+        // =======Front Property Listing============
 
 
         Route::post('store-property-analytics', [frontPropertylistingController::class, 'storePropertyAnalytics']);
         Route::get('list-property-analytics', [frontPropertylistingController::class, 'listPropertyAnalytics']);
         Route::get('view-property-analytics', [frontPropertylistingController::class, 'viewPropertyAnalytics']);
         // frontend side
-       // =======Front Project Listing============
+        // =======Front Project Listing============
         Route::post('add-website-project-listing', [frontProjectlistingController::class, 'store']);
         Route::post('edit-website-project-listing', [frontProjectlistingController::class, 'update']);
         Route::post('delete-website-project-listing', [frontProjectlistingController::class, 'destroy']);
@@ -340,20 +340,16 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::middleware('allow.owner.role')->get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
 
         // =======Location============
-        Route::post('location-create', [Locationcontroller::class, 'store']);
-        Route::post('location-update', [Locationcontroller::class, 'update']);
-        Route::get('location-listing', [Locationcontroller::class, 'index']);
-        Route::post('location', [Locationcontroller::class, 'destroy']);
-        Route::post('getdatabyId-location', [Locationcontroller::class, 'getdatabyId']);
-        Route::post('location-bulk-delete', [Locationcontroller::class, 'bulkDelete']);
-        Route::get('location-search', [Locationcontroller::class, 'searchByName'])->name('location.search');
+
+
+
 
         Route::get('/all-location-list', [LocationController::class, 'locationList']);
 
 
         // ======= Bulk Upload Country , State, City in CSV Format ===========
 
-        Route::post('bulk-upload-location-csv', [Locationcontroller::class, 'bulkUploadCSC']);
+        Route::middleware('admin.token')->post('bulk-upload-location-csv', [Locationcontroller::class, 'bulkUploadCSC']);
 
         // =======Amenity============
 
@@ -568,10 +564,10 @@ Route::middleware(['throttle:60,1'])->group(function () {
         // Agent Route will end from here
 
         // Media Route will start from here
-        Route::post('media/add', [MediaController::class, 'addMedia']);
-        Route::post('media/update', [MediaController::class, 'updateMedia']);
-        Route::post('media', [MediaController::class, 'deleteMedia']);
-        Route::get('media-list', [MediaController::class, 'index']);
+        Route::middleware('admin.token')->post('media/add', [MediaController::class, 'addMedia']);
+        Route::middleware('admin.token')->post('media/update', [MediaController::class, 'updateMedia']);
+        Route::middleware('admin.token')->post('media', [MediaController::class, 'deleteMedia']);
+        Route::middleware('admin.token')->get('media-list', [MediaController::class, 'index']);
         // Media Route will end from here
 
 
@@ -579,46 +575,24 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         // =========16-07-2025=======
 
-        Route::get('get-all-pages-list', [PageController::class, 'index']);
+        Route::middleware('admin.token')->get('get-all-pages-list', [PageController::class, 'index']);
         Route::get('get-pages-by-id/{id}', [PageController::class, 'show']);
         Route::middleware('admin.token')->post('create-pages', [PageController::class, 'store']);
         Route::middleware('admin.token')->post('update-pages-by-id/{id}', [PageController::class, 'update']);
         Route::middleware('admin.token')->delete('delete-pages-by-id/{id}', [PageController::class, 'destroy']);
         Route::middleware('admin.token')->post('bulk-delete-pages', [PageController::class, 'bulkDestroy']);
-        Route::get('search-pages', [PageController::class, 'searchPage']);
-        Route::post('check-unique-pages', [PageController::class, 'checkUnique']);
+        Route::middleware('admin.token')->get('search-pages', [PageController::class, 'searchPage']);
+        Route::middleware('admin.token')->post('check-unique-pages', [PageController::class, 'checkUnique']);
 
 
 
-        // =========privacy-policy========
-        Route::middleware('admin.token')->post('privacy-policy-update', [privacypolicycontroller::class, 'update']);
-        Route::get('privacy-policy-list', [privacypolicycontroller::class, 'index']);
 
-        // =========terms & condition========
-        Route::middleware('admin.token')->post('terms-and-condition-update', [termsandconditioncontroller::class, 'update']);
-        Route::get('terms-and-condition-list', [termsandconditioncontroller::class, 'index']);
 
         // =========About us========
-        Route::middleware('admin.token')->post('aboutus-update', [AboutusController::class, 'update']);
-        Route::get('aboutus-list', [AboutusController::class, 'index']);
 
-        // ========== New About Us ===========
-        Route::get('/about-us', [AboutusController::class, 'show']);
-        Route::middleware('admin.token')->post('/about-us', [AboutusController::class, 'storeOrUpdate']);
+        Route::get('/about-us', [AboutUsController::class, 'show']);
+        Route::middleware('admin.token')->post('/about-us', [AboutUsController::class, 'storeOrUpdate']);
 
-        // ========= End New About Us ===========
-
-        // =========Career========
-        Route::middleware('admin.token')->post('career-update', [CareerController::class, 'update']);
-        Route::get('career-list', [CareerController::class, 'index']);
-
-        // =========Legal========
-        Route::middleware('admin.token')->post('legal-update', [LegalController::class, 'update']);
-        Route::get('legal-list', [LegalController::class, 'index']);
-
-        // =========Sales Refund========
-        Route::middleware('admin.token')->post('sales-and-refund-update', [SalesRefundController::class, 'update']);
-        Route::get('sales-and-refund-list', [SalesRefundController::class, 'index']);
 
         // =========Property Valuation========
         Route::middleware('admin.token')->post('property-valuation-update', [PropertyValuationController::class, 'update']);
@@ -657,11 +631,11 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         // =========Help Art=======
         Route::get('help-article-list', [HelpArticleController::class, 'index']);
-        Route::post('help-article-create', [HelpArticleController::class, 'store']);
-        Route::post('help-article-update', [HelpArticleController::class, 'update']);
-        Route::post('help-article-delete', [HelpArticleController::class, 'delete']);
+        Route::middleware('admin.token')->post('help-article-create', [HelpArticleController::class, 'store']);
+        Route::middleware('admin.token')->post('help-article-update', [HelpArticleController::class, 'update']);
+        Route::middleware('admin.token')->post('help-article-delete', [HelpArticleController::class, 'delete']);
         Route::get('get-help-article-by-id/{id}', [HelpArticleController::class, 'getdatabyId']);
-        Route::post('help-article-bulk-delete', [HelpArticleController::class, 'bulkDelete']);
+        Route::middleware('admin.token')->post('help-article-bulk-delete', [HelpArticleController::class, 'bulkDelete']);
 
 
         // ==========Like/Dislike===============
@@ -693,14 +667,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         // =========Profile=======
         Route::post('complete-your-profile', [Profilecontroller::class, 'updateProfile']);
-        Route::post('approve-user', [Profilecontroller::class, 'approveuser']);
+
 
         // =====For Client Review=====
-        Route::post('add-client-review', [ClientReviewController::class, 'store']);
-        Route::post('edit-client-review', [ClientReviewController::class, 'update']);
-        Route::post('delete-client-review', [ClientReviewController::class, 'destroy']);
-        Route::get('get-client-review', [ClientReviewController::class, 'index']);
-        Route::get('get-client-review-by-id/{id}', [ClientReviewController::class, 'getdatabyId']);
+        Route::middleware('api.token')->post('add-client-review', [ClientReviewController::class, 'store']);
+        Route::middleware('api.token')->post('edit-client-review', [ClientReviewController::class, 'update']);
+        Route::middleware('api.token')->post('delete-client-review', [ClientReviewController::class, 'destroy']);
+        Route::middleware('api.token')->get('get-client-review', [ClientReviewController::class, 'index']);
+        Route::middleware('api.token')->get('get-client-review-by-id/{id}', [ClientReviewController::class, 'getdatabyId']);
 
         // =====For Faq Category=====
         Route::middleware('admin.token')->post('add-faq-category', [FaqCategoryController::class, 'store']); //Done By softtonia
@@ -774,9 +748,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::middleware('admin.token')->post('bulk-delete-template-id-listings', [CustomFieldController::class, 'bulkDeleteCustomFieldUniqueCode']);
 
 
-        // Top Features
-
-
+        // Top Features for project developer and listings
         Route::get('top-features-list', [TopFeatureController::class, 'index']);
         Route::get('/get-top-features-by-id', [TopFeatureController::class, 'getTopFeaturesById']);
         Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [TopFeatureController::class, 'createOrUpdateTopFeature']);

@@ -17,11 +17,10 @@ return new class extends Migration
             $table->integer('like')->default(0);
             $table->integer('dislike')->default(0);
             $table->enum('type', ['blog', 'help'])->nullable();
-            $table->unsignedBigInteger('user_id')->nullable();
             $table->timestamps();
 
             $table->foreign('help_article_id')->references('id')->on('help_articles')->onDelete('cascade');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
+
 
         });
     }

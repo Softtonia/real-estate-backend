@@ -5,9 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class HelpActivity extends Model
+class SeoRobot extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['help_article_id', 'like', 'dislike', 'type'];
+     protected $guarded = [];
+
+    protected $casts = [
+        'disallow' => 'array',
+        'allow' => 'array',
+    ];
 }

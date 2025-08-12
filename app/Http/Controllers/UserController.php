@@ -5784,33 +5784,7 @@ class UserController extends Controller
 
 
 
-    // this is for all page list
-    public function getAllPages(Request $request)
-    {
-        try {
-            // Fetch pages for all specified names
-            $aboutUsPages = Page::where('page', 'Aboutus')->first();
-            $careerPages = Page::where('page', 'Career')->first();
-            $legalPages = Page::where('page', 'Legal')->first();
-            $privacyPolicyPages = Page::where('page', 'Privacy Policy')->first();
-            $salesRefundPages = Page::where('page', 'Sales&Refund')->first();
-            $termsConditionsPages = Page::where('page', 'Terms & Conditions')->first();
-            $propertyValuationPages = Page::where('page', 'PropertyValuation')->first();
 
-            // Return all pages under their respective keys
-            return response()->json([
-                'about_us' => $aboutUsPages,
-                'career' => $careerPages,
-                'legal' => $legalPages,
-                'privacy_policy' => $privacyPolicyPages,
-                'sales_refund' => $salesRefundPages,
-                'terms_conditions' => $termsConditionsPages,
-                'property_valuation' => $propertyValuationPages,
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
 
 

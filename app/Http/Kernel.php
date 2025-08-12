@@ -81,7 +81,7 @@ class Kernel extends HttpKernel
 
     protected $routeMiddleware = [
         // Other middleware...
-        'auth.api.token' => \App\Http\Middleware\CompanyApiToken::class,
+        // 'auth.api.token' => \App\Http\Middleware\CompanyApiToken::class,
         'api.token' => \App\Http\Middleware\ApiTokenMiddleware::class,
         'admin.token' => \App\Http\Middleware\AdminTokenMiddleware::class,
         'token.expiration' => \App\Http\Middleware\CheckTokenExpiration::class,

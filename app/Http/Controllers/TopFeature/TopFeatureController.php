@@ -112,7 +112,7 @@ class TopFeatureController extends Controller
             ];
 
             $validated = $request->validate([
-                'featured_type' => 'required|array',
+                'featured_type' => 'nullable|array',
                 'featured_type.*' => 'in:' . implode(',', $allowedFeaturedTypes),
                 'status' => 'required|in:1,0',
                 'project_id' => 'nullable|integer|exists:project_listings,id',

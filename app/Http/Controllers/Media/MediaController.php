@@ -12,56 +12,6 @@ use Illuminate\Support\Facades\Validator;
 
 class MediaController extends Controller
 {
-    // public function addMedia(Request $request)
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'icon_name' => 'required|string|unique:media',
-    //         'media_icon' => 'nullable', // Expecting base64 encoded string
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json(['error' => $validator->errors()], 400);
-    //     }
-
-    //     // Decode the base64 string to get the binary image data
-    //     $mediaIconData = base64_decode($request->media_icon);
-
-    //     // Generate a unique file name
-    //     $fileName = time() . '.png'; // Assuming the media icon is always a PNG file
-
-    //     // Specify the directory where you want to save the file
-    //     $directory = 'custom_location/';
-
-    //     // Ensure that the directory exists, create it if it doesn't
-    //     $directoryPath = public_path($directory);
-    //     File::makeDirectory($directoryPath, $mode = 0777, true, true);
-
-    //     // Save the image to the specified directory
-    //     $path = $directoryPath . $fileName;
-    //     file_put_contents($path, $mediaIconData);
-
-    //     // Save the media to the database
-    //     $media = new Media();
-    //     $media->icon_name = $request->icon_name;
-    //     $media->icon_css_id = $request->icon_name.'-'.'ur';
-    //     $media->media_icon = $directory . $fileName.'png'; // Store the file path instead of binary data
-
-    //     $media->save();
-
-    //     $agentUniqueId = new AgentUniqueId();
-    //     $agentUniqueId->agents_unique_id = 'URA' . str_pad($media->id, 3, '0', STR_PAD_LEFT); // Assuming URA prefix followed by padded media id
-    //     $agentUniqueId->agent_id = $media->id;
-    //     $agentUniqueId->save();
-
-    //     return response()->json(['message' => 'Media added successfully',
-    //     'id' => $media->id,
-    //     'icon_name' => $media->icon_name,
-    //     'icon_css_id' => $media->icon_css_id,
-    //     'media_icon' => $media->media_icon,
-    //     'created_at' => $media->created_at,
-    //     'updated_at' => $media->updated_at
-    // ], 200);
-    // }
 
     public function addMedia(Request $request)
     {
@@ -197,26 +147,7 @@ class MediaController extends Controller
         return response()->json(['message' => 'Media deleted successfully'], 200);
     }
 
-    // public function index(Request $request)
-    // {
-    //     // Fetch all media records from the database
-    //     $data = DB::table('media')->get();
-    //     $mediaList = [];
 
-    //     foreach ($data as $media) {
-    //         $mediaList[] = [
-    //             'id' => $media->id,
-    //             'icon_css_id' => $media->icon_css_id,
-    //             'icon_name' => $media->icon_name,
-    //             'media_icon' => url($media->media_icon), // Prepend the base URL to the media icon path
-    //             'created_at' => $media->created_at,
-    //             'updated_at' => $media->updated_at
-    //         ];
-    //     }
-
-    //     // Return the response with the list of media items
-    //     return response()->json($mediaList);
-    // }
 
     public function index(Request $request)
     {
