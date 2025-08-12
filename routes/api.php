@@ -70,6 +70,7 @@ use App\Http\Controllers\GoogleAuthController;
 
 
 
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -600,6 +601,12 @@ Route::middleware(['throttle:60,1'])->group(function () {
         // =========About us========
         Route::middleware('admin.token')->post('aboutus-update', [AboutusController::class, 'update']);
         Route::get('aboutus-list', [AboutusController::class, 'index']);
+
+        // ========== New About Us ===========
+        Route::get('/about-us', [AboutusController::class, 'show']);
+        Route::middleware('admin.token')->post('/about-us', [AboutusController::class, 'storeOrUpdate']);
+
+        // ========= End New About Us ===========
 
         // =========Career========
         Route::middleware('admin.token')->post('career-update', [CareerController::class, 'update']);
