@@ -41,6 +41,7 @@ class DatabaseSeeder extends Seeder
          $this->call(SiteSettingsSeeder::class);
          $this->call(GroupNameSeeder::class);
          $this->call(TemplateSeeder::class);
+         $this->call(CustomFieldsSeeder::class);
 
 
     }
