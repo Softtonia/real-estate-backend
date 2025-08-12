@@ -6,13 +6,22 @@ use App\Http\Controllers\Controller;
 use App\Models\Page;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 class PageController extends Controller
 {
     // Get all pages
     public function index()
     {
-        $pages = Page::all();
+        $pages = Page::all()->map(function ($page) {
+            if ($page->featured_image) {
+                $page->featured_image_url = url($page->featured_image);
+            } else {
+                $page->featured_image_url = null;
+            }
+            return $page;
+        });
         return response()->json([
             'status' => true,
             'message' => 'Pages retrieved successfully',
@@ -20,7 +29,7 @@ class PageController extends Controller
         ], 200);
     }
 
-    //  Get single page by ID
+    // Get single page by ID
     public function show($id)
     {
         $page = Page::find($id);
@@ -31,6 +40,12 @@ class PageController extends Controller
             ], 200);
         }
 
+        if ($page->featured_image) {
+            $page->featured_image_url = url($page->featured_image);
+        } else {
+            $page->featured_image_url = null;
+        }
+
         return response()->json([
             'status' => true,
             'message' => 'Page retrieved successfully',
@@ -38,13 +53,15 @@ class PageController extends Controller
         ], 200);
     }
 
-    //  Create new page
+    // Create new page
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'page' => 'required|string|unique:pages,page',
             'title' => 'required|string',
             'content' => 'required|string',
+            'breadcrumb' => 'nullable|string',
+            'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048'
         ]);
 
         if ($validator->fails()) {
@@ -55,7 +72,29 @@ class PageController extends Controller
             ], 422);
         }
 
-        $page = Page::create($validator->validated());
+        $data = $validator->validated();
+
+        // Generate slug from title
+        $slug = Str::slug($request->title);
+
+        // Check if slug exists
+        if (Page::where('slug', $slug)->exists()) {
+            return response()->json([
+                'status' => false,
+                'message' => "A page with a similar title already exists. Please change the title."
+            ], 409);
+        }
+        $data['slug'] = $slug;
+
+        // Image Upload
+        if ($request->hasFile('featured_image')) {
+            $file = $request->file('featured_image');
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('uploads/pages/featured_image'), $filename);
+            $data['featured_image'] = 'uploads/pages/featured_image/' . $filename;
+        }
+
+        $page = Page::create($data);
 
         return response()->json([
             'status' => true,
@@ -64,7 +103,7 @@ class PageController extends Controller
         ], 201);
     }
 
-    //  Update page by ID
+    // Update page by ID
     public function update(Request $request, $id)
     {
         $page = Page::find($id);
@@ -79,6 +118,8 @@ class PageController extends Controller
             'page' => 'required|string|unique:pages,page,' . $id,
             'title' => 'required|string',
             'content' => 'required|string',
+            'breadcrumb' => 'nullable|string',
+            'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048'
         ]);
 
         if ($validator->fails()) {
@@ -89,7 +130,32 @@ class PageController extends Controller
             ], 422);
         }
 
-        $page->update($validator->validated());
+        $data = $validator->validated();
+
+        // Generate new slug from title
+        $slug = Str::slug($request->title);
+
+        // Check if slug exists in another record
+        if (Page::where('slug', $slug)->where('id', '!=', $id)->exists()) {
+            return response()->json([
+                'status' => false,
+                'message' => "A page with a similar title already exists. Please change the title."
+            ], 409);
+        }
+        $data['slug'] = $slug;
+
+        // If new image uploaded, delete old one
+        if ($request->hasFile('featured_image')) {
+            if ($page->featured_image && File::exists(public_path($page->featured_image))) {
+                File::delete(public_path($page->featured_image));
+            }
+            $file = $request->file('featured_image');
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('uploads/pages/featured_image'), $filename);
+            $data['featured_image'] = 'uploads/pages/featured_image/' . $filename;
+        }
+
+        $page->update($data);
 
         return response()->json([
             'status' => true,
@@ -98,7 +164,7 @@ class PageController extends Controller
         ], 200);
     }
 
-    //  Delete page by ID
+    // Delete page by ID
     public function destroy($id)
     {
         $page = Page::find($id);
@@ -107,6 +173,10 @@ class PageController extends Controller
                 'status' => false,
                 'message' => 'Page not found'
             ], 200);
+        }
+
+        if ($page->featured_image && File::exists(public_path($page->featured_image))) {
+            File::delete(public_path($page->featured_image));
         }
 
         $page->delete();
@@ -118,7 +188,6 @@ class PageController extends Controller
     }
 
     // Bulk Delete page by ID
-
     public function bulkDestroy(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -134,26 +203,28 @@ class PageController extends Controller
             ], 422);
         }
 
-        $ids = $request->ids;
+        $pages = Page::whereIn('id', $request->ids)->get();
 
-        $deleted = Page::whereIn('id', $ids)->delete();
+        foreach ($pages as $page) {
+            if ($page->featured_image && File::exists(public_path($page->featured_image))) {
+                File::delete(public_path($page->featured_image));
+            }
+            $page->delete();
+        }
 
         return response()->json([
             'status' => true,
-            'message' => "$deleted page(s) deleted successfully",
-            'deleted_ids' => $ids
+            'message' => count($request->ids) . " page(s) deleted successfully",
+            'deleted_ids' => $request->ids
         ], 200);
     }
 
-
-    // Search Pages 15-07-2025
-
+    // Search Pages
     public function searchPage(Request $request)
     {
         try {
             $query = Page::query();
 
-            // Only search in `page` and `title` fields
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
@@ -163,6 +234,16 @@ class PageController extends Controller
             }
 
             $pages = $query->latest()->get();
+
+            // featured_image ka full URL add karein
+            $pages->transform(function ($page) {
+                $page->featured_image_url = $page->featured_image
+                    ? url($page->featured_image)
+                    : null;
+                return $page;
+            });
+
+
 
             return response()->json([
                 'status' => true,
@@ -178,12 +259,11 @@ class PageController extends Controller
         }
     }
 
-    // check page uniqueness
-
+    // Check page uniqueness
     public function checkUnique(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'page' => 'required|string'
+            'title' => 'required|string'
         ]);
 
         if ($validator->fails()) {
@@ -194,24 +274,17 @@ class PageController extends Controller
             ], 422);
         }
 
-        $pageSlug = $request->page;
-        $exists = Page::where('page', $pageSlug)->exists();
-
-        if ($exists) {
-            return response()->json([
-                'status' => true,
-                'unique' => false,
-                'message' => 'This page is already exists.'
-            ], 200);
-        }
+        $slug = Str::slug($request->title);
+        $exists = Page::where('slug', $slug)->exists();
 
         return response()->json([
             'status' => true,
-            'unique' => true,
-            'message' => "The page '{$pageSlug}' is available."
+            'unique' => !$exists,
+            'message' => $exists
+                ? 'A page with a similar title already exists.'
+                : "The title '{$request->title}' is available."
         ], 200);
     }
-
 
 
 

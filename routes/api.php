@@ -107,7 +107,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
         Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
-        // Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
+
         Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
         Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);
         Route::middleware('admin.token')->post('create-user', [UserController::class, 'createUser']);
