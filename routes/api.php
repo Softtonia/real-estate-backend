@@ -323,12 +323,10 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         Route::middleware('admin.token')->post('import-keywords', [Admincontroller::class, 'import']);
         Route::middleware('admin.token')->get('export-keywords', [Admincontroller::class, 'export']);
-        Route::get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
-        // Route::get('fetch-property-keywords', [Admincontroller::class, 'fetchPropertyKeywordList']);
-// Route::get('fetch-project-keywords', [Admincontroller::class, 'fetchProjectKeywordList']);
-// Route::get('fetch-developer-keywords', [Admincontroller::class, 'fetchDeveloperKeywordList']);
+        Route::middleware('admin.token')->get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
 
-        Route::get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
+
+        Route::middleware('api.token')->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
         // ======= Analytics =========
         Route::middleware('admin.token')->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
         Route::middleware('api.token')->get('business-dashboard-analytics', [BusinessDashboardAnalyticsController::class, 'businessDashboardAnalytics']);
