@@ -75,5 +75,11 @@ class Developerlist extends Model
     }
 
 
+    public function importKeywords()
+    {
+        return $this->belongsToMany(ImportKeyword::class, 'keywords', 'developer_id', 'keyword');
+    }
+
+
 
 }

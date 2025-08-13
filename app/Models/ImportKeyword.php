@@ -25,4 +25,9 @@ class ImportKeyword extends Model
     {
         return $this->belongsToMany(ProjectList::class, 'keywords', 'keyword', 'project_id');
     }
+
+    public function developers()
+    {
+        return $this->belongsToMany(Developerlist::class, 'keywords', 'keyword', 'developer_id');
+    }
 }

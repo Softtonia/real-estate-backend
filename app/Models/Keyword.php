@@ -8,14 +8,14 @@ use Illuminate\Database\Eloquent\Model;
 class Keyword extends Model
 {
     use HasFactory;
-    protected $guarded=[];
-    protected $table='keywords';
+    protected $guarded = [];
+    protected $table = 'keywords';
 
 
     /**
      * Get the property associated with the keyword.
      */
-      public function property()
+    public function property()
     {
         return $this->belongsTo(Propertylist::class, 'property_id');
     }
@@ -31,5 +31,10 @@ class Keyword extends Model
     public function project()
     {
         return $this->belongsTo(ProjectList::class, 'project_id');
+    }
+
+     public function developer()
+    {
+        return $this->belongsTo(Developerlist::class, 'developer_id');
     }
 }
