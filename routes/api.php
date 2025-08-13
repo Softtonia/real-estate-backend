@@ -117,6 +117,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('/users/filter-by-role', [UserController::class, 'filterByRole']);
         Route::get('/users/filter-by-status', [UserController::class, 'filterByStatus']);
 
+        Route::middleware('admin.token')->get('/get-user-details-by-role', [UserController::class, 'getDataUserDetailsByRole']);
+
 
 
         Route::middleware('OnlyCompany')->get('get-company-consultancy-listing', [UserController::class, 'getCompanyConsultancyListing']);   // Done By softtonia
@@ -747,6 +749,13 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [TopFeatureController::class, 'createOrUpdateTopFeature']);
 
     });
+
+
+
+    Route::get('/developer-listings-by-featured-type', [TopFeatureController::class, 'getDevelopersByFeaturedType']);
+    Route::get('/properties-listing-by-featured-type', [TopFeatureController::class, 'getPropertiesByFeaturedType']);
+    Route::get('/project-listings-by-featured-type', [TopFeatureController::class, 'getProjectsByFeaturedType']);
+
     // API Client
 
     Route::middleware('admin.token')->get('api-client-secrect-list', [ApiClientController::class, 'index']);

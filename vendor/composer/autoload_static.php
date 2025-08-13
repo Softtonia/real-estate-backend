@@ -4,7 +4,7 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
+class ComposerStaticInitf9e85bdf478ec00863562af6a265bfd3
 {
     public static $files = array (
         '0e6d7bf4a5811bfa5cf40c5ccd6fae6a' => __DIR__ . '/..' . '/symfony/polyfill-mbstring/bootstrap.php',
@@ -397,8 +397,8 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
         ),
         'Psr\\Http\\Message\\' => 
         array (
-            0 => __DIR__ . '/..' . '/psr/http-factory/src',
-            1 => __DIR__ . '/..' . '/psr/http-message/src',
+            0 => __DIR__ . '/..' . '/psr/http-message/src',
+            1 => __DIR__ . '/..' . '/psr/http-factory/src',
         ),
         'Psr\\Http\\Client\\' => 
         array (
@@ -666,21 +666,17 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
         'App\\Http\\Controllers\\Help\\HelpCategoryController' => __DIR__ . '/../..' . '/app/Http/Controllers/Help/HelpCategoryController.php',
         'App\\Http\\Controllers\\Help\\HelpChildcategoryController' => __DIR__ . '/../..' . '/app/Http/Controllers/Help/HelpChildcategoryController.php',
         'App\\Http\\Controllers\\Help\\HelpSubcategoryController' => __DIR__ . '/../..' . '/app/Http/Controllers/Help/HelpSubcategoryController.php',
+        'App\\Http\\Controllers\\IpLog\\IpLogController' => __DIR__ . '/../..' . '/app/Http/Controllers/IpLog/IpLogController.php',
         'App\\Http\\Controllers\\Locationcontroller' => __DIR__ . '/../..' . '/app/Http/Controllers/Locationcontroller.php',
         'App\\Http\\Controllers\\Media\\MediaController' => __DIR__ . '/../..' . '/app/Http/Controllers/Media/MediaController.php',
         'App\\Http\\Controllers\\OtpController' => __DIR__ . '/../..' . '/app/Http/Controllers/OtpController.php',
         'App\\Http\\Controllers\\OvervewAnalytics\\AdminDashboardAnalyticsController' => __DIR__ . '/../..' . '/app/Http/Controllers/OvervewAnalytics/AdminDashboardAnalyticsController.php',
         'App\\Http\\Controllers\\OvervewAnalytics\\BusinessDashboardAnalyticsController' => __DIR__ . '/../..' . '/app/Http/Controllers/OvervewAnalytics/BusinessDashboardAnalyticsController.php',
         'App\\Http\\Controllers\\OvervewAnalytics\\OwnerDashboardAnalyticsController' => __DIR__ . '/../..' . '/app/Http/Controllers/OvervewAnalytics/OwnerDashboardAnalyticsController.php',
-        'App\\Http\\Controllers\\Page\\AboutusController' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/AboutusController.php',
-        'App\\Http\\Controllers\\Page\\CareerController' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/CareerController.php',
-        'App\\Http\\Controllers\\Page\\LegalController' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/LegalController.php',
+        'App\\Http\\Controllers\\Page\\AboutUsController' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/AboutUsController.php',
         'App\\Http\\Controllers\\Page\\PageController' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/PageController.php',
         'App\\Http\\Controllers\\Page\\PropertyValuationController' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/PropertyValuationController.php',
-        'App\\Http\\Controllers\\Page\\SalesRefundController' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/SalesRefundController.php',
-        'App\\Http\\Controllers\\Page\\privacypolicycontroller' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/privacypolicycontroller.php',
         'App\\Http\\Controllers\\Page\\servicescontroller' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/servicescontroller.php',
-        'App\\Http\\Controllers\\Page\\termsandconditioncontroller' => __DIR__ . '/../..' . '/app/Http/Controllers/Page/termsandconditioncontroller.php',
         'App\\Http\\Controllers\\Profile\\profilecontroller' => __DIR__ . '/../..' . '/app/Http/Controllers/Profile/profilecontroller.php',
         'App\\Http\\Controllers\\ProjectController' => __DIR__ . '/../..' . '/app/Http/Controllers/ProjectController.php',
         'App\\Http\\Controllers\\ProjectListing\\ProjectlistingController' => __DIR__ . '/../..' . '/app/Http/Controllers/ProjectListing/ProjectlistingController.php',
@@ -721,6 +717,7 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
         'App\\Http\\Middleware\\CompanyApiToken' => __DIR__ . '/../..' . '/app/Http/Middleware/CompanyApiToken.php',
         'App\\Http\\Middleware\\EncryptCookies' => __DIR__ . '/../..' . '/app/Http/Middleware/EncryptCookies.php',
         'App\\Http\\Middleware\\ExcludeOwnerMiddleware' => __DIR__ . '/../..' . '/app/Http/Middleware/ExcludeOwnerMiddleware.php',
+        'App\\Http\\Middleware\\LogAndBlockIpMiddleware' => __DIR__ . '/../..' . '/app/Http/Middleware/LogAndBlockIpMiddleware.php',
         'App\\Http\\Middleware\\PreventRequestsDuringMaintenance' => __DIR__ . '/../..' . '/app/Http/Middleware/PreventRequestsDuringMaintenance.php',
         'App\\Http\\Middleware\\RedirectIfAuthenticated' => __DIR__ . '/../..' . '/app/Http/Middleware/RedirectIfAuthenticated.php',
         'App\\Http\\Middleware\\TrimStrings' => __DIR__ . '/../..' . '/app/Http/Middleware/TrimStrings.php',
@@ -732,6 +729,7 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
         'App\\Imports\\ImportKeywordsImport' => __DIR__ . '/../..' . '/app/Imports/ImportKeywordsImport.php',
         'App\\Imports\\SubscribedEmailsImport' => __DIR__ . '/../..' . '/app/Imports/SubscribedEmailsImport.php',
         'App\\Mail\\OTPMail' => __DIR__ . '/../..' . '/app/Mail/OTPMail.php',
+        'App\\Models\\AboutUs' => __DIR__ . '/../..' . '/app/Models/AboutUs.php',
         'App\\Models\\AmenitiesCategory' => __DIR__ . '/../..' . '/app/Models/AmenitiesCategory.php',
         'App\\Models\\Amenity' => __DIR__ . '/../..' . '/app/Models/Amenity.php',
         'App\\Models\\ApiClient' => __DIR__ . '/../..' . '/app/Models/ApiClient.php',
@@ -776,6 +774,10 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
         'App\\Models\\Response' => __DIR__ . '/../..' . '/app/Models/Response.php',
         'App\\Models\\Role' => __DIR__ . '/../..' . '/app/Models/Role.php',
         'App\\Models\\RolePrefixReapeater' => __DIR__ . '/../..' . '/app/Models/RolePrefixReapeater.php',
+        'App\\Models\\SeoMeta' => __DIR__ . '/../..' . '/app/Models/SeoMeta.php',
+        'App\\Models\\SeoRobot' => __DIR__ . '/../..' . '/app/Models/SeoRobot.php',
+        'App\\Models\\SeoSchemaMarkup' => __DIR__ . '/../..' . '/app/Models/SeoSchemaMarkup.php',
+        'App\\Models\\SeoSitemap' => __DIR__ . '/../..' . '/app/Models/SeoSitemap.php',
         'App\\Models\\Service' => __DIR__ . '/../..' . '/app/Models/Service.php',
         'App\\Models\\Setting' => __DIR__ . '/../..' . '/app/Models/Setting.php',
         'App\\Models\\SiteSetting' => __DIR__ . '/../..' . '/app/Models/SiteSetting.php',
@@ -938,8 +940,11 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
         'Database\\Seeders\\AmenitySeeder' => __DIR__ . '/../..' . '/database/seeders/AmenitySeeder.php',
         'Database\\Seeders\\ApiClientTableSeeder' => __DIR__ . '/../..' . '/database/seeders/ApiClientTableSeeder.php',
         'Database\\Seeders\\CitySeeder' => __DIR__ . '/../..' . '/database/seeders/CitySeeder.php',
+        'Database\\Seeders\\ClientReviewsSeeder' => __DIR__ . '/../..' . '/database/seeders/ClientReviewsSeeder.php',
         'Database\\Seeders\\CountrySeeder' => __DIR__ . '/../..' . '/database/seeders/CountrySeeder.php',
+        'Database\\Seeders\\CustomFieldsSeeder' => __DIR__ . '/../..' . '/database/seeders/CustomFieldsSeeder.php',
         'Database\\Seeders\\DatabaseSeeder' => __DIR__ . '/../..' . '/database/seeders/DatabaseSeeder.php',
+        'Database\\Seeders\\GroupNameSeeder' => __DIR__ . '/../..' . '/database/seeders/GroupNameSeeder.php',
         'Database\\Seeders\\HelpCategorySeeder' => __DIR__ . '/../..' . '/database/seeders/HelpCategorySeeder.php',
         'Database\\Seeders\\HelpChildcategorySeeder' => __DIR__ . '/../..' . '/database/seeders/HelpChildcategorySeeder.php',
         'Database\\Seeders\\HelpSubcategorySeeder' => __DIR__ . '/../..' . '/database/seeders/HelpSubcategorySeeder.php',
@@ -951,8 +956,10 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
         'Database\\Seeders\\PropertyTypeSeeder' => __DIR__ . '/../..' . '/database/seeders/PropertyTypeSeeder.php',
         'Database\\Seeders\\PurposeSeeder' => __DIR__ . '/../..' . '/database/seeders/PurposeSeeder.php',
         'Database\\Seeders\\RoleSeeder' => __DIR__ . '/../..' . '/database/seeders/RoleSeeder.php',
+        'Database\\Seeders\\SiteSettingsSeeder' => __DIR__ . '/../..' . '/database/seeders/SiteSettingsSeeder.php',
         'Database\\Seeders\\StateSeeder' => __DIR__ . '/../..' . '/database/seeders/StateSeeder.php',
         'Database\\Seeders\\StatusSeeder' => __DIR__ . '/../..' . '/database/seeders/StatusSeeder.php',
+        'Database\\Seeders\\TemplateSeeder' => __DIR__ . '/../..' . '/database/seeders/TemplateSeeder.php',
         'Database\\Seeders\\TicketDepartmentsSeeder' => __DIR__ . '/../..' . '/database/seeders/TicketDepartmentsSeeder.php',
         'Database\\Seeders\\TicketPrioritiesTableSeeder' => __DIR__ . '/../..' . '/database/seeders/TicketPrioritiesTableSeeder.php',
         'Database\\Seeders\\TicketStatusTableSeeder' => __DIR__ . '/../..' . '/database/seeders/TicketStatusTableSeeder.php',
@@ -8277,10 +8284,10 @@ class ComposerStaticInit9c491b8531eec05ba41a11d9276a5749
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInit9c491b8531eec05ba41a11d9276a5749::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInit9c491b8531eec05ba41a11d9276a5749::$prefixDirsPsr4;
-            $loader->prefixesPsr0 = ComposerStaticInit9c491b8531eec05ba41a11d9276a5749::$prefixesPsr0;
-            $loader->classMap = ComposerStaticInit9c491b8531eec05ba41a11d9276a5749::$classMap;
+            $loader->prefixLengthsPsr4 = ComposerStaticInitf9e85bdf478ec00863562af6a265bfd3::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInitf9e85bdf478ec00863562af6a265bfd3::$prefixDirsPsr4;
+            $loader->prefixesPsr0 = ComposerStaticInitf9e85bdf478ec00863562af6a265bfd3::$prefixesPsr0;
+            $loader->classMap = ComposerStaticInitf9e85bdf478ec00863562af6a265bfd3::$classMap;
 
         }, null, ClassLoader::class);
     }

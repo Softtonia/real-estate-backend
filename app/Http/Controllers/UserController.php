@@ -1676,7 +1676,7 @@ class UserController extends Controller
                     $request->bussiness_name && $request->bussiness_address && $request->bussiness_email &&
                     $request->business_phone && $request->country_id && $request->state_id && $request->city_id &&
                     $request->address && $request->pin_code && $request->license_number && $request->business_country_id &&
-                    $request->business_state_id && $request->business_city_id && $request->business_area_locality  && $request->business_colony && $request->business_street_address && $request->business_pin_code
+                    $request->business_state_id && $request->business_city_id && $request->business_area_locality && $request->business_colony && $request->business_street_address && $request->business_pin_code
                 ) {
                     $user->isapproved = 3;
                     $user->save();
@@ -5176,71 +5176,7 @@ class UserController extends Controller
         }
     }
 
-    // This is for site setting
-    // public function updateSiteSetting(Request $request)
-    // {
-    //     // Validate inputs
-    //     $data = $request->validate([
-    //         'website_logo' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
-    //         'mobile_logo' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
-    //         'site_name' => 'nullable|string',
-    //         'favicon' => 'nullable|image|max:2048|mimes:png,jpg,jpeg',
-    //         'address' => 'nullable|string',
-    //         'mobile_number' => 'nullable|numeric|min:10',
-    //         'email' => 'nullable|string|email',
-    //         'copyright_text' => 'nullable|string',
-    //         'disclaimer' => 'nullable|string',
-    //         'site_short_description' => 'nullable|string',
-    //         'subscribe_short_description' => 'nullable|string',
-    //         'facebook' => 'nullable|string',
-    //         'instagram' => 'nullable|string',
-    //         'twitter' => 'nullable|string',
-    //         'ticket_prefix' => 'nullable|string'
-    //     ]);
 
-
-
-    //     // Handle website_logo file upload
-    //     if ($request->hasFile('website_logo')) {
-    //         $file = $request->file('website_logo');
-    //         $fileName = time() . '_' . $file->getClientOriginalName();
-    //         $file->move(public_path('uploads/website_logo'), $fileName);
-    //         $data['website_logo'] = $fileName;
-    //     }
-
-    //     // Handle mobile_logo file upload
-    //     if ($request->hasFile('mobile_logo')) {
-    //         $file = $request->file('mobile_logo');
-    //         $fileName = time() . '_' . $file->getClientOriginalName();
-    //         $file->move(public_path('uploads/mobile_logo'), $fileName);
-    //         $data['mobile_logo'] = $fileName;
-    //     }
-
-    //     // Handle favicon file upload
-    //     if ($request->hasFile('favicon')) {
-    //         $file = $request->file('favicon');
-    //         $fileName = time() . '_' . $file->getClientOriginalName();
-    //         $file->move(public_path('uploads/favicon'), $fileName);
-    //         $data['favicon'] = $fileName;
-    //     }
-
-    //     // Retrieve the first site setting or create a new one if it doesn't exist
-    //     $setting = SiteSetting::first();
-    //     if ($setting) {
-    //         // Update only the fields that are present in the request
-    //         foreach ($data as $key => $value) {
-    //             if ($request->has($key)) {
-    //                 $setting->$key = $value;
-    //             }
-    //         }
-    //         $setting->save();
-    //     } else {
-    //         $setting = SiteSetting::create($data);
-    //     }
-
-    //     // Return a JSON response
-    //     return response()->json(['message' => 'Settings updated successfully', 'settings' => $setting]);
-    // }
 
 
 
@@ -5317,16 +5253,6 @@ class UserController extends Controller
             'settings' => $setting
         ]);
     }
-
-
-
-
-
-
-
-
-
-
 
 
     // this is for listing of property with project
@@ -6035,6 +5961,133 @@ class UserController extends Controller
             return response()->json(['error' => 'Failed to update user. Please try again.'], 500);
         }
     }
+
+
+    public function getDataUserDetailsByRole(Request $request)
+    {
+        try {
+            $roleId = $request->role_id; // Optional filter
+            $perPage = $request->per_page ?? 10; // Default 10 records per page
+
+            $query = DB::table('users')
+                ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
+                ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
+                ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
+                ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
+                ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+                ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
+                ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
+                ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
+                ->select(
+                    'users.id',
+                    'users.first_name',
+                    'users.last_name',
+                    'users.user_name',
+                    'users.email',
+                    'users.phone',
+                    'users.role_id',
+                    DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
+                    'users.unique_id',
+                    'users.isapproved',
+                    'users.country_id',
+                    'users.state_id',
+                    'users.city_id',
+                    'user_countries.name as country',
+                    'user_states.name as state',
+                    'user_cities.name as city',
+                    'users.area_locality',
+                    'users.colony',
+                    'users.street_address',
+                    'users.pin_code',
+                    'users.about',
+                    'user_details.bussiness_name',
+                    'user_details.bussiness_address',
+                    'user_details.bussiness_email',
+                    'user_details.business_phone',
+                    'user_details.country_id as business_country_id',
+                    'user_details.state_id as business_state_id',
+                    'user_details.city_id as business_city_id',
+                    'countries.name as business_country',
+                    'states.name as business_state',
+                    'cities.name as business_city',
+                    'user_details.area_locality as business_area_locality',
+                    'user_details.colony as business_colony',
+                    'user_details.street_address as business_street_address',
+                    'user_details.pin_code as business_pin_code',
+                    'user_details.address',
+                    'user_details.profile_photo',
+                    'user_details.license_number',
+                    'user_details.alternate_number',
+                    'user_details.no_of_employees',
+                    'user_details.about_us',
+                    'users.created_at',
+                    'users.updated_at'
+                )
+                ->where('roles.name', '!=', 'admin'); // Exclude Admin role
+
+            // Filter by role if provided
+            if (!empty($roleId)) {
+                $query->where('users.role_id', $roleId);
+            }
+
+            // Paginate results
+            $paginatedData = $query->paginate($perPage);
+
+            // Format each user record
+            $paginatedData->getCollection()->transform(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'first_name' => $user->first_name,
+                    'last_name' => $user->last_name,
+                    'user_name' => $user->user_name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'role_id' => $user->role_id,
+                    'role_name' => $user->role_name,
+                    'unique_id' => $user->unique_id,
+                    'isapproved' => $user->isapproved,
+                    'country' => $user->country ?? 'N/A',
+                    'state' => $user->state ?? 'N/A',
+                    'city' => $user->city ?? 'N/A',
+                    'area_locality' => $user->area_locality ?? 'N/A',
+                    'colony' => $user->colony ?? 'N/A',
+                    'street_address' => $user->street_address ?? 'N/A',
+                    'pin_code' => $user->pin_code ?? 'N/A',
+                    'about' => $user->about,
+                    'bussiness_name' => $user->bussiness_name,
+                    'bussiness_address' => $user->bussiness_address,
+                    'bussiness_email' => $user->bussiness_email,
+                    'business_phone' => $user->business_phone,
+                    'business_country' => $user->business_country ?? 'N/A',
+                    'business_state' => $user->business_state ?? 'N/A',
+                    'business_city' => $user->business_city ?? 'N/A',
+                    'business_area_locality' => $user->business_area_locality ?? 'N/A',
+                    'business_colony' => $user->business_colony ?? 'N/A',
+                    'business_street_address' => $user->business_street_address ?? 'N/A',
+                    'business_pin_code' => $user->business_pin_code ?? 'N/A',
+                    'address' => $user->address,
+                    'profile_photo' => $user->profile_photo ? url($user->profile_photo) : null,
+                    'license_number' => $user->license_number,
+                    'alternate_number' => $user->alternate_number,
+                    'no_of_employees' => $user->no_of_employees,
+                    'about_us' => $user->about_us,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User details retrieved successfully',
+                'users' =>$paginatedData
+            ], 200);
+
+        } catch (\Throwable $th) {
+            \Log::error('Error fetching user list by role:', ['error' => $th->getMessage()]);
+            return response()->json(['error' => 'Internal Server Error.'], 500);
+        }
+    }
+
 
 
 
