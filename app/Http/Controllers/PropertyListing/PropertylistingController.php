@@ -159,6 +159,7 @@ class PropertylistingController extends Controller
                     switch ($repeaterField['field_type']) {
                         case 'text':
                         case 'textarea':
+                        case 'number':
                         case 'texteditor':
                             $customFieldData['field_meta_value'] = $repeaterField['field_value'];
                             break;
@@ -367,6 +368,7 @@ class PropertylistingController extends Controller
                                         switch ($subField['field_type']) {
                                             case 'text':
                                             case 'textarea':
+                                            case 'number':
                                             case 'texteditor':
                                                 $repeaterFieldData['field_meta_value'] = $subField['field_value'];
                                                 break;
@@ -1238,6 +1240,7 @@ class PropertylistingController extends Controller
                     switch ($repeaterField['field_type']) {
                         case 'text':
                         case 'textarea':
+                        case 'number':
                         case 'texteditor':
                             $customFieldData['field_meta_value'] = $repeaterField['field_value'];
                             break;
@@ -1362,6 +1365,7 @@ class PropertylistingController extends Controller
                                         switch ($subField['field_type']) {
                                             case 'text':
                                             case 'textarea':
+                                            case 'number':
                                             case 'texteditor':
                                                 $repeaterFieldData['field_meta_value'] = $subField['field_value'];
                                                 break;

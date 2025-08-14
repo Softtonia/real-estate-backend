@@ -129,6 +129,7 @@ class ProjectlistingController extends Controller
                     switch ($repeaterField['field_type']) {
                         case 'text':
                         case 'textarea':
+                        case 'number':
                         case 'texteditor':
                             $customFieldData['field_meta_value'] = $repeaterField['field_value'];
                             break;
@@ -222,6 +223,7 @@ class ProjectlistingController extends Controller
                                         switch ($subField['field_type']) {
                                             case 'text':
                                             case 'textarea':
+                                            case 'number':
                                             case 'texteditor':
                                                 $nestedFieldData['field_meta_value'] = $subField['field_value'];
                                                 break;
@@ -1104,6 +1106,7 @@ class ProjectlistingController extends Controller
                     switch ($repeaterField['field_type']) {
                         case 'text':
                         case 'textarea':
+                        case 'number':
                         case 'texteditor':
                             $customFieldData['field_meta_value'] = $repeaterField['field_value'];
                             break;
@@ -1235,6 +1238,7 @@ class ProjectlistingController extends Controller
                                         switch ($subField['field_type']) {
                                             case 'text':
                                             case 'textarea':
+                                            case 'number':
                                             case 'texteditor':
                                                 $nestedData['field_meta_value'] = $subField['field_value'];
                                                 break;
