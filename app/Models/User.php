@@ -129,4 +129,21 @@ use HasApiTokens, HasFactory, Notifiable, HasRoles;
         return $this->hasMany(Developerlist::class);
     }
 
+    public function country(){
+        return $this->belongsTo(Country::class);
+    }
+
+    public function state(){
+        return $this->belongsTo(State::class);
+    }
+
+    public function city(){
+        return $this->belongsTo(City::class);
+    }
+
+    public function getFullNameAttribute()
+    {
+        return $this->first_name . ' ' . $this->last_name;
+    }
+
 }

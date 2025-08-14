@@ -7,6 +7,7 @@ use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\IpLog\IpLogController;
 use App\Http\Controllers\Kyc\KycController;
+use App\Http\Controllers\Lead\LeadController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\BusinessDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\OwnerDashboardAnalyticsController;
@@ -256,6 +257,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
         Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
 
+        Route::get('/get-property-by-user-id/{userId}', [PropertylistingController::class, 'getPropertyByUserId']);
+        Route::get('/get-related-properties-id/{propertyId}', [PropertylistingController::class, 'getRelatedPropertiesByPropertyId']);
 
 
 
@@ -777,6 +780,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['admin.token'])->get('admin/ip-logs-by-user-id', [IpLogController::class, 'getByUserId']);
     Route::middleware(['admin.token'])->get('admin/ip-logs-by-id', [IpLogController::class, 'getById']);
     Route::middleware(['admin.token'])->post('admin/ip-logs-update-status-by-ip', [IpLogController::class, 'updateStatusByIp']);
+
+
+    // Get all leads
+    Route::get('/leads', [LeadController::class, 'index']);
+    Route::post('/leads', [LeadController::class, 'store']);
+    Route::get('/leads/{id}', [LeadController::class, 'show']);
+    Route::put('/leads/{id}', [LeadController::class, 'update']);
+    Route::delete('/leads/{id}', [LeadController::class, 'destroy']);
 
 });
 
