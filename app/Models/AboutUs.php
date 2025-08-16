@@ -20,6 +20,6 @@ class AboutUs extends Model
         'our_mission_and_vision',
         'seo_title',
         'seo_description',
-        'seo_keywords',
+        'seo_keywords','slug','featured_image'
     ];
 }

@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('about_us', function (Blueprint $table) {
             $table->id();
             $table->string('page_title')->default('About Us');
+            $table->string('slug')->unique()->nullable();
 
             // Main sections - using longText for flexibility
             $table->longText('about_urbanrealities')->nullable();
@@ -21,6 +22,8 @@ return new class extends Migration
             $table->longText('for_buyers_renters')->nullable();
             $table->longText('for_sellers_landlords')->nullable();
             $table->longText('our_mission_and_vision')->nullable();
+
+            $table->string('featured_image')->nullable();
 
             // SEO fields
             $table->string('seo_title')->nullable();

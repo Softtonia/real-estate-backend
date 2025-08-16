@@ -57,8 +57,8 @@ class PageController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'page' => 'required|string|unique:pages,page',
-            'title' => 'required|string',
+            'page_title' => 'required|string',
+            'slug' => 'required|string|unique:pages,slug',
             'content' => 'required|string',
             'breadcrumb' => 'nullable|string',
             'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048'
@@ -68,23 +68,12 @@ class PageController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors()->toArray(), // clear array response
+                'first_error' => $validator->errors()->first(), // single error message
             ], 422);
         }
 
         $data = $validator->validated();
-
-        // Generate slug from title
-        $slug = Str::slug($request->title);
-
-        // Check if slug exists
-        if (Page::where('slug', $slug)->exists()) {
-            return response()->json([
-                'status' => false,
-                'message' => "A page with a similar title already exists. Please change the title."
-            ], 409);
-        }
-        $data['slug'] = $slug;
 
         // Image Upload
         if ($request->hasFile('featured_image')) {
@@ -115,8 +104,8 @@ class PageController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'page' => 'required|string|unique:pages,page,' . $id,
-            'title' => 'required|string',
+            'page_title' => 'required|string',
+            'slug' => 'required|string|unique:pages,slug,' . $page->id,
             'content' => 'required|string',
             'breadcrumb' => 'nullable|string',
             'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048'
@@ -126,23 +115,15 @@ class PageController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors()->toArray(), // clear array response
+                'first_error' => $validator->errors()->first(), // single error message
             ], 422);
         }
 
+
         $data = $validator->validated();
 
-        // Generate new slug from title
-        $slug = Str::slug($request->title);
 
-        // Check if slug exists in another record
-        if (Page::where('slug', $slug)->where('id', '!=', $id)->exists()) {
-            return response()->json([
-                'status' => false,
-                'message' => "A page with a similar title already exists. Please change the title."
-            ], 409);
-        }
-        $data['slug'] = $slug;
 
         // If new image uploaded, delete old one
         if ($request->hasFile('featured_image')) {
@@ -228,8 +209,8 @@ class PageController extends Controller
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
-                    $q->where('page', 'like', "%$search%")
-                        ->orWhere('title', 'like', "%$search%");
+                    $q->where('page_title', 'like', "%$search%")
+                        ->orWhere('slug', 'like', "%$search%");
                 });
             }
 
@@ -263,7 +244,7 @@ class PageController extends Controller
     public function checkUnique(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'title' => 'required|string'
+            'slug' => 'required|string'
         ]);
 
         if ($validator->fails()) {
@@ -274,15 +255,15 @@ class PageController extends Controller
             ], 422);
         }
 
-        $slug = Str::slug($request->title);
+        $slug = $request->slug;
         $exists = Page::where('slug', $slug)->exists();
 
         return response()->json([
             'status' => true,
             'unique' => !$exists,
             'message' => $exists
-                ? 'A page with a similar title already exists.'
-                : "The title '{$request->title}' is available."
+                ? 'A page with a similar slug already exists.'
+                : "The slug you entered is available."
         ], 200);
     }
 
