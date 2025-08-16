@@ -783,11 +783,15 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
     // Get all leads
-    Route::get('/leads', [LeadController::class, 'index']);
+    Route::post('/leads/send-otp', [LeadController::class, 'sendOtp']);
+    Route::middleware(['admin.token'])->get('/leads', [LeadController::class, 'index']);
     Route::post('/leads', [LeadController::class, 'store']);
-    Route::get('/leads/{id}', [LeadController::class, 'show']);
-    Route::put('/leads/{id}', [LeadController::class, 'update']);
-    Route::delete('/leads/{id}', [LeadController::class, 'destroy']);
+    Route::middleware(['admin.token'])->get('/leads/{id}', [LeadController::class, 'show']);
+    Route::middleware(['admin.token'])->post('/leads/update/{id}', [LeadController::class, 'update']);
+    Route::middleware(['admin.token'])->delete('/leads/{id}', [LeadController::class, 'destroy']);
+
+    Route::get('/get-assign-lead-to-user', [LeadController::class, 'assignUserLead']);
+
 
 });
 

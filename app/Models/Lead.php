@@ -17,26 +17,31 @@ class Lead extends Model
         'property_id',
         'project_id',
         'developer_id',
-        'user_id'
+        'user_ids'
     ];
 
     public function property()
     {
-        return $this->belongsTo(PropertyListing::class, 'property_id');
+        return $this->belongsTo(PropertyList::class, 'property_id');
     }
 
     public function project()
     {
-        return $this->belongsTo(ProjectListing::class, 'project_id');
+        return $this->belongsTo(ProjectList::class, 'project_id');
     }
 
     public function developer()
     {
-        return $this->belongsTo(DeveloperListing::class, 'developer_id');
+        return $this->belongsTo(DeveloperList::class, 'developer_id');
     }
 
-    public function user()
+     protected $casts = [
+        'user_ids' => 'array', // "[\"1\"]" → [1]
+    ];
+
+    // Accessor for users
+    public function getUsersDataAttribute()
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return User::whereIn('id', $this->user_ids ?? [])->select('id', 'first_name','last_name', 'email','phone','area_locality')->get();
     }
 }

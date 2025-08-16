@@ -20,14 +20,13 @@ return new class extends Migration
             $table->unsignedBigInteger('property_id')->nullable();
             $table->unsignedBigInteger('project_id')->nullable();
             $table->unsignedBigInteger('developer_id')->nullable();
-            $table->unsignedBigInteger('user_id')->nullable();
+            $table->json('user_ids')->nullable();
             $table->timestamps();
 
             // Foreign key constraints
             $table->foreign('property_id')->references('id')->on('properties_listing')->onDelete('cascade');
             $table->foreign('project_id')->references('id')->on('project_listings')->onDelete('cascade');
             $table->foreign('developer_id')->references('id')->on('developer_listings')->onDelete('cascade');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
         });
     }
 
