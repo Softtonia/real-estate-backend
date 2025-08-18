@@ -8,10 +8,14 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 
 class LeadController extends Controller
 {
+
+
+
 
     public function sendOtp(Request $request)
     {
@@ -30,27 +34,64 @@ class LeadController extends Controller
 
         $otp = rand(100000, 999999); // 6 digit OTP
 
-        // OTP ko DB me save karo (temporary table or leads_otp table)
         DB::table('lead_otps')->updateOrInsert(
             ['phone' => $request->phone],
             [
                 'otp' => $otp,
+                'email' => $request->email,
                 'expires_at' => now()->addMinutes(5),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]
         );
 
-        // Yahan SMS/Email service se OTP bhejna hoga
-        // Example: SmsService::send($request->phone, "Your OTP is $otp");
+
+        $settings = DB::table('mail_configs')->where('status', 1)->first();
+        if ($settings) {
+            config([
+                'mail.mailers.smtp.host' => $settings->host,
+                'mail.mailers.smtp.port' => $settings->port,
+                'mail.mailers.smtp.username' => $settings->username,
+                'mail.mailers.smtp.password' => $settings->password,
+                'mail.mailers.smtp.encryption' => $settings->encryption,
+                'mail.from.address' => $settings->from_address,
+                'mail.from.name' => $settings->from_name,
+            ]);
+        }
+
+
+        if ($request->email) {
+            try {
+                $emailData = [
+                    'otp' => $otp,
+                    'phone' => $request->phone,
+                    'expiry' => '5 minutes',
+                    'fullName' => $request->name ?? 'User'
+                ];
+
+                Mail::send('emails.otp', $emailData, function ($message) use ($request) {
+                    $message->to($request->email)
+                        ->subject('Your Mobile OTP Verification Code');
+                });
+
+            } catch (\Exception $e) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Failed to send OTP email',
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'OTP sent successfully'
+            'message' => 'OTP sent successfully',
+            'data' => [
+                'phone' => $request->phone,
+                'email_sent' => !empty($request->email)
+            ]
         ]);
     }
-
-
 
     public function index()
     {
@@ -417,60 +458,60 @@ class LeadController extends Controller
 
 
 
-  public function assignUserLead(Request $request)
-{
-    $user = auth('sanctum')->user();
+    public function assignUserLead(Request $request)
+    {
+        $user = auth('sanctum')->user();
 
-    // Agar sanctum se user na mile to api_token check karo
-    if (!$user && $request->bearerToken()) {
-        $user = User::where('api_token', $request->bearerToken())->first();
-    }
+        // Agar sanctum se user na mile to api_token check karo
+        if (!$user && $request->bearerToken()) {
+            $user = User::where('api_token', $request->bearerToken())->first();
+        }
 
-    if (!$user) {
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized'
+            ], 401);
+        }
+
+        $filterUserId = $request->user_id;
+
+        $query = Lead::with(['property', 'project', 'developer']);
+
+        if ($user->role !== 'admin') {
+            // Normal user: sirf apne leads
+            $query->whereJsonContains('user_ids', (string) $user->id);
+        } elseif ($filterUserId) {
+            // Admin: specific user ke leads dekhna chahe
+            $query->whereJsonContains('user_ids', (string) $filterUserId);
+        }
+
+        $leads = $query->get();
+
+        // Extract all unique user_ids
+        $allUserIds = $leads->pluck('user_ids')->flatten()->unique()->values();
+
+        // Fetch all users in one query
+        $users = User::whereIn('id', $allUserIds)
+            ->select('id', 'first_name', 'last_name', 'email', 'phone', 'area_locality')
+            ->get()
+            ->keyBy('id');
+
+        // Attach users
+        $leads->map(function ($lead) use ($users) {
+            $lead->users = collect($lead->user_ids)
+                ->map(fn($id) => $users->get((int) $id))
+                ->filter()
+                ->values();
+            return $lead;
+        });
+
         return response()->json([
-            'success' => false,
-            'message' => 'Unauthorized'
-        ], 401);
+            'success' => true,
+            'message' => 'Leads retrieved successfully',
+            'data' => $leads,
+        ]);
     }
-
-    $filterUserId = $request->user_id;
-
-    $query = Lead::with(['property', 'project', 'developer']);
-
-    if ($user->role !== 'admin') {
-        // Normal user: sirf apne leads
-        $query->whereJsonContains('user_ids', (string) $user->id);
-    } elseif ($filterUserId) {
-        // Admin: specific user ke leads dekhna chahe
-        $query->whereJsonContains('user_ids', (string) $filterUserId);
-    }
-
-    $leads = $query->get();
-
-    // Extract all unique user_ids
-    $allUserIds = $leads->pluck('user_ids')->flatten()->unique()->values();
-
-    // Fetch all users in one query
-    $users = User::whereIn('id', $allUserIds)
-        ->select('id', 'first_name', 'last_name', 'email', 'phone', 'area_locality')
-        ->get()
-        ->keyBy('id');
-
-    // Attach users
-    $leads->map(function ($lead) use ($users) {
-        $lead->users = collect($lead->user_ids)
-            ->map(fn($id) => $users->get((int) $id))
-            ->filter()
-            ->values();
-        return $lead;
-    });
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Leads retrieved successfully',
-        'data' => $leads,
-    ]);
-}
 
 
 

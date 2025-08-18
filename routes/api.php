@@ -118,7 +118,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('/users/filter-by-role', [UserController::class, 'filterByRole']);
         Route::get('/users/filter-by-status', [UserController::class, 'filterByStatus']);
 
-        Route::middleware('admin.token')->get('/get-user-details-by-role', [UserController::class, 'getDataUserDetailsByRole']);
+        Route::get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole']);
+        Route::get('/get-user-details-by-id', [UserController::class, 'getDataUserDetailsById']);
 
 
 
@@ -257,7 +258,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
         Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
 
-        Route::get('/get-property-by-user-id/{userId}', [PropertylistingController::class, 'getPropertyByUserId']);
+        Route::get('/get-property-by-user-id-filter-by-purpose/{userId}', [PropertylistingController::class, 'getPropertyByUserId']);
         Route::get('/get-related-properties-id/{propertyId}', [PropertylistingController::class, 'getRelatedPropertiesByPropertyId']);
 
 

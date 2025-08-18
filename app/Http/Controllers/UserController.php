@@ -5962,27 +5962,24 @@ class UserController extends Controller
         }
     }
 
-
     public function getDataUserDetailsByRole(Request $request)
     {
+        $AuthUser = auth('sanctum')->user() ?? User::where('api_token', $request->bearerToken())->first();
+
         try {
             $roleId = $request->role_id; // Optional filter
             $perPage = $request->per_page ?? 10; // Default 10 records per page
 
-            $query = DB::table('users')
+            $query = DB::table('users')->where('users.isapproved', '=', 1)
                 ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
                 ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
                 ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
                 ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
                 ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
-                ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
-                ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
-                ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
                 ->select(
                     'users.id',
                     'users.first_name',
                     'users.last_name',
-                    'users.user_name',
                     'users.email',
                     'users.phone',
                     'users.role_id',
@@ -5992,33 +5989,16 @@ class UserController extends Controller
                     'users.country_id',
                     'users.state_id',
                     'users.city_id',
-                    'user_countries.name as country',
-                    'user_states.name as state',
-                    'user_cities.name as city',
+                    'countries.name as country',
+                    'states.name as state',
+                    'cities.name as city',
                     'users.area_locality',
                     'users.colony',
                     'users.street_address',
                     'users.pin_code',
                     'users.about',
                     'user_details.bussiness_name',
-                    'user_details.bussiness_address',
-                    'user_details.bussiness_email',
-                    'user_details.business_phone',
-                    'user_details.country_id as business_country_id',
-                    'user_details.state_id as business_state_id',
-                    'user_details.city_id as business_city_id',
-                    'countries.name as business_country',
-                    'states.name as business_state',
-                    'cities.name as business_city',
-                    'user_details.area_locality as business_area_locality',
-                    'user_details.colony as business_colony',
-                    'user_details.street_address as business_street_address',
-                    'user_details.pin_code as business_pin_code',
-                    'user_details.address',
                     'user_details.profile_photo',
-                    'user_details.license_number',
-                    'user_details.alternate_number',
-                    'user_details.no_of_employees',
                     'user_details.about_us',
                     'users.created_at',
                     'users.updated_at'
@@ -6034,14 +6014,29 @@ class UserController extends Controller
             $paginatedData = $query->paginate($perPage);
 
             // Format each user record
-            $paginatedData->getCollection()->transform(function ($user) {
+            $paginatedData->getCollection()->transform(function ($user) use ($AuthUser) {
+
+                $email = $user->email;
+                $phone = $user->phone;
+
+                // Masking only if NOT Authenticated User
+                if (!$AuthUser) {
+                    if (!empty($email)) {
+                        // Example: te***@gmail.com
+                        $email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $email);
+                    }
+                    if (!empty($phone)) {
+                        // Example: 957****274
+                        $phone = substr($phone, 0, 3) . '****' . substr($phone, -3);
+                    }
+                }
+
                 return [
                     'id' => $user->id,
                     'first_name' => $user->first_name,
                     'last_name' => $user->last_name,
-                    'user_name' => $user->user_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
+                    'email' => $email,
+                    'phone' => $phone,
                     'role_id' => $user->role_id,
                     'role_name' => $user->role_name,
                     'unique_id' => $user->unique_id,
@@ -6055,21 +6050,7 @@ class UserController extends Controller
                     'pin_code' => $user->pin_code ?? 'N/A',
                     'about' => $user->about,
                     'bussiness_name' => $user->bussiness_name,
-                    'bussiness_address' => $user->bussiness_address,
-                    'bussiness_email' => $user->bussiness_email,
-                    'business_phone' => $user->business_phone,
-                    'business_country' => $user->business_country ?? 'N/A',
-                    'business_state' => $user->business_state ?? 'N/A',
-                    'business_city' => $user->business_city ?? 'N/A',
-                    'business_area_locality' => $user->business_area_locality ?? 'N/A',
-                    'business_colony' => $user->business_colony ?? 'N/A',
-                    'business_street_address' => $user->business_street_address ?? 'N/A',
-                    'business_pin_code' => $user->business_pin_code ?? 'N/A',
-                    'address' => $user->address,
                     'profile_photo' => $user->profile_photo ? url($user->profile_photo) : null,
-                    'license_number' => $user->license_number,
-                    'alternate_number' => $user->alternate_number,
-                    'no_of_employees' => $user->no_of_employees,
                     'about_us' => $user->about_us,
                     'created_at' => $user->created_at,
                     'updated_at' => $user->updated_at
@@ -6079,7 +6060,7 @@ class UserController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User details retrieved successfully',
-                'users' =>$paginatedData
+                'users' => $paginatedData
             ], 200);
 
         } catch (\Throwable $th) {
@@ -6087,6 +6068,177 @@ class UserController extends Controller
             return response()->json(['error' => 'Internal Server Error.'], 500);
         }
     }
+
+
+
+  public function getDataUserDetailsById(Request $request)
+{
+    $AuthUser = auth('sanctum')->user() ?? User::where('api_token', $request->bearerToken())->first();
+
+    try {
+        $Id = $request->id; // Required filter
+
+        $query = DB::table('users')
+            ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
+            ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
+            ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
+            ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
+            ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+            ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
+            ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
+            ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
+            ->leftJoin('purposes','user_details.purpose_id','=','purposes.id')
+            ->leftJoin('properties','user_details.property_id','=','properties.id')
+            ->leftJoin('property_types','user_details.property_type_id','=','property_types.id')
+
+            ->select(
+                'users.id',
+                'users.first_name',
+                'users.last_name',
+                'users.user_name',
+                'users.email',
+                'users.phone',
+                'users.role_id',
+                DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
+                'users.unique_id',
+                'users.country_id',
+                'users.state_id',
+                'users.city_id',
+                'user_countries.name as country',
+                'user_states.name as state',
+                'user_cities.name as city',
+                'users.area_locality',
+                'users.colony',
+                'users.street_address',
+                'users.pin_code',
+                'users.about',
+
+                'user_details.bussiness_name',
+                'user_details.bussiness_address',
+                'user_details.bussiness_email',
+                'user_details.business_phone',
+                'user_details.country_id as business_country_id',
+                'user_details.state_id as business_state_id',
+                'user_details.city_id as business_city_id',
+                'countries.name as business_country',
+                'states.name as business_state',
+                'cities.name as business_city',
+                'user_details.area_locality as business_area_locality',
+                'user_details.colony as business_colony',
+                'user_details.street_address as business_street_address',
+                'user_details.pin_code as business_pin_code',
+                'user_details.address',
+                'user_details.profile_photo',
+                'user_details.license_number',
+                'user_details.alternate_number',
+                'user_details.no_of_employees',
+                'user_details.about_us',
+                'user_details.rera_number',
+                'user_details.purpose_id',
+                'purposes.name as purpose_name',
+                'user_details.property_id',
+                'properties.name as property_name',
+                'user_details.property_type_id',
+                'property_types.name as property_type_name',
+
+                'users.created_at',
+                'users.updated_at'
+            )
+            ->where('roles.name', '!=', 'admin') // Exclude Admin role
+            ->where('users.isapproved','=',1)
+            ->where('users.id', $Id);
+
+        $user = $query->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found'
+            ], 200);
+        }
+
+        // Masking (only if NOT Authenticated User)
+        $email = $user->email;
+        $phone = $user->phone;
+        $bisiness_email = $user->bussiness_email;
+        $bisiness_phone = $user->business_phone;
+        $alternate_number = $user->alternate_number;
+
+        if (!$AuthUser) {
+            if (!empty($email)) {
+                $email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $email);
+            }
+            if (!empty($phone)) {
+                $phone = substr($phone, 0, 3) . '****' . substr($phone, -3);
+            }
+            if (!empty($bisiness_email)) {
+                $bisiness_email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $bisiness_email);
+            }
+            if (!empty($bisiness_phone)) {
+                $bisiness_phone = substr($bisiness_phone, 0, 3) . '****' . substr($bisiness_phone, -3);
+            }
+            if (!empty($alternate_number)) {
+                $alternate_number = substr($alternate_number, 0, 3) . '****' . substr($alternate_number, -3);
+                }
+        }
+
+        $userData = [
+            'id' => $user->id,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'user_name' => $user->user_name,
+            'email' => $email,
+            'phone' => $phone,
+            'role_id' => $user->role_id,
+            'role_name' => $user->role_name,
+            'unique_id' => $user->unique_id,
+            'country' => $user->country ?? 'N/A',
+            'state' => $user->state ?? 'N/A',
+            'city' => $user->city ?? 'N/A',
+            'area_locality' => $user->area_locality ?? 'N/A',
+            'colony' => $user->colony ?? 'N/A',
+            'street_address' => $user->street_address ?? 'N/A',
+            'pin_code' => $user->pin_code ?? 'N/A',
+            'about' => $user->about,
+            'bussiness_name' => $user->bussiness_name,
+            'bussiness_address' => $user->bussiness_address,
+            'bussiness_email' => $bisiness_email,
+            'business_phone' => $bisiness_phone,
+            'business_country' => $user->business_country ?? 'N/A',
+            'business_state' => $user->business_state ?? 'N/A',
+            'business_city' => $user->business_city ?? 'N/A',
+            'business_area_locality' => $user->business_area_locality ?? 'N/A',
+            'business_colony' => $user->business_colony ?? 'N/A',
+            'business_street_address' => $user->business_street_address ?? 'N/A',
+            'business_pin_code' => $user->business_pin_code ?? 'N/A',
+            'address' => $user->address,
+            'profile_photo' => $user->profile_photo ? url($user->profile_photo) : null,
+            'license_number' => $user->license_number,
+            'alternate_number' => $alternate_number,
+            'rera_number' => $user->rera_number,
+            'no_of_employees' => $user->no_of_employees,
+            'about_us' => $user->about_us,
+            'purpose_id' => $user->purpose_id,
+            'purpose_name' => $user->purpose_name,
+            'property_id' => $user->property_id,
+            'property_name' => $user->property_name,
+            'property_type_id' => $user->property_type_id,
+            'property_type_name' => $user->property_type_name,
+            'created_at' => $user->created_at,
+            'updated_at' => $user->updated_at
+        ];
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User details retrieved successfully',
+            'user' => $userData
+        ], 200);
+
+    } catch (\Throwable $th) {
+        \Log::error('Error fetching user details by id:', ['error' => $th->getMessage()]);
+        return response()->json(['error' => 'Internal Server Error.'], 500);
+    }
+}
 
 
 
