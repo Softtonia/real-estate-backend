@@ -3018,4 +3018,218 @@ class DeveloperlistingController extends Controller
         }
     }
 
+
+    public function getDevelopersByUserId(Request $request, $userId)
+    {
+        try {
+            // Developer Owner check (exclude admin)
+            $developerOwner = User::where('id', $userId)
+                ->whereHas('role', function ($q) {
+                    $q->where('name', '!=', 'admin');
+                })
+                ->first();
+
+            if (!$developerOwner) {
+                return response()->json(['error' => 'User not found or is admin.'], 200);
+            }
+
+            // Base query (without user relations)
+            $query = Developerlist::with([
+                'purpose',
+                'propertyType',
+                'propertystatus',
+                'property',
+                'property',
+                'country',
+                'state',
+                'city',
+            ])
+                ->where('live_status', 'Approve')
+                ->where(function ($q) use ($userId) {
+                    $q->where('created_by', $userId)
+                        ->orWhere('updated_by', $userId);
+                });
+
+            // Purpose filter
+            if ($request->filled('purpose_id')) {
+                $query->where('purpose_id', $request->purpose_id);
+            }
+
+            // Pagination
+            $perPage = $request->get('per_page', 10);
+            $developers = $query->paginate($perPage);
+
+            // Purpose-wise count
+            $purposeCounts = DB::table('developer_listings as p')
+                ->join('purposes as pu', 'p.purpose_id', '=', 'pu.id')
+                ->select('p.purpose_id', 'pu.name as purpose_name', DB::raw('COUNT(*) as total'))
+                ->where(function ($q) use ($userId) {
+                    $q->where('p.created_by', $userId)
+                        ->orWhere('p.updated_by', $userId);
+                })
+                ->groupBy('p.purpose_id', 'pu.name')
+                ->get();
+
+            // Format properties data (without user info)
+            $formattedDevelopers = $developers->getCollection()->map(function ($developer) {
+                $featuredImage = !empty($developer->featured_image)
+                    ? (filter_var($developer->featured_image, FILTER_VALIDATE_URL)
+                        ? $developer->featured_image
+                        : url(ltrim($developer->featured_image, '/')))
+                    : null;
+
+                $propertyTypeNames = null;
+                if (!empty($developer->property_type_id)) {
+                    $ids = explode(',', $developer->property_type_id);
+                    $propertyTypeNames = PropertyType::whereIn('id', $ids)
+                        ->pluck('name')
+                        ->toArray();
+                }
+
+                return [
+                    'id' => $developer->id,
+                    'name' => $developer->name ?? null,
+                    'description' => $developer->description ?? null,
+                    'purpose_id' => $developer->purpose_id ?? null,
+                    'purpose_name' => $developer->purpose->name ?? null,
+                    'featured_image' => $featuredImage,
+                    'country_id' => $developer->country_id ?? null,
+                    'state_id' => $developer->state_id ?? null,
+                    'city_id' => $developer->city_id ?? null,
+                    'country_name' => $developer->country->name ?? null,
+                    'state_name' => $developer->state->name ?? null,
+                    'city_name' => $developer->city->name ?? null,
+                    'area_locality' => $developer->area_locality ?? null,
+                    'colony' => $developer->colony ?? null,
+                    'street_address' => $developer->street_address ?? null,
+                    'pin_code' => $developer->pin_code ?? null,
+                    'property_type_id' => $developer->property_type_id ?? null,
+                    'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
+                    'property_status_id' => $developer->property_status_id ?? null,
+                    'property_status_name' => $developer->propertystatus->name ?? null,
+                    'property_id' => $developer->property_id ?? null,
+                    'property_name' => $developer->property->name ?? null,
+                    'created_by' => $developer->created_by ?? null,
+                    'updated_by' => $developer->updated_by ?? null,
+                    'created_at' => $developer->created_at ?? null,
+                    'updated_at' => $developer->updated_at ?? null,
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Developers retrieved successfully.',
+                'data' => [
+                    'properties' => $formattedDevelopers,
+                    'pagination' => [
+                        'total' => $developers->total(),
+                        'per_page' => $developers->perPage(),
+                        'current_page' => $developers->currentPage(),
+                        'last_page' => $developers->lastPage(),
+                    ],
+                    'purpose_counts' => $purposeCounts
+                ]
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
+
+
+    public function getRelatedDevelopersByDeveloperId(Request $request, $developerId)
+    {
+        try {
+            // Reference project find
+            $referenceDeveloper = Developerlist::find($developerId);
+
+            if (!$referenceDeveloper) {
+                return response()->json(['status' => false, 'message' => 'Reference developer not found.'], 200);
+            }
+
+            // Viewer for masking logic
+            $viewer = auth('sanctum')->user() ?? User::where('api_token', $request->bearerToken())->first();
+
+            // Convert reference property's property_type_id to an array
+            $referencePropertyTypes = explode(',', $referenceDeveloper->property_type_id);
+
+            // Query build
+            $query = Developerlist::with([
+                'purpose',
+                'propertyType',
+                'propertystatus',
+                'property',
+                'user.role:id,name',
+                'user.country:id,name as country_name',
+                'user.state:id,name as state_name',
+                'user.city:id,name as city_name',
+                'user.userDetails',
+                'country',
+                'state',
+                'city',
+            ])
+                ->where('id', '!=', $referenceDeveloper->id) // same property skip
+                ->where('purpose_id', $referenceDeveloper->purpose_id)
+                ->where('property_id', $referenceDeveloper->property_id)
+                ->where(function ($q) use ($referencePropertyTypes) {
+                    // Match any of the property types in the reference property
+                    foreach ($referencePropertyTypes as $type) {
+                        $q->orWhere('property_type_id', 'like', "%{$type}%");
+                    }
+                })
+                ->where('area_locality', 'like', '%' . $referenceDeveloper->area_locality . '%');
+
+            $perPage = $request->get('per_page', 10);
+            $developers = $query->paginate($perPage);
+
+            $formattedDevelopers = $developers->getCollection()->map(function ($developer) use ($viewer) {
+                $featuredImage = !empty($developer->featured_image)
+                    ? (filter_var($developer->featured_image, FILTER_VALIDATE_URL)
+                        ? $developer->featured_image
+                        : url(ltrim($developer->featured_image, '/')))
+                    : null;
+
+                // Convert "1,2" IDs to names
+                $propertyTypeNames = null;
+                if (!empty($developer->property_type_id)) {
+                    $ids = explode(',', $developer->property_type_id);
+                    $propertyTypeNames = PropertyType::whereIn('id', $ids)
+                        ->pluck('name')
+                        ->toArray();
+                }
+
+                $user = $developer->user;
+
+                return [
+                    'id' => $developer->id,
+                    'name' => $developer->name ?? null,
+                    'purpose_id' => $developer->purpose_id ?? null,
+                    'purpose_name' => $developer->purpose->name ?? null,
+                    'featured_image' => $featuredImage,
+                    'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
+
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Related developers retrieved successfully.',
+                'data' => [
+                    'properties' => $formattedDevelopers,
+                    'pagination' => [
+                        'total' => $developers->total(),
+                        'per_page' => $developers->perPage(),
+                        'current_page' => $developers->currentPage(),
+                        'last_page' => $developers->lastPage(),
+                    ],
+                ]
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json(['status' => false, 'error' => $th->getMessage()], 500);
+        }
+    }
+
 }

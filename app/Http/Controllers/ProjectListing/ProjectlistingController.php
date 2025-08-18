@@ -3017,6 +3017,223 @@ class ProjectlistingController extends Controller
     }
 
 
+    public function getProjectsByUserId(Request $request, $userId)
+    {
+        try {
+            // Property Owner check (exclude admin)
+            $propertyOwner = User::where('id', $userId)
+                ->whereHas('role', function ($q) {
+                    $q->where('name', '!=', 'admin');
+                })
+                ->first();
+
+            if (!$propertyOwner) {
+                return response()->json(['error' => 'User not found or is admin.'], 200);
+            }
+
+            // Base query (without user relations)
+            $query = ProjectList::with([
+                'purpose',
+                'propertyType',
+                'propertystatus',
+                'property',
+                'developer',
+                'country',
+                'state',
+                'city',
+            ])
+                ->where('live_status', 'Approve')
+                ->where(function ($q) use ($userId) {
+                    $q->where('created_by', $userId)
+                        ->orWhere('updated_by', $userId);
+                });
+
+            // Purpose filter
+            if ($request->filled('purpose_id')) {
+                $query->where('purpose_id', $request->purpose_id);
+            }
+
+            // Pagination
+            $perPage = $request->get('per_page', 10);
+            $projects = $query->paginate($perPage);
+
+            // Purpose-wise count
+            $purposeCounts = DB::table('project_listings as p')
+                ->join('purposes as pu', 'p.purpose_id', '=', 'pu.id')
+                ->select('p.purpose_id', 'pu.name as purpose_name', DB::raw('COUNT(*) as total'))
+                ->where(function ($q) use ($userId) {
+                    $q->where('p.created_by', $userId)
+                        ->orWhere('p.updated_by', $userId);
+                })
+                ->groupBy('p.purpose_id', 'pu.name')
+                ->get();
+
+            // Format properties data (without user info)
+            $formattedProjects = $projects->getCollection()->map(function ($project) {
+                $featuredImage = !empty($project->featured_image)
+                    ? (filter_var($project->featured_image, FILTER_VALIDATE_URL)
+                        ? $project->featured_image
+                        : url(ltrim($project->featured_image, '/')))
+                    : null;
+
+                $propertyTypeNames = null;
+                if (!empty($property->property_type_id)) {
+                    $ids = explode(',', $project->property_type_id);
+                    $propertyTypeNames = PropertyType::whereIn('id', $ids)
+                        ->pluck('name')
+                        ->toArray();
+                }
+
+                return [
+                    'id' => $project->id,
+                    'name' => $project->name ?? null,
+                    'description' => $project->description ?? null,
+                    'purpose_id' => $project->purpose_id ?? null,
+                    'purpose_name' => $project->purpose->name ?? null,
+                    'featured_image' => $featuredImage,
+                    'country_id' => $project->country_id ?? null,
+                    'state_id' => $project->state_id ?? null,
+                    'city_id' => $project->city_id ?? null,
+                    'country_name' => $project->country->name ?? null,
+                    'state_name' => $project->state->name ?? null,
+                    'city_name' => $project->city->name ?? null,
+                    'area_locality' => $project->area_locality ?? null,
+                    'colony' => $project->colony ?? null,
+                    'street_address' => $project->street_address ?? null,
+                    'pin_code' => $project->pin_code ?? null,
+                    'property_type_id' => $project->property_type_id ?? null,
+                    'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
+                    'property_status_id' => $project->property_status_id ?? null,
+                    'property_status_name' => $project->propertystatus->name ?? null,
+                    'developer_id' => $project->project_id ?? null,
+                    'developer_name' => $project->developer->name ?? null,
+                    'property_id' => $project->property_id ?? null,
+                    'property_name' => $project->property->name ?? null,
+                    'created_by' => $project->created_by ?? null,
+                    'updated_by' => $project->updated_by ?? null,
+                    'created_at' => $project->created_at ?? null,
+                    'updated_at' => $project->updated_at ?? null,
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Projects retrieved successfully.',
+                'data' => [
+                    'properties' => $formattedProjects,
+                    'pagination' => [
+                        'total' => $projects->total(),
+                        'per_page' => $projects->perPage(),
+                        'current_page' => $projects->currentPage(),
+                        'last_page' => $projects->lastPage(),
+                    ],
+                    'purpose_counts' => $purposeCounts
+                ]
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
+
+
+    public function getRelatedProjectsByProjectId(Request $request, $projectId)
+    {
+        try {
+            // Reference project find
+            $referenceProject = ProjectList::find($projectId);
+
+            if (!$referenceProject) {
+                return response()->json(['status' => false, 'message' => 'Reference project not found.'], 200);
+            }
+
+            // Viewer for masking logic
+            $viewer = auth('sanctum')->user() ?? User::where('api_token', $request->bearerToken())->first();
+
+            // Convert reference property's property_type_id to an array
+            $referencePropertyTypes = explode(',', $referenceProject->property_type_id);
+
+            // Query build
+            $query = ProjectList::with([
+                'purpose',
+                'propertyType',
+                'propertystatus',
+                'property',
+                'developer',
+                'user.role:id,name',
+                'user.country:id,name as country_name',
+                'user.state:id,name as state_name',
+                'user.city:id,name as city_name',
+                'user.userDetails',
+                'country',
+                'state',
+                'city',
+            ])
+                ->where('id', '!=', $referenceProject->id) // same property skip
+                ->where('purpose_id', $referenceProject->purpose_id)
+                ->where('property_id', $referenceProject->property_id)
+                ->where(function ($q) use ($referencePropertyTypes) {
+                    // Match any of the property types in the reference property
+                    foreach ($referencePropertyTypes as $type) {
+                        $q->orWhere('property_type_id', 'like', "%{$type}%");
+                    }
+                })
+                ->where('area_locality', 'like', '%' . $referenceProject->area_locality . '%');
+
+            $perPage = $request->get('per_page', 10);
+            $projects = $query->paginate($perPage);
+
+            $formattedProjects = $projects->getCollection()->map(function ($project) use ($viewer) {
+                $featuredImage = !empty($project->featured_image)
+                    ? (filter_var($project->featured_image, FILTER_VALIDATE_URL)
+                        ? $project->featured_image
+                        : url(ltrim($project->featured_image, '/')))
+                    : null;
+
+                // Convert "1,2" IDs to names
+                $propertyTypeNames = null;
+                if (!empty($project->property_type_id)) {
+                    $ids = explode(',', $project->property_type_id);
+                    $propertyTypeNames = PropertyType::whereIn('id', $ids)
+                        ->pluck('name')
+                        ->toArray();
+                }
+
+                $user = $project->user;
+
+                return [
+                    'id' => $project->id,
+                    'name' => $project->name ?? null,
+                    'purpose_id' => $project->purpose_id ?? null,
+                    'purpose_name' => $project->purpose->name ?? null,
+                    'featured_image' => $featuredImage,
+                    'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
+
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Related projects retrieved successfully.',
+                'data' => [
+                    'properties' => $formattedProjects,
+                    'pagination' => [
+                        'total' => $projects->total(),
+                        'per_page' => $projects->perPage(),
+                        'current_page' => $projects->currentPage(),
+                        'last_page' => $projects->lastPage(),
+                    ],
+                ]
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json(['status' => false, 'error' => $th->getMessage()], 500);
+        }
+    }
+
+
 
 
 

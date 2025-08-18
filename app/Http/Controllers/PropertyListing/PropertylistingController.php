@@ -2245,41 +2245,296 @@ class PropertylistingController extends Controller
 
     ################## end new get data by id 02/07/2025 ###########
 
+    // public function getUserProperties(Request $request)
+    // {
+    //     try {
+    //         // Authenticate the user
+    //         $user = $request->user();
+    //         if (!$user) {
+    //             return response()->json(['error' => 'Unauthorized.'], 401);
+    //         }
+
+    //         // Fetch properties where created_by or updated_by matches the user ID
+    //         $properties = PropertyList::where('created_by', $user->id)
+    //             ->orWhere('updated_by', $user->id)
+    //             ->get();
+
+    //         // If no properties found, return empty array
+    //         if ($properties->isEmpty()) {
+    //             return response()->json(['message' => 'No properties found.'], 200);
+    //         }
+
+    //         // Generate full featured_image URL
+    //         $properties = $properties->map(function ($property) {
+    //             if (!empty($property->featured_image)) {
+    //                 $property->featured_image = filter_var($property->featured_image, FILTER_VALIDATE_URL)
+    //                     ? $property->featured_image
+    //                     : url(ltrim($property->featured_image, '/'));
+    //             }
+    //             return $property;
+    //         });
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Properties retrieved successfully.',
+    //             'data' => $properties
+    //         ], 200);
+
+    //     } catch (\Throwable $th) {
+    //         return response()->json(['error' => $th->getMessage()], 500);
+    //     }
+    // }
+
+
     public function getUserProperties(Request $request)
     {
         try {
+
             // Authenticate the user
             $user = $request->user();
             if (!$user) {
                 return response()->json(['error' => 'Unauthorized.'], 401);
             }
+            $baseURL = config('app.url');
+            $basePath = public_path();
 
-            // Fetch properties where created_by or updated_by matches the user ID
-            $properties = PropertyList::where('created_by', $user->id)
+            // Fetch only properties where live_status is "Approve"
+            $properties = PropertyList::with([
+                'country',
+                'state',
+                'city',
+                'user.role',
+                'propertyType',
+                'purpose',
+                'property',
+                'propertystatus',
+                'project',
+                'customFieldValues.customField.templateValue',
+                'customFieldValues.customFieldOption',
+                'importKeywords'
+            ])
+                ->where('created_by', $user->id)
                 ->orWhere('updated_by', $user->id)
-                ->get();
+                ->paginate($request->get('per_page', 10));
 
-            // If no properties found, return empty array
-            if ($properties->isEmpty()) {
-                return response()->json(['message' => 'No properties found.'], 200);
-            }
+            $propertiesData = $properties->map(function ($property) use ($baseURL, $basePath) {
+                $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL, $property) {
+                    $customField = optional($customFieldValue->customField);
+                    $templateData = $customField->templateValue ?? null;
+                    $fieldType = $customField->field_type ?? 'unknown';
+                    $fieldValue = $customFieldValue->field_meta_value ?? '';
+                    $allAvailableOptions = [];
 
-            // Generate full featured_image URL
-            $properties = $properties->map(function ($property) {
-                if (!empty($property->featured_image)) {
-                    $property->featured_image = filter_var($property->featured_image, FILTER_VALIDATE_URL)
-                        ? $property->featured_image
-                        : url(ltrim($property->featured_image, '/'));
-                }
-                return $property;
+                    if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
+                        $availableOptions = DB::table('custom_field_options')
+                            ->where('custom_field_id', $customFieldValue->custom_field_id)
+                            ->get(['id', 'name', 'value']);
+
+                        foreach ($availableOptions as $option) {
+                            $allAvailableOptions[] = [
+                                'name' => $option->name,
+                                'value' => $option->value,
+                            ];
+                        }
+                    }
+
+                    if ($fieldType === 'repeater') {
+                        $nestedRows = DB::table('custom_field_repeater_values')
+                            ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
+                            ->where('properties_listing_id', $property->id)
+                            ->get()
+                            ->groupBy('unique_id');
+
+                        $repeaterData = [];
+
+                        foreach ($nestedRows as $groupId => $rows) {
+                            $groupData = [];
+
+                            foreach ($rows as $row) {
+                                $value = $row->field_meta_value;
+                                $fieldTypeNested = $row->field_type;
+                                $nestedOptions = [];
+
+                                $nestedCustomField = DB::table('custom_fields')
+                                    ->where('id', $row->custom_field_id)
+                                    ->first();
+
+                                $templateDetails = DB::table('custom_field_unique_codes')
+                                    ->where('id', $nestedCustomField->template_id ?? null)
+                                    ->first();
+
+                                if (in_array($fieldTypeNested, ['select', 'radio'])) {
+                                    $option = DB::table('custom_field_repeater_options')
+                                        ->where('id', $row->custom_field_repeater_options_id)
+                                        ->first();
+                                    $value = optional($option)->name ?? $value;
+
+                                    $nestedOptions = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $row->custom_field_id)
+                                        ->get(['name', 'value'])
+                                        ->map(fn($opt) => [
+                                            'name' => $opt->name,
+                                            'value' => $opt->value,
+                                        ])->toArray();
+                                } elseif ($fieldTypeNested === 'checkbox') {
+                                    $ids = explode(',', $row->custom_field_repeater_options_id);
+                                    $value = DB::table('custom_field_repeater_options')
+                                        ->whereIn('id', $ids)
+                                        ->pluck('name')
+                                        ->toArray();
+
+                                    $nestedOptions = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $row->custom_field_id)
+                                        ->get(['name', 'value'])
+                                        ->map(fn($opt) => [
+                                            'name' => $opt->name,
+                                            'value' => $opt->value,
+                                        ])->toArray();
+                                } elseif ($fieldTypeNested === 'file') {
+                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
+                                } elseif ($fieldTypeNested === 'media') {
+
+                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                        : [];
+                                }
+
+                                $groupData[] = [
+                                    'sub_field_id' => $row->custom_field_id,
+                                    'template_id' => $nestedCustomField->template_id ?? null,
+                                    'template' => $templateDetails ?? null,
+                                    'field_type' => $fieldTypeNested,
+                                    'field_value' => $value,
+                                    'options' => $nestedOptions,
+                                ];
+                            }
+
+                            $repeaterData[] = $groupData;
+                        }
+
+                        return [
+                            'custom_field_id' => $customFieldValue->custom_field_id,
+                            'template_id' => $customField->template_id ?? null,
+                            'template' => $templateData ?? null,
+                            'field_label' => $customField->field_label ?? 'Unknown Field',
+                            'placeholder' => $customField->field_placeholder,
+                            'field_type' => $fieldType,
+                            'field_value' => $repeaterData,
+                            'options' => [],
+                        ];
+                    }
+
+                    if (in_array($fieldType, ['select', 'radio'])) {
+                        $customFieldOption = DB::table('custom_field_options')
+                            ->where('id', $customFieldValue->custom_field_options_id)
+                            ->first();
+                        $fieldValue = optional($customFieldOption)->name;
+                    } elseif ($fieldType === 'checkbox') {
+                        $optionIds = explode(',', $customFieldValue->custom_field_options_id);
+                        $fieldValue = DB::table('custom_field_options')
+                            ->whereIn('id', $optionIds)
+                            ->pluck('name')
+                            ->toArray();
+                    } elseif ($fieldType === 'file') {
+                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => url($file), $decoded)
+                            : [];
+
+                    } elseif ($fieldType === 'media') {
+                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                            : [];
+                    }
+
+                    $fieldArray = [
+                        'custom_field_id' => $customFieldValue->custom_field_id,
+                        'template_id' => $customField->template_id ?? null,
+                        'template' => $templateData ?? null,
+                        'field_label' => $customField->field_label ?? 'Unknown Field',
+                        'placeholder' => $customField->field_placeholder,
+                        'field_type' => $fieldType,
+                        'field_value' => $fieldValue,
+                        'options' => $allAvailableOptions,
+                    ];
+
+                    if ($fieldType === 'checkbox') {
+                        $fieldArray['checkbox_type'] = $customField->checkbox_type ?? null;
+                    }
+
+                    return $fieldArray;
+                });
+
+                return [
+                    'id' => $property->id,
+                    'property_unique_id' => $property->property_unique_id,
+                    'property_name' => $property->name,
+                    'description' => $property->description,
+                    'country' => $property->country,
+                    'state' => $property->state,
+                    'city' => $property->city,
+                    'area_locality' => $property->area_locality,
+                    'colony' => $property->colony,
+                    'street_address' => $property->street_address,
+                    'pin_code' => $property->pin_code,
+                    'property_address' => $property->property_address,
+                    'live_status' => $property->live_status,
+                    'temporary_status' => $property->temporary_status,
+                    'status_reason' => $property->status_reason,
+                    'user_id' => $property->user_id,
+                    'created_by' => $property->created_by,
+                    'listed_by' => optional(optional($property->user)->role)->name,
+                    // 'featured_image' => $property->featured_image
+                    //     ? $this->correctFilePath($property->featured_image, $baseURL, $basePath, 'featured_image')
+                    //     : null,
+                    'featured_image' => !empty($property->featured_image)
+                        ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
+                            ? $property->featured_image // ✅ If it's already a full URL, use as is
+                            : $baseURL . $property->featured_image) // ✅ Convert relative path to full URL
+                        : null,
+                    'purpose_id' => $property->purpose_id,
+                    'purpose_id_name' => optional($property->purpose)->name,
+                    'property_id' => $property->property_id,
+                    'property_id_name' => optional($property->property)->name,
+                    'property_status_id' => $property->property_status_id,
+                    'property_status_id_name' => optional($property->propertystatus)->name,
+                    'property_type_id' => $property->property_type_id,
+                    'property_type_id_name' => optional($property->propertyType)->name,
+                    'project_id' => $property->project_id,
+                    'project_id_name' => optional($property->project)->name,
+                    'total_view' => $property->analytics()->count(),
+                    'date' => date('d m Y', strtotime($property->created_at)),
+                    'time' => date('h:i A', strtotime($property->created_at)),
+                    'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
+                    'keyword' => $property->importKeywords,
+                    'custom_field_values' => $formattedCustomFieldValues,
+                ];
             });
 
+            // return response()->json($propertiesData);
             return response()->json([
-                'status' => true,
-                'message' => 'Properties retrieved successfully.',
-                'data' => $properties
-            ], 200);
-
+                'data' => $propertiesData,
+                'meta' => [
+                    'current_page' => $properties->currentPage(),
+                    'from' => $properties->firstItem(),
+                    'last_page' => $properties->lastPage(),
+                    'path' => $request->url(),
+                    'per_page' => $properties->perPage(),
+                    'to' => $properties->lastItem(),
+                    'total' => $properties->total(),
+                ],
+                'links' => [
+                    'first' => $properties->url(1),
+                    'last' => $properties->url($properties->lastPage()),
+                    'prev' => $properties->previousPageUrl(),
+                    'next' => $properties->nextPageUrl(),
+                ]
+            ]);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
@@ -3028,308 +3283,125 @@ class PropertylistingController extends Controller
 
 
 
-    // public function getPropertyByUserId(Request $request, $userId)
-    // {
-    //     try {
-
-    //         // $viewer = auth('sanctum')->user();
-    //         $viewer = auth('sanctum')->user() ?? User::where('api_token', $request->bearerToken())->first();
-
-
-    //         // Fetch property owner (exclude admin)
-    //         $propertyOwner = User::select('id', 'role_id', 'first_name', 'last_name', 'email', 'phone')
-    //             ->where('id', $userId)
-    //             ->whereHas('role', function ($q) {
-    //                 $q->where('name', '!=', 'admin'); // role name check
-    //             })
-    //             ->first();
-
-    //         if (!$propertyOwner) {
-    //             return response()->json(['error' => 'User not found or is admin.'], 200);
-    //         }
-
-    //         // Base query
-    //         $query = PropertyList::with([
-    //             'purpose',
-    //             'propertyType',
-    //             'propertystatus',
-    //             'property',
-    //             'project',
-    //             'user.role:id,name',
-    //             'user.country:id,name as country_name',
-    //             'user.state:id,name as state_name',
-    //             'user.city:id,name as city_name',
-    //             'user.userDetails',
-    //             'country',
-    //             'state',
-    //             'city',
-    //         ])->where('live_status', 'Approve')
-    //             ->where(function ($q) use ($userId) {
-    //                 $q->where('created_by', $userId)
-    //                     ->orWhere('updated_by', $userId);
-    //             });
-
-    //         // Purpose filter
-    //         if ($request->filled('purpose_id')) {
-    //             $query->where('purpose_id', $request->purpose_id);
-    //         }
-
-    //         // Pagination
-    //         $perPage = $request->get('per_page', 10);
-    //         $properties = $query->paginate($perPage);
-
-    //         // Purpose-wise count
-    //         $purposeCounts = DB::table('properties_listing as p')
-    //             ->join('purposes as pu', 'p.purpose_id', '=', 'pu.id')
-    //             ->select('p.purpose_id', 'pu.name as purpose_name', DB::raw('COUNT(*) as total'))
-    //             ->where(function ($q) use ($userId) {
-    //                 $q->where('p.created_by', $userId)
-    //                     ->orWhere('p.updated_by', $userId);
-    //             })
-    //             ->groupBy('p.purpose_id', 'pu.name')
-    //             ->get();
-
-
-
-    //         // Format properties data
-    //         $formattedProperties = $properties->getCollection()->map(function ($property) use ($userId, $viewer) {
-    //             // Full URL for featured image
-    //             $featuredImage = !empty($property->featured_image)
-    //                 ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
-    //                     ? $property->featured_image
-    //                     : url(ltrim($property->featured_image, '/')))
-    //                 : null;
-
-
-
-    //             // Resolve property type names from comma-separated IDs
-    //             $propertyTypeNames = null;
-    //             if (!empty($property->property_type_id)) {
-    //                 $ids = explode(',', $property->property_type_id);
-    //                 $propertyTypeNames = \App\Models\PropertyType::whereIn('id', $ids)
-    //                     ->pluck('name')
-    //                     ->toArray();
-    //             }
-
-    //             // User data
-    //             $user = $property->user;
-    //             $userData = null;
-
-    //             if ($user) {
-
-
-    //                 $userData = [
-    //                     'id' => $user->id,
-    //                     'user_name' => $user->user_name ?? null,
-    //                     'first_name' => $user->first_name ?? null,
-    //                     'last_name' => $user->last_name ?? null,
-    //                     'email' => $user->email ?? null,
-    //                     'phone' => $user->phone ?? null,
-    //                     'country_id' => $user->country_id ?? null,
-    //                     'state_id' => $user->state_id ?? null,
-    //                     'city_id' => $user->city_id ?? null,
-    //                     'area_locality' => $user->area_locality ?? null,
-    //                     'colony' => $user->colony ?? null,
-    //                     'street_address' => $user->street_address ?? null,
-    //                     'pin_code' => $user->pin_code ?? null,
-    //                     'about' => $user->about ?? null,
-    //                     'role_id' => $user->role_id ?? null,
-    //                     'role_name' => $user->role->name ?? null,
-    //                     'country_name' => $user->country->country_name ?? null,
-    //                     'state_name' => $user->state->state_name ?? null,
-    //                     'city_name' => $user->city->city_name ?? null,
-
-    //                     'profile_photo' => !empty($user->userDetails->profile_photo)
-    //                         ? url(ltrim($user->userDetails->profile_photo, '/'))
-    //                         : null,
-    //                 ];
-
-    //                 // Apply masking if viewer is not logged in
-    //                 if (!$viewer) {
-    //                     if (!empty($userData['email'])) {
-    //                         $userData['email'] = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $userData['email']);
-    //                     }
-    //                     if (!empty($userData['phone'])) {
-    //                         $userData['phone'] = substr($userData['phone'], 0, 3) . '****' . substr($userData['phone'], -3);
-    //                     }
-    //                 }
-
-
-    //             }
-
-    //             return [
-    //                 'id' => $property->id,
-    //                 'name' => $property->name ?? null,
-    //                 'description' => $property->description ?? null,
-    //                 'purpose_id' => $property->purpose_id ?? null,
-    //                 'purpose_name' => $property->purpose->name ?? null,
-    //                 'featured_image' => $featuredImage,
-    //                 'country_id' => $property->country_id ?? null,
-    //                 'state_id' => $property->state_id ?? null,
-    //                 'city_id' => $property->city_id ?? null,
-    //                 'country_name' => $property->country->name ?? null,
-    //                 'state_name' => $property->state->name ?? null,
-    //                 'city_name' => $property->city->name ?? null,
-    //                 'area_locality' => $property->area_locality ?? null,
-    //                 'colony' => $property->colony ?? null,
-    //                 'street_address' => $property->street_address ?? null,
-    //                 'pin_code' => $property->pin_code ?? null,
-    //                 'property_type_id' => $property->property_type_id ?? null,
-    //                 'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
-    //                 'property_status_id' => $property->property_status_id ?? null,
-    //                 'property_status_name' => $property->propertystatus->name ?? null,
-    //                 'project_id' => $property->project_id ?? null,
-    //                 'project_name' => $property->project->name ?? null,
-    //                 'property_id' => $property->property_id ?? null,
-    //                 'property_name' => $property->property->name ?? null,
-
-
-    //                 'created_by' => $property->created_by ?? null,
-    //                 'updated_by' => $property->updated_by ?? null,
-    //                 'created_at' => $property->created_at ?? null,
-    //                 'updated_at' => $property->updated_at ?? null,
-    //                 'user' => $userData
-    //             ];
-    //         });
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Properties retrieved successfully.',
-    //             'data' => [
-    //                 'properties' => $formattedProperties,
-    //                 'pagination' => [
-    //                     'total' => $properties->total(),
-    //                     'per_page' => $properties->perPage(),
-    //                     'current_page' => $properties->currentPage(),
-    //                     'last_page' => $properties->lastPage(),
-    //                 ],
-    //                 'purpose_counts' => $purposeCounts
-    //             ]
-    //         ], 200);
-
-    //     } catch (\Throwable $th) {
-    //         return response()->json(['error' => $th->getMessage()], 500);
-    //     }
-    // }
 
     public function getPropertyByUserId(Request $request, $userId)
-{
-    try {
-        // Property Owner check (exclude admin)
-        $propertyOwner = User::where('id', $userId)
-            ->whereHas('role', function ($q) {
-                $q->where('name', '!=', 'admin');
-            })
-            ->first();
+    {
+        try {
+            // Property Owner check (exclude admin)
+            $propertyOwner = User::where('id', $userId)
+                ->whereHas('role', function ($q) {
+                    $q->where('name', '!=', 'admin');
+                })
+                ->first();
 
-        if (!$propertyOwner) {
-            return response()->json(['error' => 'User not found or is admin.'], 200);
-        }
-
-        // Base query (without user relations)
-        $query = PropertyList::with([
-            'purpose',
-            'propertyType',
-            'propertystatus',
-            'property',
-            'project',
-            'country',
-            'state',
-            'city',
-        ])
-            ->where('live_status', 'Approve')
-            ->where(function ($q) use ($userId) {
-                $q->where('created_by', $userId)
-                    ->orWhere('updated_by', $userId);
-            });
-
-        // Purpose filter
-        if ($request->filled('purpose_id')) {
-            $query->where('purpose_id', $request->purpose_id);
-        }
-
-        // Pagination
-        $perPage = $request->get('per_page', 10);
-        $properties = $query->paginate($perPage);
-
-        // Purpose-wise count
-        $purposeCounts = DB::table('properties_listing as p')
-            ->join('purposes as pu', 'p.purpose_id', '=', 'pu.id')
-            ->select('p.purpose_id', 'pu.name as purpose_name', DB::raw('COUNT(*) as total'))
-            ->where(function ($q) use ($userId) {
-                $q->where('p.created_by', $userId)
-                    ->orWhere('p.updated_by', $userId);
-            })
-            ->groupBy('p.purpose_id', 'pu.name')
-            ->get();
-
-        // Format properties data (without user info)
-        $formattedProperties = $properties->getCollection()->map(function ($property) {
-            $featuredImage = !empty($property->featured_image)
-                ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
-                    ? $property->featured_image
-                    : url(ltrim($property->featured_image, '/')))
-                : null;
-
-            $propertyTypeNames = null;
-            if (!empty($property->property_type_id)) {
-                $ids = explode(',', $property->property_type_id);
-                $propertyTypeNames = \App\Models\PropertyType::whereIn('id', $ids)
-                    ->pluck('name')
-                    ->toArray();
+            if (!$propertyOwner) {
+                return response()->json(['error' => 'User not found or is admin.'], 200);
             }
 
-            return [
-                'id' => $property->id,
-                'name' => $property->name ?? null,
-                'description' => $property->description ?? null,
-                'purpose_id' => $property->purpose_id ?? null,
-                'purpose_name' => $property->purpose->name ?? null,
-                'featured_image' => $featuredImage,
-                'country_id' => $property->country_id ?? null,
-                'state_id' => $property->state_id ?? null,
-                'city_id' => $property->city_id ?? null,
-                'country_name' => $property->country->name ?? null,
-                'state_name' => $property->state->name ?? null,
-                'city_name' => $property->city->name ?? null,
-                'area_locality' => $property->area_locality ?? null,
-                'colony' => $property->colony ?? null,
-                'street_address' => $property->street_address ?? null,
-                'pin_code' => $property->pin_code ?? null,
-                'property_type_id' => $property->property_type_id ?? null,
-                'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
-                'property_status_id' => $property->property_status_id ?? null,
-                'property_status_name' => $property->propertystatus->name ?? null,
-                'project_id' => $property->project_id ?? null,
-                'project_name' => $property->project->name ?? null,
-                'property_id' => $property->property_id ?? null,
-                'property_name' => $property->property->name ?? null,
-                'created_by' => $property->created_by ?? null,
-                'updated_by' => $property->updated_by ?? null,
-                'created_at' => $property->created_at ?? null,
-                'updated_at' => $property->updated_at ?? null,
-            ];
-        });
+            // Base query (without user relations)
+            $query = PropertyList::with([
+                'purpose',
+                'propertyType',
+                'propertystatus',
+                'property',
+                'project',
+                'country',
+                'state',
+                'city',
+            ])
+                ->where('live_status', 'Approve')
+                ->where(function ($q) use ($userId) {
+                    $q->where('created_by', $userId)
+                        ->orWhere('updated_by', $userId);
+                });
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Properties retrieved successfully.',
-            'data' => [
-                'properties' => $formattedProperties,
-                'pagination' => [
-                    'total' => $properties->total(),
-                    'per_page' => $properties->perPage(),
-                    'current_page' => $properties->currentPage(),
-                    'last_page' => $properties->lastPage(),
-                ],
-                'purpose_counts' => $purposeCounts
-            ]
-        ], 200);
+            // Purpose filter
+            if ($request->filled('purpose_id')) {
+                $query->where('purpose_id', $request->purpose_id);
+            }
 
-    } catch (\Throwable $th) {
-        return response()->json(['error' => $th->getMessage()], 500);
+            // Pagination
+            $perPage = $request->get('per_page', 10);
+            $properties = $query->paginate($perPage);
+
+            // Purpose-wise count
+            $purposeCounts = DB::table('properties_listing as p')
+                ->join('purposes as pu', 'p.purpose_id', '=', 'pu.id')
+                ->select('p.purpose_id', 'pu.name as purpose_name', DB::raw('COUNT(*) as total'))
+                ->where(function ($q) use ($userId) {
+                    $q->where('p.created_by', $userId)
+                        ->orWhere('p.updated_by', $userId);
+                })
+                ->groupBy('p.purpose_id', 'pu.name')
+                ->get();
+
+            // Format properties data (without user info)
+            $formattedProperties = $properties->getCollection()->map(function ($property) {
+                $featuredImage = !empty($property->featured_image)
+                    ? (filter_var($property->featured_image, FILTER_VALIDATE_URL)
+                        ? $property->featured_image
+                        : url(ltrim($property->featured_image, '/')))
+                    : null;
+
+                $propertyTypeNames = null;
+                if (!empty($property->property_type_id)) {
+                    $ids = explode(',', $property->property_type_id);
+                    $propertyTypeNames = \App\Models\PropertyType::whereIn('id', $ids)
+                        ->pluck('name')
+                        ->toArray();
+                }
+
+                return [
+                    'id' => $property->id,
+                    'name' => $property->name ?? null,
+                    'description' => $property->description ?? null,
+                    'purpose_id' => $property->purpose_id ?? null,
+                    'purpose_name' => $property->purpose->name ?? null,
+                    'featured_image' => $featuredImage,
+                    'country_id' => $property->country_id ?? null,
+                    'state_id' => $property->state_id ?? null,
+                    'city_id' => $property->city_id ?? null,
+                    'country_name' => $property->country->name ?? null,
+                    'state_name' => $property->state->name ?? null,
+                    'city_name' => $property->city->name ?? null,
+                    'area_locality' => $property->area_locality ?? null,
+                    'colony' => $property->colony ?? null,
+                    'street_address' => $property->street_address ?? null,
+                    'pin_code' => $property->pin_code ?? null,
+                    'property_type_id' => $property->property_type_id ?? null,
+                    'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
+                    'property_status_id' => $property->property_status_id ?? null,
+                    'property_status_name' => $property->propertystatus->name ?? null,
+                    'project_id' => $property->project_id ?? null,
+                    'project_name' => $property->project->name ?? null,
+                    'property_id' => $property->property_id ?? null,
+                    'property_name' => $property->property->name ?? null,
+                    'created_by' => $property->created_by ?? null,
+                    'updated_by' => $property->updated_by ?? null,
+                    'created_at' => $property->created_at ?? null,
+                    'updated_at' => $property->updated_at ?? null,
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Properties retrieved successfully.',
+                'data' => [
+                    'properties' => $formattedProperties,
+                    'pagination' => [
+                        'total' => $properties->total(),
+                        'per_page' => $properties->perPage(),
+                        'current_page' => $properties->currentPage(),
+                        'last_page' => $properties->lastPage(),
+                    ],
+                    'purpose_counts' => $purposeCounts
+                ]
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
     }
-}
 
 
 

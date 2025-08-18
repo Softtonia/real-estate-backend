@@ -215,6 +215,9 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
         Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
 
+        Route::get('get-project-by-user-id-filter-by-purpose/{userId}',[ProjectlistingController::class,'getProjectsByUserId']);
+         Route::get('get-related-projects-id/{projectId}',[ProjectlistingController::class,'getRelatedProjectsByProjectId']);
+
         // ======Developer Listing============
         Route::middleware('allow.admin_developer')->post('add-developer-listing', [DeveloperlistingController::class, 'store']);
         Route::middleware('allow.admin_developer')->post('edit-developer-listing', [DeveloperlistingController::class, 'update']);
@@ -232,6 +235,9 @@ Route::middleware(['throttle:60,1'])->group(function () {
         ### No Auth ###
         Route::get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
         Route::get('get-data-developer-no-auth/{id}', [DeveloperlistingController::class, 'getdatabyIdNoAuth']);
+
+         Route::get('get-developer-by-user-id-filter-by-purpose/{userId}',[DeveloperlistingController::class,'getDevelopersByUserId']);
+         Route::get('get-related-developers-id/{developerId}',[DeveloperlistingController::class,'getRelatedDevelopersByDeveloperId']);
 
 
 
