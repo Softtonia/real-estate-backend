@@ -32,7 +32,7 @@ class Lead extends Model
 
     public function developer()
     {
-        return $this->belongsTo(DeveloperList::class, 'developer_id');
+        return $this->belongsTo(Developerlist::class, 'developer_id');
     }
 
      protected $casts = [

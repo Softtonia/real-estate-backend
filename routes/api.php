@@ -12,6 +12,7 @@ use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\BusinessDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\OwnerDashboardAnalyticsController;
 use App\Http\Controllers\Page\PageController;
+use App\Http\Controllers\SearchEngine\SearchEngineController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
 use App\Http\Controllers\TopFeature\TopFeatureController;
 use Illuminate\Http\Request;
@@ -142,15 +143,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('fetch-total-project-of-consultancy', [UserController::class, 'fetchTotalProjectOfConsultancy']);
         Route::post('view-project-details-of-consultancy', [UserController::class, 'viewProjectDetailsOfConsultancy']);
         Route::post('view-project-details-of-company', [UserController::class, 'viewProjectDetailsOfCompany']);
-        Route::post('search-property', [UserController::class, 'searchProperty']);
-        Route::get('listing-of-all-owner-property', [UserController::class, 'listingOfAllOwnerProperty']);
+        Route::post('globle-search-engine', [SearchEngineController::class, 'globleSearchEngine']);
+
         Route::get('listing-of-all-projects', [UserController::class, 'listingOfAllProjects']);
-        Route::get('listing-of-ready-to-move-property', [UserController::class, 'listingOfReadyToMoveProperty']);
+
         Route::get('all-top-agent-listing', [UserController::class, 'allTopAgentListing']);
-        Route::get('listing-of-budge-home-property', [UserController::class, 'listingOfBudgeHomesProperty']);
+
         Route::get('listing-of-trending-project', [UserController::class, 'listingOfAllTrendingProject']);
-        Route::get('listing-of-property-for-buy', [UserController::class, 'listingOfPropertyForBuy']);
-        Route::get('listing-of-property-for-rent', [UserController::class, 'listingOfPropertyForRent']);
+
         Route::middleware('admin.token')->post('update-site-setting', [UserController::class, 'updateSiteSetting']);
         Route::get('site-setting', [SiteSettingController::class, 'siteSetting']);
         Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);

@@ -117,6 +117,28 @@ class LeadController extends Controller
                 ->map(fn($id) => $users->get($id))
                 ->filter()
                 ->values(); // ensure clean array
+
+            // ✅ Add full URL for property image
+            if ($lead->property) {
+                $lead->property->featured_image_url = $lead->property->featured_image
+                    ? url($lead->property->featured_image)
+                    : null;
+            }
+
+            // ✅ Add full URL for project image
+            if ($lead->project) {
+                $lead->project->featured_image_url = $lead->project->featured_image
+                    ? url($lead->project->featured_image)
+                    : null;
+            }
+
+            // ✅ Add full URL for developer image
+            if ($lead->developer) {
+                $lead->developer->featured_image_url = $lead->developer->featured_image
+                    ? url($lead->developer->featured_image)
+                    : null;
+            }
+
             return $lead;
         });
 
@@ -249,7 +271,7 @@ class LeadController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Lead not found'
-            ], 404);
+            ], 200);
         }
 
         // Get user_ids (already array because of casts)
@@ -266,6 +288,27 @@ class LeadController extends Controller
             ->map(fn($id) => $users->get($id))
             ->filter()
             ->values(); // clean array
+
+        // ✅ Add featured_image_url for property
+        if ($lead->property) {
+            $lead->property->featured_image_url = $lead->property->featured_image
+                ? url($lead->property->featured_image)
+                : null;
+        }
+
+        // ✅ Add featured_image_url for project
+        if ($lead->project) {
+            $lead->project->featured_image_url = $lead->project->featured_image
+                ? url($lead->project->featured_image)
+                : null;
+        }
+
+        // ✅ Add featured_image_url for developer
+        if ($lead->developer) {
+            $lead->developer->featured_image_url = $lead->developer->featured_image
+                ? url($lead->developer->featured_image)
+                : null;
+        }
 
         return response()->json([
             'success' => true,
@@ -286,7 +329,7 @@ class LeadController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Lead not found'
-            ], 404);
+            ], 200);
         }
 
         // Validation
