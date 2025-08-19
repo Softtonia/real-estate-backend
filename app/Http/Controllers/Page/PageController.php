@@ -30,9 +30,44 @@ class PageController extends Controller
     }
 
     // Get single page by ID
-    public function show($id)
+    // public function show($id)
+    // {
+    //     $page = Page::find($id);
+    //     if (!$page) {
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => 'Page not found'
+    //         ], 200);
+    //     }
+
+    //     if ($page->featured_image) {
+    //         $page->featured_image_url = url($page->featured_image);
+    //     } else {
+    //         $page->featured_image_url = null;
+    //     }
+
+    //     return response()->json([
+    //         'status' => true,
+    //         'message' => 'Page retrieved successfully',
+    //         'data' => $page
+    //     ], 200);
+    // }
+
+    public function show(Request $request)
     {
-        $page = Page::find($id);
+
+        if ($request->has('id')) {
+            $page = Page::find($request->id);
+        } elseif ($request->has('slug')) {
+            $page = Page::where('slug', $request->slug)->first();
+        } else {
+            return response()->json([
+                'status' => false,
+                'message' => 'Please provide either id or slug'
+            ], 200);
+        }
+
+
         if (!$page) {
             return response()->json([
                 'status' => false,
@@ -40,11 +75,10 @@ class PageController extends Controller
             ], 200);
         }
 
-        if ($page->featured_image) {
-            $page->featured_image_url = url($page->featured_image);
-        } else {
-            $page->featured_image_url = null;
-        }
+        // Featured image url set karo
+        $page->featured_image_url = $page->featured_image
+            ? url($page->featured_image)
+            : null;
 
         return response()->json([
             'status' => true,
@@ -52,6 +86,7 @@ class PageController extends Controller
             'data' => $page
         ], 200);
     }
+
 
     // Create new page
     public function store(Request $request)

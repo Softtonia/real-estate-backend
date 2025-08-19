@@ -118,6 +118,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::post('user-bulk-delete', [UserController::class, 'bulkDelete']);
         Route::get('/users/filter-by-role', [UserController::class, 'filterByRole']);
         Route::get('/users/filter-by-status', [UserController::class, 'filterByStatus']);
+        Route::get('/get-user-status', [UserController::class, 'getUserStatusList']);
 
         Route::get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole']);
         Route::get('/get-user-details-by-id', [UserController::class, 'getDataUserDetailsById']);
@@ -372,7 +373,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         Route::middleware('admin.token')->post('property-type-create', [Propertytypecontroller::class, 'store']);
         Route::middleware('admin.token')->post('property-type-update', [Propertytypecontroller::class, 'update']);
-        Route::middleware('api.token')->get('property-type-listing', [Propertytypecontroller::class, 'index']);
+        Route::get('property-type-listing', [Propertytypecontroller::class, 'index']);
         Route::middleware('admin.token')->post('property-type-delete', [Propertytypecontroller::class, 'destroy']);
         Route::middleware('api.token')->post('getdatabyId-property-type', [Propertytypecontroller::class, 'getdatabyId']);
 
@@ -384,7 +385,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         // =======Status============
         Route::middleware('admin.token')->post('status-create', [statuscontroller::class, 'store']);
         Route::middleware('admin.token')->post('status-update', [statuscontroller::class, 'update']);
-        Route::middleware('api.token')->get('status-listing', [statuscontroller::class, 'index']);
+        Route::get('status-listing', [statuscontroller::class, 'index']);
         Route::middleware('admin.token')->post('status', [statuscontroller::class, 'destroy']);
         Route::middleware('api.token')->get('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
         Route::middleware('admin.token')->post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
@@ -396,7 +397,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
             Route::middleware('admin.token')->post('purpose-create', [PurposeController::class, 'store']);
             Route::middleware('admin.token')->post('purpose-update', [PurposeController::class, 'update']);
-            Route::middleware('api.token')->get('purpose-listing', [PurposeController::class, 'index']);
+            Route::get('purpose-listing', [PurposeController::class, 'index']);
             Route::middleware('admin.token')->post('purpose-delete', [PurposeController::class, 'destroy']);
             Route::middleware('api.token')->post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
             Route::middleware('admin.token')->post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
@@ -408,7 +409,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         // =======Property============
         Route::middleware('admin.token')->post('property-create', [Propertycontroller::class, 'store']);
         Route::middleware('admin.token')->post('property-update', [Propertycontroller::class, 'update']);
-        Route::middleware('api.token')->get('property-listing', [Propertycontroller::class, 'index']);
+        Route::get('property-listing', [Propertycontroller::class, 'index']);
         Route::middleware('admin.token')->post('property-delete', [Propertycontroller::class, 'destroy']);
         Route::middleware('api.token')->get('properties/{id}', [PropertyController::class, 'getPropertyAndType']);
         Route::middleware('admin.token')->post('property-bulk-delete', [PropertyController::class, 'bulkDelete']);
@@ -581,7 +582,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         // =========16-07-2025=======
 
         Route::middleware('admin.token')->get('get-all-pages-list', [PageController::class, 'index']);
-        Route::get('get-pages-by-id/{id}', [PageController::class, 'show']);
+        Route::get('get-pages-by-id', [PageController::class, 'show']);
         Route::middleware('admin.token')->post('create-pages', [PageController::class, 'store']);
         Route::middleware('admin.token')->post('update-pages-by-id/{id}', [PageController::class, 'update']);
         Route::middleware('admin.token')->delete('delete-pages-by-id/{id}', [PageController::class, 'destroy']);

@@ -3033,6 +3033,8 @@ class DeveloperlistingController extends Controller
                 return response()->json(['error' => 'User not found or is admin.'], 200);
             }
 
+            $baseURL = config('app.url');
+
             // Base query (without user relations)
             $query = Developerlist::with([
                 'purpose',
@@ -3043,6 +3045,8 @@ class DeveloperlistingController extends Controller
                 'country',
                 'state',
                 'city',
+                'customFieldValues.customField.templateValue',
+                'customFieldValues.customFieldOption',
             ])
                 ->where('live_status', 'Approve')
                 ->where(function ($q) use ($userId) {
@@ -3071,7 +3075,7 @@ class DeveloperlistingController extends Controller
                 ->get();
 
             // Format properties data (without user info)
-            $formattedDevelopers = $developers->getCollection()->map(function ($developer) {
+            $formattedDevelopers = $developers->getCollection()->map(function ($developer) use($baseURL) {
                 $featuredImage = !empty($developer->featured_image)
                     ? (filter_var($developer->featured_image, FILTER_VALIDATE_URL)
                         ? $developer->featured_image
@@ -3085,6 +3089,156 @@ class DeveloperlistingController extends Controller
                         ->pluck('name')
                         ->toArray();
                 }
+
+                 // ✅ Custom fields (copied from q1)
+                $formattedCustomFieldValues = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL, $developer) {
+                    $customField = optional($customFieldValue->customField);
+                    $templateData = $customField->templateValue ?? null;
+                    $fieldType = $customField->field_type ?? 'unknown';
+                    $fieldValue = $customFieldValue->field_meta_value ?? '';
+                    $allAvailableOptions = [];
+
+                    if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
+                        $availableOptions = DB::table('custom_field_options')
+                            ->where('custom_field_id', $customFieldValue->custom_field_id)
+                            ->get(['id', 'name', 'value']);
+
+                        foreach ($availableOptions as $option) {
+                            $allAvailableOptions[] = [
+                                'name' => $option->name,
+                                'value' => $option->value,
+                            ];
+                        }
+                    }
+
+                    if ($fieldType === 'repeater') {
+                        $nestedRows = DB::table('custom_field_repeater_values')
+                            ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
+                            ->where('developer_listing_id', $developer->id) //
+                            ->get()
+                            ->groupBy('unique_id');
+
+                        $repeaterData = [];
+
+                        foreach ($nestedRows as $groupId => $rows) {
+                            $groupData = [];
+                            foreach ($rows as $row) {
+                                $value = $row->field_meta_value;
+                                $fieldTypeNested = $row->field_type;
+                                $nestedOptions = [];
+
+                                $nestedCustomField = DB::table('custom_fields')
+                                    ->where('id', $row->custom_field_id)
+                                    ->first();
+
+                                $templateDetails = DB::table('custom_field_unique_codes')
+                                    ->where('id', $nestedCustomField->template_id ?? null)
+                                    ->first();
+
+                                if (in_array($fieldTypeNested, ['select', 'radio'])) {
+                                    $option = DB::table('custom_field_repeater_options')
+                                        ->where('id', $row->custom_field_repeater_options_id)
+                                        ->first();
+                                    $value = optional($option)->name ?? $value;
+
+                                    $nestedOptions = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $row->custom_field_id)
+                                        ->get(['name', 'value'])
+                                        ->map(fn($opt) => [
+                                            'name' => $opt->name,
+                                            'value' => $opt->value,
+                                        ])->toArray();
+                                } elseif ($fieldTypeNested === 'checkbox') {
+                                    $ids = explode(',', $row->custom_field_repeater_options_id);
+                                    $value = DB::table('custom_field_repeater_options')
+                                        ->whereIn('id', $ids)
+                                        ->pluck('name')
+                                        ->toArray();
+
+                                    $nestedOptions = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $row->custom_field_id)
+                                        ->get(['name', 'value'])
+                                        ->map(fn($opt) => [
+                                            'name' => $opt->name,
+                                            'value' => $opt->value,
+                                        ])->toArray();
+                                } elseif ($fieldTypeNested === 'file') {
+                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
+                                } elseif ($fieldTypeNested === 'media') {
+                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                        : [];
+                                }
+
+                                $groupData[] = [
+                                    'sub_field_id' => $row->custom_field_id,
+                                    'template_id' => $nestedCustomField->template_id ?? null,
+                                    'template' => $templateDetails ?? null,
+                                    'field_type' => $fieldTypeNested,
+                                    'field_value' => $value,
+                                    'options' => $nestedOptions,
+                                ];
+                            }
+
+                            $repeaterData[] = $groupData;
+                        }
+
+                        return [
+                            'custom_field_id' => $customFieldValue->custom_field_id,
+                            'template_id' => $customField->template_id ?? null,
+                            'template' => $templateData ?? null,
+                            'field_label' => $customField->field_label ?? 'Unknown Field',
+                            'placeholder' => $customField->field_placeholder,
+                            'field_type' => $fieldType,
+                            'field_value' => $repeaterData,
+                            'options' => [],
+                        ];
+                    }
+
+                    if (in_array($fieldType, ['select', 'radio'])) {
+                        $customFieldOption = DB::table('custom_field_options')
+                            ->where('id', $customFieldValue->custom_field_options_id)
+                            ->first();
+                        $fieldValue = optional($customFieldOption)->name;
+                    } elseif ($fieldType === 'checkbox') {
+                        $optionIds = explode(',', $customFieldValue->custom_field_options_id);
+                        $fieldValue = DB::table('custom_field_options')
+                            ->whereIn('id', $optionIds)
+                            ->pluck('name')
+                            ->toArray();
+                    } elseif ($fieldType === 'file') {
+                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => url($file), $decoded)
+                            : [];
+                    } elseif ($fieldType === 'media') {
+                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                            : [];
+                    }
+
+                    $fieldArray = [
+                        'custom_field_id' => $customFieldValue->custom_field_id,
+                        'template_id' => $customField->template_id ?? null,
+                        'template' => $templateData ?? null,
+                        'field_label' => $customField->field_label ?? 'Unknown Field',
+                        'placeholder' => $customField->field_placeholder,
+                        'field_type' => $fieldType,
+                        'field_value' => $fieldValue,
+                        'options' => $allAvailableOptions,
+                    ];
+
+                    if ($fieldType === 'checkbox') {
+                        $fieldArray['checkbox_type'] = $customField->checkbox_type ?? null;
+                    }
+
+                    return $fieldArray;
+                });
 
                 return [
                     'id' => $developer->id,
@@ -3113,6 +3267,7 @@ class DeveloperlistingController extends Controller
                     'updated_by' => $developer->updated_by ?? null,
                     'created_at' => $developer->created_at ?? null,
                     'updated_at' => $developer->updated_at ?? null,
+                    'custom_field_values' => $formattedCustomFieldValues,
                 ];
             });
 
@@ -3155,6 +3310,8 @@ class DeveloperlistingController extends Controller
             // Convert reference property's property_type_id to an array
             $referencePropertyTypes = explode(',', $referenceDeveloper->property_type_id);
 
+            $baseURL = config('app.url');
+
             // Query build
             $query = Developerlist::with([
                 'purpose',
@@ -3169,6 +3326,9 @@ class DeveloperlistingController extends Controller
                 'country',
                 'state',
                 'city',
+                'customFieldValues.customField.templateValue',
+                'customFieldValues.customFieldOption',
+
             ])
                 ->where('id', '!=', $referenceDeveloper->id) // same property skip
                 ->where('purpose_id', $referenceDeveloper->purpose_id)
@@ -3184,7 +3344,7 @@ class DeveloperlistingController extends Controller
             $perPage = $request->get('per_page', 10);
             $developers = $query->paginate($perPage);
 
-            $formattedDevelopers = $developers->getCollection()->map(function ($developer) use ($viewer) {
+            $formattedDevelopers = $developers->getCollection()->map(function ($developer) use ($baseURL) {
                 $featuredImage = !empty($developer->featured_image)
                     ? (filter_var($developer->featured_image, FILTER_VALIDATE_URL)
                         ? $developer->featured_image
@@ -3200,7 +3360,154 @@ class DeveloperlistingController extends Controller
                         ->toArray();
                 }
 
-                $user = $developer->user;
+                $formattedCustomFieldValues = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL, $developer) {
+                    $customField = optional($customFieldValue->customField);
+                    $templateData = $customField->templateValue ?? null;
+                    $fieldType = $customField->field_type ?? 'unknown';
+                    $fieldValue = $customFieldValue->field_meta_value ?? '';
+                    $allAvailableOptions = [];
+
+                    if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
+                        $availableOptions = DB::table('custom_field_options')
+                            ->where('custom_field_id', $customFieldValue->custom_field_id)
+                            ->get(['id', 'name', 'value']);
+
+                        foreach ($availableOptions as $option) {
+                            $allAvailableOptions[] = [
+                                'name' => $option->name,
+                                'value' => $option->value,
+                            ];
+                        }
+                    }
+
+                    if ($fieldType === 'repeater') {
+                        $nestedRows = DB::table('custom_field_repeater_values')
+                            ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
+                            ->where('developer_listing_id', $developer->id) // ✅ for project
+                            ->get()
+                            ->groupBy('unique_id');
+
+                        $repeaterData = [];
+
+                        foreach ($nestedRows as $groupId => $rows) {
+                            $groupData = [];
+                            foreach ($rows as $row) {
+                                $value = $row->field_meta_value;
+                                $fieldTypeNested = $row->field_type;
+                                $nestedOptions = [];
+
+                                $nestedCustomField = DB::table('custom_fields')
+                                    ->where('id', $row->custom_field_id)
+                                    ->first();
+
+                                $templateDetails = DB::table('custom_field_unique_codes')
+                                    ->where('id', $nestedCustomField->template_id ?? null)
+                                    ->first();
+
+                                if (in_array($fieldTypeNested, ['select', 'radio'])) {
+                                    $option = DB::table('custom_field_repeater_options')
+                                        ->where('id', $row->custom_field_repeater_options_id)
+                                        ->first();
+                                    $value = optional($option)->name ?? $value;
+
+                                    $nestedOptions = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $row->custom_field_id)
+                                        ->get(['name', 'value'])
+                                        ->map(fn($opt) => [
+                                            'name' => $opt->name,
+                                            'value' => $opt->value,
+                                        ])->toArray();
+                                } elseif ($fieldTypeNested === 'checkbox') {
+                                    $ids = explode(',', $row->custom_field_repeater_options_id);
+                                    $value = DB::table('custom_field_repeater_options')
+                                        ->whereIn('id', $ids)
+                                        ->pluck('name')
+                                        ->toArray();
+
+                                    $nestedOptions = DB::table('custom_field_repeater_options')
+                                        ->where('custom_field_repeater_id', $row->custom_field_id)
+                                        ->get(['name', 'value'])
+                                        ->map(fn($opt) => [
+                                            'name' => $opt->name,
+                                            'value' => $opt->value,
+                                        ])->toArray();
+                                } elseif ($fieldTypeNested === 'file') {
+                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => url($file), $decoded)
+                                        : [];
+                                } elseif ($fieldTypeNested === 'media') {
+                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
+                                    $value = is_array($decoded)
+                                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                                        : [];
+                                }
+
+                                $groupData[] = [
+                                    'sub_field_id' => $row->custom_field_id,
+                                    'template_id' => $nestedCustomField->template_id ?? null,
+                                    'template' => $templateDetails ?? null,
+                                    'field_type' => $fieldTypeNested,
+                                    'field_value' => $value,
+                                    'options' => $nestedOptions,
+                                ];
+                            }
+
+                            $repeaterData[] = $groupData;
+                        }
+
+                        return [
+                            'custom_field_id' => $customFieldValue->custom_field_id,
+                            'template_id' => $customField->template_id ?? null,
+                            'template' => $templateData ?? null,
+                            'field_label' => $customField->field_label ?? 'Unknown Field',
+                            'placeholder' => $customField->field_placeholder,
+                            'field_type' => $fieldType,
+                            'field_value' => $repeaterData,
+                            'options' => [],
+                        ];
+                    }
+
+                    if (in_array($fieldType, ['select', 'radio'])) {
+                        $customFieldOption = DB::table('custom_field_options')
+                            ->where('id', $customFieldValue->custom_field_options_id)
+                            ->first();
+                        $fieldValue = optional($customFieldOption)->name;
+                    } elseif ($fieldType === 'checkbox') {
+                        $optionIds = explode(',', $customFieldValue->custom_field_options_id);
+                        $fieldValue = DB::table('custom_field_options')
+                            ->whereIn('id', $optionIds)
+                            ->pluck('name')
+                            ->toArray();
+                    } elseif ($fieldType === 'file') {
+                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => url($file), $decoded)
+                            : [];
+                    } elseif ($fieldType === 'media') {
+                        $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
+                        $fieldValue = is_array($decoded)
+                            ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
+                            : [];
+                    }
+
+                    $fieldArray = [
+                        'custom_field_id' => $customFieldValue->custom_field_id,
+                        'template_id' => $customField->template_id ?? null,
+                        'template' => $templateData ?? null,
+                        'field_label' => $customField->field_label ?? 'Unknown Field',
+                        'placeholder' => $customField->field_placeholder,
+                        'field_type' => $fieldType,
+                        'field_value' => $fieldValue,
+                        'options' => $allAvailableOptions,
+                    ];
+
+                    if ($fieldType === 'checkbox') {
+                        $fieldArray['checkbox_type'] = $customField->checkbox_type ?? null;
+                    }
+
+                    return $fieldArray;
+                });
 
                 return [
                     'id' => $developer->id,
@@ -3209,6 +3516,7 @@ class DeveloperlistingController extends Controller
                     'purpose_name' => $developer->purpose->name ?? null,
                     'featured_image' => $featuredImage,
                     'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
+                    'custom_field_values' => $formattedCustomFieldValues,
 
                 ];
             });
