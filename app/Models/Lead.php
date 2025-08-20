@@ -35,6 +35,8 @@ class Lead extends Model
         return $this->belongsTo(Developerlist::class, 'developer_id');
     }
 
+
+
      protected $casts = [
         'user_ids' => 'array', // "[\"1\"]" → [1]
     ];
