@@ -3544,7 +3544,7 @@ class ProjectlistingController extends Controller
                 'city',
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
-            ])
+            ])->where('live_status','=','Approve')
                 ->where('id', '!=', $referenceProject->id) // same property skip
                 ->where('purpose_id', $referenceProject->purpose_id)
                 ->where('property_id', $referenceProject->property_id)

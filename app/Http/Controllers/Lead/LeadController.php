@@ -422,90 +422,12 @@ class LeadController extends Controller
 
 
 
-    // public function assignUserLead(Request $request)
-    // {
-    //     $user = auth('sanctum')->user();
-    //     if (!$user && $request->bearerToken()) {
-    //         $user = User::where('api_token', $request->bearerToken())->first();
-    //     }
-    //     if (!$user) {
-    //         return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
-    //     }
-
-    //     $filterUserId = $request->user_id;
-
-    //     $query = Lead::with(['property', 'project', 'developer']);
-
-    //     if ($user->role !== 'admin') {
-    //         // Normal user: apne leads
-    //         $query->whereRaw('JSON_CONTAINS(user_ids, ?)', [json_encode($user->id)]);
-    //     } elseif ($filterUserId) {
-    //         // Admin: filter by user_id if provided
-    //         $query->whereRaw('JSON_CONTAINS(user_ids, ?)', [json_encode($filterUserId)]);
-    //     }
-
-    //     $leads = $query->get();
-
-    //     // Extract all unique user IDs from leads
-    //     $allUserIds = $leads->pluck('user_ids')
-    //         ->map(function ($ids) {
-    //             // First try to decode as JSON
-    //             $decoded = json_decode($ids, true);
-
-    //             // If decoding fails, try to parse as string
-    //             if (json_last_error() !== JSON_ERROR_NONE) {
-    //                 // Handle cases where the format might be different
-    //                 $cleaned = trim($ids, '[]"\'');
-    //                 $decoded = explode(',', $cleaned);
-    //             }
-
-    //             // Ensure we return an array of integers
-    //             return array_map('intval', array_filter($decoded));
-    //         })
-    //         ->flatten()
-    //         ->unique()
-    //         ->values();
-
-    //     // Get users data
-    //     $users = User::whereIn('id', $allUserIds)
-    //         ->select('id', 'first_name', 'last_name', 'email', 'phone', 'area_locality')
-    //         ->get()
-    //         ->keyBy('id');
-
-    //     // Map users to leads
-    //     $leads->map(function ($lead) use ($users) {
-    //         $userIds = json_decode($lead->user_ids, true);
-
-    //         if (json_last_error() !== JSON_ERROR_NONE) {
-    //             // Fallback if JSON decode fails
-    //             $cleaned = trim($lead->user_ids, '[]"\'');
-    //             $userIds = explode(',', $cleaned);
-    //         }
-
-    //         $userIds = array_map('intval', (array) $userIds);
-
-    //         $lead->users = collect($userIds)
-    //             ->map(fn($id) => $users->get($id))
-    //             ->filter()
-    //             ->values();
-
-    //         return $lead;
-    //     });
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Leads retrieved successfully',
-    //         'data' => $leads,
-    //     ]);
-    // }
-
-
 
     public function assignUserLead(Request $request)
     {
         $user = auth('sanctum')->user();
 
-        // Agar sanctum se user na mile to api_token check karo
+
         if (!$user && $request->bearerToken()) {
             $user = User::where('api_token', $request->bearerToken())->first();
         }
@@ -517,16 +439,27 @@ class LeadController extends Controller
             ], 401);
         }
 
+        //
+        $role = DB::table('roles')->where('id', $user->role_id)->first();
+
         $filterUserId = $request->user_id;
 
         $query = Lead::with(['property', 'project', 'developer']);
 
-        if ($user->role !== 'admin') {
-            // Normal user: sirf apne leads
-            $query->whereJsonContains('user_ids', (string) $user->id);
-        } elseif ($filterUserId) {
-            // Admin: specific user ke leads dekhna chahe
-            $query->whereJsonContains('user_ids', (string) $filterUserId);
+        if ($role && strtolower($role->name) === 'admin') {
+
+            if ($filterUserId) {
+                $query->where(function ($q) use ($filterUserId) {
+                    $q->whereJsonContains('user_ids', (string) $filterUserId)
+                        ->orWhereJsonContains('user_ids', (int) $filterUserId);
+                });
+            }
+        } else {
+
+            $query->where(function ($q) use ($user) {
+                $q->whereJsonContains('user_ids', (string) $user->id)
+                    ->orWhereJsonContains('user_ids', (int) $user->id);
+            });
         }
 
         $leads = $query->get();
@@ -555,7 +488,6 @@ class LeadController extends Controller
             'data' => $leads,
         ]);
     }
-
 
 
 

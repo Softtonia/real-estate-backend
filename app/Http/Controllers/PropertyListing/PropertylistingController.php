@@ -3706,7 +3706,7 @@ class PropertylistingController extends Controller
                 'city',
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
-            ])
+            ])->where('live_status','=','Approve')
                 ->where('id', '!=', $referenceProperty->id) // same property skip
                 ->where('purpose_id', $referenceProperty->purpose_id)
                 ->where('property_id', $referenceProperty->property_id)

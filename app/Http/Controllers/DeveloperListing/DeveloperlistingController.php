@@ -3329,7 +3329,7 @@ class DeveloperlistingController extends Controller
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
 
-            ])
+            ])->where('live_status','=','Approve')
                 ->where('id', '!=', $referenceDeveloper->id) // same property skip
                 ->where('purpose_id', $referenceDeveloper->purpose_id)
                 ->where('property_id', $referenceDeveloper->property_id)
