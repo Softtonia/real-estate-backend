@@ -43,6 +43,7 @@ class DatabaseSeeder extends Seeder
          $this->call(TemplateSeeder::class);
          $this->call(CustomFieldsSeeder::class);
          $this->call(ClientReviewsSeeder::class);
+         $this->call(LocationSeeder::class);
 
 
     }

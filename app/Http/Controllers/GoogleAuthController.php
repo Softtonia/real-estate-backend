@@ -1,79 +1,12 @@
 <?php
 
-// namespace App\Http\Controllers;
-
-// use Illuminate\Support\Facades\Hash;
-// use Laravel\Socialite\Facades\Socialite;
-// use App\Http\Controllers\Controller;
-// use Illuminate\Http\Request;
-// use App\Models\User;
-// use Illuminate\Support\Facades\Auth;
-
-// class GoogleAuthController extends Controller
-// {
-//     public function redirectToGoogle()
-//     {
-//         try {
-//             $googleUrl = Socialite::driver('google')->stateless()->redirect()->getTargetUrl();
-
-//             return response()->json([
-//                 'status' => true,
-//                 'message' => 'Google login URL generated successfully.',
-//                 'url' => $googleUrl,
-//             ], 200);
-//         } catch (\Exception $e) {
-//             return response()->json([
-//                 'status' => false,
-//                 'message' => 'Failed to generate Google login URL.',
-//                 'error' => $e->getMessage(),
-//             ], 500);
-//         }
-//     }
-
-//     public function handleGoogleCallback()
-//     {
-//         try {
-//             $googleUser = Socialite::driver('google')->stateless()->user();
-
-//             // \Log::info('Google User Data:',  [$googleUser]);
-//             // dd($googleUser);
-
-//             // Check if user exists
-//             $user = User::where('email', $googleUser->email)->first();
-
-//             if (!$user) {
-//                 // Create new user
-//                 $user = User::create([
-//                     'name' => $googleUser->name,
-//                     'email' => $googleUser->email,
-//                     'google_id' => $googleUser->id,
-//                     'password' => bcrypt(uniqid()), // Dummy password
-//                 ]);
-//             }
-
-//             // Generate token
-//             $token = $user->createToken('auth_token')->plainTextToken;
-
-//             return response()->json([
-//                 'status' => true,
-//                 'message' => 'Login Successful',
-//                 'user' => $user,
-//                 'token' => $token
-//             ], 200);
-
-//         } catch (\Exception $e) {
-//             return response()->json(['error' => 'Google login failed'], 500);
-//         }
-//     }
-// }
-
-
 
 
 namespace App\Http\Controllers;
 
 use App\Models\Role;
 use App\Models\UniqueID;
+use App\Models\UserDetail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
@@ -166,6 +99,13 @@ class GoogleAuthController extends Controller
                     'isapproved' => 1, // isapproved = 1
                     'unique_id' => $uniqueIDModel->unique_id,
                 ]);
+
+                if($user){
+                    $userDetails = UserDetail::create([
+                        'user_id' => $user->id,
+                        'role_id' => $roleId,
+                    ]);
+                }
             } else {
                 // Agar user pehle se hai toh google_id aur role_id update karo
                 $user->update([
