@@ -2,11 +2,15 @@
 
 use App\Http\Controllers\Admin\ApiClient\ApiClientController;
 use App\Http\Controllers\Admin\DashboardAnalyticsController;
+use App\Http\Controllers\AgentProject\AgentProjectController;
+use App\Http\Controllers\CompanyConsultancy\CompanyConsultancyController;
+use App\Http\Controllers\CompanyProject\CompanyProjectController;
+use App\Http\Controllers\ConsultancyProject\ConsultancyProjectController;
 use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\IpLog\IpLogController;
-use App\Http\Controllers\Kyc\KycController;
+
 use App\Http\Controllers\Lead\LeadController;
 use App\Http\Controllers\Lead\LeadTypeController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
@@ -15,6 +19,7 @@ use App\Http\Controllers\OvervewAnalytics\OwnerDashboardAnalyticsController;
 use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SearchEngine\SearchEngineController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
+use App\Http\Controllers\Subscribe\SubscribeController;
 use App\Http\Controllers\TopFeature\TopFeatureController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -52,13 +57,10 @@ use App\Http\Controllers\ProjectListing\ProjectlistingController;
 use App\Http\Controllers\ClientReviewController;
 use App\Http\Controllers\FaqCategoryController;
 use App\Http\Controllers\FaqController;
-use App\Http\Controllers\Page\privacypolicycontroller;
-use App\Http\Controllers\Page\termsandconditioncontroller;
+
 use App\Http\Controllers\Page\servicescontroller;
 use App\Http\Controllers\Page\AboutusController;
-use App\Http\Controllers\Page\CareerController;
-use App\Http\Controllers\Page\LegalController;
-use App\Http\Controllers\Page\SalesRefundController;
+
 use App\Http\Controllers\Page\PropertyValuationController;
 use App\Http\Controllers\Help\HelpCategoryController;
 use App\Http\Controllers\Help\HelpSubcategoryController;
@@ -97,7 +99,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::post('/check-username-unique', [UserController::class, 'checkUsernameAvailability']);
 
         Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
-        // Route::post('login', [UserController::class, 'loginOldUser']);
+
         Route::post('login', [UserController::class, 'login']);
         Route::post('/logout', [UserController::class, 'logout'])->middleware('api.token');
         Route::post('/check-unique', [UserController::class, 'checkUnique']);
@@ -106,7 +108,6 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         Route::middleware('admin.token')->post('/user/search', [UserController::class, 'SearchUser']);
         Route::middleware('admin.token')->get('all-user-listing', [UserController::class, 'alluserlist']);
-        // Route::get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']);
 
 
         Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
@@ -126,25 +127,25 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
 
-        Route::middleware('OnlyCompany')->get('get-company-consultancy-listing', [UserController::class, 'getCompanyConsultancyListing']);   // Done By softtonia
-        Route::middleware('OnlyCompany')->get('search-consultancy-by-id', [UserController::class, 'searchConsultancyById']);  // Done By softtonia
-        Route::middleware('OnlyCompany')->post('send-request-by-company-to-consultancy', [UserController::class, 'sendRequestByCompanyToConsultancy']); // Done By softtonia
-        Route::middleware('OnlyConsultancy')->get('get-all-consultancy-join-request-listing', [UserController::class, 'getConsultancyAllJoinRequest']);  // Done By softtonia
-        Route::middleware(['allowed_roles'])->post('accept-decline-company-request-by-consultancy', [UserController::class, 'acceptDeclineCompanyRequestByConsultancy']); // Done By softtonia
-        Route::middleware('OnlyConsultancy')->post('leave-the-comapny-by-consultancy', [UserController::class, 'leaveTheComapnyByConsultancy']); // Done By softtonia
-        Route::middleware('OnlyConsultancy')->get('get-consultancy-details-with-company', [UserController::class, 'getConsultancyDetailsWithCompany']);  // Done By softtonia
+        Route::middleware('OnlyCompany')->get('get-company-consultancy-listing', [CompanyConsultancyController::class, 'getCompanyConsultancyListing']);   // Done By softtonia
+        Route::middleware('OnlyCompany')->get('search-consultancy-by-id', [CompanyConsultancyController::class, 'searchConsultancyById']);  // Done By softtonia
+        Route::middleware('OnlyCompany')->post('send-request-by-company-to-consultancy', [CompanyConsultancyController::class, 'sendRequestByCompanyToConsultancy']); // Done By softtonia
+        Route::middleware('OnlyConsultancy')->get('get-all-consultancy-join-request-listing', [CompanyConsultancyController::class, 'getConsultancyAllJoinRequest']);  // Done By softtonia
+        Route::middleware(['allowed_roles'])->post('accept-decline-company-request-by-consultancy', [CompanyConsultancyController::class, 'acceptDeclineCompanyRequestByConsultancy']); // Done By softtonia
+        Route::middleware('OnlyConsultancy')->post('leave-the-comapny-by-consultancy', [CompanyConsultancyController::class, 'leaveTheComapnyByConsultancy']); // Done By softtonia
+        Route::middleware('OnlyConsultancy')->get('get-consultancy-details-with-company', [CompanyConsultancyController::class, 'getConsultancyDetailsWithCompany']);  // Done By softtonia
 
-        Route::middleware('OnlyCompany')->get('get-company-project-listing', [UserController::class, 'getCompanyProjectListing']); // Done By softtonia
-        Route::middleware('OnlyCompany')->get('fetch-assigned-project-of-company', [UserController::class, 'fetchAssignedProjectOfCompany']); // Done By softtonia
+        Route::middleware('OnlyCompany')->get('get-company-project-listing', [CompanyProjectController::class, 'getCompanyProjectListing']); // Done By softtonia
+        Route::middleware('OnlyCompany')->get('fetch-assigned-project-of-company', [CompanyProjectController::class, 'fetchAssignedProjectOfCompany']); // Done By softtonia
         Route::post('property-details-by-projectId', [UserController::class, 'propertyDetailsByProjectId']);
-        Route::middleware('OnlyConsultancy')->get('fetch-total-assigned-project-to-consultancy', [UserController::class, 'fetchTotalAssignedProjectToConsultancy']);
-        Route::get('fetch-consultancy-total-assigned-project', [UserController::class, 'fetchConsultancyTotalAssignedProjects']);
-        Route::post('assign-project-to-agent-by-consultancy', [UserController::class, 'assignProjectToAgentByConsultancy']);
-        Route::get('fetch-assigned-project-of-agent', [UserController::class, 'fetchAssignedProjectOfAgent']);
-        Route::get('fetch-agent-total-assigned-project', [UserController::class, 'fetchAgentTotalAssignedProject']);
-        Route::get('fetch-total-project-of-consultancy', [UserController::class, 'fetchTotalProjectOfConsultancy']);
-        Route::post('view-project-details-of-consultancy', [UserController::class, 'viewProjectDetailsOfConsultancy']);
-        Route::post('view-project-details-of-company', [UserController::class, 'viewProjectDetailsOfCompany']);
+        Route::middleware('OnlyConsultancy')->get('fetch-total-assigned-project-to-consultancy', [ConsultancyProjectController::class, 'fetchTotalAssignedProjectToConsultancy']);
+        Route::get('fetch-consultancy-total-assigned-project', [ConsultancyProjectController::class, 'fetchConsultancyTotalAssignedProjects']);
+        Route::post('assign-project-to-agent-by-consultancy', [ConsultancyProjectController::class, 'assignProjectToAgentByConsultancy']);
+        Route::get('fetch-assigned-project-of-agent', [AgentProjectController::class, 'fetchAssignedProjectOfAgent']);
+        Route::get('fetch-agent-total-assigned-project', [AgentProjectController::class, 'fetchAgentTotalAssignedProject']);
+        Route::get('fetch-total-project-of-consultancy', [ConsultancyProjectController::class, 'fetchTotalProjectOfConsultancy']);
+        Route::post('view-project-details-of-consultancy', [ConsultancyProjectController::class, 'viewProjectDetailsOfConsultancy']);
+        Route::post('view-project-details-of-company', [CompanyProjectController::class, 'viewProjectDetailsOfCompany']);
         Route::post('globle-search-engine', [SearchEngineController::class, 'globleSearchEngine']);
 
         Route::get('listing-of-all-projects', [UserController::class, 'listingOfAllProjects']);
@@ -182,12 +183,12 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
         // ========== Subscribe Emails Import ===============
-        Route::post('insert-subscribe-email', [UserController::class, 'insertSubscribeEmail']);
-        Route::get('listing-subscribe-email', [UserController::class, 'listingOfSubscribedEmails'])->middleware('admin.token');
-        Route::post('import-subscribed-emails', [UserController::class, 'importSubscribedEmails'])->middleware('admin.token');
+        Route::post('insert-subscribe-email', [SubscribeController::class, 'insertSubscribeEmail']);
+        Route::get('listing-subscribe-email', [SubscribeController::class, 'listingOfSubscribedEmails'])->middleware('admin.token');
+        Route::post('import-subscribed-emails', [SubscribeController::class, 'importSubscribedEmails'])->middleware('admin.token');
 
         // ========= Subscribe Emails Export ===============
-        Route::get('/subscribed-emails/export/{format}', [UserController::class, 'exportSubscribedEmails'])->name('subscribed_emails.export')->middleware('admin.token');
+        Route::get('/subscribed-emails/export/{format}', [SubscribeController::class, 'exportSubscribedEmails'])->name('subscribed_emails.export')->middleware('admin.token');
 
         // =======Error Log Listing=================
         Route::get('error-logs', [ErrorLogController::class, 'listErrorLogs'])->middleware('api.token');
@@ -665,12 +666,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
             Route::post('projects-delete', [Projectcontroller::class, 'destroy']);
         });
 
-        // =========Builder=======
-// Route::get('builder-list', [Buildercontroller::class, 'index']);
-// Route::post('get-builderdata-byid', [Buildercontroller::class, 'show']);
-// Route::post('builder-create', [Buildercontroller::class, 'store']);
-// Route::post('builder-update', [Buildercontroller::class, 'update']);
-// Route::post('builder-delete', [Buildercontroller::class, 'destroy']);
+
 
         // =========Profile=======
         Route::post('complete-your-profile', [Profilecontroller::class, 'updateProfile']);
@@ -720,28 +716,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::middleware('allrole.token')->post('business-role-update-profile', [UserController::class, 'updateProfile']);
 
 
-        // Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle']);
-        // Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback']);
 
-
-        //Un-used Route
-// Route::get('list-custom-fields', [CustomFieldController::class, 'index']);
-// Route::get('all-location-listing', [CustomFieldController::class, 'locationListing']);
-// Route::get('get-all-developer-listing', [UserController::class, 'allDeveloperListing']);
-
-        // =======Website Developer Listing============
-// Route::post('add-developer-listing-by-website', [DeveloperlistingController::class, 'storeWebsite']);
-// Route::post('edit-developer-listing-by-website', [DeveloperlistingController::class, 'updateWebsite']);
-// Route::post('delete-developer-listing-by-website', [DeveloperlistingController::class, 'destroyWebsite']);
-// Route::get('fetch-all-developer-listing-by-website', [DeveloperlistingController::class, 'indexWebsite']);
-// Route::get('get-data-developer-by-website/{id}', [DeveloperlistingController::class, 'getdatabyIdWebsite']);
-// Route::get('multiple-custom-field-listing-by-model-conditionid', [CustomMultipleFieldController::class, 'customFieldListingByModelConditionId']);
-// Route::get('get-details-byuserid-for-website', [UserController::class, 'getdetailsbyuseridForWebsite']);
-// Route::any('reset-password', [UserController::class, 'resetPassword']);
-// Route::get('/user/{id}', [UserController::class, 'getUserDetails']);
-//Route::get('/get-data-by-token', [UserController::class, 'getDataByToken']);
-// Route::get('get-all-agent-listing-by-admin', [UserController::class, 'allAgentListingByAdmin']);
-// Route::get('get-agent-listing', [UserController::class, 'getAgentListing']);
 
 
 

@@ -128,129 +128,129 @@ class UserController extends Controller
     }
 
     // for register
-    public function registerOld(Request $request)
-    {
-        dd($request->all());
-        // Validate request data
-        try {
-            $request->validate([
-                'first_name' => 'required',
-                //'last_name' => 'required',
-                'phone' => 'required|unique:users',
-                'email' => 'required|unique:users',
-                'role_id' => 'required|exists:roles,id',
-            ]);
-        } catch (ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
-        }
+    // public function registerOld(Request $request)
+    // {
+    //     dd($request->all());
+    //     // Validate request data
+    //     try {
+    //         $request->validate([
+    //             'first_name' => 'required',
+    //             //'last_name' => 'required',
+    //             'phone' => 'required|unique:users',
+    //             'email' => 'required|unique:users',
+    //             'role_id' => 'required|exists:roles,id',
+    //         ]);
+    //     } catch (ValidationException $e) {
+    //         return response()->json(['error' => $e->errors()], 400);
+    //     }
 
-        // Check if the role is admin
-        $adminRoleId = 1;
-        if ($request->role_id == $adminRoleId) {
-            return response()->json(['error' => 'You cannot create the admin role as it already exists.'], 400);
-        }
+    //     // Check if the role is admin
+    //     $adminRoleId = 1;
+    //     if ($request->role_id == $adminRoleId) {
+    //         return response()->json(['error' => 'You cannot create the admin role as it already exists.'], 400);
+    //     }
 
-        // Generate unique ID based on role
-        $role = Role::find($request->role_id);
-        if (!$role) {
-            return response()->json(['error' => 'Invalid role provided.'], 400);
-        }
+    //     // Generate unique ID based on role
+    //     $role = Role::find($request->role_id);
+    //     if (!$role) {
+    //         return response()->json(['error' => 'Invalid role provided.'], 400);
+    //     }
 
-        $userRole = User::where('role_id', $role->id)->count();
+    //     $userRole = User::where('role_id', $role->id)->count();
 
-        if ($userRole == 0) {
-            // If no users exist for this role, start the count from 001
-            $uniqueIDModel = new UniqueID();
-            // Generate unique ID with prefix and padded count
-            $uniqueIDModel->unique_id = $role->prefix . str_pad(1, 3, '0', STR_PAD_LEFT); // Starts from 001
-            $uniqueIDModel->save();
-        } else {
+    //     if ($userRole == 0) {
+    //         // If no users exist for this role, start the count from 001
+    //         $uniqueIDModel = new UniqueID();
+    //         // Generate unique ID with prefix and padded count
+    //         $uniqueIDModel->unique_id = $role->prefix . str_pad(1, 3, '0', STR_PAD_LEFT); // Starts from 001
+    //         $uniqueIDModel->save();
+    //     } else {
 
-            // If users exist, fetch the highest current count for this role's prefix and increment it
-            $lastUniqueID = UniqueID::where('unique_id', 'like', $role->prefix . '%')
-                ->orderBy('unique_id', 'desc')
-                ->first();
+    //         // If users exist, fetch the highest current count for this role's prefix and increment it
+    //         $lastUniqueID = UniqueID::where('unique_id', 'like', $role->prefix . '%')
+    //             ->orderBy('unique_id', 'desc')
+    //             ->first();
 
-            // If there are no existing unique IDs, start from 001
-            if (!$lastUniqueID) {
-                $newUniqueID = $role->prefix . str_pad(1, 3, '0', STR_PAD_LEFT); // Start from 001
-            } else {
-                // Extract the numeric part from the last unique_id
-                $lastCount = (int) substr($lastUniqueID->unique_id, strlen($role->prefix));
+    //         // If there are no existing unique IDs, start from 001
+    //         if (!$lastUniqueID) {
+    //             $newUniqueID = $role->prefix . str_pad(1, 3, '0', STR_PAD_LEFT); // Start from 001
+    //         } else {
+    //             // Extract the numeric part from the last unique_id
+    //             $lastCount = (int) substr($lastUniqueID->unique_id, strlen($role->prefix));
 
-                // Increment the count and generate the new unique_id
-                $newUniqueID = $role->prefix . str_pad($lastCount + 1, 3, '0', STR_PAD_LEFT);
-            }
+    //             // Increment the count and generate the new unique_id
+    //             $newUniqueID = $role->prefix . str_pad($lastCount + 1, 3, '0', STR_PAD_LEFT);
+    //         }
 
-            // Save the new unique_id
-            $uniqueIDModel = new UniqueID();
-            $uniqueIDModel->unique_id = $newUniqueID;
-            $uniqueIDModel->save();
-        }
+    //         // Save the new unique_id
+    //         $uniqueIDModel = new UniqueID();
+    //         $uniqueIDModel->unique_id = $newUniqueID;
+    //         $uniqueIDModel->save();
+    //     }
 
-        $token = Str::random(60);
+    //     $token = Str::random(60);
 
-        if ($request->role_id == 2) {
-            $isapproved = 1;
-        } else {
-            $isapproved = 2;
-        }
+    //     if ($request->role_id == 2) {
+    //         $isapproved = 1;
+    //     } else {
+    //         $isapproved = 2;
+    //     }
 
-        // Create a new user
-        $user = new User();
-        $user->first_name = $request->first_name;
-        $user->last_name = $request->last_name;
-        $user->fullname = $request->fullname ?? null;
-        $user->email = $request->email;
-        $user->phone = $request->phone;
-        $user->api_token = $token;
-        $user->remember_token = $request->token;
-        //$user->requestId = $request->uid;
-        $user->role_id = $request->role_id; // Set role_id
-        $user->password = Hash::make($request->password);
-        $user->unique_id = $uniqueIDModel->unique_id;
-        $user->created_by = Auth::user()->id ?? 0;
-        $user->isapproved = $isapproved;
+    //     // Create a new user
+    //     $user = new User();
+    //     $user->first_name = $request->first_name;
+    //     $user->last_name = $request->last_name;
+    //     $user->fullname = $request->fullname ?? null;
+    //     $user->email = $request->email;
+    //     $user->phone = $request->phone;
+    //     $user->api_token = $token;
+    //     $user->remember_token = $request->token;
+    //     //$user->requestId = $request->uid;
+    //     $user->role_id = $request->role_id; // Set role_id
+    //     $user->password = Hash::make($request->password);
+    //     $user->unique_id = $uniqueIDModel->unique_id;
+    //     $user->created_by = Auth::user()->id ?? 0;
+    //     $user->isapproved = $isapproved;
 
-        // Add entry to user_has_unique_ids table
-        DB::beginTransaction();
-        try {
-            $user->save();
-            DB::table('user_has_unique_ids')->insert([
-                'user_id' => $user->id,
-                'unique_id' => $uniqueIDModel->id,
-            ]);
+    //     // Add entry to user_has_unique_ids table
+    //     DB::beginTransaction();
+    //     try {
+    //         $user->save();
+    //         DB::table('user_has_unique_ids')->insert([
+    //             'user_id' => $user->id,
+    //             'unique_id' => $uniqueIDModel->id,
+    //         ]);
 
 
-            // Create and save OTP record
-            // $otp = new Otp();
-            // $otp->phone = $request->phone;
-            // $otp->otp = '123456' ?? $request->otp;
-            // $otp->user_id = $user->id;
-            // $otp->phone = $user->phone;
-            // $otp->uid = $request->uid;
-            // $otp->save();
+    //         // Create and save OTP record
+    //         // $otp = new Otp();
+    //         // $otp->phone = $request->phone;
+    //         // $otp->otp = '123456' ?? $request->otp;
+    //         // $otp->user_id = $user->id;
+    //         // $otp->phone = $user->phone;
+    //         // $otp->uid = $request->uid;
+    //         // $otp->save();
 
-            $userDetail = array(
-                'user_id' => $user->id,
-                'role_id' => $request->role_id
-            );
+    //         $userDetail = array(
+    //             'user_id' => $user->id,
+    //             'role_id' => $request->role_id
+    //         );
 
-            UserDetail::create($userDetail);
+    //         UserDetail::create($userDetail);
 
-            DB::commit();
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error($e->getMessage()); // Log the exception message
-            return response()->json(['error' => 'Failed to register user.' . $e->getMessage()], 500);
-        }
+    //         DB::commit();
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error($e->getMessage()); // Log the exception message
+    //         return response()->json(['error' => 'Failed to register user.' . $e->getMessage()], 500);
+    //     }
 
-        // Return response
-        return response()->json(
-            ['status' => true, 'message' => 'User registeration successfully.', 'data' => $user],
-            201
-        );
-    }
+    //     // Return response
+    //     return response()->json(
+    //         ['status' => true, 'message' => 'User registeration successfully.', 'data' => $user],
+    //         201
+    //     );
+    // }
 
 
     public function register(Request $request)
@@ -545,156 +545,8 @@ class UserController extends Controller
         }
     }
 
-    // for login
-    // public function loginOldUser(Request $request)
-    // {
 
-    //     // Validate input
-    //     $request->validate([
-    //         'login' => 'required',
-    //         'password' => 'required',
-    //     ]);
 
-    //     // Get input from user
-    //     $credentials = $request->only('login', 'password');
-
-    //     try {
-    //         // Find the user by email or phone
-    //         $user = User::where('email', $credentials['login'])
-    //             ->orWhere('phone', $credentials['login'])
-    //             ->first();
-
-    //         // Check if the user exists
-    //         if (!$user) {
-    //             // Check if the login is an email or phone
-    //             if (filter_var($credentials['login'], FILTER_VALIDATE_EMAIL)) {
-    //                 return response()->json(['email' => 'Invalid email'], 401);
-    //             } else {
-    //                 return response()->json(['phone' => 'Invalid phone number'], 401);
-    //             }
-    //         }
-
-    //         // Check if the password matches
-    //         if (!Hash::check($credentials['password'], $user->password)) {
-    //             return response()->json(['password' => 'Invalid password'], 401);
-    //         }
-
-    //         // Load the role relationship
-    //         $user->load('role');
-
-    //         // Generate a new API token
-    //         $api_token = Str::random(60);
-
-    //         // Update the user's API token
-    //         $user->api_token = $api_token;
-    //         $user->save();
-
-    //         // Return the response with user details
-    //         return response()->json([
-    //             'id' => $user->id,
-    //             'fullname' => $user->fullname,
-    //             'phone' => $user->phone,
-    //             'email' => $user->email,
-    //             'role' => $user->role->name,
-    //             'token' => $user->api_token,
-    //             'isapproved' => $user->isapproved,
-    //         ], 200);
-
-    //     } catch (\Exception $e) {
-    //         // Log the error for debugging purposes
-    //         Log::error('Login Error: ' . $e->getMessage());
-
-    //         // Return the actual error message
-    //         return response()->json(['error' => 'An unexpected error occurred. Please try again later.'], 500);
-    //     }
-    // }
-
-    // public function login(Request $request)
-    // {
-    //     // Validate request inputs
-    //     $validator = Validator::make($request->all(), [
-    //         'email' => 'required', // Can be email or mobile number
-    //         'password' => 'required|string|min:8',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json($validator->errors(), 422);
-    //     }
-
-    //     $identifier = $request->input('email');
-    //     $password = $request->input('password');
-
-    //     // Determine if the identifier is an email or phone number
-    //     $fieldType = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
-
-    //     // Retrieve the user by email or phone
-    //     $user = User::where($fieldType, $identifier)->first();
-
-    //     if (!$user) {
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => 'User not found'
-    //         ], 404);
-    //     }
-
-    //     // Check if OTP verification is required
-    //     if ($fieldType === 'email') {
-    //         $otpRecord = DB::table('otps')->where('user_id', $user->id)->first();
-
-    //         if (!$otpRecord || !$otpRecord->isOTPVerified) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'OTP is not verified'
-    //             ], 403);
-    //         }
-
-    //         // // Check if OTP verification was recent (e.g., within the last 15 minutes)
-    //         // $otpVerifiedTime = Carbon::parse($otpRecord->updated_at); // Assuming `updated_at` tracks OTP verification
-    //         // if (Carbon::now()->diffInMinutes($otpVerifiedTime) > 15) {
-    //         //     return response()->json([
-    //         //         'status' => false,
-    //         //         'message' => 'OTP verification has expired. Please verify again.'
-    //         //     ], 403);
-    //         // }
-    //     }
-
-    //     // Attempt to authenticate the user
-    //     if (Auth::attempt([$fieldType => $identifier, 'password' => $password])) {
-    //         // Generate a new API token
-    //         $token = Str::random(80);
-
-    //         // Update the user's API token in the database
-    //         $user->update(['api_token' => $token]);
-
-    //         // Get the user's role name (if assigned)
-    //         $roleName = $user->role ? $user->role->name : 'No Role Assigned';
-
-    //         // Return a successful login response
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Login successful',
-    //             'token' => $token,
-    //             'user' => [
-    //                 'id' => $user->id,
-    //                 'first_name' => $user->first_name,
-    //                 'last_name' => $user->last_name,
-    //                 // 'fullname' => $user->fullname,
-    //                 'email' => $user->email,
-    //                 'phone' => $user->phone,
-    //                 'api_token' => $token,
-    //                 'created_at' => $user->created_at,
-    //                 'updated_at' => $user->updated_at,
-    //                 'role' => $roleName,
-    //             ],
-    //         ], 200);
-    //     } else {
-    //         // Return an error response for invalid credentials
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => 'Invalid credentials'
-    //         ], 401);
-    //     }
-    // }
     public function login(Request $request)
     {
         // Validate request inputs
@@ -782,178 +634,9 @@ class UserController extends Controller
     }
 
 
-    // public function login(Request $request)
-    // {
-    //     // Validate request inputs
-    //     $validator = Validator::make($request->all(), [
-    //         'identifier' => 'required', // Can be email or mobile number
-    //         'password' => 'required|string|min:8',
-    //     ]);
-
-    //     if ($validator->fails()) {
-    //         return response()->json($validator->errors(), 422);
-    //     }
-
-    //     $identifier = $request->input('identifier');
-    //     $password = $request->input('password');
-
-    //     // Determine if the identifier is an email or phone number
-    //     $fieldType = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
-
-    //     // Retrieve the user by email or phone
-    //     $user = User::where($fieldType, $identifier)->first();
-
-    //     if (!$user) {
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => 'User not found'
-    //         ], 404);
-    //     }
-
-    //     // Check if the user's mobile number is verified (if logging in with phone)
-    //     if ($fieldType === 'phone') {
-    //         $otpRecord = DB::table('otps')->where('user_id', $user->id)->first();
-    //         if (!$otpRecord || $otpRecord->isOTPVerified == 0) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'message' => 'Mobile number is not verified'
-    //             ], 403);
-    //         }
-    //     }
-
-    //     // Attempt to authenticate the user
-    //     if (Auth::attempt([$fieldType => $identifier, 'password' => $password])) {
-    //         // Generate a new API token
-    //         $token = Str::random(80);
-
-    //         // Update the user's API token in the database
-    //         $user->update(['api_token' => $token]);
-
-    //         // Get the user's role name (if assigned)
-    //         $roleName = $user->role ? $user->role->name : 'No Role Assigned';
-
-    //         // Return a successful login response along with the permissions
-    //         return response()->json([
-    //             'status' => true,
-    //             'message' => 'Login successful',
-    //             'token' => $token,
-    //             'user' => [
-    //                 'id' => $user->id,
-    //                 'first_name' => $user->first_name,
-    //                 'last_name' => $user->last_name,
-    //                 'fullname' => $user->fullname,
-    //                 'email' => $user->email,
-    //                 'phone' => $user->phone,
-    //                 'api_token' => $token,
-    //                 'created_at' => $user->created_at,
-    //                 'updated_at' => $user->updated_at,
-    //                 'role' => $roleName,
-    //             ],
-    //         ], 200);
-    //     } else {
-    //         // Return an error response for invalid credentials
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => 'Invalid credentials'
-    //         ], 401);
-    //     }
-    // }
 
 
-    //     public function login(Request $request)
-// {
-//     // Validate request inputs
-//     $validator = Validator::make($request->all(), [
-//         'identifier' => 'required', // Can be email or mobile number
-//         'password' => 'required|string|min:8',
-//     ]);
 
-    //     if ($validator->fails()) {
-//         return response()->json($validator->errors(), 422);
-//     }
-
-    //     $identifier = $request->input('identifier');
-//     $password = $request->input('password');
-
-    //     // Determine if the identifier is an email or phone number
-//     $fieldType = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
-
-    //     // Retrieve the user by email or phone
-//     $user = User::where($fieldType, $identifier)->first();
-
-    //     if (!$user) {
-//         return response()->json([
-//             'status' => false,
-//             'message' => 'User not found'
-//         ], 404);
-//     }
-
-    //     // Check if the identifier is an email and exists in the subscribed_emails table
-//     // if ($fieldType === 'email') {
-//     //     $subscribedEmail = DB::table('subscribed_emails')->where('subscribe_email', $identifier)->first();
-//     //     if (!$subscribedEmail) {
-//     //         return response()->json([
-//     //             'status' => false,
-//     //             'message' => 'Email is not subscribed'
-//     //         ], 403);
-//     //     } else {
-//     //         // Update the user_id in the subscribed_emails table if not already set
-//     //         if ($subscribedEmail->user_id) {
-//     //             DB::table('subscribed_emails')
-//     //                 ->where('subscribe_email', $identifier)
-//     //                 ->update(['user_id' => $user->id]);
-//     //         }
-//     //     }
-//     // }
-
-    //     // Check if the user's mobile number is verified (if logging in with phone)
-//     if ($fieldType === 'phone') {
-//         $otpRecord = DB::table('otps')->where('user_id', $user->id)->first();
-//         if (!$otpRecord || $otpRecord->isOTPVerified == 0) {
-//             return response()->json([
-//                 'status' => false,
-//                 'message' => 'Mobile number is not verified'
-//             ], 403);
-//         }
-//     }
-
-    //     // Attempt to authenticate the user
-//     if (Auth::attempt([$fieldType => $identifier, 'password' => $password])) {
-//         // Generate a new API token
-//         $token = Str::random(80);
-
-    //         // Update the user's API token in the database
-//         $user->update(['api_token' => $token]);
-
-    //         // Get the user's role name (if assigned)
-//         $roleName = $user->role ? $user->role->name : 'No Role Assigned';
-
-    //         // Return a successful login response along with the permissions
-//         return response()->json([
-//             'status' => true,
-//             'message' => 'Login successful',
-//             'token' => $token,
-//             'user' => [
-//                 'id' => $user->id,
-//                 'first_name' => $user->first_name,
-//                 'last_name' => $user->last_name,
-//                 'fullname' => $user->fullname,
-//                 'email' => $user->email,
-//                 'phone' => $user->phone,
-//                 'api_token' => $token,
-//                 'created_at' => $user->created_at,
-//                 'updated_at' => $user->updated_at,
-//                 'role' => $roleName,
-//             ],
-//         ], 200);
-//     } else {
-//         // Return an error response for invalid credentials
-//         return response()->json([
-//             'status' => false,
-//             'message' => 'Invalid credentials'
-//         ], 401);
-//     }
-// }
 
 
     // for check uniqueness
@@ -1123,95 +806,6 @@ class UserController extends Controller
 
 
     // for get details by user_id
-//         public function getdetailsbyuserid(Request $request)
-// {
-//     try {
-
-
-    //         // Get user ID from the request
-//         $userId = $request->input('id'); // Get the `id` from the query string (e.g., ?id=201)
-
-    //         // Ensure the user exists
-//         $userData = DB::table('users')
-//             ->join('user_details', 'users.id', '=', 'user_details.user_id')
-//             ->join('roles', 'users.role_id', '=', 'roles.id')
-//             ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
-//             ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
-//             ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
-//             ->where('users.id', $userId)
-//             ->select(
-//                 'users.id',
-//                 'users.first_name',
-//                 'users.last_name',
-//                 'users.email',
-//                 'users.phone',
-//                 'users.role_id',
-//                 'users.unique_id',
-//                 'users.isapproved',
-//                 'roles.name as role_name',
-//                 'user_details.bussiness_name',
-//                 'user_details.bussiness_address',
-//                 'user_details.bussiness_email',
-//                 'user_details.business_phone',
-//                 'countries.name as country',
-//                 'states.name as state',
-//                 'cities.name as city',
-//                 'user_details.address',
-//                 'user_details.pin_code',
-//                 'user_details.profile_photo',
-//                 'user_details.license_number',
-//                 'user_details.alternate_number',
-//                 'user_details.no_of_employees',
-//                 'user_details.about_us',
-//                 'users.created_at',
-//                 'users.updated_at',
-//                 'user_details.country_id',
-//                 'user_details.state_id',
-//                 'user_details.city_id'
-//             )
-//             ->first();
-
-    //         // If no user found for the requested ID
-//         if (!$userData) {
-//             return response()->json(['error' => 'No data found for this user.'], 404);
-//         }
-
-    //         // Return the user data with the correct `id`
-//         return response()->json([
-//             'id' => $userData->id,  // Return the requested `id`
-//             'first_name' => $userData->first_name,
-//             'last_name' => $userData->last_name,
-//             'email' => $userData->email,
-//             'phone' => $userData->phone,
-//             'role_id' => $userData->role_id,
-//             'role_name' => $userData->role_name,
-//             'unique_id' => $userData->unique_id,
-//             'isapproved' => $userData->isapproved,
-//             'bussiness_name' => $userData->bussiness_name,
-//             'bussiness_address' => $userData->bussiness_address,
-//             'bussiness_email' => $userData->bussiness_email,
-//             'business_phone' => $userData->business_phone,
-//             'country_id' => $userData->country_id ?? 'N/A', // Handle missing country_id
-//             'state_id' => $userData->state_id ?? 'N/A', // Handle missing state_id
-//             'city_id' => $userData->city_id ?? 'N/A', // Handle missing city_id
-//             'address' => $userData->address,
-//             'pin_code' => $userData->pin_code,
-//             'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null, // Convert to full URL
-//             'license_number' => $userData->license_number,
-//             'alternate_number' => $userData->alternate_number,
-//             'no_of_employees' => $userData->no_of_employees,
-//             'about_us' => $userData->about_us,
-//             'created_at' => $userData->created_at,
-//             'updated_at' => $userData->updated_at
-//         ], 200);
-
-    //     } catch (\Throwable $th) {
-//         return response()->json(['error' => $th->getMessage()], 500);
-//     }
-// }
-
-
-
     public function getdetailsbyuserid(Request $request)
     {
         try {
@@ -2672,670 +2266,9 @@ class UserController extends Controller
         }
     }
 
-    // for consultancy agent listings
-    public function getCompanyConsultancyListing(Request $request)
-    {
-        try {
-            // Retrieve authenticated user
-            $user = auth()->user();
-            $userId = $user->id;
 
-            // Fetch users created by the authenticated company
-            $consultancy_ids_from_users_created_by = User::where('created_by', $userId)
-                ->pluck('id')
-                ->toArray();
 
-            // Check if there's a relevant column linking join requests to companies
-            $consultancy_ids_from_join_requests = JoinRequest::where([
-                'user_id' => $userId, // Adjust if `user_id` isn't the correct company reference
-                'status' => 2 // Status 2 = Accepted
-            ])
-                ->pluck('user_id') // Ensure this column exists and stores user IDs
-                ->toArray();
 
-            // Merge and remove duplicates
-            $final_consultancy_id_arr = array_unique(
-                array_merge($consultancy_ids_from_users_created_by, $consultancy_ids_from_join_requests)
-            );
-
-            // Retrieve users with role and details
-            $users = User::whereIn('id', $final_consultancy_id_arr)
-                ->with(['role', 'userDetails'])
-                ->get();
-
-            return response()->json($users, 200);
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
-
-
-    // for seach consultancy by company
-    // public function searchConsultancyById(Request $request)
-    // {
-    //     try {
-
-    //         if ($request->header('api-token') == '') {
-    //             return response()->json(['error' => 'Please enter api token first.'], 422);
-    //         }
-
-    //         $requestToken = $request->header('api-token');
-
-    //         $userId = null;
-
-    //         $userData = User::where('api_token', $requestToken)->first();
-
-    //         // Validate that the user exists in the database
-    //         if (!$userData) {
-    //             return response()->json(['error' => 'Company not found'], 404);
-    //         }
-
-    //         $userId = $userData->id;
-
-    //         $userData = User::where('role_id', operator: 5)->where('created_by', 0)->get();
-
-    //         $returnArr = [];
-
-    //         if (count($userData)) {
-
-    //             foreach ($userData as $user) {
-
-    //                 $joinRequestData = JoinRequest::where('consultancy_id', $user->id)->where('company_id', $userId)->first();
-
-    //                 if (!$joinRequestData) {
-    //                     $user_status = 'normal';
-    //                 } else {
-
-    //                     if ($joinRequestData->status == 'accepted') {
-    //                         $user_status = 'conneted';
-    //                     } elseif ($joinRequestData->status == 'requested') {
-    //                         $user_status = 'requested';
-    //                     } else {
-    //                         $user_status = 'normal';
-    //                     }
-
-    //                 }
-
-    //                 $returnArr[] = [
-    //                     'id' => $user->id,
-    //                     'name' => $user->fullname,
-    //                     'email' => $user->email,
-    //                     'phone' => $user->phone,
-    //                     'role_id' => $user->role_id,
-    //                     'unique_id' => $user->unique_id,
-    //                     'user_status' => $user_status,
-    //                 ];
-
-    //             }
-
-    //         }
-
-    //         return response()->json(['status' => true, 'data' => $returnArr], 201);
-
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         return response()->json(['error' => 'Failed.' . $e->getMessage()], 500);
-    //     }
-    // }
-    public function searchConsultancyById(Request $request)
-    {
-        try {
-            // Get authenticated user (set by the middleware)
-            $user = Auth::user();
-            $userId = $user->id;
-
-            // Fetch users with the role name "Consultancy" and created_by = 0
-            $userDataList = User::whereHas('role', function ($query) {
-                $query->where('name', 'Consultancy'); // Checking by role name
-            })->where('created_by', 0)
-                ->with([
-                    'userDetails',
-                    'joinRequest' => function ($query) use ($userId) {
-                        $query->where('user_id', $userId);
-                    }
-                ])->get();
-            $user = User::find($userId);
-            $userDetails = $user->userDetails; // This should return the related user_details
-
-            $returnArr = [];
-
-            foreach ($userDataList as $user) {
-                // Get business name from user_details
-                $business_name = optional($user->userDetails)->business_name ?? '';
-
-                // Get join request status
-                $joinRequestData = $user->joinRequest->first();
-                $user_status = match (optional($joinRequestData)->status) {
-                    'accepted' => 'connected',
-                    'requested' => 'requested',
-                    default => 'normal',
-                };
-
-                // **Allowed fields only: business_name, unique_id, email_id**
-                $returnArr[] = [
-                    'business_name' => $userDetails->bussiness_name,
-                    'bussiness_address' => $userDetails->bussiness_address,
-                    'unique_id' => $user->unique_id,
-                    'email_id' => $user->email,
-                ];
-            }
-
-            return response()->json(['status' => true, 'data' => $returnArr], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed: ' . $e->getMessage()], 500);
-        }
-    }
-
-
-
-
-    // for send join request to consultancy
-    public function sendRequestByCompanyToConsultancy(Request $request)
-    {
-        try {
-
-            $companyUser = Auth::user();
-            $companyId = $companyUser->id;
-
-            if (!$companyId) {
-                return response()->json(['error' => 'Company not found'], 404);
-            }
-            $userId = $companyUser->id;
-
-            // Validate that the consultancy user exists in the database
-            if (!User::where('id', $request->consultancy_id)->exists()) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            // Check if the request already exists
-            $check = JoinRequest::where([
-                'user_id' => $request->consultancy_id,
-                'type' => 'company-consultancy'
-            ])->first();
-
-            if ($check) {
-                JoinRequest::where([
-                    'user_id' => $request->consultancy_id,
-                    'type' => 'company-consultancy'
-                ])->delete();
-
-                return response()->json(['status' => true, 'message' => 'Request removed successfully.'], 201);
-            } else {
-                JoinRequest::insert([
-                    'user_id' => $request->consultancy_id,
-                    'type' => 'company-consultancy',
-                    'status' => 1, // Changed from 'requested' to 1
-                    'created_at' => now(),
-                    'updated_at' => now()
-                ]);
-
-                return response()->json(['status' => true, 'message' => 'Request sent successfully.'], 201);
-            }
-        } catch (\Exception $e) {
-            DB::rollBack();
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-
-
-    // for get all join requests of consultancy
-    public function getConsultancyAllJoinRequest(Request $request)
-    {
-        try {
-            $consultancyUser = Auth::user();
-
-            if (!$consultancyUser) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            $userId = $consultancyUser->id;
-
-            // Fetch join requests with related company and user details
-            $joinRequests = JoinRequest::with(['company.userDetail'])
-                ->where('type', 'company-consultancy')
-                ->where('user_id', $userId)
-                ->get();
-
-            if ($joinRequests->isEmpty()) {
-                return response()->json(['error' => 'No request found for this consultancy'], 404);
-            }
-
-            // Ensure userDetail exists before accessing its properties
-            $userDetails = $consultancyUser->userDetail ?? null;
-
-            $returnData = [
-                'consultancy' => [
-                    'id' => $consultancyUser->id,
-                    'fullname' => $consultancyUser->fullname,
-                    'email' => $consultancyUser->email,
-                    'phone' => $consultancyUser->phone,
-                    'role_id' => $consultancyUser->role_id,
-                    'role_name' => $consultancyUser->role_name,
-                    'unique_id' => $consultancyUser->unique_id,
-                    'api_token' => $consultancyUser->api_token,
-                    'profile_photo' => $userDetails?->profile_photo,
-                    'business_name' => $userDetails?->bussiness_name,
-                    'business_address' => $userDetails?->bussiness_address,
-                    'business_email' => $userDetails?->bussiness_email,
-                    'business_phone' => $userDetails?->business_phone,
-                    'address' => $userDetails?->address,
-                ],
-                'join_requests' => []
-            ];
-
-            foreach ($joinRequests as $row) {
-                $company = $row->company ?? null; // Check if company exists
-
-                if (!$company) {
-                    // Log this error instead of stopping execution
-                    \Log::error("Company not found for join request ID: " . $row->id);
-                    continue; // Skip this request and move to the next one
-                }
-
-                $companyDetails = $company->userDetail ?? null; // Check if userDetail exists
-
-                $returnData['join_requests'][] = [
-                    'status' => $row->status,
-                    'company' => [
-                        'id' => $company->id ?? null,
-                        'fullname' => $company->fullname ?? null,
-                        'email' => $company->email ?? null,
-                        'phone' => $company->phone ?? null,
-                        'role_id' => $company->role_id ?? null,
-                        'role_name' => $company->role_name ?? null,
-                        'unique_id' => $company->unique_id ?? null,
-                        'api_token' => $company->api_token ?? null,
-                        'profile_photo' => $companyDetails?->profile_photo,
-                        'business_name' => $companyDetails?->bussiness_name,
-                        'business_address' => $companyDetails?->bussiness_address,
-                        'business_email' => $companyDetails?->bussiness_email,
-                        'business_phone' => $companyDetails?->business_phone,
-                        'address' => $companyDetails?->address,
-                    ],
-                ];
-            }
-
-
-            return response()->json($returnData, 200);
-
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
-
-
-
-    // for accept and decline the request
-    // public function acceptDeclineCompanyRequestByConsultancy(Request $request)
-    // {
-    //     try {
-
-    //         if ($request->header('api-token') == '') {
-    //             return response()->json(['error' => 'Please enter api token first.'], 422);
-    //         }
-
-    //         $requestToken = $request->header('api-token');
-
-    //         $userId = null;
-
-    //         $userData = User::where('api_token', $requestToken)->first();
-
-    //         // Validate that the user exists in the database
-    //         if (!$userData) {
-    //             return response()->json(['error' => 'Consultancy not found'], 404);
-    //         }
-
-    //         $userId = $userData->id;
-
-
-    //         // Validate that the user exists in the database
-    //         if (!User::where('id', $request->company_id)->exists()) {
-    //             return response()->json(['error' => 'Consultancy not found'], 404);
-    //         }
-
-
-    //         JoinRequest::where(['consultancy_id' => $userId, 'company_id' => $request->company_id])->update(['status' => $request->status]);
-
-    //         return response()->json(['status' => true, 'message' => "Request $request->status  successfully."], 201);
-
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         \Log::error($e->getMessage());
-    //         return response()->json(['error' => 'Failed.' . $e->getMessage()], 500);
-    //     }
-    // }
-
-    // public function acceptDeclineCompanyRequestByConsultancy(Request $request)
-    // {
-    //     try {
-
-
-
-    //         $consultancyUser = Auth::user();
-
-    //         if (!$consultancyUser) {
-    //             return response()->json(['error' => 'Consultancy not found'], 404);
-    //         }
-
-    //         $userId = $consultancyUser->id;
-
-    //         // Validate that the company exists in the database
-    //         if (!User::where('id', $request->company_id)->exists()) {
-    //             return response()->json(['error' => 'Company not found'], 404);
-    //         }
-
-    //         // Validate that the request status is an integer
-    //         if (!in_array($request->status, [1, 2, 3])) {
-    //             return response()->json(['error' => 'Invalid status. Allowed values: 1 (Requested), 2 (Accepted), 3 (Rejected).'], 422);
-    //         }
-
-    //         $update = JoinRequest::where([
-    //             'user_id' => $request->company_id,
-    //             'type' => 'company-consultancy'
-    //         ])->update(['status' => $request->status]);
-
-    //         if ($update) {
-    //             return response()->json(['status' => true, 'message' => "Request status updated successfully."], 201);
-    //         } else {
-    //             return response()->json(['error' => 'No matching request found.'], 404);
-    //         }
-
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         \Log::error($e->getMessage());
-    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-    //     }
-    // }
-
-
-    public function acceptDeclineCompanyRequestByConsultancy(Request $request)
-    {
-        try {
-            $authUser = Auth::user();
-
-            if (!$authUser) {
-                return response()->json(['error' => 'User not found'], 404);
-            }
-
-            // Determine user type
-            $userRole = $authUser->role->name;
-            $isCompany = $userRole === 'company';
-            $isConsultancy = $userRole === 'consultancy';
-            $isAgent = $userRole === 'agent';
-
-            if (!$isCompany && !$isConsultancy && !$isAgent) {
-                return response()->json(['error' => 'Unauthorized action'], 403);
-            }
-
-            // Determine the target user and request type
-            if ($isCompany) {
-                $targetUserId = $request->consultancy_id;
-                $requestType = 'company-consultancy';
-            } elseif ($isAgent) {
-                $targetUserId = $request->consultancy_id;
-                $requestType = 'consultancy-agent';
-            } elseif ($isConsultancy) {
-                if ($request->company_id) {
-                    $targetUserId = $request->company_id;
-                    $requestType = 'company-consultancy';
-                } elseif ($request->agent_id) {
-                    $targetUserId = $request->agent_id;
-                    $requestType = 'consultancy-agent';
-                } else {
-                    return response()->json(['error' => 'Missing target user ID.'], 400);
-                }
-            }
-
-            // Ensure the target user exists
-            $targetUser = User::find($targetUserId);
-            if (!$targetUser) {
-                return response()->json(['error' => 'Target user not found'], 404);
-            }
-
-            // Validate status
-            if (!in_array($request->status, [1, 2, 3])) {
-                return response()->json([
-                    'error' => 'Invalid status. Allowed values: 1 (Requested), 2 (Accepted), 3 (Rejected).'
-                ], 422);
-            }
-
-            // Update JoinRequest with correct where conditions
-            $update = JoinRequest::where('type', $requestType)
-                ->where(function ($query) use ($authUser, $targetUserId) {
-                    $query->where('user_id', $authUser->id)
-                        ->orWhere('user_id', $targetUserId);
-                })
-                ->update(['status' => $request->status]);
-
-
-
-            if ($update) {
-                return response()->json([
-                    'status' => true,
-                    'message' => "Request status updated successfully."
-                ], 201);
-            } else {
-                return response()->json(['error' => 'No matching request found.'], 404);
-            }
-
-        } catch (\Exception $e) {
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-    // for leave the company
-    public function leaveTheComapnyByConsultancy(Request $request)
-    {
-        try {
-            $consultancyUser = Auth::user();
-
-            if (!$consultancyUser) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            $userId = $consultancyUser->id;
-
-            // Validate that the user exists
-            if (!User::where('id', $request->user_id)->exists()) {
-                return response()->json(['error' => 'Company not found'], 404);
-            }
-
-            // Check if consultancy_id exists in join_requests, otherwise use user_id or consultant_id
-            $update = JoinRequest::where(['user_id' => $userId,])
-                ->update(['status' => '5']); // Change if 'status' is an integer
-
-            if ($update) {
-                return response()->json(['status' => true, 'message' => 'You left the company successfully.'], 201);
-            } else {
-                return response()->json(['error' => 'No matching record found.'], 404);
-            }
-
-        } catch (\Exception $e) {
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-    // for get consultancy details
-    public function getConsultancyDetailsWithCompany(Request $request)
-    {
-        try {
-            $consultancyUser = Auth::user();
-
-            if (!$consultancyUser) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            $userId = $consultancyUser->id;
-
-            // Get the IDs of users who have accepted join requests where the consultancy is stored under 'user_id'
-            $user_ids_from_join_requests = JoinRequest::where([
-                'user_id' => $userId,  // Changed from 'consultancy_id' to 'user_id'
-                'status' => 2, // 2 = Accepted
-                'type' => 'company-consultancy'
-            ])->pluck('user_id')->toArray();
-
-            // Get the count of users whose IDs are in the array from join requests
-            $companyCountFromJoinRequests = count($user_ids_from_join_requests);
-
-            // Get user data for the associated users
-            $companyData = User::whereIn('id', array_unique($user_ids_from_join_requests))->get();
-
-            // Fetch user details from multiple tables
-            $userData = DB::table('users')
-                ->join('user_details', 'users.id', '=', 'user_details.user_id')
-                ->join('roles', 'users.role_id', '=', 'roles.id')
-                ->where('users.id', $userId)
-                ->where('users.role_id', '!=', 1)
-                ->select('users.*', 'user_details.*', 'roles.name as role_name')
-                ->first();
-
-            // Check if user data exists
-            if (!$userData) {
-                return response()->json(['error' => 'No data found on this user.'], 404);
-            }
-
-            return response()->json([
-                'id' => $userData->id,
-                'fullname' => $userData->fullname ?? $userData->first_name, // Use correct column
-                'email' => $userData->email,
-                'phone' => $userData->phone,
-                'role_id' => $userData->role_id,
-                'role_name' => $userData->role_name,
-                'unique_id' => $userData->unique_id,
-                'isapproved' => $userData->isapproved,
-                'bussiness_name' => $userData->bussiness_name,
-                'bussiness_address' => $userData->bussiness_address,
-                'bussiness_email' => $userData->bussiness_email,
-                'business_phone' => $userData->business_phone,
-                'country' => $userData->country_id,
-                'state' => $userData->state_id,
-                'city' => $userData->city_id,
-                'address' => $userData->address,
-                'pin_code' => $userData->pin_code,
-                'profile_photo' => url($userData->profile_photo),
-                'license_number' => $userData->license_number,
-                'alternate_number' => $userData->alternate_number,
-                'no_of_employees' => $userData->no_of_employees,
-                // 'purpose_id' => explode(',', $userData->purpose_id),
-                // 'property_id' => explode(',', $userData->property_id),
-                // 'property_type_id' => explode(',', $userData->property_type_id),
-                'created_at' => $userData->created_at,
-                'updated_at' => $userData->updated_at,
-                'total_company' => $companyCountFromJoinRequests,
-                'company' => $companyData
-            ], 200);
-
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
-
-
-
-    // this is for listing by userId
-    public function getCompanyProjectListing(Request $request)
-    {
-        try {
-
-            // if ($request->header('api-token') == '') {
-            //     return response()->json(['error' => 'Please enter api token first.'], 422);
-            // }
-
-            // $requestToken = $request->header('api-token');
-
-            // $userId = null;
-
-            // $userData = User::where('api_token', $requestToken)->first();
-
-            // // Validate that the user exists in the database
-            // if (!$userData) {
-            //     return response()->json(['error' => 'Company not found'], 404);
-            // }
-
-            $companyUser = Auth::user();
-
-            if (!$companyUser) {
-                return response()->json(['error' => 'Company not found'], 404);
-            }
-
-            $userId = $companyUser->id;
-            // $userId = $userData->id;
-
-
-            $baseURL = config('app.url');
-            $basePath = public_path();
-
-            $projects = ProjectList::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'customFieldValues.customField', 'customFieldValues.customFieldOption'])->where('user_id', $userId)->get();
-
-            $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
-                $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
-                    $customField = $customFieldValue->customField;
-                    $customFieldOption = $customFieldValue->customFieldOption ?? null;
-
-                    $fieldValue = $customFieldValue->field_meta_value;
-                    if ($customField && $customField->field_type == 'checkbox') {
-                        // For checkbox, explode the value to get an array
-                        $fieldValueArray = explode(',', $fieldValue);
-                    } elseif ($customField && $customField->field_type == 'media') {
-                        // Handling for media field
-                        // Add baseURL to media file
-                        $fieldValueArray = json_decode($fieldValue);
-                        $fieldValueArray = collect($fieldValueArray)->map(function ($file) use ($baseURL) {
-                            return $baseURL . '/uploads/media/' . $file;
-                        });
-                    } else {
-                        // For other field types or if $customField is null, keep the value as is
-                        $fieldValueArray = $fieldValue;
-                    }
-
-                    // Include all options for the field
-                    $customFieldOptions = $customField ? $customField->options : null;
-
-                    return [
-                        'custom_field_id' => $customField ? $customField->id : null,
-                        'field_type' => $customField ? $customField->field_type : null,
-                        'field_value' => $fieldValueArray,
-                        'field_name' => $customField ? $customField->field_name : null,
-                        // 'custom_field_options' => $customFieldOptions,
-                    ];
-                });
-
-                // Prepare property data
-                $projectData = [
-                    'id' => $property->id,
-                    'project_unique_id' => $property->project_unique_id,
-                    'name' => $property->name,
-                    'description' => $property->description,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
-                    'status' => $property->status,
-                    'status_reason' => $property->status_reason,
-                    'project_status' => $property->project_status,
-                    'user_id' => $property->user_id,
-                    'listed_by' => optional(optional($property->user)->role)->name,
-                    'purpose_id' => $property->purpose_id,
-                    'purpose_id_name' => optional($property->purpose)->name,
-                    'property_id' => $property->property_id,
-                    'property_id_name' => optional($property->property)->name,
-                    'property_status_id' => $property->property_status_id,
-                    'property_status_id_name' => optional($property->propertystatus)->name,
-                    'property_type_id' => $property->property_type_id,
-                    'property_type_id_name' => optional($property->propertyType)->name,
-                    'custom_field_values' => $formattedCustomFieldValues,
-                ];
-
-                return $projectData;
-            });
-
-            return response()->json($projectsData);
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
 
     // this is for assign project to consultancy by company
     public function assignProjectToConsultancyByCompany(Request $request)
@@ -3414,55 +2347,7 @@ class UserController extends Controller
 
 
 
-    // this is for fetch listing assigned projects of company
-    public function fetchAssignedProjectOfCompany(Request $request)
-    {
-        try {
-            // if ($request->header('api-token') == '') {
-            //     return response()->json(['error' => 'Please enter api token first.'], 422);
-            // }
 
-            // $requestToken = $request->header('api-token');
-            // $userData = User::where('api_token', $requestToken)->first();
-
-            // // Validate that the user exists in the database
-            // if (!$userData) {
-            //     return response()->json(['error' => 'Company not found'], 404);
-            // }
-
-            // $userId = $userData->id;
-            $companyUser = Auth::user();
-
-            if (!$companyUser) {
-                return response()->json(['error' => 'Company not found'], 404);
-            }
-
-            $userId = $companyUser->id;
-            // Fetch distinct consultancies assigned to the company
-            $consultancies = CompanyConsultancyProject::where('company_id', $userId)
-                ->where('type', 'company-consultancy')
-                ->with('consultancy')
-                ->get()
-                ->groupBy('consultancy_id');
-
-            $returnData = [];
-            $returnData['company'] = $companyUser;
-            $returnData['consultancies'] = [];
-
-            foreach ($consultancies as $consultancyId => $projects) {
-                $consultancyData = [
-                    'consultancy' => $projects->first()->consultancy,
-                    'assigned_projects_count' => $projects->count()
-                ];
-
-                $returnData['consultancies'][] = $consultancyData;
-            }
-
-            return response()->json(['data' => $returnData], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
 
 
     // this is foe get property data by project id
@@ -3548,373 +2433,10 @@ class UserController extends Controller
         }
     }
 
-    // this is for assign project to agent by consultancy
-    public function assignProjectToAgentByConsultancy(Request $request)
-    {
-        try {
-            if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-                return response()->json(['error' => 'Please provide an API token.'], 422);
-            }
 
-            // Retrieve the Authorization header
-            $authorizationHeader = $request->header('Authorization');
 
-            // Check if the header starts with "Bearer "
-            if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-                return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-            }
 
-            // Extract the token by removing the "Bearer " prefix
-            $requestToken = substr($authorizationHeader, 7);
 
-            // Check if the token is empty after removing "Bearer "
-            if (empty($requestToken)) {
-                return response()->json(['error' => 'Token is missing.'], 422);
-            }
-
-            // Verify the token dynamically (check in the database)
-            $user = User::where('api_token', $requestToken)->first();
-
-            if (!$user) {
-                return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-            }
-
-            $userId = $user->id;
-
-            $role = Role::find($user->role_id);
-            if (!$role || $role->name !== 'consultancy') {
-                return response()->json(['error' => 'User does not have the required role.'], 400);
-            }
-            $userId = $user->id;
-            $project_ids = explode(',', $request->project_id);
-            $agent_id = $request->agent_id;
-
-            foreach ($project_ids as $project_id) {
-                $existingEntry = CompanyConsultancyProject::where('consultancy_id', $userId)
-                    ->where('agent_id', $agent_id)
-                    ->where('project_id', $project_id)
-                    ->where('type', 'consultancy-agent')
-                    ->first();
-
-                if ($existingEntry) {
-                    return response()->json(['message' => 'Project with ID ' . $project_id . ' already assigned to this agent'], 409);
-                }
-            }
-
-            foreach ($project_ids as $project_id) {
-                $insertData = [
-                    'consultancy_id' => $userId,
-                    'agent_id' => $agent_id,
-                    'project_id' => $project_id,
-                    'type' => 'consultancy-agent'
-                ];
-
-                CompanyConsultancyProject::create($insertData);
-            }
-
-            return response()->json(['message' => 'Project assigned successfully'], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed.' . $e->getMessage()], 500);
-        }
-    }
-
-
-    // this is for fetch listing total assigned projects  of consultancy
-    public function fetchTotalAssignedProjectToConsultancy(Request $request)
-    {
-        try {
-            // if ($request->header('api-token') == '') {
-            //     return response()->json(['error' => 'Please enter api token first.'], 422);
-            // }
-
-            // $requestToken = $request->header('api-token');
-            // $userData = User::where('api_token', $requestToken)->first();
-
-            // // Validate that the user exists in the database
-            // if (!$userData) {
-            //     return response()->json(['error' => 'Consultancy not found'], 404);
-            // }
-
-            // $userId = $userData->id;
-
-
-            $companyUser = Auth::user();
-
-            if (!$companyUser) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            $userId = $companyUser->id;
-            $companyConsultancyProjects = CompanyConsultancyProject::with('company')
-                ->where('consultancy_id', $userId)
-                ->where('type', 'company-consultancy')
-                ->get();
-
-            $companies = $companyConsultancyProjects->map(function ($ccProject) {
-                return $ccProject->company;
-            })->unique('id')->values();
-
-            $returnData = [
-                'consultancy' => $companyUser,
-                'companies' => []
-            ];
-
-            foreach ($companies as $company) {
-                $companyProjects = $companyConsultancyProjects->where('company_id', $company->id);
-                $companyProjectsCount = $companyProjects->count();
-                $projectsData = $companyProjects->map(function ($ccProject) {
-                    return $this->getProjectDataConsultancy($ccProject->project_id);
-                });
-
-                $returnData['companies'][] = [
-                    'company' => $company,
-                    'assigned_projects_count' => $companyProjectsCount,
-                    'projects' => $projectsData
-                ];
-            }
-
-            return response()->json(['data' => $returnData], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-
-    // this is for fetch listing total assigned projects  of consultancy
-    public function fetchConsultancyTotalAssignedProjects(Request $request)
-    {
-        try {
-            // Check if the API token is present in the request headers
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter API token first.'], 422);
-            }
-
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
-
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            $userId = $userData->id;
-
-            // Fetch all projects assigned to this consultancy
-            $projectsData = CompanyConsultancyProject::where('consultancy_id', $userId)
-                ->where('type', 'company-consultancy')
-                ->get()
-                ->map(function ($ccProject) {
-                    return $this->getProjectDataConsultancy($ccProject->project_id);
-                })
-                ->filter(function ($projectData) {
-                    return !is_null($projectData);
-                });
-
-            // Return only the projects data
-            return response()->json(['data' => $projectsData], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-
-
-
-    // this is for get project data of consultancy
-    private function getProjectDataConsultancy($project_id)
-    {
-        $baseURL = config('app.url');
-
-        $project = ProjectList::with([
-            'location',
-            'user',
-            'propertyType',
-            'purpose',
-            'property',
-            'propertystatus',
-            'customFieldValues.customField',
-            'customFieldValues.customFieldOption'
-        ])->find($project_id);
-
-        if (!$project) {
-            return null;
-        }
-
-        $formattedCustomFieldValues = $project->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
-            $customField = $customFieldValue->customField;
-            $customFieldOption = $customFieldValue->customFieldOption ?? null;
-
-            $fieldValue = $customFieldValue->field_meta_value;
-            if ($customField && $customField->field_type == 'checkbox') {
-                // For checkbox, explode the value to get an array
-                $fieldValueArray = explode(',', $fieldValue);
-            } elseif ($customField && $customField->field_type == 'media') {
-                // Handling for media field
-                // Add baseURL to media file
-                $fieldValueArray = json_decode($fieldValue);
-                $fieldValueArray = collect($fieldValueArray)->map(function ($file) use ($baseURL) {
-                    return $baseURL . '/uploads/media/' . $file;
-                });
-            } else {
-                // For other field types or if $customField is null, keep the value as is
-                $fieldValueArray = $fieldValue;
-            }
-
-            return [
-                'custom_field_id' => $customField ? $customField->id : null,
-                'field_type' => $customField ? $customField->field_type : null,
-                'field_value' => $fieldValueArray,
-                'field_name' => $customField ? $customField->field_name : null,
-            ];
-        });
-
-        return [
-            'id' => $project->id,
-            'project_unique_id' => $project->project_unique_id,
-            'name' => $project->name,
-            'description' => $project->description,
-            'location_id' => $project->location_id,
-            'location_name' => optional($project->location)->name,
-            'status' => $project->status,
-            'status_reason' => $project->status_reason,
-            'project_status' => $project->project_status,
-            'user_id' => $project->user_id,
-            'listed_by' => optional(optional($project->user)->role)->name,
-            'purpose_id' => $project->purpose_id,
-            'purpose_id_name' => optional($project->purpose)->name,
-            'property_id' => $project->property_id,
-            'property_id_name' => optional($project->property)->name,
-            'property_status_id' => $project->property_status_id,
-            'property_status_id_name' => optional($project->propertystatus)->name,
-            'property_type_id' => $project->property_type_id,
-            'property_type_id_name' => optional($project->propertyType)->name,
-            'total_view' => $project->analytics()->count(),
-            'custom_field_values' => $formattedCustomFieldValues,
-        ];
-    }
-
-
-
-    // this is for fetch listing assigned projects of agent
-    public function fetchAssignedProjectOfAgent(Request $request)
-    {
-        try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
-            }
-
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
-
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'Agent not found'], 404);
-            }
-
-            $userId = $userData->id;
-
-            // Fetch projects assigned to the agent by consultancy
-            $consultancyProjects = CompanyConsultancyProject::where('agent_id', $userId)
-                ->where('type', 'consultancy-agent')
-                ->with('consultancy')
-                ->get()
-                ->groupBy('consultancy_id');
-
-            $returnData = [];
-            $returnData['agent'] = $userData;
-            $returnData['consultancies'] = [];
-
-            foreach ($consultancyProjects as $consultancyId => $projects) {
-                $consultancyData = [
-                    'consultancy' => $projects->first()->consultancy,
-                    'assigned_projects_count' => $projects->count()
-                ];
-
-                $returnData['consultancies'][] = $consultancyData;
-            }
-
-            return response()->json(['data' => $returnData], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-    // this is for fetch listing assigned projects of agent
-    public function fetchAgentTotalAssignedProject(Request $request)
-    {
-        try {
-            // Check if the API token is present in the request headers
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter API token first.'], 422);
-            }
-
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
-
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'Agent not found'], 404);
-            }
-
-            $userId = $userData->id;
-
-            // Fetch projects assigned to the agent by consultancy
-            $consultancyProjects = CompanyConsultancyProject::where('agent_id', $userId)
-                ->where('type', 'consultancy-agent')
-                ->with('consultancy')
-                ->get();
-
-            // Extract and transform project data
-            $projectsData = $consultancyProjects->map(function ($project) {
-                return $this->getProjectDataConsultancy($project->project_id);
-            });
-
-            // Return only the projects data
-            return response()->json(['data' => $projectsData], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
-
-
-
-
-    // this is for fetch listing total projects of consultancy
-    public function fetchTotalProjectOfConsultancy(Request $request)
-    {
-        try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter api token first.'], 422);
-            }
-
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
-
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            $userId = $userData->id;
-            $companyConsultancyProjects = CompanyConsultancyProject::with('project')
-                ->where('consultancy_id', $userId)
-                ->where('type', 'company-consultancy')
-                ->get();
-
-            $returnData = [
-                'consultancy' => $userData,
-                'projects' => []
-            ];
-
-            foreach ($companyConsultancyProjects as $ccProject) {
-                $returnData['projects'][] = $this->getTotalProjectDataConsultancy($ccProject->project_id);
-            }
-
-            return response()->json(['data' => $returnData], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
 
 
     // this is for get total project of consultancy
@@ -3992,46 +2514,7 @@ class UserController extends Controller
 
 
 
-    // this is for fetch listing project details of consultancy & company
-    public function viewProjectDetailsOfConsultancy(Request $request)
-    {
-        try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter API token first.'], 422);
-            }
 
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
-
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
-
-            $userId = $userData->id;
-            $companyId = $request->input('company_id'); // Assuming company_id is passed as a query parameter
-
-            $companyConsultancyProjects = CompanyConsultancyProject::with('company')
-                ->where('consultancy_id', $userId)
-                ->where('company_id', $companyId)
-                ->where('type', 'company-consultancy')
-                ->get();
-
-            // Check if projects exist
-            if ($companyConsultancyProjects->isEmpty()) {
-                return response()->json(['error' => 'No projects found for this company.'], 404);
-            }
-
-            // Fetch detailed project data
-            $projectDetails = $companyConsultancyProjects->map(function ($ccProject) {
-                return $this->getProjectDetailsOfConsultancy($ccProject->id);
-            });
-
-            return response()->json(['projects' => $projectDetails], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
 
     // Assuming is a method in the same controller
     private function getProjectDetailsOfConsultancy($project_id)
@@ -4107,46 +2590,7 @@ class UserController extends Controller
     }
 
 
-    // this is for fetch listing project details of consultancy & company
-    public function viewProjectDetailsOfCompany(Request $request)
-    {
-        try {
-            if ($request->header('api-token') == '') {
-                return response()->json(['error' => 'Please enter API token first.'], 422);
-            }
 
-            $requestToken = $request->header('api-token');
-            $userData = User::where('api_token', $requestToken)->first();
-
-            // Validate that the user exists in the database
-            if (!$userData) {
-                return response()->json(['error' => 'Company not found'], 404);
-            }
-
-            $userId = $userData->id;
-            $consultancyId = $request->input('consultancy_id'); // Assuming company_id is passed as a query parameter
-
-            $companyConsultancyProjects = CompanyConsultancyProject::with('company')
-                ->where('company_id', $userId)
-                ->where('consultancy_id', $consultancyId)
-                ->where('type', 'company-consultancy')
-                ->get();
-
-            // Check if projects exist
-            if ($companyConsultancyProjects->isEmpty()) {
-                return response()->json(['error' => 'No projects found for this consultancy.'], 404);
-            }
-
-            // Fetch detailed project data
-            $projectDetails = $companyConsultancyProjects->map(function ($ccProject) {
-                return $this->getProjectDetailsOfCompany($ccProject->id);
-            });
-
-            return response()->json(['projects' => $projectDetails], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
 
     // Assuming is a method in the same controller
     private function getProjectDetailsOfCompany($project_id)
@@ -4626,124 +3070,8 @@ class UserController extends Controller
     }
 
 
-    public function insertSubscribeEmail(Request $request)
-    {
-        // Validate the email
-        $validator = Validator::make($request->all(), [
-            'subscribe_email' => 'required|email|unique:subscribed_emails,subscribe_email',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['error' => $validator->errors()], 400);
-        }
-
-        // Save the email to the database
-        // Assuming you have a Subscription model and subscriptions table
-        $subscription = new SubscribedEmail();
-        $subscription->subscribe_email = $request->subscribe_email;
-        $subscription->is_subscribed = true;
-        $subscription->save();
-
-        return response()->json(['message' => 'Subscription successful'], 200);
-    }
 
 
-    public function listingOfSubscribedEmails(Request $request)
-    {
-
-        $subscription = SubscribedEmail::get();
-
-        return response()->json(['data' => $subscription], 200);
-    }
-
-
-
-
-
-    public function importSubscribedEmails(Request $request)
-    {
-        // Validate the file
-        $validator = Validator::make($request->all(), [
-            'file' => 'required|mimes:csv,xlsx,xls|max:2048', // 2MB max size
-        ]);
-
-        // If validation fails, return a JSON response with error details
-        if ($validator->fails()) {
-            return response()->json(['error' => $validator->errors()->first()], 400);
-        }
-
-        try {
-            // Get the uploaded file
-            $file = $request->file('file');
-
-            // Import the file using the SubscribedEmailsImport class
-            Excel::import($import = new SubscribedEmailsImport, $file);
-
-            // Get the import summary (successes, duplicates, invalid emails, etc.)
-            $summary = $import->getSummary();
-
-            // Generate an error log if there were any errors during the import
-            $errorLogFile = $import->generateErrorLog();
-            return response()->json([
-                'message' => 'Emails import completed successfully.',
-                'summary' => $summary,
-                'error_log_url' => $errorLogFile ? url($errorLogFile) : null,
-            ], 200);
-
-
-        } catch (\Exception $e) {
-            // Return a JSON response in case of an exception
-            return response()->json([
-                'error' => 'Error processing the file: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function exportSubscribedEmails($format = 'csv', Request $request)
-    {
-        // Validate the requested format
-        if (!in_array($format, ['csv', 'xlsx'])) {
-            return response()->json(['error' => 'Invalid format. Only CSV and Excel are supported.'], 400);
-        }
-
-        // Get filter parameters from the request
-        $startDate = $request->query('start_date');
-        $endDate = $request->query('end_date');
-        $tag = $request->query('tag');
-        $isSubscribed = $request->query('is_subscribed');
-
-        // Log the filter parameters for debugging
-        \Log::info("Filters - Start Date: $startDate, End Date: $endDate, Tag: $tag, Is Subscribed: $isSubscribed");
-
-        // Prepare the filters for export
-        $filters = [
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'tag' => $tag,
-            'is_subscribed' => $isSubscribed,
-        ];
-
-        // File name and path setup
-        $fileName = 'subscribed_emails_' . now()->format('Y_m_d_H_i_s') . '.' . $format;
-        $filePath = 'uploads/error_log/' . $fileName;
-
-        // Ensure the directory exists
-        if (!Storage::exists('uploads/error_log')) {
-            Storage::makeDirectory('uploads/error_log');
-        }
-
-        // Export the filtered data and store it
-        (new SubscribedEmailsExport($filters))->store($filePath, 'public');
-
-        // Generate the public URL for the file
-        $fileUrl = Storage::url($filePath);
-
-        // Return the file URL as a response
-        return response()->json([
-            'message' => 'File exported successfully!',
-            'file_url' => url($fileUrl)
-        ]);
-    }
 
 
 
