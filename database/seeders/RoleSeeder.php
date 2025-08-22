@@ -11,13 +11,13 @@ class RoleSeeder extends Seeder
      * Run the database seeds.
      */
     public function run(): void
-    {       
+    {
         // Define the roles to be checked and created if they don't exist
         $roles = [
             'admin' => [
                 'is_default' => 1,  // Admin role should be default
                 'created_by' => null,
-                'is_admin_login_permission' => 0, // Admin not allowed login
+                'is_admin_login_permission' => 1, // Admin not allowed login
                 'prefix' => 'URA',
                 'guard_name' => 'sanctum'
             ],
@@ -62,7 +62,7 @@ class RoleSeeder extends Seeder
         foreach ($roles as $roleName => $attributes) {
             // Check if role already exists by name and also check that 'is_default' is 1
             $role = Role::where('name', $roleName)->first();
-            
+
             if (!$role) {
                 // If role doesn't exist, create it
                 Role::create([

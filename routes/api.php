@@ -311,7 +311,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
                 Route::middleware('admin.token')->get('/get-admin-profile', [Admincontroller::class, 'getAdminProfile']);
             });
 
-            Route::post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
+            Route::middleware('admin.token')->post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
             Route::post('/user-bulk-delete', [Admincontroller::class, 'userAllRecordBulksDelete']);
 
             Route::middleware('admin.token')->post('/mail-config', [MailConfigController::class, 'store']);

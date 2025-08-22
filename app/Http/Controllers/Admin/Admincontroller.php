@@ -75,7 +75,15 @@ class AdminController extends Controller
             }
 
             // Retrieve the role associated with the user
+            $role = $user->role;
             $role_name = $user->role->name ?? 'Unknown'; // Use null-safe operator
+
+            //  Check is_admin_login_permission
+            if ($role && $role->is_admin_login_permission == 0) {
+                return response()->json([
+                    'error' => ['permission' => 'Admin login not allowed for this role.']
+                ], 403);
+            }
 
             // Check if the token needs to be updated (only if it's older than 24 hours)
             if (!$user->api_token || !$user->token_created_at || $user->token_created_at < now()->subHours(24)) {
@@ -154,177 +162,6 @@ class AdminController extends Controller
     }
 
 
-    // public function fetchProjectKeywordList()
-    // {
-    //     try {
-    //         $importKeywordData = ImportKeyword::where('keyword_type', 'project_keyword')->get()->groupBy('keyword_name');
-
-    //         // Convert the grouped collection to an array
-    //         $result = [];
-    //         foreach ($importKeywordData as $keyword => $items) {
-    //             // Get the first item from the group as a representative
-    //             $item = $items->first();
-    //             $result[] = [
-    //                 'id' => $item->id,
-    //                 'keyword_name' => $item->keyword_name,
-    //                 'slug' => $item->slug,
-    //                 'keyword_type' => $item->keyword_type,
-    //                 'created_at' => $item->created_at,
-    //                 'updated_at' => $item->updated_at
-    //             ];
-    //         }
-
-    //         return response()->json(['data' => $result], 200);
-    //     } catch (\Exception $e) {
-    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-    //     }
-    // }
-
-
-    // public function fetchPropertyKeywordList()
-    // {
-    //     try {
-    //         $importKeywordData = ImportKeyword::where('keyword_type', 'property_keyword')->get()->groupBy('keyword_name');
-
-    //         // Convert the grouped collection to an array
-    //         $result = [];
-    //         foreach ($importKeywordData as $keyword => $items) {
-    //             // Get the first item from the group as a representative
-    //             $item = $items->first();
-    //             $result[] = [
-    //                 'id' => $item->id,
-    //                 'keyword_name' => $item->keyword_name,
-    //                 'slug' => $item->slug,
-    //                 'keyword_type' => $item->keyword_type,
-    //                 'created_at' => $item->created_at,
-    //                 'updated_at' => $item->updated_at
-    //             ];
-    //         }
-
-    //         return response()->json(['data' => $result], 200);
-    //     } catch (\Exception $e) {
-    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-    //     }
-    // }
-
-
-    // public function fetchDeveloperKeywordList()
-    // {
-    //     try {
-    //         $importKeywordData = ImportKeyword::where('keyword_type', 'developer_keyword')->get()->groupBy('keyword_name');
-
-    //         // Convert the grouped collection to an array
-    //         $result = [];
-    //         foreach ($importKeywordData as $keyword => $items) {
-    //             // Get the first item from the group as a representative
-    //             $item = $items->first();
-    //             $result[] = [
-    //                 'id' => $item->id,
-    //                 'keyword_name' => $item->keyword_name,
-    //                 'slug' => $item->slug,
-    //                 'keyword_type' => $item->keyword_type,
-    //                 'created_at' => $item->created_at,
-    //                 'updated_at' => $item->updated_at
-    //             ];
-    //         }
-
-    //         return response()->json(['data' => $result], 200);
-    //     } catch (\Exception $e) {
-    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-    //     }
-    // }
-
-
-
-
-    // public function getKeywordbykeywordtype(Request $request)
-    // {
-    //     try {
-    //         $keywordType = $request->keyword_type;
-    //         $importKeywordData = ImportKeyword::where('keyword_type', $keywordType)->get()->groupBy('keyword_name');
-
-    //         // Convert the grouped collection to an array
-    //         $result = [];
-    //         foreach ($importKeywordData as $keyword => $items) {
-    //             // Get the first item from the group as a representative
-    //             $item = $items->first();
-    //             $result[] = [
-    //                 'id' => $item->id,
-    //                 'keyword_name' => $item->keyword_name,
-    //                 'slug' => $item->slug,
-    //                 'keyword_type' => $item->keyword_type,
-    //                 'created_at' => $item->created_at,
-    //                 'updated_at' => $item->updated_at
-    //             ];
-    //         }
-
-    //         return response()->json(['data' => $result], 200);
-    //     } catch (\Exception $e) {
-    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-    //     }
-    // }
-
-    // public function getKeywordbykeywordtype(Request $request)
-    // {
-    //     try {
-    //         // Validate request
-    //         $validator = Validator::make($request->all(), [
-    //             'keyword_type' => 'required|string',
-    //             'search' => 'nullable|string|max:255',
-    //         ]);
-
-    //         if ($validator->fails()) {
-    //             return response()->json([
-    //                 'status' => false,
-    //                 'errors' => $validator->errors()
-    //             ], 422);
-    //         }
-
-    //         $keywordType = $request->keyword_type;
-    //         $searchTerm = $request->search;
-
-    //         $query = ImportKeyword::where('keyword_type', $keywordType)
-    //             ->when($searchTerm, function ($query) use ($searchTerm) {
-    //                 return $query->where('keyword_name', 'LIKE', '%' . $searchTerm . '%');
-    //             })
-    //             ->orderBy('keyword_name');
-
-    //         // Get paginated results (10 per page)
-    //         $keywords = $query->paginate(10);
-
-    //         // Transform the results
-    //         $result = $keywords->map(function ($item) {
-    //             return [
-    //                 'id' => $item->id,
-    //                 'keyword_name' => $item->keyword_name,
-    //                 'slug' => $item->slug,
-    //                 'keyword_type' => $item->keyword_type,
-    //                 'created_at' => $item->created_at,
-    //                 'updated_at' => $item->updated_at
-    //             ];
-    //         });
-
-    //         return response()->json([
-    //             'status' => true,
-    //             'data' => $result,
-    //             'pagination' => [
-    //                 'total' => $keywords->total(),
-    //                 'per_page' => $keywords->perPage(),
-    //                 'current_page' => $keywords->currentPage(),
-    //                 'last_page' => $keywords->lastPage(),
-    //                 'from' => $keywords->firstItem(),
-    //                 'to' => $keywords->lastItem(),
-    //             ]
-    //         ], 200);
-
-    //     } catch (\Exception $e) {
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => 'Failed to fetch keywords',
-    //             'error' => config('app.debug') ? $e->getMessage() : null
-    //         ], 500);
-    //     }
-    // }
 
     public function getKeywordbykeywordtype(Request $request)
     {
@@ -417,7 +254,7 @@ class AdminController extends Controller
         $user = User::where('id', $request->user_id)->first();
 
         if (!$user) {
-            return response()->json(['error' => 'User not found.'], 404);
+            return response()->json(['error' => 'User not found.'], 200);
         }
 
         $user->isapproved = $request->login_status;

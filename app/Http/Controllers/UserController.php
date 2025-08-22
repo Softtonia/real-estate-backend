@@ -3071,24 +3071,6 @@ class UserController extends Controller
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     // this is for listing of propeprty by location
     public function propertyListingByLocation(Request $request)
     {
