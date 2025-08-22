@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('email');
             $table->string('phone');
             $table->text('message')->nullable();
+            $table->unsignedBigInteger('lead_type_id')->nullable();
             $table->unsignedBigInteger('property_id')->nullable();
             $table->unsignedBigInteger('project_id')->nullable();
             $table->unsignedBigInteger('developer_id')->nullable();
@@ -24,6 +25,7 @@ return new class extends Migration
             $table->timestamps();
 
             // Foreign key constraints
+            $table->foreign('lead_type_id')->references('id')->on('lead_types')->onDelete('cascade');
             $table->foreign('property_id')->references('id')->on('properties_listing')->onDelete('cascade');
             $table->foreign('project_id')->references('id')->on('project_listings')->onDelete('cascade');
             $table->foreign('developer_id')->references('id')->on('developer_listings')->onDelete('cascade');

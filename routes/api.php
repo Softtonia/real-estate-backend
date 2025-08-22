@@ -8,6 +8,7 @@ use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\IpLog\IpLogController;
 use App\Http\Controllers\Kyc\KycController;
 use App\Http\Controllers\Lead\LeadController;
+use App\Http\Controllers\Lead\LeadTypeController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\BusinessDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\OwnerDashboardAnalyticsController;
@@ -799,6 +800,18 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['admin.token'])->delete('/leads/{id}', [LeadController::class, 'destroy']);
 
     Route::get('/get-assign-lead-to-user', [LeadController::class, 'assignUserLead']);
+
+    // Lead Types
+
+    Route::get('/lead-types', [LeadTypeController::class, 'index']);     // Get all
+    Route::get('/lead-types/{id}', [LeadTypeController::class, 'show']); // Get single
+    Route::middleware(['admin.token'])->post('/lead-types', [LeadTypeController::class, 'store']);    // Create
+    Route::middleware(['admin.token'])->post('/lead-types-update/{id}', [LeadTypeController::class, 'update']); // Update
+    Route::middleware(['admin.token'])->delete('/lead-types/{id}', [LeadTypeController::class, 'destroy']); // Delete
+    Route::post('/lead-types/search-by-name', [LeadTypeController::class, 'getSearchByName']);
+    Route::post('/lead-types/search-by-slug', [LeadTypeController::class, 'getSearchBySlug']);
+    Route::get('/lead-types/check-slug-unique', [LeadTypeController::class, 'checkSlugUnique']);
+
 
 
 });
