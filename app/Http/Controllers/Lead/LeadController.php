@@ -96,7 +96,7 @@ class LeadController extends Controller
     public function index()
     {
         // Fetch all leads with relationships
-        $leads = Lead::with(['property', 'project', 'developer'])->get();
+        $leads = Lead::with(['leadType','property', 'project', 'developer','property.property'])->get();
 
         // Collect all user_ids from all leads (already array because of casts)
         $allUserIds = $leads->pluck('user_ids')
@@ -167,6 +167,7 @@ class LeadController extends Controller
             'email' => 'required|email|max:255',
             'phone' => 'required|string|max:20',
             'message' => 'nullable|string',
+            'lead_type_id' => 'required|exists:lead_types,id',
             'property_id' => 'nullable|exists:properties_listing,id',
             'project_id' => 'nullable|exists:project_listings,id',
             'developer_id' => 'nullable|exists:developer_listings,id',
@@ -248,6 +249,7 @@ class LeadController extends Controller
             'project_id' => $request->project_id,
             'developer_id' => $request->developer_id,
             'user_ids' => array_values(array_unique($userIds)),
+            'lead_type_id' => $request->lead_type_id,
         ]);
 
         return response()->json([
@@ -322,7 +324,7 @@ class LeadController extends Controller
     public function show($id)
     {
         // Lead with relations
-        $lead = Lead::with([
+        $lead = Lead::with(['leadType',
             'property.country',
             'property.state',
             'property.city',
@@ -333,6 +335,7 @@ class LeadController extends Controller
             'property.updatedBy',
             'property.createdBy.role',
             'property.updatedBy.role',
+            'property.property',
 
             'project.country',
             'project.state',
@@ -342,6 +345,7 @@ class LeadController extends Controller
             'project.propertystatus',
             'project.createdBy',
             'project.updatedBy',
+            'project.property',
 
             'developer.country',
             'developer.state',
@@ -351,6 +355,7 @@ class LeadController extends Controller
             'developer.propertystatus',
             'developer.createdBy',
             'developer.updatedBy',
+            'developer.property',
 
 
         ])->find($id);
@@ -441,6 +446,8 @@ class LeadController extends Controller
             'email' => $lead->email,
             'phone' => $lead->phone,
             'message' => $lead->message,
+            'lead_type_id' => $lead->lead_type_id,
+            'lead_type' => $lead->leadType,
 
             'property' => $lead->property ? [
                 'id' => $lead->property->id,
@@ -469,7 +476,7 @@ class LeadController extends Controller
                 'purpose_id' => $lead->property->purpose_id,
                 'purpose_name' => $lead->property->purpose->name,
                 'property_id' => $lead->property->property_id,
-                'property_name' => $lead->property->name,
+                'property_name' => $lead->property->property->name,
                 'property_type_id' => $lead->property->property_type_id,
                 // 'property_type_name' => $lead->property->propertyType->name,
                 'property_type_name' => $lead->property->property_type_id
@@ -638,7 +645,7 @@ class LeadController extends Controller
                 'purpose_id' => $lead->project->purpose_id,
                 'purpose_name' => $lead->project->purpose->name,
                 'property_id' => $lead->project->property_id,
-                'property_name' => $lead->project->name,
+                'property_name' => $lead->project->propertyname,
                 'property_type_id' => $lead->project->property_type_id,
                 // 'property_type_name' => $lead->property->propertyType->name,
                 'property_type_name' => $lead->project->property_type_id
@@ -802,7 +809,7 @@ class LeadController extends Controller
                 'purpose_id' => $lead->developer->purpose_id,
                 'purpose_name' => $lead->developer->purpose->name,
                 'property_id' => $lead->developer->property_id,
-                'property_name' => $lead->developer->name,
+                'property_name' => $lead->developer->property->name,
                 'property_type_id' => $lead->developer->property_type_id,
                 // 'property_type_name' => $lead->property->propertyType->name,
                 'property_type_name' => $lead->developer->property_type_id
@@ -950,82 +957,86 @@ class LeadController extends Controller
 
 
     public function update(Request $request, $id)
-{
-    // Detect logged-in user
-    $user = auth('sanctum')->user();
-    if (!$user && $request->bearerToken()) {
-        $user = User::where('api_token', $request->bearerToken())->first();
-    }
+    {
+        // Detect logged-in user
+        $user = auth('sanctum')->user();
+        if (!$user && $request->bearerToken()) {
+            $user = User::where('api_token', $request->bearerToken())->first();
+        }
 
-    // Find existing lead
-    $lead = Lead::find($id);
-    if (!$lead) {
+        // Find existing lead
+        $lead = Lead::find($id);
+        if (!$lead) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Lead not found'
+            ], 404);
+        }
+
+        // Validation rules
+        $validator = Validator::make($request->all(), [
+            'name' => 'sometimes|required|string|max:255',
+            'email' => 'sometimes|required|email|max:255',
+            'phone' => 'sometimes|required|string|max:20',
+            'message' => 'nullable|string',
+            'lead_type_id' => 'sometimes|exists:lead_types,id',
+            'property_id' => 'nullable|exists:properties_listing,id',
+            'project_id' => 'nullable|exists:project_listings,id',
+            'developer_id' => 'nullable|exists:developer_listings,id',
+            'user_ids' => 'nullable|array',
+            'user_ids.*' => 'exists:users,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed'
+            ], 422);
+        }
+
+        // Ensure at least one relation
+        if (
+            empty($request->property_id) &&
+            empty($request->project_id) &&
+            empty($request->developer_id) &&
+            empty($request->user_ids) &&
+            !$lead->property_id && !$lead->project_id && !$lead->developer_id && !$lead->user_ids
+        ) {
+            return response()->json([
+                'success' => false,
+                'errors' => ['relation_error' => 'At least one of Property, Project, Developer or User must be selected.'],
+                'message' => 'Validation failed'
+            ], 422);
+        }
+
+        // Collect user_ids
+        $userIds = $request->user_ids ?? $lead->user_ids ?? [];
+        if ($user) {
+            $userIds[] = $user->id;
+        }
+
+        // Update lead
+        $lead->update([
+            'name' => $request->name ?? $lead->name,
+            'email' => $request->email ?? $lead->email,
+            'phone' => $request->phone ?? $lead->phone,
+            'message' => $request->message ?? $lead->message,
+            'property_id' => $request->property_id ?? $lead->property_id,
+            'project_id' => $request->project_id ?? $lead->project_id,
+            'developer_id' => $request->developer_id ?? $lead->developer_id,
+            'user_ids' => array_values(array_unique($userIds)),
+            'lead_type_id' => $request->lead_type_id ?? $lead->lead_type_id,
+            'updated_at' => Carbon::now(),
+
+        ]);
+
         return response()->json([
-            'success' => false,
-            'message' => 'Lead not found'
-        ], 404);
+            'success' => true,
+            'message' => 'Lead updated successfully',
+            'data' => $lead,
+        ], 200);
     }
-
-    // Validation rules
-    $validator = Validator::make($request->all(), [
-        'name' => 'sometimes|required|string|max:255',
-        'email' => 'sometimes|required|email|max:255',
-        'phone' => 'sometimes|required|string|max:20',
-        'message' => 'nullable|string',
-        'property_id' => 'nullable|exists:properties_listing,id',
-        'project_id' => 'nullable|exists:project_listings,id',
-        'developer_id' => 'nullable|exists:developer_listings,id',
-        'user_ids' => 'nullable|array',
-        'user_ids.*' => 'exists:users,id',
-    ]);
-
-    if ($validator->fails()) {
-        return response()->json([
-            'success' => false,
-            'errors' => $validator->errors(),
-            'message' => 'Validation failed'
-        ], 422);
-    }
-
-    // Ensure at least one relation
-    if (
-        empty($request->property_id) &&
-        empty($request->project_id) &&
-        empty($request->developer_id) &&
-        empty($request->user_ids) &&
-        !$lead->property_id && !$lead->project_id && !$lead->developer_id && !$lead->user_ids
-    ) {
-        return response()->json([
-            'success' => false,
-            'errors' => ['relation_error' => 'At least one of Property, Project, Developer or User must be selected.'],
-            'message' => 'Validation failed'
-        ], 422);
-    }
-
-    // Collect user_ids
-    $userIds = $request->user_ids ?? $lead->user_ids ?? [];
-    if ($user) {
-        $userIds[] = $user->id;
-    }
-
-    // Update lead
-    $lead->update([
-        'name' => $request->name ?? $lead->name,
-        'email' => $request->email ?? $lead->email,
-        'phone' => $request->phone ?? $lead->phone,
-        'message' => $request->message ?? $lead->message,
-        'property_id' => $request->property_id ?? $lead->property_id,
-        'project_id' => $request->project_id ?? $lead->project_id,
-        'developer_id' => $request->developer_id ?? $lead->developer_id,
-        'user_ids' => array_values(array_unique($userIds)),
-    ]);
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Lead updated successfully',
-        'data' => $lead,
-    ], 200);
-}
 
 
 

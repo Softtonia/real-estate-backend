@@ -17,7 +17,7 @@ class Lead extends Model
         'property_id',
         'project_id',
         'developer_id',
-        'user_ids'
+        'user_ids','lead_type_id'
     ];
 
     public function property()
@@ -34,6 +34,11 @@ class Lead extends Model
     {
         return $this->belongsTo(Developerlist::class, 'developer_id');
     }
+
+    public function leadType(){
+        return $this->belongsTo(LeadType::class, 'lead_type_id');
+    }
+
 
 
 
