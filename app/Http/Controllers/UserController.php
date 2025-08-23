@@ -2262,7 +2262,10 @@ class UserController extends Controller
             'facebook' => 'nullable|string',
             'instagram' => 'nullable|string',
             'twitter' => 'nullable|string',
-            'ticket_prefix' => 'nullable|string'
+            'ticket_prefix' => 'nullable|string',
+            'for_general_mobile_number' => 'nullable|numeric|digits:10',
+            'for_sales_mobile_number' => 'nullable|numeric|digits:10',
+            'for_business_mobile_number' => 'nullable|numeric|digits:10',
         ]);
 
         // If validation fails, return JSON

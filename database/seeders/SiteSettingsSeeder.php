@@ -30,6 +30,9 @@ class SiteSettingsSeeder extends Seeder
             'facebook' => 'https://facebook.com/urbanrealities',
             'instagram' => 'https://instagram.com/urbanrealities',
             'twitter' => 'https://twitter.com/urbanrealities',
+            'for_general_mobile_number' => '3744162931',
+            'for_sales_mobile_number' => '6123501911',
+            'for_business_mobile_number' => '2143075181',
         ]);
 
 

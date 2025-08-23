@@ -20,6 +20,9 @@ return new class extends Migration
             $table->string('site_name', 100)->nullable();
             $table->string('address', 255)->nullable();
             $table->string('mobile_number', 15)->nullable();
+            $table->string('for_general_mobile_number',15)->nullable();
+            $table->string('for_sales_mobile_number',15)->nullable();
+            $table->string('for_business_mobile_number',15)->nullable();
             $table->string('email', 100)->nullable();
             $table->string('copyright_text', 255)->nullable();
             $table->longText('disclaimer')->nullable();
