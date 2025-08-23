@@ -7,6 +7,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CompanyConsultancy\CompanyConsultancyController;
 use App\Http\Controllers\CompanyProject\CompanyProjectController;
 use App\Http\Controllers\ConsultancyProject\ConsultancyProjectController;
+use App\Http\Controllers\ContactUsLead\ContactUsLeadController;
 use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
@@ -25,7 +26,7 @@ use App\Http\Controllers\TopFeature\TopFeatureController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
-use App\Http\Controllers\ForgotPasswordController;
+use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\PropertyListing\PropertylistingController;
 use App\Http\Controllers\Location\Locationcontroller;
@@ -106,7 +107,10 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         Route::post('/check-unique', [UserController::class, 'checkUnique']);
         Route::post('/admin/profile/change-password', [UserController::class, 'changePassword'])->middleware('api.token');
-        Route::post('forget-password', [Usercontroller::class, 'forgetPassword']);
+
+        Route::post('forget-password', [ForgotPasswordController::class, 'forgetPassword']);
+        Route::post('/reset-password-from', [ForgotPasswordController::class, 'resetPassword']);
+        Route::get('/validate-reset-token', [ForgotPasswordController::class, 'validateResetToken']);
 
         Route::middleware('admin.token')->post('/user/search', [UserController::class, 'SearchUser']);
         Route::middleware('admin.token')->get('all-user-listing', [UserController::class, 'alluserlist']);
@@ -789,6 +793,16 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::post('/lead-types/search-by-name', [LeadTypeController::class, 'getSearchByName']);
     Route::post('/lead-types/search-by-slug', [LeadTypeController::class, 'getSearchBySlug']);
     Route::get('/lead-types/check-slug-unique', [LeadTypeController::class, 'checkSlugUnique']);
+
+
+    Route::middleware(['admin.token'])->get('contact-us-leads', [ContactUsLeadController::class, 'index']);   // List with pagination
+    Route::post('contact-us-leads', [ContactUsLeadController::class, 'store']); // Create
+    Route::middleware(['admin.token'])->get('contact-us-leads/{id}', [ContactUsLeadController::class, 'show']); // Show single
+    Route::middleware(['admin.token'])->put('contact-us-leads/{id}', [ContactUsLeadController::class, 'update']); // Update
+    Route::middleware(['admin.token'])->delete('contact-us-leads/{id}', [ContactUsLeadController::class, 'destroy']); // Delete
+     Route::middleware(['admin.token'])->post('contact-us-leads/bulk-delete', [ContactUsLeadController::class, 'bulkDestroy']); // Delete
+    Route::middleware(['admin.token'])->post('/contact-us-leads/{id}/status', [ContactUsLeadController::class, 'updateStatus']);
+    Route::middleware(['admin.token'])->post('contact-us-leads/search', [ContactUsLeadController::class, 'contactUsLeadSearch']);
 
 
 

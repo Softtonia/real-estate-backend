@@ -30,10 +30,7 @@ Route::get('/link', function() {
     Artisan::call('storage:link');
     return "Storage link is created";
 });
-Route::get('/reset-password',[UserController::class,'resetPasswordLoad']);
-Route::post('/reset-password',[UserController::class,'resetPassword']);
 
-Route::get('password/reset/{token}', [ResetPasswordController::class,'showResetForm'])->name('password.reset');
 
 
 Route::get('/check-file', function() {
