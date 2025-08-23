@@ -171,20 +171,25 @@ class CustomFieldsSeeder extends Seeder
                 ],
                 [
                     'field_label' => 'Bedrooms',
-                    'checkbox_type' => null,
+                    'checkbox_type' => "manually",
                     'field_placeholder' => null,
-                    'field_type' => 'text',
+                    'field_type' => 'radio',
                     'required' => 'yes',
                     'post_type' => 'property_list',
                     'template_id' => 6,
                     'media_limit' => null,
                     'media_size' => null,
                     'media_format' => [],
-                    'options' => [],
+                    'options' => [
+                        ['label' => '1 BHK', 'value' => '1 BHK'],
+                        ['label' => '2 BHK', 'value' => '2 BHK'],
+                        ['label' => '3 BHK', 'value' => '3 BHK'],
+                        ['label' => '4 BHK', 'value' => '4 BHK'],
+                        ['label' => '5+ BHK', 'value' => '5+ BHK'],
+                    ],
                     'repeater' => [],
                     'modelFields' => [
                         ['model' => 'property_type', 'condition' => [1, 2, 4, 5]],
-                        ['model' => 'property_status', 'condition' => [4]],
                     ]
                 ],
                 [
@@ -198,7 +203,8 @@ class CustomFieldsSeeder extends Seeder
                     'media_limit' => null,
                     'media_size' => null,
                     'media_format' => [],
-                    'options' => [],
+                    'options' => [
+                    ],
                     'repeater' => [],
                     'modelFields' => [
                         ['model' => 'property_type', 'condition' => [1, 2, 4, 5]],
@@ -207,26 +213,32 @@ class CustomFieldsSeeder extends Seeder
                 ],
                 [
                     'field_label' => 'Balconies',
-                    'checkbox_type' => null,
+                    'checkbox_type' => 'manually',
                     'field_placeholder' => null,
-                    'field_type' => 'text',
+                    'field_type' => 'radio',
                     'required' => 'yes',
                     'post_type' => 'property_list',
-                    'template_id' => 8,
+                    'template_id' => 7,
                     'media_limit' => null,
                     'media_size' => null,
                     'media_format' => [],
-                    'options' => [],
+                    'options' => [
+                         ['label' => '1', 'value' => '1'],
+                        ['label' => '2', 'value' => '2'],
+                        ['label' => '3', 'value' => '3'],
+                        ['label' => '4', 'value' => '4'],
+                        ['label' => '5+', 'value' => '5+'],
+                    ],
                     'repeater' => [],
                     'modelFields' => [
-                        ['model' => 'property_type', 'condition' => [1, 2, 4, 5]],
+                        ['model' => 'property_type', 'condition' => [1, 2, 4, 5,8]],
                     ]
                 ],
                 [
                     'field_label' => 'Furnishing Status',
-                    'checkbox_type' => null,
+                    'checkbox_type' => 'manually',
                     'field_placeholder' => null,
-                    'field_type' => 'select',
+                    'field_type' => 'radio',
                     'required' => 'yes',
                     'post_type' => 'property_list',
                     'template_id' => 9,
@@ -240,8 +252,8 @@ class CustomFieldsSeeder extends Seeder
                     ],
                     'repeater' => [],
                     'modelFields' => [
-                        ['model' => 'property_type', 'condition' => [1, 2, 4, 5]],
-                        ['model' => 'property_status', 'condition' => [4]],
+                        ['model' => 'property_type', 'condition' => [1, 2, 4, 5,6,7,8]],
+
                     ]
                 ],
                 [
@@ -265,7 +277,7 @@ class CustomFieldsSeeder extends Seeder
                 [
                     'field_label' => 'Area Sq Ft',
                     'checkbox_type' => null,
-                    'field_placeholder' => null,
+                    'field_placeholder' => 'Enter the Area_sq.ft',
                     'field_type' => 'number',
                     'required' => 'yes',
                     'post_type' => 'property_list',
@@ -276,7 +288,7 @@ class CustomFieldsSeeder extends Seeder
                     'options' => [],
                     'repeater' => [],
                     'modelFields' => [
-                        ['model' => 'property_type', 'condition' => [1]],
+                        ['model' => 'property', 'condition' => [1,2,3,4]],
                     ]
                 ],
 
