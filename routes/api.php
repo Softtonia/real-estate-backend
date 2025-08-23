@@ -94,7 +94,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 // User route will start from here
 
-Route::middleware(['throttle:60,1'])->group(function () {
+Route::middleware(['throttle:250,1'])->group(function () {
     Route::middleware(['validate.api.client'])->group(function () {
 
         Route::post('/register', [AuthController::class, 'register']);
