@@ -96,7 +96,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['validate.api.client'])->group(function () {
 
         Route::post('/register', [UserController::class, 'register']);
-        Route::post('/check-username-unique', [UserController::class, 'checkUsernameAvailability']);
+
 
         Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
 
@@ -104,13 +104,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::post('/logout', [UserController::class, 'logout'])->middleware('api.token');
         Route::post('/check-unique', [UserController::class, 'checkUnique']);
         Route::post('/admin/profile/change-password', [UserController::class, 'changePassword'])->middleware('api.token');
-        Route::post('forget-password', [Usercontroller::class, 'ForgetPassword']);
+        Route::post('forget-password', [Usercontroller::class, 'forgetPassword']);
 
         Route::middleware('admin.token')->post('/user/search', [UserController::class, 'SearchUser']);
         Route::middleware('admin.token')->get('all-user-listing', [UserController::class, 'alluserlist']);
 
 
         Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
+        Route::middleware('allrole.token')->post('update-current-user-by-token', [UserController::class, 'updateCurrentUser']);
 
         Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
         Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);

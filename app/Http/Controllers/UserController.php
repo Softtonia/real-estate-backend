@@ -385,51 +385,6 @@ class UserController extends Controller
         ], 200);
     }
 
-    //  check username availability
-    public function checkUsernameAvailability(Request $request)
-    {
-        // Advanced validation with custom rules
-        $validator = Validator::make($request->all(), [
-            'user_name' => [
-                'required',
-                'string',
-                'min:3',
-                'max:20',
-                'regex:/^[a-zA-Z0-9._]+$/', // Alphanumeric + underscore + dot
-            ],
-        ], [
-            'user_name.regex' => 'Username can only contain letters, numbers, underscores, and dots.',
-        ]);
-
-        // Return validation errors in a structured format
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $username = $request->input('user_name');
-
-        // Check if the username exists in the database (case-insensitive)
-        $exists = User::whereRaw('LOWER(user_name) = ?', [strtolower($username)])->exists();
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'username' => $username,
-                'available' => !$exists,
-            ],
-            'message' => $exists
-                ? 'Username is already taken.'
-                : 'Username is available.',
-        ], 200);
-    }
-
-
-
-
-
 
     // for forgot password
 
@@ -458,6 +413,27 @@ class UserController extends Controller
             ], 404);
         }
 
+        // ✅ Get mail config from DB
+        $mailConfig = DB::table('mail_configs')->where('status', 1)->first();
+        if (!$mailConfig) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Mail configuration not found in database.',
+            ], 500);
+        }
+
+        // ✅ Override mailer config dynamically
+        config([
+            'mail.mailers.smtp.transport' => $mailConfig->mailer,
+            'mail.mailers.smtp.host' => $mailConfig->host,
+            'mail.mailers.smtp.port' => $mailConfig->port,
+            'mail.mailers.smtp.username' => $mailConfig->username,
+            'mail.mailers.smtp.password' => $mailConfig->password,
+            'mail.mailers.smtp.encryption' => $mailConfig->encryption,
+            'mail.from.address' => $mailConfig->from_address,
+            'mail.from.name' => $mailConfig->from_name,
+        ]);
+
         // Generate a reset token and URL
         $token = Str::random(40);
         $domain = url('/');
@@ -472,8 +448,11 @@ class UserController extends Controller
 
         // Send the reset link email
         try {
-            Mail::send('forgetPasswordMail', ['data' => $data], function ($message) use ($data) {
-                $message->to($data['email'])->subject($data['title']);
+            Mail::send('forgetPasswordMail', ['data' => $data], function ($message) use ($data, $mailConfig) {
+                // $message->to($data['email'])->subject($data['title']);
+                $message->to($data['email'])
+                    ->from($mailConfig->from_address, $mailConfig->from_name)
+                    ->subject($data['title']);
             });
         } catch (\Exception $e) {
             return response()->json([
@@ -640,44 +619,114 @@ class UserController extends Controller
 
 
     // for check uniqueness
+    // public function checkUnique(Request $request)
+    // {
+    //     // Validate the request input
+    //     $request->validate([
+    //         'email' => 'nullable|email',
+    //         'phone' => 'nullable|digits:10',
+    //     ]);
+
+    //     $email = $request->input('email');
+    //     $phone = $request->input('phone');
+
+    //     $response = [];
+
+    //     // Check if the email exists
+    //     if ($email) {
+    //         $emailExists = User::where('email', $email)->exists();
+    //         $response['email'] = [
+    //             'exists' => $emailExists,
+    //             'message' => $emailExists ? 'Email already exists' : 'Email is available',
+    //         ];
+    //     }
+
+    //     // Check if the phone number exists
+    //     if ($phone) {
+    //         $phoneExists = User::where('phone', $phone)->exists();
+    //         $response['phone'] = [
+    //             'exists' => $phoneExists,
+    //             'message' => $phoneExists ? 'Phone number already exists' : 'Phone number is available',
+    //         ];
+    //     }
+
+    //     // If neither email nor phone is provided, return an error
+    //     if (empty($email) && empty($phone)) {
+    //         return response()->json(['error' => 'Please provide either an email or a phone number'], 400);
+    //     }
+
+    //     return response()->json($response, 200);
+    // }
+
+
     public function checkUnique(Request $request)
     {
         // Validate the request input
         $request->validate([
+            'id' => 'nullable|exists:users,id', // update ke case me bhejna hoga
             'email' => 'nullable|email',
             'phone' => 'nullable|digits:10',
+            'user_name' => ['nullable', 'string', 'min:3', 'max:20', 'regex:/^[a-zA-Z0-9._]+$/'],
+        ], [
+            'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
         ]);
 
+        $id = $request->input('id'); // update case me bhejna hoga
         $email = $request->input('email');
         $phone = $request->input('phone');
+        $userName = $request->input('user_name');
 
         $response = [];
 
-        // Check if the email exists
+        // Email check
         if ($email) {
-            $emailExists = User::where('email', $email)->exists();
+            $query = User::where('email', $email);
+            if ($id) {
+                $query->where('id', '!=', $id); // apna khud ka record ignore kare
+            }
+            $emailExists = $query->exists();
+
             $response['email'] = [
                 'exists' => $emailExists,
                 'message' => $emailExists ? 'Email already exists' : 'Email is available',
             ];
         }
 
-        // Check if the phone number exists
+        // Phone check
         if ($phone) {
-            $phoneExists = User::where('phone', $phone)->exists();
+            $query = User::where('phone', $phone);
+            if ($id) {
+                $query->where('id', '!=', $id);
+            }
+            $phoneExists = $query->exists();
+
             $response['phone'] = [
                 'exists' => $phoneExists,
                 'message' => $phoneExists ? 'Phone number already exists' : 'Phone number is available',
             ];
         }
 
-        // If neither email nor phone is provided, return an error
-        if (empty($email) && empty($phone)) {
-            return response()->json(['error' => 'Please provide either an email or a phone number'], 400);
+        // Username check
+        if ($userName) {
+            $query = User::where('user_name', $userName);
+            if ($id) {
+                $query->where('id', '!=', $id);
+            }
+            $userNameExists = $query->exists();
+
+            $response['user_name'] = [
+                'exists' => $userNameExists,
+                'message' => $userNameExists ? 'Username already exists' : 'Username is available',
+            ];
+        }
+
+        if (empty($email) && empty($phone) && empty($userName)) {
+            return response()->json(['error' => 'Please provide either an email, phone number, or username'], 400);
         }
 
         return response()->json($response, 200);
     }
+
 
 
 
@@ -1026,101 +1075,6 @@ class UserController extends Controller
 
 
     // for update user by id
-//     public function updateuserbyid(Request $request)
-// {
-//     // Authorization check
-
-
-    //     // Validate request data
-//     try {
-//         $request->validate([
-//             'first_name' => ['required', 'string', 'max:255'],
-//             'last_name' => ['required', 'string', 'max:255'],
-
-    //             'role_id' => ['required', 'exists:roles,id'],
-//             'password' => [
-//                 'nullable',
-//                 'min:8',
-//                 'regex:/[A-Z]/',  // At least one uppercase letter
-//                 'regex:/[a-z]/',  // At least one lowercase letter
-//                 'regex:/[0-9]/',  // At least one number
-//                 'regex:/[@$!%*#?&]/', // At least one special character
-//             ],
-//         ]);
-//     } catch (\Illuminate\Validation\ValidationException $e) {
-//         return response()->json(['error' => $e->errors()], 400);
-//     }
-
-    //     // Prevent updating to the admin role
-//     if ($request->role_id == 1) {
-//         return response()->json(['error' => 'You cannot create the admin role as it already exists.'], 400);
-//     }
-
-    //     // Find the user
-//     $user = User::find($request->id);
-
-    //     // Check if user exists before updating
-//     if (!$user) {
-//         return response()->json(['error' => 'User not found.'], 404);
-//     }
-
-    //     // Update user details
-//     // $user->email = $request->email;
-//     $user->first_name = $request->first_name;
-//     $user->last_name = $request->last_name;
-//     $user->phone = $request->phone;
-//     $user->role_id = $request->role_id;
-//     $user->isapproved = $request->isapproved;
-//     $user->reject_reason = $request->reject_reason;
-
-    //     // Update password only if provided
-//     if ($request->filled('password')) {
-//         $user->password = Hash::make($request->password);
-//     }
-
-    //     DB::beginTransaction();
-//     try {
-//         $user->save();
-
-    //         // Prepare user detail data
-//         $userDetail = [
-//             'user_id' => $user->id,
-//             'role_id' => $request->role_id,
-//             'bussiness_name' => $request->bussiness_name,
-//             'bussiness_address' => $request->bussiness_address,
-//             'bussiness_email' => $request->bussiness_email,
-//             'business_phone' => $request->business_phone,
-//             'country_id' => $request->country_id ?? null, // Use null if missing
-//             'state_id' => $request->state_id ?? null, // Use null if missing
-//             'city_id' => $request->city_id ?? null, // Use null if missing
-//             'address' => $request->address,
-//             'pin_code' => $request->pin_code,
-//             'license_number' => $request->license_number,
-//             'alternate_number' => $request->alternate_number,
-//             'no_of_employees' => $request->no_of_employees,
-//             'about_us' => $request->about_us
-//         ];
-
-    //         // Handle profile photo upload and store only the relative path
-//         if ($request->hasFile('profile_photo')) {
-//             $file = $request->file('profile_photo');
-//             $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
-//             $file->move(public_path('uploads/users'), $fileName);
-//             $userDetail['profile_photo'] = 'uploads/users/' . $fileName; // Store relative path
-//         }
-
-    //         // Update user details
-//         UserDetail::where('user_id', $user->id)->update($userDetail);
-
-    //         DB::commit();
-
-    //         return response()->json(['status' => true, 'message' => 'User updated successfully.'], 200);
-//     } catch (\Exception $e) {
-//         DB::rollBack();
-//         \Log::error($e->getMessage());
-//         return response()->json(['error' => 'Failed to update user. ' . $e->getMessage()], 500);
-//     }
-// }
 
 
     public function updateuserbyid(Request $request)
@@ -1344,12 +1298,6 @@ class UserController extends Controller
 
 
     // for get all status
-    // public function getallstatus(Request $request)
-    // {
-    //     $statuses = ['approved', 'reject', 'pending'];
-
-    //     return response()->json(['data' => $statuses]);
-    // }
 
     function getUserStatusList()
     {
@@ -1926,143 +1874,7 @@ class UserController extends Controller
 
 
     // for create agent
-    // public function createAgent(Request $request)
-    // {
 
-    //     if ($request->header('api-token') == '') {
-    //         return response()->json(['error' => 'Please enter api token first.'], 422);
-    //     }
-
-    //     $requestToken = $request->header('api-token');
-
-
-    //     $userId = null;
-
-    //     $userData = User::where('api_token', $requestToken)->first();
-
-    //     // Validate that the user exists in the database
-    //     if (!$userData) {
-    //         return response()->json(['error' => 'User not found'], 404);
-    //     }
-
-    //     $userId = $userData->id;
-
-    //     // Check if the role is admin
-    //     $adminRoleId = 1;
-    //     if ($request->role_id == $adminRoleId) {
-    //         return response()->json(['error' => 'You cannot create the admin role as it already exists.'], 400);
-    //     }
-
-    //     // Generate unique ID based on role
-    //     $role = Role::find($request->role_id);
-    //     if (!$role) {
-    //         return response()->json(['error' => 'Invalid role provided.'], 400);
-    //     }
-
-    //     // Validate request data
-    //     try {
-    //         $request->validate([
-    //             'phone' => 'required|unique:users',
-    //             'email' => 'required|unique:users',
-    //             // 'role_id' => 'required|exists:roles,id',
-    //         ]);
-    //     } catch (ValidationException $e) {
-    //         return response()->json(['error' => $e->errors()], 400);
-    //     }
-
-    //     $prefix = '';
-    //     switch ($role->name) {
-    //         case 'agent':
-    //             $prefix = 'URA';
-    //             break;
-    //         case 'developer':
-    //             $prefix = 'URD';
-    //             break;
-    //         case 'consultancy':
-    //             $prefix = 'URC';
-    //             break;
-    //         case 'owner':
-    //             $prefix = 'URO';
-    //             break;
-    //         case 'company':
-    //             $prefix = 'URCMY';
-    //             break;
-    //         default:
-    //             break;
-    //     }
-
-    //     // Create a new UniqueID model and save it
-    //     $uniqueIDModel = new UniqueID();
-    //     $uniqueIDModel->unique_id = $prefix . str_pad($uniqueIDModel->count() + 1, 3, '0', STR_PAD_LEFT);
-    //     $uniqueIDModel->save();
-
-    //     $token = Str::random(60);
-
-    //     $isapproved = 'approved';
-
-    //     // Create a new user
-    //     $user = new User();
-    //     $user->fullname = $request->fullname;
-    //     $user->email = $request->email;
-    //     $user->phone = $request->phone;
-    //     $user->api_token = $token;
-    //     $user->remember_token = $request->token;
-    //     $user->uid = $request->uid;
-    //     $user->role_id = $request->role_id;
-    //     $user->password = Hash::make($request->password);
-    //     $user->unique_id = $uniqueIDModel->unique_id;
-    //     $user->isapproved = $isapproved;
-    //     $user->created_by = $userId;
-
-    //     // Add entry to user_has_unique_ids table
-    //     DB::beginTransaction();
-    //     try {
-    //         $user->save();
-    //         DB::table('user_has_unique_ids')->insert([
-    //             'user_id' => $user->id,
-    //             'unique_id' => $uniqueIDModel->id,
-    //         ]);
-
-    //         $userDetailData = UserDetail::where('user_id', $userId)->first();
-
-    //         $userDetail = array(
-    //             'user_id' => $user->id,
-    //             'created_by' => $userId,
-    //             'role_id' => $request->role_id,
-    //             'bussiness_name' => isset($request->bussiness_name) ? $request->bussiness_name : $userDetailData->bussiness_name,
-    //             'bussiness_address' => isset($request->bussiness_address) ? $request->bussiness_address : $userDetailData->bussiness_address,
-    //             'bussiness_email' => isset($request->bussiness_email) ? $request->bussiness_email : $userDetailData->bussiness_email,
-    //             'business_phone' => isset($request->business_phone) ? $request->business_phone : $userDetailData->business_phone,
-    //             'country' => isset($request->country) ? $request->country : $userDetailData->country,
-    //             'state' => isset($request->state) ? $request->state : $userDetailData->state,
-    //             'city' => isset($request->city) ? $request->city : $userDetailData->city,
-    //             'address' => isset($request->address) ? $request->address : $userDetailData->address,
-    //             'pin_code' => isset($request->pin_code) ? $request->pin_code : $userDetailData->pin_code,
-    //             'license_number' => isset($request->license_number) ? $request->license_number : $userDetailData->license_number,
-    //             'alternate_number' => isset($request->alternate_number) ? $request->alternate_number : $userDetailData->alternate_number,
-    //             'no_of_employees' => isset($request->no_of_employees) ? $request->no_of_employees : $userDetailData->no_of_employees,
-    //             'purpose_id' => isset($request->purpose_id) ? $request->purpose_id : $userDetailData->purpose_id,
-    //             'property_id' => isset($request->property_id) ? $request->property_id : $userDetailData->property_id,
-    //             'property_type_id' => isset($request->property_type_id) ? $request->property_type_id : $userDetailData->property_type_id,
-    //         );
-
-
-    //         if ($userDetailData->profile_photo) {
-    //             $userDetail['profile_photo'] = $userDetailData->profile_photo;
-    //         }
-
-    //         UserDetail::create($userDetail);
-
-    //         DB::commit();
-
-    //         return response()->json(['status' => true, 'message' => 'Agent created successfully.'], 201);
-
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         \Log::error($e->getMessage()); // Log the exception message
-    //         return response()->json(['error' => 'Failed to create user.' . $e->getMessage()], 500);
-    //     }
-    // }
     public function createAgent(Request $request)
     {
         // Check if API token is present
@@ -2267,9 +2079,6 @@ class UserController extends Controller
     }
 
 
-
-
-
     // this is for assign project to consultancy by company
     public function assignProjectToConsultancyByCompany(Request $request)
     {
@@ -2344,10 +2153,6 @@ class UserController extends Controller
             return response()->json(['error' => 'Failed.' . $e->getMessage()], 500);
         }
     }
-
-
-
-
 
 
     // this is foe get property data by project id
@@ -2432,10 +2237,6 @@ class UserController extends Controller
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
-
-
-
-
 
 
 
@@ -3835,6 +3636,116 @@ class UserController extends Controller
         }
     }
 
+
+    // Update the current user's details
+    public function updateCurrentUser(Request $request)
+    {
+        try {
+            $request->validate([
+                'first_name' => ['required', 'string', 'max:255'],
+                'last_name' => ['required', 'string', 'max:255'],
+                'password' => [
+                    'nullable',
+                    'min:8',
+                    'regex:/[A-Z]/',        // at least one uppercase
+                    'regex:/[a-z]/',        // at least one lowercase
+                    'regex:/[0-9]/',        // at least one digit
+                    'regex:/[@$!%*#?&]/',   // at least one special character
+                ],
+                'user_name' => [
+                    'required',
+                    'string',
+                    'min:3',
+                    'max:20',
+                    'regex:/^[a-zA-Z0-9._]+$/',
+                    Rule::unique('users', 'user_name')->ignore(Auth::id()),
+                ],
+                'country_id' => ['required', 'exists:countries,id'],
+                'state_id' => ['required', 'exists:states,id'],
+                'city_id' => ['required', 'exists:cities,id'],
+                'area_locality' => ['nullable', 'string'],
+                'colony' => ['nullable', 'string'],
+                'street_address' => ['nullable', 'string'],
+                'pin_code' => ['required', 'numeric', 'digits:6'],
+                'about' => ['nullable', 'string'],
+            ], [
+                'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
+                'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['error' => $e->errors()], 400);
+        }
+
+        $user = Auth::user(); // current user from token
+
+        if (!$user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
+
+        // Update user basic fields
+        $user->first_name = $request->first_name;
+        $user->last_name = $request->last_name;
+        $user->user_name = $request->user_name;
+        $user->email = $request->email ?? $user->email;
+        $user->phone = $request->phone ?? $user->phone;
+        $user->country_id = $request->country_id;
+        $user->state_id = $request->state_id;
+        $user->city_id = $request->city_id;
+        $user->area_locality = $request->area_locality;
+        $user->colony = $request->colony;
+        $user->street_address = $request->street_address;
+        $user->pin_code = $request->pin_code;
+        $user->about = $request->about;
+
+        if ($request->filled('password')) {
+            $user->password = Hash::make($request->password);
+        }
+
+        DB::beginTransaction();
+        try {
+            $user->save();
+
+            // User detail update
+            $userDetail = [
+                'user_id' => $user->id,
+                'bussiness_name' => $request->bussiness_name,
+                'bussiness_address' => $request->bussiness_address,
+                'bussiness_email' => $request->bussiness_email,
+                'business_phone' => $request->business_phone,
+                'country_id' => $request->business_country_id ?? null,
+                'state_id' => $request->business_state_id ?? null,
+                'city_id' => $request->business_city_id ?? null,
+                'address' => $request->address,
+                'pin_code' => $request->business_pin_code,
+                'license_number' => $request->license_number,
+                'alternate_number' => $request->alternate_number,
+                'no_of_employees' => $request->no_of_employees,
+                'about_us' => $request->about_us,
+                'area_locality' => $request->business_area_locality,
+                'colony' => $request->business_colony,
+                'street_address' => $request->business_street_address,
+            ];
+
+            if ($request->hasFile('profile_photo')) {
+                $file = $request->file('profile_photo');
+                $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
+                $file->move(public_path('uploads/users'), $fileName);
+                $userDetail['profile_photo'] = 'uploads/users/' . $fileName;
+            }
+
+            UserDetail::updateOrCreate(
+                ['user_id' => $user->id],
+                $userDetail
+            );
+
+            DB::commit();
+            return response()->json(['status' => true, 'message' => 'Profile updated successfully.'], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error($e->getMessage());
+            return response()->json(['error' => 'Failed to update profile. ' . $e->getMessage()], 500);
+        }
+    }
 
 
 
