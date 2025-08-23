@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\ApiClient\ApiClientController;
 use App\Http\Controllers\Admin\DashboardAnalyticsController;
 use App\Http\Controllers\AgentProject\AgentProjectController;
+use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CompanyConsultancy\CompanyConsultancyController;
 use App\Http\Controllers\CompanyProject\CompanyProjectController;
 use App\Http\Controllers\ConsultancyProject\ConsultancyProjectController;
@@ -95,13 +96,14 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['validate.api.client'])->group(function () {
 
-        Route::post('/register', [UserController::class, 'register']);
+        Route::post('/register', [AuthController::class, 'register']);
 
 
         Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
 
-        Route::post('login', [UserController::class, 'login']);
-        Route::post('/logout', [UserController::class, 'logout'])->middleware('api.token');
+        Route::post('login', [AuthController::class, 'login']);
+        Route::post('/logout', [AuthController::class, 'logout'])->middleware('api.token');
+
         Route::post('/check-unique', [UserController::class, 'checkUnique']);
         Route::post('/admin/profile/change-password', [UserController::class, 'changePassword'])->middleware('api.token');
         Route::post('forget-password', [Usercontroller::class, 'forgetPassword']);
@@ -676,8 +678,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
         // =====For Client Review=====
         Route::middleware('api.token')->post('add-client-review', [ClientReviewController::class, 'store']);
         Route::middleware('api.token')->post('edit-client-review', [ClientReviewController::class, 'update']);
-        Route::middleware('api.token')->post('delete-client-review', [ClientReviewController::class, 'destroy']);
-        Route::middleware('api.token')->get('get-client-review', [ClientReviewController::class, 'index']);
+        Route::middleware('admin.token')->post('delete-client-review', [ClientReviewController::class, 'destroy']);
+        Route::get('get-client-review', [ClientReviewController::class, 'index']);
         Route::middleware('api.token')->get('get-client-review-by-id/{id}', [ClientReviewController::class, 'getdatabyId']);
 
         // =====For Faq Category=====
