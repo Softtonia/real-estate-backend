@@ -85,7 +85,7 @@ class ProjectList extends Model
     }
        public function developer()
     {
-        return $this->belongsTo(User::class, 'developer_id');
+        return $this->belongsTo(Developerlist::class, 'developer_id','id');
     }
 
     public function createdBy()

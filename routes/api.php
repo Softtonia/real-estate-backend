@@ -130,7 +130,7 @@ Route::middleware(['throttle:500,2'])->group(function () {
         Route::get('/get-user-status', [UserController::class, 'getUserStatusList']);
 
         Route::get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole']);
-        Route::get('/get-user-details-by-id', [UserController::class, 'getDataUserDetailsById']);
+        Route::get('/get-userdata-by-id', [UserController::class, 'getDataUserDetailsById']);
 
 
 

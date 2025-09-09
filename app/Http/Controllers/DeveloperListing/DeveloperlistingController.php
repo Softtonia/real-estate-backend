@@ -35,6 +35,8 @@ class DeveloperlistingController extends Controller
             // Get the user ID
             $userId = $user->id;
 
+            $userRole = $user->role->name;
+
             // ✅ Ensure `live_status` is set to "Under Review" by default
             if (!$request->has('live_status') || empty($request->live_status)) {
                 $request->merge(['live_status' => 'Under Review']);
@@ -57,6 +59,7 @@ class DeveloperlistingController extends Controller
                 'colony' => 'nullable|string',
                 'street_address' => 'nullable|string',
                 'pin_code' => 'required|numeric|digits:6',
+                'user_id' => 'sometimes|exists:users,id'
 
             ]);
 
@@ -85,10 +88,19 @@ class DeveloperlistingController extends Controller
                 $featuredImage = null; // If empty, store null
             }
 
+            // user_id handle
+            if ($userRole === 'admin') {
+                $validatedData['user_id'] = $request->user_id ?? Auth::user()->id;
+                ;
+            } else {
+                $validatedData['user_id'] = $userId;
+            }
+
+
             // Prepare developer data
             $developerData = array_merge($validatedData, [
                 'developer_unique_id' => $developer_unique_id,
-                'user_id' => $userId,
+                // 'user_id' => $userId,
                 'created_by' => $userId, // Store the authenticated user's ID
                 'address' => $request->address,
                 'featured_image' => $featuredImage,
@@ -642,14 +654,14 @@ class DeveloperlistingController extends Controller
             return response()->json([
                 'data' => $developersData,
                 'meta' => [
-                        'current_page' => $developers->currentPage(),
-                        'from' => $developers->firstItem(),
-                        'last_page' => $developers->lastPage(),
-                        'path' => $request->url(),
-                        'per_page' => $developers->perPage(),
-                        'to' => $developers->lastItem(),
-                        'total' => $developers->total(),
-                    ],
+                    'current_page' => $developers->currentPage(),
+                    'from' => $developers->firstItem(),
+                    'last_page' => $developers->lastPage(),
+                    'path' => $request->url(),
+                    'per_page' => $developers->perPage(),
+                    'to' => $developers->lastItem(),
+                    'total' => $developers->total(),
+                ],
                 'links' => [
                     'first' => $developers->url(1),
                     'last' => $developers->url($developers->lastPage()),
@@ -782,6 +794,12 @@ class DeveloperlistingController extends Controller
                 $request->request->add(['live_status' => 'Modify Review']);
             }
 
+            // user_id handle
+            if ($userData->role->name != 'admin') {
+                $request->merge(['user_id' => $userId]);
+            } else {
+                $request->merge(['user_id' => $request->user_id ?? $userId]);
+            }
             // Validate that status_reason is required when rejecting
             if ($request->live_status == 'reject' && !$request->status_reason) {
                 return response()->json(['error' => 'Status reason is required when status is reject.'], 422);
@@ -949,18 +967,16 @@ class DeveloperlistingController extends Controller
                                             $file->storeAs('public/uploads/customfield/developers/files', $fileName); // goes to storage/app/public/uploads/customFiles
 
                                             $filePaths[] = $relativePath;
-                                        }
-                                         else {
+                                        } else {
                                             return response()->json(['error' => 'Invalid file format. Only PDF, DOC, DOCX allowed.'], 400);
                                         }
-                                    }
-                                    elseif (is_string($file)) {
+                                    } elseif (is_string($file)) {
                                         $filePaths[] = $file;
                                     }
                                 }
                             }
 
-                            if(!empty($filePaths)) {
+                            if (!empty($filePaths)) {
                                 $customFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
                             }
                             break;
@@ -1020,14 +1036,13 @@ class DeveloperlistingController extends Controller
                                                             $fileName = time() . '_' . $file->getClientOriginalName();
                                                             $file->move(public_path('uploads/media'), $fileName);
                                                             $fileNames[] = $fileName;
-                                                        }
-                                                        elseif(is_string($file)){
+                                                        } elseif (is_string($file)) {
                                                             $fileNames[] = $file;
                                                         }
                                                     }
                                                 }
 
-                                                if(!empty($fileNames)){
+                                                if (!empty($fileNames)) {
                                                     $repeaterFieldData['field_meta_value'] = json_encode($fileNames);
 
                                                 }
@@ -1050,13 +1065,12 @@ class DeveloperlistingController extends Controller
                                                             } else {
                                                                 return response()->json(['error' => 'Invalid file format in repeater. Only PDF, DOC, DOCX files allowed.'], 400);
                                                             }
-                                                        }
-                                                        elseif (is_string($file)) {
+                                                        } elseif (is_string($file)) {
                                                             $filePaths[] = $file; // already existing file path
                                                         }
                                                     }
                                                 }
-                                                if(!empty($filePaths)){
+                                                if (!empty($filePaths)) {
                                                     $repeaterFieldData['field_meta_value'] = json_encode($filePaths); // store array of relative paths
 
                                                 }
@@ -1568,7 +1582,8 @@ class DeveloperlistingController extends Controller
                 'customFieldValues.customField',
                 'customFieldValues.customFieldOption',
                 'createdBy.role',
-                'updatedBy.role','importKeywords'
+                'updatedBy.role',
+                'importKeywords'
             ])->where('id', $request->id)->first();
 
             if (!$developer) {
@@ -1738,7 +1753,7 @@ class DeveloperlistingController extends Controller
                         ? array_map(fn($file) => url($file), $decoded)
                         : [];
 
-                        $existingValue = is_array($decoded) ? $decoded : [];
+                    $existingValue = is_array($decoded) ? $decoded : [];
 
                 } elseif ($fieldType === 'media') {
                     $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : $fieldValue;
@@ -1746,7 +1761,7 @@ class DeveloperlistingController extends Controller
                         ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
                         : [];
 
-                        $existingValue = is_array($decoded) ? $decoded : [];
+                    $existingValue = is_array($decoded) ? $decoded : [];
                 }
 
                 $fieldArray = [
@@ -2100,7 +2115,8 @@ class DeveloperlistingController extends Controller
                     'state',
                     'city',
                     'createdBy.role',
-                    'updatedBy.role','importKeywords'
+                    'updatedBy.role',
+                    'importKeywords'
                 ])
                 ->get();
 
@@ -2225,7 +2241,8 @@ class DeveloperlistingController extends Controller
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
                 'createdBy.role',
-                'updatedBy.role','importKeywords'
+                'updatedBy.role',
+                'importKeywords'
             ])->where('live_status', 'Approve')->where('id', $request->id)->first();
 
             if (!$developer) {
@@ -2511,11 +2528,11 @@ class DeveloperlistingController extends Controller
                 ->get();
 
             // Format properties data (without user info)
-            $formattedDevelopers = $developers->getCollection()->map(function ($developer) use($baseURL) {
+            $formattedDevelopers = $developers->getCollection()->map(function ($developer) use ($baseURL) {
                 $featuredImage = !empty($developer->featured_image)
                     ? (filter_var($developer->featured_image, FILTER_VALIDATE_URL)
-                        ? $developer->featured_image
-                        : url(ltrim($developer->featured_image, '/')))
+                    ? $developer->featured_image
+                    : url(ltrim($developer->featured_image, '/')))
                     : null;
 
                 $propertyTypeNames = null;
@@ -2526,7 +2543,7 @@ class DeveloperlistingController extends Controller
                         ->toArray();
                 }
 
-                 // ✅ Custom fields (copied from q1)
+                // ✅ Custom fields (copied from q1)
                 $formattedCustomFieldValues = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL, $developer) {
                     $customField = optional($customFieldValue->customField);
                     $templateData = $customField->templateValue ?? null;
@@ -2711,15 +2728,15 @@ class DeveloperlistingController extends Controller
                 'status' => true,
                 'message' => 'Developers retrieved successfully.',
                 'data' => [
-                    'properties' => $formattedDevelopers,
-                    'pagination' => [
-                        'total' => $developers->total(),
-                        'per_page' => $developers->perPage(),
-                        'current_page' => $developers->currentPage(),
-                        'last_page' => $developers->lastPage(),
-                    ],
-                    'purpose_counts' => $purposeCounts
-                ]
+                        'properties' => $formattedDevelopers,
+                        'pagination' => [
+                                'total' => $developers->total(),
+                                'per_page' => $developers->perPage(),
+                                'current_page' => $developers->currentPage(),
+                                'last_page' => $developers->lastPage(),
+                            ],
+                        'purpose_counts' => $purposeCounts
+                    ]
             ], 200);
 
         } catch (\Throwable $th) {
@@ -2765,7 +2782,7 @@ class DeveloperlistingController extends Controller
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
 
-            ])->where('live_status','=','Approve')
+            ])->where('live_status', '=', 'Approve')
                 ->where('id', '!=', $referenceDeveloper->id) // same property skip
                 ->where('purpose_id', $referenceDeveloper->purpose_id)
                 ->where('property_id', $referenceDeveloper->property_id)
@@ -2783,8 +2800,8 @@ class DeveloperlistingController extends Controller
             $formattedDevelopers = $developers->getCollection()->map(function ($developer) use ($baseURL) {
                 $featuredImage = !empty($developer->featured_image)
                     ? (filter_var($developer->featured_image, FILTER_VALIDATE_URL)
-                        ? $developer->featured_image
-                        : url(ltrim($developer->featured_image, '/')))
+                    ? $developer->featured_image
+                    : url(ltrim($developer->featured_image, '/')))
                     : null;
 
                 // Convert "1,2" IDs to names
@@ -2961,14 +2978,14 @@ class DeveloperlistingController extends Controller
                 'status' => true,
                 'message' => 'Related developers retrieved successfully.',
                 'data' => [
-                    'properties' => $formattedDevelopers,
-                    'pagination' => [
-                        'total' => $developers->total(),
-                        'per_page' => $developers->perPage(),
-                        'current_page' => $developers->currentPage(),
-                        'last_page' => $developers->lastPage(),
-                    ],
-                ]
+                        'properties' => $formattedDevelopers,
+                        'pagination' => [
+                                'total' => $developers->total(),
+                                'per_page' => $developers->perPage(),
+                                'current_page' => $developers->currentPage(),
+                                'last_page' => $developers->lastPage(),
+                            ],
+                    ]
             ], 200);
 
         } catch (\Throwable $th) {

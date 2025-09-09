@@ -95,6 +95,7 @@ class AdminController extends Controller
             return response()->json([
                 'message' => 'User logged in successfully',
                 'token' => $user->api_token,
+                'user_id' => $user->id,
                 'role_name' => $role_name,
             ], 200);
 

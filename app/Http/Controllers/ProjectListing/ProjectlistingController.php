@@ -62,7 +62,11 @@ class ProjectlistingController extends Controller
                 'colony' => 'nullable|string',
                 'street_address' => 'nullable|string',
                 'pin_code' => 'required|numeric|digits:6',
+                'user_id' => 'sometimes|exists:users,id'
+
             ]);
+
+
 
             // Set status_reason to null if live_status is not "Reject"
             $validatedData['status_reason'] = $request->live_status === 'Reject' ? $request->status_reason : null;
@@ -90,10 +94,18 @@ class ProjectlistingController extends Controller
                 $featuredImage = null; // If empty, store null
             }
 
+            // user_id handle
+            if ($userRole === 'admin') {
+                $validatedData['user_id'] = $request->user_id ;
+                ;
+            } else {
+                $validatedData['user_id'] = $userId;
+            }
+
+
             // Prepare project data
             $projectData = array_merge($validatedData, [
                 'project_unique_id' => $project_unique_id,
-                'user_id' => $userId,
                 'created_by' => $userId, // Store the authenticated user's ID
                 'address' => $request->address,
                 'featured_image' => $featuredImage,
@@ -865,6 +877,7 @@ class ProjectlistingController extends Controller
                 'colony' => 'nullable|string',
                 'street_address' => 'nullable|string',
                 'pin_code' => 'required|numeric|digits:6',
+                'user_id' => 'sometimes|exists:users,id'
             ]);
 
             // Set status_reason to null if live_status is not "Reject"
@@ -907,6 +920,13 @@ class ProjectlistingController extends Controller
                 $featuredImage = $oldImage; // Keep old if nothing new provided
             }
 
+            // user_id handle
+            if ($userRole === 'admin') {
+                $validatedData['user_id'] = $request->user_id ?? Auth::user()->id;
+                ;
+            } else {
+                $validatedData['user_id'] = $userId;
+            }
 
             // Prepare update data
             $updateData = [
@@ -2785,7 +2805,7 @@ class ProjectlistingController extends Controller
                 'customFieldValues.customField',
                 'customFieldValues.customFieldOption',
                 'importKeywords',
-                'developer.userDetails',
+                'developer',
                 'country',
                 'state',
                 'city',
@@ -2991,6 +3011,12 @@ class ProjectlistingController extends Controller
                 'status_reason' => $projects->status_reason,
                 'project_status' => $projects->project_status,
                 'user_id' => $projects->user_id,
+                    'user' => $projects->user_id ? [
+                        'id' => $projects->user->id,
+                        'name' => $projects->user->first_name,
+                        'email' => $projects->user->email,
+                        'role' => optional($projects->user->role)->name,
+                    ] :null,
                 'created_by' => $createdByData,
                 'updated_by' => $updatedByData,
                 'listed_by' => optional(optional($projects->user)->role)->name,
@@ -3006,9 +3032,63 @@ class ProjectlistingController extends Controller
                 'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
                 'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
                 'timestamp' => $projects->created_at ? $projects->created_at->format('d m Y h:i A') : null,
-                'developer' => $projects->developer_id,
+
                 'keyword' => $projects->importKeywords,
                 'repeater_fields' => $repeaterFields,
+                'developer_id' => $projects->developer_id,
+                'developer' => $projects->developer ? [
+                    'id' => $projects->developer->id,
+                    'developer_unique_id' => $projects->developer->developer_unique_id,
+                    'name' => $projects->developer->name,
+                    'description' => $projects->developer->description,
+                    'purpose_id' => $projects->developer->purpose_id,
+                    'purpose_id_name' => optional($projects->developer->purpose)->name,
+                    'property_id' => $projects->developer->property_id,
+                    'property_id_name' => optional($projects->developer->property)->name,
+                    'property_status_id' => $projects->developer->property_status_id,
+                    'property_status_id_name' => optional($projects->developer->propertystatus)->name,
+                    'property_type_id' => $projects->developer->property_type_id,
+                    'property_type_id_name' => optional($projects->developer->propertyType)->name,
+                    'country_id' => $projects->developer->country_id,
+                    'country_name' => optional($projects->developer->country)->name,
+                    'state_id' => $projects->developer->state_id,
+                    'state_name' => optional($projects->developer->state)->name,
+                    'city_id' => $projects->developer->city_id,
+                    'city_name' => optional($projects->developer->city)->name,
+                    'address' => $projects->developer->address,
+                    'area_locality' => $projects->developer->area_locality,
+                    'colony' => $projects->developer->colony,
+                    'street_address' => $projects->developer->street_address,
+                    'pin_code' => $projects->developer->pin_code,
+                    'featured_image' => $projects->developer->featured_image
+                        ? url($projects->developer->featured_image)
+                        : null,
+                    'live_status' => $projects->developer->live_status,
+                    'temporary_status' => $projects->developer->temporary_status,
+                    'status_reason' => $projects->developer->status_reason,
+                    'user_id' => $projects->developer->user_id,
+                    'user' => $projects->developer->user_id ? [
+                        'id' => $projects->developer->user->id,
+                        'name' => $projects->developer->user->first_name,
+                        'email' => $projects->developer->user->email,
+                        'role' => optional($projects->developer->user->role)->name,
+                    ] :null,
+                    'created_by' => $projects->developer->createdBy ? [
+                        'id' => $projects->developer->createdBy->id,
+                        'name' => $projects->developer->createdBy->first_name,
+                        'email' => $projects->developer->createdBy->email,
+                        'role' => optional($projects->developer->createdBy->role)->name,
+                    ] : null,
+                    'updated_by' => $projects->developer->updatedBy ? [
+                        'id' => $projects->developer->updatedBy->id,
+                        'name' => $projects->developer->updatedBy->first_name,
+                        'email' => $projects->developer->updatedBy->email,
+                        'role' => optional($projects->developer->updatedBy->role)->name,
+                    ] : null,
+                    'keyword' => $projects->developer->importKeywords ?? [],
+
+                ] : null,
+
             ]);
 
         } catch (\Throwable $th) {
@@ -3544,7 +3624,7 @@ class ProjectlistingController extends Controller
                 'city',
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
-            ])->where('live_status','=','Approve')
+            ])->where('live_status', '=', 'Approve')
                 ->where('id', '!=', $referenceProject->id) // same property skip
                 ->where('purpose_id', $referenceProject->purpose_id)
                 ->where('property_id', $referenceProject->property_id)
