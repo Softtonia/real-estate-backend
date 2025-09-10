@@ -16,6 +16,9 @@ class SiteSettingsSeeder extends Seeder
 
         DB::table('site_settings')->insert([
             'ticket_prefix' => 'TCKT',
+            'property_prefix' => 'URPL',
+            'developer_prefix' => 'URPD',
+            'project_prefix' => 'URPP',
             'website_logo' => 'logo.png',
             'mobile_logo' => 'mobile-logo.png',
             'favicon' => 'favicon_icon_UR.png',
