@@ -14,6 +14,9 @@ return new class extends Migration
         Schema::create('site_settings', function (Blueprint $table) {
             $table->id();
             $table->string('ticket_prefix', 10)->default('TCKT');
+            $table->string('property_prefix', 10)->default('URPL');
+            $table->string('developer_prefix', 10)->default('URPD');
+            $table->string('project_prefix', 10)->default('URPP');
             $table->string('website_logo', 50)->nullable();
             $table->string('mobile_logo', 50)->nullable();
             $table->string('favicon', 50)->nullable();

@@ -162,7 +162,7 @@ Route::middleware(['throttle:500,2'])->group(function () {
 
         Route::get('listing-of-trending-project', [UserController::class, 'listingOfAllTrendingProject']);
 
-        Route::middleware('admin.token')->post('update-site-setting', [UserController::class, 'updateSiteSetting']);
+        Route::middleware('admin.token')->post('update-site-setting', [SiteSettingController::class, 'updateSiteSetting']);
         Route::get('site-setting', [SiteSettingController::class, 'siteSetting']);
         Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
 

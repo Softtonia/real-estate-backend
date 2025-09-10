@@ -71,8 +71,28 @@ class ProjectlistingController extends Controller
             // Set status_reason to null if live_status is not "Reject"
             $validatedData['status_reason'] = $request->live_status === 'Reject' ? $request->status_reason : null;
 
-            // Generate unique project ID
-            $project_unique_id = 'Project' . rand(111111, 999999);
+             // prefix get
+            $prefix = DB::table('site_settings')->value('project_prefix');
+            $prefix = $prefix ?? 'URPP';
+
+            // last project_unique_id  (descending order )
+            $lastId = DB::table('project_listings')
+                ->orderBy('id', 'desc')
+                ->value('project_unique_id');
+
+            if ($lastId) {
+
+                $number = (int) str_replace($prefix, '', $lastId);
+
+                // increment
+                $newNumber = $number + 1;
+            } else {
+
+                $newNumber = 000001;
+            }
+
+            // final property id
+            $project_unique_id = $prefix . $newNumber;
 
             // Set temporary_status: "active" by default if not provided
             $validatedData['temporary_status'] = $validatedData['temporary_status'] ?? 'active';
@@ -96,8 +116,8 @@ class ProjectlistingController extends Controller
 
             // user_id handle
             if ($userRole === 'admin') {
-                $validatedData['user_id'] = $request->user_id ;
-                ;
+                $validatedData['user_id'] = $request->user_id ?? $userId;
+
             } else {
                 $validatedData['user_id'] = $userId;
             }

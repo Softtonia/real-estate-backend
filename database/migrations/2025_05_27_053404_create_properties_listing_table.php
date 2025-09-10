@@ -16,6 +16,7 @@ return new class extends Migration
             $table->enum('live_status', ['Approve', 'Disapprove', 'Reject', 'Under Review','Modify Review'])->default('Under Review');
             $table->enum('temporary_status', ['active', 'deactive'])->default('active');
 
+            $table->unsignedBigInteger('user_id')->nullable()->index();
             $table->unsignedBigInteger('created_by')->nullable()->index();
             $table->unsignedBigInteger('updated_by')->nullable()->index();
             $table->unsignedBigInteger('country_id')->nullable()->index();
@@ -39,6 +40,7 @@ return new class extends Migration
 
              // Foreign Key Constraints
              $table->foreign('created_by')->references('id')->on('users')->onDelete('set null');
+             $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
              $table->foreign('updated_by')->references('id')->on('users')->onDelete('set null');
              $table->foreign('country_id')->references('id')->on('countries')->onDelete('set null');
              $table->foreign('state_id')->references('id')->on('states')->onDelete('set null');

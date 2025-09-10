@@ -70,8 +70,29 @@ class DeveloperlistingController extends Controller
             // Ensure `status_reason` is null if live_status is not "Reject"
             $validatedData['status_reason'] = $request->live_status === 'Reject' ? $request->status_reason : null;
 
-            // Generate unique developer ID
-            $developer_unique_id = 'Developer' . rand(111111, 999999);
+
+             // prefix get
+            $prefix = DB::table('site_settings')->value('developer_prefix');
+            $prefix = $prefix ?? 'URPD';
+
+            // last developer_unique_id  (descending order )
+            $lastId = DB::table('developer_listings')
+                ->orderBy('id', 'desc')
+                ->value('developer_unique_id');
+
+            if ($lastId) {
+
+                $number = (int) str_replace($prefix, '', $lastId);
+
+                // increment
+                $newNumber = $number + 1;
+            } else {
+
+                $newNumber = 000001;
+            }
+
+            // final developer id
+            $developer_unique_id = $prefix . $newNumber;
 
             // featured image handle
 
