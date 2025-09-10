@@ -619,6 +619,13 @@ class DeveloperlistingController extends Controller
                     'temporary_status' => $developer->temporary_status,
                     'status_reason' => $developer->status_reason,
                     'user_id' => $developer->user_id,
+                    'user' => $developer->user_id ? [
+                        'id' => $developer->user->id,
+                        'name' => $developer->user->first_name,
+                        'email' => $developer->user->email,
+                        'role' => optional($developer->user->role)->name,
+                    ] :null,
+
                     'created_by' => $developer->created_by,
                     'created_by_role' => optional(optional($developer->createdBy)->role)->name,
                     'updated_by' => $developer->updated_by,
@@ -733,6 +740,12 @@ class DeveloperlistingController extends Controller
                     'temporary_status' => $developer->temporary_status,
                     'status_reason' => $developer->status_reason,
                     'user_id' => $developer->user_id,
+                    'user' => $developer->user_id? [
+                        'id' => $developer->user->id,
+                        'name' => $developer->user->first_name,
+                        'email' => $developer->user->email,
+                        'role' => optional($developer->user->role)->name,
+                    ] :null,
                     'listed_by' => optional(optional($developer->user)->role)->name,
 
                     'created_by' => $developer->created_by,
@@ -798,7 +811,7 @@ class DeveloperlistingController extends Controller
             if ($userData->role->name != 'admin') {
                 $request->merge(['user_id' => $userId]);
             } else {
-                $request->merge(['user_id' => $request->user_id ?? $userId]);
+                $request->merge(['user_id' => $request->user_id]);
             }
             // Validate that status_reason is required when rejecting
             if ($request->live_status == 'reject' && !$request->status_reason) {
@@ -877,6 +890,7 @@ class DeveloperlistingController extends Controller
                 'colony' => $request->colony,
                 'street_address' => $request->street_address,
                 'pin_code' => $request->pin_code,
+                'user_id' => $request->user_id,
             ]);
 
             // Handle keywords
@@ -1806,6 +1820,12 @@ class DeveloperlistingController extends Controller
                 'status_reason' => $developer->status_reason,
                 'temporary_status' => $developer->temporary_status,
                 'user_id' => $developer->user_id,
+                'user' => $developer->user_id  ? [
+                        'id' => $developer->user->id,
+                        'name' => $developer->user->first_name,
+                        'email' => $developer->user->email,
+                        'role' => optional($developer->user->role)->name,
+                    ] :null,
                 'created_by' => $createdByData,
                 'updated_by' => $updatedByData,
                 'listed_by' => optional(optional($developer->user)->role)->name,
@@ -2167,6 +2187,12 @@ class DeveloperlistingController extends Controller
                     'temporary_status' => $developer->temporary_status,
                     'status_reason' => $developer->status_reason,
                     'user_id' => $developer->user_id,
+                    'user' => $developer->user_id  ? [
+                        'id' => $developer->user->id,
+                        'name' => $developer->user->first_name,
+                        'email' => $developer->user->email,
+                        'role' => optional($developer->user->role)->name,
+                    ] :null,
                     'created_by' => $developer->created_by,
                     'created_by_role' => optional(optional($developer->createdBy)->role)->name,
                     'updated_by' => $developer->updated_by,
@@ -2448,6 +2474,12 @@ class DeveloperlistingController extends Controller
                 'status_reason' => $developer->status_reason,
                 'temporary_status' => $developer->temporary_status,
                 'user_id' => $developer->user_id,
+                'user' => $developer->user_id  ? [
+                        'id' => $developer->user->id,
+                        'name' => $developer->user->first_name,
+                        'email' => $developer->user->email,
+                        'role' => optional($developer->user->role)->name,
+                    ] :null,
                 'created_by' => $createdByData,
                 'updated_by' => $updatedByData,
                 'listed_by' => optional(optional($developer->user)->role)->name,

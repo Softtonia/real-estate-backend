@@ -74,6 +74,7 @@ use App\Http\Controllers\Admin\SystemController;
 use App\Http\Controllers\OtpController;
 use App\Http\Controllers\EmailOtpController;
 use App\Http\Controllers\GoogleAuthController;
+use App\Http\Controllers\CustomField\CustomFieldExportImportController;
 
 
 
@@ -468,6 +469,9 @@ Route::middleware(['throttle:500,2'])->group(function () {
         Route::middleware('admin.token')->post('delete-custom-fields-by-id', [CustomFieldController::class, 'deleteCustomFieldById']);
         Route::middleware('admin.token')->post('bulk-delete-custom-fields-by-id', [CustomFieldController::class, 'bulkDeleteCustomFieldByIds']);
 
+        // custom field exaport / import
+
+        Route::middleware('admin.token')->get('/export-custom-fields-csv', [CustomFieldExportImportController::class, 'ExportCustomFieldsCsv']);
 
 
         // custom field will end from here

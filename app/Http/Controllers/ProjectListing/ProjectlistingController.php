@@ -441,7 +441,7 @@ class ProjectlistingController extends Controller
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
                 'importKeywords',
-                'developer.userDetails',
+                'developer',
                 'country',
                 'state',
                 'city'
@@ -449,8 +449,8 @@ class ProjectlistingController extends Controller
                 ->where('live_status', 'Approve')
                 ->paginate($request->get('per_page', 10));
 
-            $projectsData = $projects->map(function ($property) use ($baseURL) {
-                $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL, $property) {
+            $projectsData = $projects->map(function ($project) use ($baseURL) {
+                $formattedCustomFieldValues = $project->customFieldValues->map(function ($customFieldValue) use ($baseURL, $project) {
                     $customField = $customFieldValue->customField;
                     $customFieldOption = $customFieldValue->customFieldOption ?? null;
                     $fieldType = $customField->field_type ?? null;
@@ -598,52 +598,102 @@ class ProjectlistingController extends Controller
                     return $fieldArray;
                 });
 
-                $developer = $property->developer;
-                $developerData = $developer ? [
-                    'id' => $developer->id,
-                    'fullname' => $developer->first_name,
-                    'email' => $developer->email,
-                    'phone' => $developer->phone,
-                    'api_token' => $developer->api_token,
-                    'unique_id' => $developer->unique_id,
-                    'user_details' => optional($developer->userDetails)->toArray(),
-                ] : null;
+
 
                 return [
-                    'id' => $property->id,
-                    'project_unique_id' => $property->project_unique_id,
-                    'name' => $property->name,
-                    'description' => $property->description,
-                    'live_status' => $property->live_status,
-                    'status_reason' => $property->status_reason,
-                    'project_status' => $property->project_status,
-                    'user_id' => $property->user_id,
-                    'created_by' => $property->created_by,
-                    'updated_by' => $property->updated_by,
-                    'listed_by' => optional(optional($property->user)->role)->name,
-                    'purpose_id' => $property->purpose_id,
-                    'purpose_id_name' => optional($property->purpose)->name,
-                    'property_id' => $property->property_id,
-                    'property_id_name' => optional($property->property)->name,
-                    'property_status_id' => $property->property_status_id,
-                    'property_status_id_name' => optional($property->propertystatus)->name,
-                    'property_type_id' => $property->property_type_id,
-                    'property_type_id_name' => optional($property->propertyType)->name,
-                    'total_view' => $property->analytics()->count(),
-                    'date' => date('d m Y', strtotime($property->created_at)),
-                    'time' => date('h:i A', strtotime($property->created_at)),
-                    'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
-                    'developer' => $developerData,
-                    'keyword' => $property->importKeywords,
-                    'address' => $property->address,
-                    'country' => $property->country,
-                    'state' => $property->state,
-                    'city' => $property->city,
-                    'area_locality' => $property->area_locality,
-                    'colony' => $property->colony,
-                    'street_address' => $property->street_address,
-                    'pin_code' => $property->pin_code,
+                    'id' => $project->id,
+                    'project_unique_id' => $project->project_unique_id,
+                    'name' => $project->name,
+                    'description' => $project->description,
+                    'live_status' => $project->live_status,
+                    'status_reason' => $project->status_reason,
+                    'project_status' => $project->project_status,
+
+                    'user_id' => $project->user_id,
+                    'user' => $project->user_id ? [
+                        'id' => $project->user->id,
+                        'name' => $project->user->first_name,
+                        'email' => $project->user->email,
+                        'role' => optional($project->user->role)->name,
+                    ] :null,
+                    'created_by' => $project->created_by,
+                    'updated_by' => $project->updated_by,
+                    'listed_by' => optional(optional($project->user)->role)->name,
+                    'purpose_id' => $project->purpose_id,
+                    'purpose_id_name' => optional($project->purpose)->name,
+                    'property_id' => $project->property_id,
+                    'property_id_name' => optional($project->property)->name,
+                    'property_status_id' => $project->property_status_id,
+                    'property_status_id_name' => optional($project->propertystatus)->name,
+                    'property_type_id' => $project->property_type_id,
+                    'property_type_id_name' => optional($project->propertyType)->name,
+                    'total_view' => $project->analytics()->count(),
+                    'date' => date('d m Y', strtotime($project->created_at)),
+                    'time' => date('h:i A', strtotime($project->created_at)),
+                    'timestamp' => date('d m Y h:i A', strtotime($project->created_at)),
+                    'keyword' => $project->importKeywords,
+                    'address' => $project->address,
+                    'country' => $project->country,
+                    'state' => $project->state,
+                    'city' => $project->city,
+                    'area_locality' => $project->area_locality,
+                    'colony' => $project->colony,
+                    'street_address' => $project->street_address,
+                    'pin_code' => $project->pin_code,
                     'custom_field_values' => $formattedCustomFieldValues,
+                    'developer_id' => $project->developer_id,
+                     'developer' => $project->developer ? [
+                        'id' => $project->developer->id,
+                        'developer_unique_id' => $project->developer->developer_unique_id,
+                        'name' => $project->developer->name,
+                        'description' => $project->developer->description,
+                        'purpose_id' => $project->developer->purpose_id,
+                        'purpose_id_name' => optional($project->developer->purpose)->name,
+                        'property_id' => $project->developer->property_id,
+                        'property_id_name' => optional($project->developer->property)->name,
+                        'property_status_id' => $project->developer->property_status_id,
+                        'property_status_id_name' => optional($project->developer->propertystatus)->name,
+                        'property_type_id' => $project->developer->property_type_id,
+                        'property_type_id_name' => optional($project->developer->propertyType)->name,
+                        'country_id' => $project->developer->country_id,
+                        'country_name' => optional($project->developer->country)->name,
+                        'state_id' => $project->developer->state_id,
+                        'state_name' => optional($project->developer->state)->name,
+                        'city_id' => $project->developer->city_id,
+                        'city_name' => optional($project->developer->city)->name,
+                        'address' => $project->developer->address,
+                        'area_locality' => $project->developer->area_locality,
+                        'colony' => $project->developer->colony,
+                        'street_address' => $project->developer->street_address,
+                        'pin_code' => $project->developer->pin_code,
+                        'featured_image' => $project->developer->featured_image
+                            ? url($project->developer->featured_image)
+                            : null,
+                        'live_status' => $project->developer->live_status,
+                        'temporary_status' => $project->developer->temporary_status,
+                        'status_reason' => $project->developer->status_reason,
+                        'user_id' => $project->developer->user_id,
+                        'user' => $project->developer->user_id ? [
+                            'id' => $project->developer->user->id,
+                            'name' => $project->developer->user->first_name,
+                            'email' => $project->developer->user->email,
+                            'role' => optional($project->developer->user->role)->name,
+                        ] :null,
+                        'created_by' => $project->developer->createdBy ? [
+                            'id' => $project->developer->createdBy->id,
+                            'name' => $project->developer->createdBy->first_name,
+                            'email' => $project->developer->createdBy->email,
+                            'role' => optional($project->developer->createdBy->role)->name,
+                        ] : null,
+                        'updated_by' => $project->developer->updatedBy ? [
+                            'id' => $project->developer->updatedBy->id,
+                            'name' => $project->developer->updatedBy->first_name,
+                            'email' => $project->developer->updatedBy->email,
+                            'role' => optional($project->developer->updatedBy->role)->name,
+                        ] : null,
+                        'keyword' => $project->developer->importKeywords ?? [],
+
+                    ] : null,
                 ];
             });
 
@@ -750,15 +800,15 @@ class ProjectlistingController extends Controller
                 'customFieldValues.customField',
                 'customFieldValues.customFieldOption',
                 'importKeywords',
-                'developer.userDetails',
+                'developer',
                 'createdBy.role',
                 'updatedBy.role',
                 // 'address' // Added role relationships
             ])
                 ->get(); // No live_status filter
 
-            $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
-                $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
+            $projectsData = $projects->map(function ($project) use ($baseURL, $basePath) {
+                $formattedCustomFieldValues = $project->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
                     $customField = $customFieldValue->customField;
 
                     $fieldValue = $customFieldValue->field_meta_value;
@@ -779,57 +829,106 @@ class ProjectlistingController extends Controller
                     ];
                 });
 
-                $developer = $property->developer;
-                $developerData = $developer ? [
-                    'id' => $developer->id,
-                    'fullname' => $developer->fullname,
-                    'email' => $developer->email,
-                    'phone' => $developer->phone,
-                    'api_token' => $developer->api_token,
-                    'unique_id' => $developer->unique_id,
-                    'user_details' => optional($developer->userDetails)->toArray(),
-                ] : null;
+
 
                 return [
-                    'id' => $property->id,
-                    'project_unique_id' => $property->project_unique_id,
-                    'name' => $property->name,
-                    'description' => $property->description,
-                    'address' => $property->address,
-                    'country' => $property->country,
-                    'state' => $property->state,
-                    'city' => $property->city,
-                    'area_locality' => $property->area_locality,
-                    'colony' => $property->colony,
-                    'street_address' => $property->street_address,
-                    'pin_code' => $property->pin_code,
-                    'live_status' => $property->live_status,
-                    'temporary_status' => $property->temporary_status,
-                    'status_reason' => $property->status_reason,
-                    'project_status' => $property->project_status,
-                    'user_id' => $property->user_id,
-                    'created_by' => $property->created_by,
-                    'created_by_role' => optional($property->createdBy)->role->name ?? 'N/A', // Role name or 'N/A'
-                    'updated_by' => $property->updated_by,
-                    'updated_by_role' => optional($property->updatedBy)->role->name ?? 'N/A', // Role name or 'N/A'
-                    'listed_by' => optional(optional($property->user)->role)->name ?? 'N/A',
-                    'purpose_id' => $property->purpose_id,
-                    'purpose_id_name' => optional($property->purpose)->name,
-                    'property_id' => $property->property_id,
-                    'property_id_name' => optional($property->property)->name,
-                    'property_status_id' => $property->property_status_id,
-                    'property_status_id_name' => optional($property->propertystatus)->name,
-                    'property_type_id' => $property->property_type_id,
-                    'property_type_id_name' => optional($property->propertyType)->name,
-                    'total_view' => $property->analytics()->count(),
-                    'date' => date('d m Y', strtotime($property->created_at)),
-                    'time' => date('h:m A', strtotime($property->created_at)),
-                    'timestamp' => date('d m Y h:m A', strtotime($property->created_at)),
-                    'developer' => $developerData,
-                    'keyword' => $property->importKeywords,
+                    'id' => $project->id,
+                    'project_unique_id' => $project->project_unique_id,
+                    'name' => $project->name,
+                    'description' => $project->description,
+                    'address' => $project->address,
+                    'country' => $project->country,
+                    'state' => $project->state,
+                    'city' => $project->city,
+                    'area_locality' => $project->area_locality,
+                    'colony' => $project->colony,
+                    'street_address' => $project->street_address,
+                    'pin_code' => $project->pin_code,
+                    'live_status' => $project->live_status,
+                    'temporary_status' => $project->temporary_status,
+                    'status_reason' => $project->status_reason,
+                    'project_status' => $project->project_status,
+                    'user_id' => $project->user_id,
+                    'user' => $project->user_id ? [
+                        'id' => $project->user->id,
+                        'name' => $project->user->first_name,
+                        'email' => $project->user->email,
+                        'role' => optional($project->user->role)->name,
+                    ] :null,
+                    'created_by' => $project->created_by,
+                    'created_by_role' => optional($project->createdBy)->role->name ?? 'N/A', // Role name or 'N/A'
+                    'updated_by' => $project->updated_by,
+                    'updated_by_role' => optional($project->updatedBy)->role->name ?? 'N/A', // Role name or 'N/A'
+                    'listed_by' => optional(optional($project->user)->role)->name ?? 'N/A',
+                    'purpose_id' => $project->purpose_id,
+                    'purpose_id_name' => optional($project->purpose)->name,
+                    'property_id' => $project->property_id,
+                    'property_id_name' => optional($project->property)->name,
+                    'property_status_id' => $project->property_status_id,
+                    'property_status_id_name' => optional($project->propertystatus)->name,
+                    'property_type_id' => $project->property_type_id,
+                    'property_type_id_name' => optional($project->propertyType)->name,
+                    'total_view' => $project->analytics()->count(),
+                    'date' => date('d m Y', strtotime($project->created_at)),
+                    'time' => date('h:m A', strtotime($project->created_at)),
+                    'timestamp' => date('d m Y h:m A', strtotime($project->created_at)),
+                    'keyword' => $project->importKeywords,
                     'custom_field_values' => $formattedCustomFieldValues,
-                    'top_featured_id' => $property->top_featured_id,
-                    'featured' => $property->top_featured_id !== null, // true if not null, else false
+                    'top_featured_id' => $project->top_featured_id,
+                    'featured' => $project->top_featured_id !== null, // true if not null, else false
+                    'developer_id' => $project->developer_id,
+                    'developer' => $project->developer ? [
+                        'id' => $project->developer->id,
+                        'developer_unique_id' => $project->developer->developer_unique_id,
+                        'name' => $project->developer->name,
+                        'description' => $project->developer->description,
+                        'purpose_id' => $project->developer->purpose_id,
+                        'purpose_id_name' => optional($project->developer->purpose)->name,
+                        'property_id' => $project->developer->property_id,
+                        'property_id_name' => optional($project->developer->property)->name,
+                        'property_status_id' => $project->developer->property_status_id,
+                        'property_status_id_name' => optional($project->developer->propertystatus)->name,
+                        'property_type_id' => $project->developer->property_type_id,
+                        'property_type_id_name' => optional($project->developer->propertyType)->name,
+                        'country_id' => $project->developer->country_id,
+                        'country_name' => optional($project->developer->country)->name,
+                        'state_id' => $project->developer->state_id,
+                        'state_name' => optional($project->developer->state)->name,
+                        'city_id' => $project->developer->city_id,
+                        'city_name' => optional($project->developer->city)->name,
+                        'address' => $project->developer->address,
+                        'area_locality' => $project->developer->area_locality,
+                        'colony' => $project->developer->colony,
+                        'street_address' => $project->developer->street_address,
+                        'pin_code' => $project->developer->pin_code,
+                        'featured_image' => $project->developer->featured_image
+                            ? url($project->developer->featured_image)
+                            : null,
+                        'live_status' => $project->developer->live_status,
+                        'temporary_status' => $project->developer->temporary_status,
+                        'status_reason' => $project->developer->status_reason,
+                        'user_id' => $project->developer->user_id,
+                        'user' => $project->developer->user_id ? [
+                            'id' => $project->developer->user->id,
+                            'name' => $project->developer->user->first_name,
+                            'email' => $project->developer->user->email,
+                            'role' => optional($project->developer->user->role)->name,
+                        ] :null,
+                        'created_by' => $project->developer->createdBy ? [
+                            'id' => $project->developer->createdBy->id,
+                            'name' => $project->developer->createdBy->first_name,
+                            'email' => $project->developer->createdBy->email,
+                            'role' => optional($project->developer->createdBy->role)->name,
+                        ] : null,
+                        'updated_by' => $project->developer->updatedBy ? [
+                            'id' => $project->developer->updatedBy->id,
+                            'name' => $project->developer->updatedBy->first_name,
+                            'email' => $project->developer->updatedBy->email,
+                            'role' => optional($project->developer->updatedBy->role)->name,
+                        ] : null,
+                        'keyword' => $project->developer->importKeywords ?? [],
+
+                    ] : null,
                 ];
             });
 
@@ -922,7 +1021,7 @@ class ProjectlistingController extends Controller
 
             // user_id handle
             if ($userRole === 'admin') {
-                $validatedData['user_id'] = $request->user_id ?? Auth::user()->id;
+                $validatedData['user_id'] = $request->user_id ;
                 ;
             } else {
                 $validatedData['user_id'] = $userId;
@@ -950,6 +1049,7 @@ class ProjectlistingController extends Controller
                 'colony' => $request->colony,
                 'street_address' => $request->street_address,
                 'pin_code' => $request->pin_code,
+                'user_id' => $request->user_id ?? $project->user_id,
             ];
 
             // Update project
@@ -1435,374 +1535,7 @@ class ProjectlistingController extends Controller
     }
 
 
-    // this is for get data by id
-    // public function getdatabyId(Request $request)
-    // {
-    //     try {
-    //         if (!$request->id) {
-    //             return response()->json(['error' => 'ID is required'], 400);
-    //         }
 
-    //         $baseURL = config('app.url');
-
-    //         $projects = ProjectList::with([
-    //             'user.userDetail',
-    //             'createdBy.role',
-    //             'updatedBy.role',
-    //             'propertyType',
-    //             'purpose',
-    //             'property',
-    //             'propertystatus',
-    //             'customFieldValues.customField',
-    //             'customFieldValues.customFieldOption',
-    //             'importKeywords',
-    //             'developer.userDetails',
-    //             'country',
-    //             'state',
-    //             'city',
-    //             // 'address',
-    //         ])->where('id', $request->id)->first(); // Fetch only one record
-
-    //         if (!$projects) {
-    //             return response()->json(['error' => 'Project not found'], 200);
-    //         }
-
-    //         // ✅ Handle Created By and Updated By
-    //         $createdByData = $projects->createdBy ? [
-    //             'id' => $projects->createdBy->id,
-    //             'name' => $projects->createdBy->first_name,
-    //             'email' => $projects->createdBy->email,
-    //             'role' => optional($projects->createdBy->role)->name,
-    //         ] : null;
-
-    //         $updatedByData = $projects->updatedBy ? [
-    //             'id' => $projects->updatedBy->id,
-    //             'name' => $projects->updatedBy->first_name,
-    //             'email' => $projects->updatedBy->email,
-    //             'role' => optional($projects->updatedBy->role)->name,
-    //         ] : null;
-
-
-    //         if (!empty($projects->featured_image)) {
-    //             $projects->featured_image = filter_var($projects->featured_image, FILTER_VALIDATE_URL)
-    //                 ? $projects->featured_image
-    //                 : url($projects->featured_image);
-    //         }
-
-    //         // ✅ Fetch repeater fields dynamically
-    //         $repeaterFields = $projects->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
-    //             $customField = optional($customFieldValue->customField);
-    //             $fieldType = $customField->field_type ?? 'unknown';
-    //             $fieldValue = $customFieldValue->field_meta_value ?? '';
-    //             $allAvailableOptions = [];
-
-    //             // ✅ Fetch all available options dynamically
-    //             $availableOptions = DB::table('custom_field_options')
-    //                 ->where('custom_field_id', $customFieldValue->custom_field_id)
-    //                 ->where('status', 1) // Only fetch active options
-    //                 ->get(['id', 'name', 'value']);
-    //             // dd( $availableOptions);
-    //             if ($availableOptions->isNotEmpty()) {
-    //                 foreach ($availableOptions as $option) {
-    //                     $allAvailableOptions[] = [
-    //                         // 'id' => $option->id,
-    //                         'name' => $option->name,
-    //                         'value' => $option->value,
-    //                     ];
-    //                 }
-    //             }
-
-    //             // ✅ Handle multiple field types correctly
-    //             if (in_array($fieldType, ['select', 'radio'])) {
-    //                 $customFieldOption = DB::table('custom_field_options')
-    //                     ->where('id', $customFieldValue->custom_field_options_id)
-    //                     ->where('status', 1)
-    //                     ->first();
-    //                 $fieldValue = optional($customFieldOption)->name;
-    //             } elseif ($fieldType === 'checkbox') {
-    //                 $optionIds = explode(',', $customFieldValue->custom_field_options_id);
-    //                 $fieldValue = DB::table('custom_field_options')
-    //                     ->whereIn('id', $optionIds)
-    //                     ->where('status', 1)
-    //                     ->pluck('name')
-    //                     ->toArray();
-    //             } elseif (in_array($fieldType, ['media', 'file'])) {
-    //                 $fieldValue = json_decode($fieldValue, true) ?? [];
-    //                 if (!empty($fieldValue)) {
-    //                     $fieldValue = array_map(fn($fileName) => $baseURL . '/uploads/media/' . $fileName, (array) $fieldValue);
-    //                 }
-    //             }
-
-    //             return [
-    //                 'custom_field_id' => $customFieldValue->custom_field_id,
-    //                 'field_label' => $customField->field_label ?? 'Unknown Field',
-    //                 'placeholder' => $customField->field_placeholder,
-    //                 'field_type' => $fieldType,
-    //                 'field_value' => $fieldValue,
-    //                 'options' => $allAvailableOptions,
-    //             ];
-    //         });
-
-    //         return response()->json([
-    //             'id' => $projects->id,
-    //             'project_unique_id' => $projects->project_unique_id,
-    //             'name' => $projects->name,
-    //             'description' => $projects->description,
-    //             'address' => $projects->address,
-    //             'country_id' => $projects->country_id,
-    //             'country_name' => optional($projects->country)->name,
-    //             'state_id' => $projects->state_id,
-    //             'state_name' => optional($projects->state)->name,
-    //             'city_id' => $projects->city_id,
-    //             'city_name' => optional($projects->city)->name,
-    //             'featured_image' => $projects->featured_image,
-    //             'live_status' => $projects->live_status,
-    //             'status_reason' => $projects->status_reason,
-    //             'project_status' => $projects->project_status,
-    //             'user_id' => $projects->user_id,
-    //             'created_by' => $createdByData,
-    //             'updated_by' => $updatedByData,
-    //             'listed_by' => optional(optional($projects->user)->role)->name,
-    //             'purpose_id' => $projects->purpose_id,
-    //             'purpose_id_name' => optional($projects->purpose)->name,
-    //             'property_id' => $projects->property_id,
-    //             'property_id_name' => optional($projects->property)->name,
-    //             'property_status_id' => $projects->property_status_id,
-    //             'property_status_id_name' => optional($projects->propertystatus)->name,
-    //             'property_type_id' => $projects->property_type_id,
-    //             'property_type_id_name' => optional($projects->propertyType)->name,
-    //             'total_view' => $projects->analytics()->count(),
-    //             'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
-    //             'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
-    //             'timestamp' => $projects->created_at ? $projects->created_at->format('d m Y h:i A') : null,
-    //             'developer' => null,
-    //             'keyword' => $projects->importKeywords->pluck('id')->toArray() ?? [],
-    //             'repeater_fields' => $repeaterFields, // ✅ Added repeater fields dynamically
-    //         ]);
-
-    //     } catch (\Throwable $th) {
-    //         return response()->json(['error' => $th->getMessage()], 500);
-    //     }
-    // }
-
-    ######### new code get data by id ################
-    // public function getdatabyId(Request $request)
-    // {
-    //     try {
-    //         if (!$request->id) {
-    //             return response()->json(['error' => 'ID is required'], 400);
-    //         }
-
-    //         $baseURL = config('app.url');
-
-    //         $projects = ProjectList::with([
-    //             'user.userDetail',
-    //             'createdBy.role',
-    //             'updatedBy.role',
-    //             'propertyType',
-    //             'purpose',
-    //             'property',
-    //             'propertystatus',
-    //             'customFieldValues.customField',
-    //             'customFieldValues.customFieldOption',
-    //             'importKeywords',
-    //             'developer.userDetails',
-    //             'country',
-    //             'state',
-    //             'city',
-    //         ])->where('id', $request->id)->first();
-
-    //         if (!$projects) {
-    //             return response()->json(['error' => 'Project not found'], 200);
-    //         }
-
-    //         $createdByData = $projects->createdBy ? [
-    //             'id' => $projects->createdBy->id,
-    //             'name' => $projects->createdBy->first_name,
-    //             'email' => $projects->createdBy->email,
-    //             'role' => optional($projects->createdBy->role)->name,
-    //         ] : null;
-
-    //         $updatedByData = $projects->updatedBy ? [
-    //             'id' => $projects->updatedBy->id,
-    //             'name' => $projects->updatedBy->first_name,
-    //             'email' => $projects->updatedBy->email,
-    //             'role' => optional($projects->updatedBy->role)->name,
-    //         ] : null;
-
-    //         if (!empty($projects->featured_image)) {
-    //             $projects->featured_image = filter_var($projects->featured_image, FILTER_VALIDATE_URL)
-    //                 ? $projects->featured_image
-    //                 : url($projects->featured_image);
-    //         }
-
-    //         $repeaterFields = $projects->customFieldValues->map(function ($customFieldValue) use ($baseURL, $projects) {
-    //             $customField = optional($customFieldValue->customField);
-    //             $fieldType = $customField->field_type ?? 'unknown';
-    //             $fieldValue = $customFieldValue->field_meta_value ?? '';
-    //             $allAvailableOptions = [];
-
-    //             if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
-    //                 $availableOptions = DB::table('custom_field_options')
-    //                     ->where('custom_field_id', $customFieldValue->custom_field_id)
-    //                     ->get(['id', 'name', 'value']);
-
-    //                 foreach ($availableOptions as $option) {
-    //                     $allAvailableOptions[] = [
-    //                         'name' => $option->name,
-    //                         'value' => $option->value,
-    //                     ];
-    //                 }
-    //             }
-
-    //             if ($fieldType === 'repeater') {
-    //                 $nestedRows = DB::table('custom_field_repeater_values')
-    //                     ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
-    //                     ->where('project_listing_id', $projects->id)
-    //                     ->get()
-    //                     ->groupBy('unique_id');
-
-    //                 $repeaterData = [];
-
-    //                 foreach ($nestedRows as $groupId => $rows) {
-    //                     $groupData = [];
-
-    //                     foreach ($rows as $row) {
-    //                         $value = $row->field_meta_value;
-    //                         $fieldTypeNested = $row->field_type;
-    //                         $nestedOptions = [];
-
-    //                         if (in_array($fieldTypeNested, ['select', 'radio'])) {
-    //                             $option = DB::table('custom_field_repeater_options')
-    //                                 ->where('id', $row->custom_field_repeater_options_id)
-    //                                 ->first();
-    //                             $value = optional($option)->name ?? $value;
-
-    //                             $nestedOptions = DB::table('custom_field_repeater_options')
-    //                                 ->where('custom_field_repeater_id', $row->custom_field_id)
-    //                                 ->get(['name', 'value'])
-    //                                 ->map(fn($opt) => [
-    //                                     'name' => $opt->name,
-    //                                     'value' => $opt->value,
-    //                                 ])->toArray();
-    //                         } elseif ($fieldTypeNested === 'checkbox') {
-    //                             $ids = explode(',', $row->custom_field_repeater_options_id);
-    //                             $value = DB::table('custom_field_repeater_options')
-    //                                 ->whereIn('id', $ids)
-    //                                 ->pluck('name')
-    //                                 ->toArray();
-
-    //                             $nestedOptions = DB::table('custom_field_repeater_options')
-    //                                 ->where('custom_field_repeater_id', $row->custom_field_id)
-    //                                 ->get(['name', 'value'])
-    //                                 ->map(fn($opt) => [
-    //                                     'name' => $opt->name,
-    //                                     'value' => $opt->value,
-    //                                 ])->toArray();
-    //                         } elseif ($fieldTypeNested === 'file') {
-    //                             $value = $value ? url($value) : null;
-    //                         } elseif ($fieldTypeNested === 'media') {
-    //                             $decoded = json_decode($value, true);
-    //                             $value = is_array($decoded)
-    //                                 ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-    //                                 : [];
-    //                         }
-
-    //                         $groupData[] = [
-    //                             'sub_field_id' => $row->custom_field_id,
-    //                             'field_type' => $fieldTypeNested,
-    //                             'field_value' => $value,
-    //                             'options' => $nestedOptions,
-    //                         ];
-    //                     }
-
-    //                     $repeaterData[] = $groupData;
-    //                 }
-
-    //                 return [
-    //                     'custom_field_id' => $customFieldValue->custom_field_id,
-    //                     'field_label' => $customField->field_label ?? 'Unknown Field',
-    //                     'placeholder' => $customField->field_placeholder,
-    //                     'field_type' => $fieldType,
-    //                     'field_value' => $repeaterData,
-    //                     'options' => [],
-    //                 ];
-    //             }
-
-    //             if (in_array($fieldType, ['select', 'radio'])) {
-    //                 $customFieldOption = DB::table('custom_field_options')
-    //                     ->where('id', $customFieldValue->custom_field_options_id)
-    //                     ->first();
-    //                 $fieldValue = optional($customFieldOption)->name;
-    //             } elseif ($fieldType === 'checkbox') {
-    //                 $optionIds = explode(',', $customFieldValue->custom_field_options_id);
-    //                 $fieldValue = DB::table('custom_field_options')
-    //                     ->whereIn('id', $optionIds)
-    //                     ->pluck('name')
-    //                     ->toArray();
-    //             } elseif ($fieldType === 'media') {
-    //                 $fieldValue = json_decode($fieldValue, true) ?? [];
-    //                 if (!empty($fieldValue)) {
-    //                     $fieldValue = array_map(fn($fileName) => $baseURL . '/uploads/media/' . $fileName, (array) $fieldValue);
-    //                 }
-    //             } elseif ($fieldType === 'file') {
-    //                 $fieldValue = is_string($fieldValue) && !empty($fieldValue)
-    //                     ? $baseURL . '/storage/' . ltrim($fieldValue, '/')
-    //                     : null;
-    //             }
-
-    //             return [
-    //                 'custom_field_id' => $customFieldValue->custom_field_id,
-    //                 'field_label' => $customField->field_label ?? 'Unknown Field',
-    //                 'placeholder' => $customField->field_placeholder,
-    //                 'field_type' => $fieldType,
-    //                 'field_value' => $fieldValue,
-    //                 'options' => $allAvailableOptions,
-
-    //             ];
-    //         });
-
-    //         return response()->json([
-    //             'id' => $projects->id,
-    //             'project_unique_id' => $projects->project_unique_id,
-    //             'name' => $projects->name,
-    //             'description' => $projects->description,
-    //             'address' => $projects->address,
-    //             'country_id' => $projects->country_id,
-    //             'country_name' => optional($projects->country)->name,
-    //             'state_id' => $projects->state_id,
-    //             'state_name' => optional($projects->state)->name,
-    //             'city_id' => $projects->city_id,
-    //             'city_name' => optional($projects->city)->name,
-    //             'featured_image' => $projects->featured_image,
-    //             'live_status' => $projects->live_status,
-    //             'status_reason' => $projects->status_reason,
-    //             'project_status' => $projects->project_status,
-    //             'user_id' => $projects->user_id,
-    //             'created_by' => $createdByData,
-    //             'updated_by' => $updatedByData,
-    //             'listed_by' => optional(optional($projects->user)->role)->name,
-    //             'purpose_id' => $projects->purpose_id,
-    //             'purpose_id_name' => optional($projects->purpose)->name,
-    //             'property_id' => $projects->property_id,
-    //             'property_id_name' => optional($projects->property)->name,
-    //             'property_status_id' => $projects->property_status_id,
-    //             'property_status_id_name' => optional($projects->propertystatus)->name,
-    //             'property_type_id' => $projects->property_type_id,
-    //             'property_type_id_name' => optional($projects->propertyType)->name,
-    //             'total_view' => $projects->analytics()->count(),
-    //             'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
-    //             'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
-    //             'timestamp' => $projects->created_at ? $projects->created_at->format('d m Y h:i A') : null,
-    //             'developer' => null,
-    //             'keyword' => $projects->importKeywords->pluck('id')->toArray() ?? [],
-    //             'repeater_fields' => $repeaterFields,
-    //         ]);
-
-    //     } catch (\Throwable $th) {
-    //         return response()->json(['error' => $th->getMessage()], 500);
-    //     }
-    // }
 
     public function getdatabyId(Request $request)
     {
@@ -1827,7 +1560,7 @@ class ProjectlistingController extends Controller
                 'customFieldValues.customField',
                 'customFieldValues.customFieldOption',
                 'importKeywords',
-                'developer.userDetails',
+                'developer',
                 'country',
                 'state',
                 'city',
@@ -2055,6 +1788,12 @@ class ProjectlistingController extends Controller
                 'status_reason' => $projects->status_reason,
                 'project_status' => $projects->project_status,
                 'user_id' => $projects->user_id,
+                'user' => $projects->user_id ? [
+                        'id' => $projects->user->id,
+                        'name' => $projects->user->first_name,
+                        'email' => $projects->user->email,
+                        'role' => optional($projects->user->role)->name,
+                    ] :null,
                 'created_by' => $createdByData,
                 'updated_by' => $updatedByData,
                 'listed_by' => optional(optional($projects->user)->role)->name,
@@ -2070,9 +1809,61 @@ class ProjectlistingController extends Controller
                 'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
                 'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
                 'timestamp' => $projects->created_at ? $projects->created_at->format('d m Y h:i A') : null,
-                'developer' => $projects->developer_id,
                 'keyword' => $projects->importKeywords,
                 'repeater_fields' => $repeaterFields,
+                'developer_id' => $projects->developer_id,
+                  'developer' => $projects->developer ? [
+                        'id' => $projects->developer->id,
+                        'developer_unique_id' => $projects->developer->developer_unique_id,
+                        'name' => $projects->developer->name,
+                        'description' => $projects->developer->description,
+                        'purpose_id' => $projects->developer->purpose_id,
+                        'purpose_id_name' => optional($projects->developer->purpose)->name,
+                        'property_id' => $projects->developer->property_id,
+                        'property_id_name' => optional($projects->developer->property)->name,
+                        'property_status_id' => $projects->developer->property_status_id,
+                        'property_status_id_name' => optional($projects->developer->propertystatus)->name,
+                        'property_type_id' => $projects->developer->property_type_id,
+                        'property_type_id_name' => optional($projects->developer->propertyType)->name,
+                        'country_id' => $projects->developer->country_id,
+                        'country_name' => optional($projects->developer->country)->name,
+                        'state_id' => $projects->developer->state_id,
+                        'state_name' => optional($projects->developer->state)->name,
+                        'city_id' => $projects->developer->city_id,
+                        'city_name' => optional($projects->developer->city)->name,
+                        'address' => $projects->developer->address,
+                        'area_locality' => $projects->developer->area_locality,
+                        'colony' => $projects->developer->colony,
+                        'street_address' => $projects->developer->street_address,
+                        'pin_code' => $projects->developer->pin_code,
+                        'featured_image' => $projects->developer->featured_image
+                            ? url($projects->developer->featured_image)
+                            : null,
+                        'live_status' => $projects->developer->live_status,
+                        'temporary_status' => $projects->developer->temporary_status,
+                        'status_reason' => $projects->developer->status_reason,
+                        'user_id' => $projects->developer->user_id,
+                        'user' => $projects->developer->user_id ? [
+                            'id' => $projects->developer->user->id,
+                            'name' => $projects->developer->user->first_name,
+                            'email' => $projects->developer->user->email,
+                            'role' => optional($projects->developer->user->role)->name,
+                        ] :null,
+                        'created_by' => $projects->developer->createdBy ? [
+                            'id' => $projects->developer->createdBy->id,
+                            'name' => $projects->developer->createdBy->first_name,
+                            'email' => $projects->developer->createdBy->email,
+                            'role' => optional($projects->developer->createdBy->role)->name,
+                        ] : null,
+                        'updated_by' => $projects->developer->updatedBy ? [
+                            'id' => $projects->developer->updatedBy->id,
+                            'name' => $projects->developer->updatedBy->first_name,
+                            'email' => $projects->developer->updatedBy->email,
+                            'role' => optional($projects->developer->updatedBy->role)->name,
+                        ] : null,
+                        'keyword' => $projects->developer->importKeywords ?? [],
+
+                    ] : null,
             ]);
 
         } catch (\Throwable $th) {
