@@ -10,7 +10,7 @@ class City extends Model
     use HasFactory;
     protected $fillable = [
         'name',
-        'state_id',
+        'state_id','is_popular', 'is_nearby'
     ];
 
     public function state()
