@@ -186,4 +186,36 @@ class HelpArticleController extends Controller
         }
     }
 
+
+    public function getArticles(Request $request)
+    {
+        try {
+            $query = HelpArticle::select('id','title','description');
+
+            // Filter by category_id
+            if ($request->filled('help_category_id')) {
+                $query->where('help_category_id', $request->help_category_id);
+            }
+
+            // Filter by subcategory_id
+            if ($request->filled('help_subcategory_id')) {
+                $query->where('help_subcategory_id', $request->help_subcategory_id);
+            }
+
+            // Filter by childcategory_id
+            if ($request->filled('help_childcategory_id')) {
+                $query->where('help_childcategory_id', $request->help_childcategory_id);
+            }
+
+            // Paginate (default 10 per page, can override with ?per_page=20)
+            $perPage = $request->input('per_page', 10);
+            $data = $query->paginate($perPage);
+
+            return response()->json($data);
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
 }

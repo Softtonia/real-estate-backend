@@ -656,6 +656,7 @@ Route::middleware(['throttle:500,2'])->group(function () {
         Route::middleware('admin.token')->post('help-article-delete', [HelpArticleController::class, 'delete']);
         Route::get('get-help-article-by-id/{id}', [HelpArticleController::class, 'getdatabyId']);
         Route::middleware('admin.token')->post('help-article-bulk-delete', [HelpArticleController::class, 'bulkDelete']);
+        Route::get('get-help-article',[HelpArticleController::class,'getArticles']);
 
 
         // ==========Like/Dislike===============
