@@ -471,7 +471,8 @@ Route::middleware(['throttle:500,2'])->group(function () {
 
         // custom field exaport / import
 
-        Route::middleware('admin.token')->get('/export-custom-fields-csv', [CustomFieldExportImportController::class, 'ExportCustomFieldsCsv']);
+        Route::middleware('admin.token')->get('/export-custom-fields-csv', [CustomFieldExportImportController::class, 'exportToCsv']);
+         Route::middleware('admin.token')->post('/import-custom-fields-csv', [CustomFieldExportImportController::class, 'importFromCsv']);
 
 
         // custom field will end from here
