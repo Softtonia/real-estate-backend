@@ -16,7 +16,7 @@ class LocationSeeder extends Seeder
      */
     public function run(): void
     {
-        $filePath = storage_path('app/locationCsvFile/locations.csv'); // file storage/app/locations.csv me hona chahiye
+        $filePath = storage_path('app/locationCsvFile/location1.csv'); // file storage/app/locations.csv me hona chahiye
 
         if (!file_exists($filePath)) {
             $this->command->error("CSV file not found at: $filePath");
@@ -45,7 +45,11 @@ class LocationSeeder extends Seeder
                 // City check/create
                 City::firstOrCreate(
                     ['name' => $data['city'], 'state_id' => $state->id],
-                    ['name' => $data['city'], 'state_id' => $state->id]
+                    ['name' => $data['city'],
+                    'state_id' => $state->id,
+                    'is_popular' => isset($data['is_popular']) ? (bool) $data['is_popular'] : 0,
+        'is_nearby'  => isset($data['is_nearby']) ? (bool) $data['is_nearby'] : 0,
+                    ]
                 );
             }
 

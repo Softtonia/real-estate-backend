@@ -732,6 +732,9 @@ Route::middleware(['throttle:500,2'])->group(function () {
 
          Route::middleware('admin.token')->post('/cities/{id}/update-flags', [LocationController::class, 'updateCityFlags']);
 
+         Route::middleware('admin.token')->get('/export-location-csv', [LocationController::class, 'locationExportToCSV']);
+
+
 
 
 

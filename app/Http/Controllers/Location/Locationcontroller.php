@@ -18,6 +18,7 @@ use Spatie\Permission\Models\Permission;
 use Storage;
 use Str;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
@@ -70,10 +71,81 @@ class LocationController extends Controller
     // Bulk upload country , state and city
 
 
+    // public function bulkUploadCSC(Request $request)
+    // {
+    //     try {
+
+    //         $request->validate([
+    //             'file' => 'required|file|mimes:csv,txt',
+    //         ]);
+
+    //         $file = $request->file('file');
+    //         $path = $file->getRealPath();
+    //         $rows = array_map('str_getcsv', file($path));
+    //         $header = array_map('strtolower', array_map('trim', $rows[0]));
+    //         unset($rows[0]);
+
+    //         DB::beginTransaction();
+
+    //         foreach ($rows as $row) {
+    //             $data = array_combine($header, $row);
+
+    //             // Country check
+    //             $country = Country::where('name', $data['country'])->first();
+    //             if (!$country) {
+    //                 $country = Country::create(['name' => $data['country']]);
+    //             }
+
+    //             // State check
+    //             $state = State::where('name', $data['state'])->where('country_id', $country->id)->first();
+    //             if (!$state) {
+    //                 $state = State::create([
+    //                     'name' => $data['state'],
+    //                     'country_id' => $country->id,
+    //                 ]);
+    //             }
+
+    //             // City check
+    //             $city = City::where('name', $data['city'])->where('state_id', $state->id)->first();
+    //             // if (!$city) {
+    //             //     City::create([
+    //             //         'name' => $data['city'],
+    //             //         'state_id' => $state->id,
+    //             //     ]);
+    //             // }
+
+    //              if (!$city) {
+    //                 City::create([
+    //                     'name'       => $data['city'],
+    //                     'state_id'   => $state->id,
+    //                     'is_popular' => isset($data['is_popular']) ? (bool)$data['is_popular'] : 0,
+    //                     'is_nearby'  => isset($data['is_nearby']) ? (bool)$data['is_nearby'] : 0,
+    //                 ]);
+    //                 } else {
+    //                     // agar city already hai to update bhi kar do
+    //                     $city->update([
+    //                         'is_popular' => isset($data['is_popular']) ? (bool)$data['is_popular'] : $city->is_popular,
+    //                         'is_nearby'  => isset($data['is_nearby']) ? (bool)$data['is_nearby'] : $city->is_nearby,
+    //                     ]);
+    //                 }
+    //         }
+
+    //         DB::commit();
+    //         return response()->json(['message' => 'Data uploaded successfully.']);
+
+    //     } catch (\Illuminate\Validation\ValidationException $e) {
+    //         return response()->json(['error' => $e->errors()], 422);
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json(['error' => 'Upload failed: ' . $e->getMessage()], 500);
+    //     }
+    // }
+
     public function bulkUploadCSC(Request $request)
     {
-        try {
+        set_time_limit(0); // unlimited time
 
+        try {
             $request->validate([
                 'file' => 'required|file|mimes:csv,txt',
             ]);
@@ -86,31 +158,112 @@ class LocationController extends Controller
 
             DB::beginTransaction();
 
+            // Load existing data into memory
+            $countries = Country::pluck('id', 'name')->mapWithKeys(fn($id, $name) => [strtolower($name) => $id])->toArray();
+            $states    = State::select('id', 'name', 'country_id')
+                            ->get()
+                            ->mapWithKeys(fn($s) => [strtolower($s->name) . '-' . $s->country_id => $s->id])
+                            ->toArray();
+            $cities    = City::select('id', 'name', 'state_id')
+                            ->get()
+                            ->mapWithKeys(fn($c) => [strtolower($c->name) . '-' . $c->state_id => $c->id])
+                            ->toArray();
+
+            $newCountries = [];
+            $newStates    = [];
+            $newCities    = [];
+            $updateCities = [];
+
             foreach ($rows as $row) {
                 $data = array_combine($header, $row);
 
-                // Country check
-                $country = Country::where('name', $data['country'])->first();
-                if (!$country) {
-                    $country = Country::create(['name' => $data['country']]);
+                $countryName = strtolower(trim($data['country']));
+                $stateName   = strtolower(trim($data['state']));
+                $cityName    = strtolower(trim($data['city']));
+                $isPopular   = !empty($data['is_popular']) ? 1 : 0;
+                $isNearby    = !empty($data['is_nearby']) ? 1 : 0;
+
+                // ✅ Country check
+                if (!isset($countries[$countryName])) {
+                    $newCountries[$countryName] = [
+                        'name'       => ucfirst($data['country']),
+                        'created_at' => now(),
+                        'updated_at' => now()
+                    ];
                 }
+            }
+
+            // Bulk insert countries
+            if (!empty($newCountries)) {
+                Country::insert(array_values($newCountries));
+                $countries = Country::pluck('id', 'name')->mapWithKeys(fn($id, $name) => [strtolower($name) => $id])->toArray();
+            }
+
+            // ✅ Now handle states & cities
+            foreach ($rows as $row) {
+                $data = array_combine($header, $row);
+
+                $countryId  = $countries[strtolower(trim($data['country']))];
+                $stateKey   = strtolower(trim($data['state'])) . '-' . $countryId;
+                $cityKey    = strtolower(trim($data['city'])) . '-' . ($states[$stateKey] ?? 'tmp');
 
                 // State check
-                $state = State::where('name', $data['state'])->where('country_id', $country->id)->first();
-                if (!$state) {
-                    $state = State::create([
-                        'name' => $data['state'],
-                        'country_id' => $country->id,
-                    ]);
+                if (!isset($states[$stateKey])) {
+                    $newStates[$stateKey] = [
+                        'name'       => ucfirst($data['state']),
+                        'country_id' => $countryId,
+                        'created_at' => now(),
+                        'updated_at' => now()
+                    ];
                 }
+            }
 
-                // City check
-                $city = City::where('name', $data['city'])->where('state_id', $state->id)->first();
-                if (!$city) {
-                    City::create([
-                        'name' => $data['city'],
-                        'state_id' => $state->id,
-                    ]);
+            if (!empty($newStates)) {
+                State::insert(array_values($newStates));
+                $states = State::select('id', 'name', 'country_id')
+                            ->get()
+                            ->mapWithKeys(fn($s) => [strtolower($s->name) . '-' . $s->country_id => $s->id])
+                            ->toArray();
+            }
+
+            foreach ($rows as $row) {
+                $data = array_combine($header, $row);
+
+                $countryId  = $countries[strtolower(trim($data['country']))];
+                $stateKey   = strtolower(trim($data['state'])) . '-' . $countryId;
+                $stateId    = $states[$stateKey];
+                $cityKey    = strtolower(trim($data['city'])) . '-' . $stateId;
+
+                $isPopular = !empty($data['is_popular']) ? 1 : 0;
+                $isNearby  = !empty($data['is_nearby']) ? 1 : 0;
+
+                if (!isset($cities[$cityKey])) {
+                    $newCities[] = [
+                        'name'       => ucfirst($data['city']),
+                        'state_id'   => $stateId,
+                        'is_popular' => $isPopular,
+                        'is_nearby'  => $isNearby,
+                        'created_at' => now(),
+                        'updated_at' => now()
+                    ];
+                } else {
+                    $updateCities[$cities[$cityKey]] = [
+                        'is_popular' => $isPopular,
+                        'is_nearby'  => $isNearby,
+                        'updated_at' => now()
+                    ];
+                }
+            }
+
+            // Bulk insert cities
+            if (!empty($newCities)) {
+                City::insert($newCities);
+            }
+
+            // Bulk update existing cities
+            if (!empty($updateCities)) {
+                foreach ($updateCities as $id => $values) {
+                    City::where('id', $id)->update($values);
                 }
             }
 
@@ -124,6 +277,7 @@ class LocationController extends Controller
             return response()->json(['error' => 'Upload failed: ' . $e->getMessage()], 500);
         }
     }
+
 
 
     public function locationList()
@@ -364,7 +518,7 @@ class LocationController extends Controller
 
             return response()->json([
                 'message' => 'City flags updated successfully',
-                'data' => $city
+
             ], 200);
 
         } catch (\Throwable $th) {
@@ -373,6 +527,50 @@ class LocationController extends Controller
             ], 500);
         }
     }
+
+
+
+
+public function locationExportToCSV()
+{
+    try {
+        $fileName = 'locations_export.csv';
+
+        $response = new StreamedResponse(function () {
+            $handle = fopen('php://output', 'w');
+
+            // CSV Header
+            fputcsv($handle, ['country', 'state', 'city', 'is_popular', 'is_nearby']);
+
+            // Fetch all data with relationships
+            $countries = Country::with('states.cities')->get();
+
+            foreach ($countries as $country) {
+                foreach ($country->states as $state) {
+                    foreach ($state->cities as $city) {
+                        fputcsv($handle, [
+                            $country->name,
+                            $state->name,
+                            $city->name,
+                            $city->is_popular ? 1 : 0,
+                            $city->is_nearby ? 1 : 0,
+                        ]);
+                    }
+                }
+            }
+
+            fclose($handle);
+        });
+
+        $response->headers->set('Content-Type', 'text/csv');
+        $response->headers->set('Content-Disposition', 'attachment; filename="' . $fileName . '"');
+
+        return $response;
+
+    } catch (\Throwable $th) {
+        return response()->json(['error' => $th->getMessage()], 500);
+    }
+}
 
 
 
