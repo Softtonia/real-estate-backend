@@ -730,6 +730,9 @@ Route::middleware(['throttle:500,2'])->group(function () {
          Route::middleware('admin.token')->get('/get-location-states', [LocationController::class, 'getLocationStates']);
          Route::middleware('admin.token')->get('/get-location-cities', [LocationController::class, 'getLocationCities']);
 
+         Route::middleware('admin.token')->post('/cities/{id}/update-flags', [LocationController::class, 'updateCityFlags']);
+
+
 
 
         Route::middleware('allrole.token')->post('business-role-update-profile', [UserController::class, 'updateProfile']);

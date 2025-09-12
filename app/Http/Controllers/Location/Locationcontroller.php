@@ -28,7 +28,7 @@ class LocationController extends Controller
 
     public function getCountries()
     {
-        $countries = Country::all();
+        $countries = Country::select('id','name')->get();
         return response()->json($countries, 200);
     }
 
@@ -43,7 +43,7 @@ class LocationController extends Controller
         }
 
         // Fetch the states associated with the given country
-        $states = State::where('country_id', $countryId)->get();
+        $states = State::where('country_id', $countryId)->select('id','name','country_id')->get();
 
         // Return the states as a JSON response
         return response()->json($states, 200);
@@ -60,7 +60,7 @@ class LocationController extends Controller
         }
 
         // Fetch cities associated with the state
-        $cities = City::where('state_id', $stateId)->get();
+        $cities = City::where('state_id', $stateId)->select('id','name','state_id')->get();
 
         // Return the cities as a JSON response
         return response()->json($cities, 200);
@@ -227,7 +227,7 @@ class LocationController extends Controller
     }
 
 
-   public function getLocationCountries(Request $request)
+     public function getLocationCountries(Request $request)
     {
         try {
             $countryId = $request->input('country_id');
@@ -338,6 +338,42 @@ class LocationController extends Controller
             ], 500);
         }
     }
+
+
+    public function updateCityFlags(Request $request, $id)
+    {
+        try {
+            // Validation
+            $request->validate([
+                'is_popular' => 'nullable|boolean',
+                'is_nearby'  => 'nullable|boolean',
+            ]);
+
+            // Find city
+            $city = City::findOrFail($id);
+
+            // Update values (agar diya gaya ho to)
+            if ($request->has('is_popular')) {
+                $city->is_popular = $request->is_popular;
+            }
+            if ($request->has('is_nearby')) {
+                $city->is_nearby = $request->is_nearby;
+            }
+
+            $city->save();
+
+            return response()->json([
+                'message' => 'City flags updated successfully',
+                'data' => $city
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'error' => $th->getMessage()
+            ], 500);
+        }
+    }
+
 
 
 
