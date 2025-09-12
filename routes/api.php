@@ -362,7 +362,7 @@ Route::middleware(['throttle:500,2'])->group(function () {
 
         Route::get('/all-location-list', [LocationController::class, 'locationList']);
 
-        Route::get('/get-location-city-groups', [LocationController::class, 'getCityGroups']);
+        Route::get('/locations', [LocationController::class, 'getCityGroups']);
 
 
         // ======= Bulk Upload Country , State, City in CSV Format ===========
