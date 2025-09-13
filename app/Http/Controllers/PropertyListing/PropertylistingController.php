@@ -634,8 +634,17 @@ class PropertylistingController extends Controller
                 'customFieldValues.customFieldOption',
                 'importKeywords'
             ])
-                ->where('live_status', 'Approve')
-                ->paginate($request->get('per_page', 10));
+            ->where('live_status', 'Approve')
+            ->when($request->country_id, function ($query) use ($request) {
+                return $query->where('country_id', $request->country_id);
+            })
+            ->when($request->state_id, function ($query) use ($request) {
+                return $query->where('state_id', $request->state_id);
+            })
+            ->when($request->city_id, function ($query) use ($request) {
+                return $query->where('city_id', $request->city_id);
+            })
+            ->paginate($request->get('per_page', 10));
 
             $propertiesData = $properties->map(function ($property) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL, $property) {
