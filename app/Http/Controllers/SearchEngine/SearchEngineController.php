@@ -8,7 +8,9 @@ use App\Models\Customfieldvalue;
 use App\Models\Keyword;
 use App\Models\PropertyList;
 use App\Models\User;
+use App\Models\Purpose;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SearchEngineController extends Controller
 {
@@ -20,17 +22,53 @@ class SearchEngineController extends Controller
             $baseURL = config('app.url');
             $basePath = public_path();
 
-            $propertiesQuery = PropertyList::with(['location', 'user', 'propertyType', 'purpose', 'property', 'propertystatus', 'project', 'customFieldValues.customField', 'customFieldValues.customFieldOption']);
+
+            $propertiesQuery = PropertyList::with([
+                'country','state','city','user',
+                'propertyType', 'purpose', 'property',
+                 'propertystatus', 'project', 'customFieldValues.customField',
+                  'customFieldValues.customFieldOption'
+                ])->when($request->country_id, function ($q, $country_id) {
+                    $q->where('country_id', $country_id);
+                })
+                ->when($request->state_id, function ($q, $state_id) {
+                    $q->where('state_id', $state_id);
+                })
+                ->when($request->city_id, function ($q, $city_id) {
+                    $q->where('city_id', $city_id);
+                });
+
+
+
 
             if ($request->purpose == 'buy') {
+
+
+                if (!empty($request->purpose)) {
+                    $purpose = Purpose::where('slug', $request->purpose)->first();
+
+                    if ($purpose) {
+                        $propertiesQuery->where('purpose_id', $purpose->id);
+                    }
+                }
 
                 if (!empty($request->property_id)) {
                     $propertiesQuery->where('property_id', $request->property_id);
                 }
 
+                // if (!empty($request->property_type_id)) {
+                //     $explod_property_type_id = explode(',', $request->property_type_id);
+                //     $propertiesQuery->whereIn('property_type_id', $explod_property_type_id);
+                // }
+
                 if (!empty($request->property_type_id)) {
                     $explod_property_type_id = explode(',', $request->property_type_id);
-                    $propertiesQuery->whereIn('property_type_id', $explod_property_type_id);
+
+                    $propertiesQuery->where(function ($q) use ($explod_property_type_id) {
+                        foreach ($explod_property_type_id as $id) {
+                            $q->orWhereRaw("FIND_IN_SET(?, property_type_id)", [$id]);
+                        }
+                    });
                 }
 
                 if (!empty($request->property_status_id)) {
@@ -56,13 +94,33 @@ class SearchEngineController extends Controller
 
             if ($request->purpose == 'rent') {
 
+                if (!empty($request->purpose)) {
+                    $purpose = Purpose::where('slug', $request->purpose)->first();
+
+                    \Log::info($purpose);
+
+                    if ($purpose) {
+                        $propertiesQuery->where('purpose_id', $purpose->id);
+                    }
+                }
+
                 if (!empty($request->property_id)) {
                     $propertiesQuery->where('property_id', $request->property_id);
                 }
 
+                // if (!empty($request->property_type_id)) {
+                //     $explod_property_type_id = explode(',', $request->property_type_id);
+                //     $propertiesQuery->whereIn('property_type_id', $explod_property_type_id);
+                // }
+
                 if (!empty($request->property_type_id)) {
                     $explod_property_type_id = explode(',', $request->property_type_id);
-                    $propertiesQuery->whereIn('property_type_id', $explod_property_type_id);
+
+                    $propertiesQuery->where(function ($q) use ($explod_property_type_id) {
+                        foreach ($explod_property_type_id as $id) {
+                            $q->orWhereRaw("FIND_IN_SET(?, property_type_id)", [$id]);
+                        }
+                    });
                 }
 
                 if (!empty($request->property_status_id)) {
@@ -71,7 +129,7 @@ class SearchEngineController extends Controller
                 }
 
                 if (!empty($request->rent_price_low) && !empty($request->rent_price_high)) {
-                    $checkCustomField = CustomField::where('field_name', 'property_rent_amount')->first();
+                    $checkCustomField = CustomField::where('field_label', 'property_rent_amount')->first();
 
                     if ($checkCustomField) {
                         $custom_field_id = $checkCustomField->id;
@@ -106,7 +164,12 @@ class SearchEngineController extends Controller
 
                 if (!empty($request->property_type_id)) {
                     $explod_property_type_id = explode(',', $request->property_type_id);
-                    $propertiesQuery->whereIn('property_type_id', $explod_property_type_id);
+
+                    $propertiesQuery->where(function ($q) use ($explod_property_type_id) {
+                        foreach ($explod_property_type_id as $id) {
+                            $q->orWhereRaw("FIND_IN_SET(?, property_type_id)", [$id]);
+                        }
+                    });
                 }
 
                 if (!empty($request->property_status_id)) {
@@ -171,7 +234,12 @@ class SearchEngineController extends Controller
 
                 if (!empty($request->property_type_id)) {
                     $explod_property_type_id = explode(',', $request->property_type_id);
-                    $propertiesQuery->whereIn('property_type_id', $explod_property_type_id);
+
+                    $propertiesQuery->where(function ($q) use ($explod_property_type_id) {
+                        foreach ($explod_property_type_id as $id) {
+                            $q->orWhereRaw("FIND_IN_SET(?, property_type_id)", [$id]);
+                        }
+                    });
                 }
 
                 if (!empty($request->plot_price_low) && !empty($request->plot_price_high)) {
@@ -218,9 +286,14 @@ class SearchEngineController extends Controller
                     $propertiesQuery->where('property_id', $request->property_id);
                 }
 
-                if (!empty($request->property_type_id)) {
+               if (!empty($request->property_type_id)) {
                     $explod_property_type_id = explode(',', $request->property_type_id);
-                    $propertiesQuery->whereIn('property_type_id', $explod_property_type_id);
+
+                    $propertiesQuery->where(function ($q) use ($explod_property_type_id) {
+                        foreach ($explod_property_type_id as $id) {
+                            $q->orWhereRaw("FIND_IN_SET(?, property_type_id)", [$id]);
+                        }
+                    });
                 }
 
                 if (!empty($request->project_price_low) && !empty($request->project_price_high)) {
@@ -277,7 +350,7 @@ class SearchEngineController extends Controller
                         'custom_field_id' => $customField ? $customField->id : null,
                         'field_type' => $customField ? $customField->field_type : null,
                         'field_value' => $fieldValueArray,
-                        'field_name' => $customField ? $customField->field_name : null,
+                        'field_name' => $customField ? $customField->field_label : null,
                         // 'custom_field_options' => $customFieldOptions,
                     ];
                 });
@@ -288,14 +361,27 @@ class SearchEngineController extends Controller
                     'property_unique_id' => $property->property_unique_id,
                     'property_name' => $property->name,
                     'description' => $property->description,
-                    'location_id' => $property->location_id,
-                    'location_name' => optional($property->location)->name,
+                    'country_id' => $property->country_id,
+                    'country' => $property->country_id ? [
+                        'id' =>$property->country->id,
+                        'name' => $property->country->name,
+                    ] : null,
+                    'state_id' => $property->state_id,
+                    'state' => $property->state_id ? [
+                        'id' => $property->state->id,
+                        'name'=> $property->state->name,
+                    ] : null ,
+                    'city_id' => $property->city_id,
+                    'city' => $property->city_id ? [
+                        'id' => $property->city->id,
+                        'name'=> $property->city->name,
+                    ] : null ,
                     'property_address' => $property->property_address,
-                    'status' => $property->status,
+                    'live_status' => $property->live_status,
                     'status_reason' => $property->status_reason,
                     'user_id' => $property->user_id,
                     'listed_by' => optional(optional($property->user)->role)->name,
-                    'featured_image' => $property->featured_image ? $this->correctFilePath($property->featured_image, $baseURL, $basePath, 'featured_image') : null,
+                    'featured_image' => $property->featured_image ? url($property->featured_image) : null,
                     'purpose_id' => $property->purpose_id,
                     'purpose_id_name' => optional($property->purpose)->name,
                     'property_id' => $property->property_id,
@@ -303,7 +389,12 @@ class SearchEngineController extends Controller
                     'property_status_id' => $property->property_status_id,
                     'property_status_id_name' => optional($property->propertystatus)->name,
                     'property_type_id' => $property->property_type_id,
-                    'property_type_id_name' => optional($property->propertyType)->name,
+                    'property_type_id_name' => $property->property_type_id
+                                            ? DB::table('property_types')
+                                                ->whereIn('id', explode(',', $property->property_type_id))
+                                                ->pluck('name')
+                                                ->implode(', ')
+                                            : null,
                     'project_id' => $property->project_id,
                     'project_id_name' => optional($property->project)->name,
                     'total_view' => $property->analytics()->count(),
