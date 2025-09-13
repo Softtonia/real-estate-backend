@@ -464,6 +464,15 @@ class DeveloperlistingController extends Controller
 
             // Fetch only listings where live_status is "Approve"
             $developers = Developerlist::where('live_status', 'Approve')
+                ->when($request->country_id, function ($query) use ($request) {
+                    return $query->where('country_id', $request->country_id);
+                })
+                ->when($request->state_id, function ($query) use ($request) {
+                    return $query->where('state_id', $request->state_id);
+                })
+                ->when($request->city_id, function ($query) use ($request) {
+                    return $query->where('city_id', $request->city_id);
+                })
                 ->with([
                     'user',
                     'propertyType',

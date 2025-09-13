@@ -223,8 +223,7 @@ Route::middleware(['throttle:500,2'])->group(function () {
         Route::middleware('allow.admin_company')->post('update-project-temporary-status', [ProjectlistingController::class, 'updateTemporaryStatus']);
         Route::middleware('allow.admin_company')->get('project-search', [ProjectlistingController::class, 'projectSearch']);
         ### No Auth ###
-        Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
-        Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
+
 
         Route::get('get-project-by-user-id-filter-by-purpose/{userId}',[ProjectlistingController::class,'getProjectsByUserId']);
          Route::get('get-related-projects-id/{projectId}',[ProjectlistingController::class,'getRelatedProjectsByProjectId']);
@@ -244,8 +243,7 @@ Route::middleware(['throttle:500,2'])->group(function () {
         Route::middleware('allow.admin_developer')->get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
 
         ### No Auth ###
-        Route::get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
-        Route::get('get-data-developer-no-auth/{id}', [DeveloperlistingController::class, 'getdatabyIdNoAuth']);
+
 
          Route::get('get-developer-by-user-id-filter-by-purpose/{userId}',[DeveloperlistingController::class,'getDevelopersByUserId']);
          Route::get('get-related-developers-id/{developerId}',[DeveloperlistingController::class,'getRelatedDevelopersByDeveloperId']);
@@ -271,14 +269,30 @@ Route::middleware(['throttle:500,2'])->group(function () {
         Route::middleware('adminOrCurrentUser')->post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
         //
         #### No Auth ######
-        Route::get('get-all-properties-listing-no-auth', [PropertylistingController::class, 'index']);
-        Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
+
         Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
 
         Route::get('/get-property-by-user-id-filter-by-purpose/{userId}', [PropertylistingController::class, 'getPropertyByUserId']);
         Route::get('/get-related-properties-id/{propertyId}', [PropertylistingController::class, 'getRelatedPropertiesByPropertyId']);
 
 
+        // Start Website Route
+
+            // Locations
+                Route::get('/locations', [LocationController::class, 'getCityGroups']);
+            // Project Listing No Auth
+                Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
+                Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
+
+            // Developer Listing No Auth
+                Route::get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
+                Route::get('get-data-developer-no-auth/{id}', [DeveloperlistingController::class, 'getdatabyIdNoAuth']);
+
+            // Property Listing No Auth
+                Route::get('get-all-properties-listing-no-auth', [PropertylistingController::class, 'index']);
+                Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
+
+        // End Website Route
 
 
         // frontend site
@@ -357,12 +371,9 @@ Route::middleware(['throttle:500,2'])->group(function () {
 
         // =======Location============
 
-
-
-
         Route::get('/all-location-list', [LocationController::class, 'locationList']);
 
-        Route::get('/locations', [LocationController::class, 'getCityGroups']);
+
 
 
         // ======= Bulk Upload Country , State, City in CSV Format ===========

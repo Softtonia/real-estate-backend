@@ -466,8 +466,17 @@ class ProjectlistingController extends Controller
                 'state',
                 'city'
             ])
-                ->where('live_status', 'Approve')
-                ->paginate($request->get('per_page', 10));
+            ->where('live_status', 'Approve')
+            ->when($request->country_id, function ($query) use ($request) {
+                return $query->where('country_id', $request->country_id);
+            })
+            ->when($request->state_id, function ($query) use ($request) {
+                return $query->where('state_id', $request->state_id);
+            })
+            ->when($request->city_id, function ($query) use ($request) {
+                return $query->where('city_id', $request->city_id);
+            })
+            ->paginate($request->get('per_page', 10));
 
             $projectsData = $projects->map(function ($project) use ($baseURL) {
                 $formattedCustomFieldValues = $project->customFieldValues->map(function ($customFieldValue) use ($baseURL, $project) {
