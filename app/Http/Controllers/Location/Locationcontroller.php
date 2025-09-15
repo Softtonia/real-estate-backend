@@ -308,343 +308,110 @@ class LocationController extends Controller
 
 
 
-    // public function getCityGroups(Request $request)
-    // {
-    //     try {
-    //         $baseCityId = $request->input('city_id'); // Example: Hyderabad id
-    //         $userId     = auth()->id();
-
-    //         // --- Track City Visit ---
-    //         if ($baseCityId) {
-    //             $visit = CityVisit::where('city_id', $baseCityId)
-    //                 ->when($userId, function ($q) use ($userId) {
-    //                     $q->where('user_id', $userId);
-    //                 })
-    //                 ->first();
-
-    //             if ($visit) {
-    //                 $visit->increment('count');
-    //             } else {
-    //                 CityVisit::create([
-    //                     'city_id' => $baseCityId,
-    //                     'user_id' => $userId,
-    //                     'count'   => 1
-    //                 ]);
-    //             }
-    //         }
-
-    //         // --- Filter City (requested city) ---
-    //         $filterCity = null;
-    //         if ($baseCityId) {
-    //             $filterCity = City::where('id', $baseCityId)
-    //                 ->select('id', 'name', 'state_id')
-    //                 ->first();
-    //         }
-
-    //         // --- Nearby Cities ---
-    //         $nearbyCities = City::where('is_nearby', 1)
-    //             ->where('id', '!=', $baseCityId)
-    //             ->select('id', 'name', 'state_id')
-    //             ->get();
-
-    //         // --- Popular Cities ---
-    //         $popularCities = City::where('is_popular', 1)
-    //             ->where('id', '!=', $baseCityId)
-    //             ->select('id', 'name', 'state_id')
-    //             ->get();
-
-    //         // --- Other Cities (analytics ke base par order) ---
-    //         $otherCities = City::where('is_popular', 0)
-    //             ->where('is_nearby', 0)
-    //             ->where('cities.id', '!=', $baseCityId)
-    //             ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
-    //             ->select(
-    //                 'cities.id',
-    //                 'cities.name',
-    //                 'cities.state_id',
-    //                 \DB::raw('COALESCE(SUM(city_visits.count), 0) as total_visits')
-    //             )
-    //             ->groupBy('cities.id', 'cities.name', 'cities.state_id')
-    //             ->orderByDesc('total_visits')
-    //             ->limit(10)
-    //             ->get();
-
-    //         return response()->json([
-    //             'filter_city'    => $filterCity,
-    //             'nearby_cities'  => $nearbyCities,
-    //             'popular_cities' => $popularCities,
-    //             'other_cities'   => $otherCities,
-    //         ]);
-    //     } catch (\Throwable $th) {
-    //         return response()->json(['error' => $th->getMessage()], 500);
-    //     }
-    // }
-
-//     public function getCityGroups(Request $request)
-// {
-//     try {
-//         $baseCityId = $request->input('city_id'); // Example: Hyderabad id
-//         $countryId  = $request->input('country_id'); // new filter
-//         $userId     = auth()->id();
-
-//         // --- Track City Visit ---
-//         if ($baseCityId) {
-//             $visit = CityVisit::where('city_id', $baseCityId)
-//                 ->when($userId, function ($q) use ($userId) {
-//                     $q->where('user_id', $userId);
-//                 })
-//                 ->first();
-
-//             if ($visit) {
-//                 $visit->increment('count');
-//             } else {
-//                 CityVisit::create([
-//                     'city_id' => $baseCityId,
-//                     'user_id' => $userId,
-//                     'count'   => 1
-//                 ]);
-//             }
-//         }
-
-//         // --- Filter City (requested city) ---
-//         $filterCity = null;
-//         if ($baseCityId) {
-//             $filterCity = City::with('state:id,name,country_id')
-//                 ->where('id', $baseCityId)
-//                 ->select('id', 'name', 'state_id')
-//                 ->first();
-
-//             // agar city mil gaya toh uska country_id hi filter hoga
-//             if ($filterCity && !$countryId) {
-//                 $countryId = $filterCity->state->country_id ?? null;
-//             }
-//         }
-
-//         // --- Nearby Cities ---
-//         $nearbyCities = City::with('state:id,name,country_id')
-//             ->where('is_nearby', 1)
-//             ->where('id', '!=', $baseCityId)
-//             ->when($countryId, function ($q) use ($countryId) {
-//                 $q->whereHas('state', function ($q2) use ($countryId) {
-//                     $q2->where('country_id', $countryId);
-//                 });
-//             })
-//             ->select('id', 'name', 'state_id')
-//             ->get();
-
-//         // --- Popular Cities ---
-//         $popularCities = City::with('state:id,name,country_id')
-//             ->where('is_popular', 1)
-//             ->where('id', '!=', $baseCityId)
-//             ->when($countryId, function ($q) use ($countryId) {
-//                 $q->whereHas('state', function ($q2) use ($countryId) {
-//                     $q2->where('country_id', $countryId);
-//                 });
-//             })
-//             ->select('id', 'name', 'state_id')
-//             ->get();
-
-//         // --- Other Cities (analytics ke base par order) ---
-//         $otherCities = City::with('state:id,name,country_id')
-//             ->where('is_popular', 0)
-//             ->where('is_nearby', 0)
-//             ->where('cities.id', '!=', $baseCityId)
-//             ->when($countryId, function ($q) use ($countryId) {
-//                 $q->whereHas('state', function ($q2) use ($countryId) {
-//                     $q2->where('country_id', $countryId);
-//                 });
-//             })
-//             ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
-//             ->select(
-//                 'cities.id',
-//                 'cities.name',
-//                 'cities.state_id',
-//                 \DB::raw('COALESCE(SUM(city_visits.count), 0) as total_visits')
-//             )
-//             ->groupBy('cities.id', 'cities.name', 'cities.state_id')
-//             ->orderByDesc('total_visits')
-//             ->limit(10)
-//             ->get();
-
-//         return response()->json([
-//             'filter_city'    => $filterCity,
-//             'nearby_cities'  => $nearbyCities,
-//             'popular_cities' => $popularCities,
-//             'other_cities'   => $otherCities,
-//         ]);
-//     } catch (\Throwable $th) {
-//         return response()->json(['error' => $th->getMessage()], 500);
-//     }
-// }
-
-// public function getCityGroups(Request $request)
-// {
-//     try {
-//         $baseCityId = $request->input('city_id');
-//         $countryId  = $request->input('country_id');
-//         $userId     = auth()->id();
-
-//         // --- Track City Visit ---
-//         if ($baseCityId) {
-//             $visit = CityVisit::where('city_id', $baseCityId)
-//                 ->when($userId, fn($q) => $q->where('user_id', $userId))
-//                 ->first();
-
-//             if ($visit) {
-//                 $visit->increment('count');
-//             } else {
-//                 CityVisit::create([
-//                     'city_id' => $baseCityId,
-//                     'user_id' => $userId,
-//                     'count'   => 1
-//                 ]);
-//             }
-//         }
-
-//         // --- Filter City (requested city) ---
-//         $filterCity = null;
-//         $countryName = null;
-
-//         if ($baseCityId) {
-//             $filterCity = City::query()
-//                 ->join('states', 'cities.state_id', '=', 'states.id')
-//                 ->join('countries', 'states.country_id', '=', 'countries.id')
-//                 ->select(
-//                     'cities.id',
-//                     'cities.name',
-//                     'cities.state_id',
-//                     'states.name as state_name',
-//                     'states.country_id',
-//                     'countries.name as country_name'
-//                 )
-//                 ->where('cities.id', $baseCityId)
-//                 ->first();
-
-//             if ($filterCity && !$countryId) {
-//                 $countryId   = $filterCity->country_id ?? null;
-//                 $countryName = $filterCity->country_name ?? null;
-//             }
-//         }
-
-//         // --- If only country_id is passed ---
-//         if (!$filterCity && $countryId) {
-//             $country = DB::table('countries')
-//                 ->select('id', 'name')
-//                 ->where('id', $countryId)
-//                 ->first();
-
-//             if ($country) {
-//                 $countryName = $country->name;
-//             }
-//         }
-
-//         // --- Nearby Cities ---
-//         $nearbyCities = City::query()
-//             ->join('states', 'cities.state_id', '=', 'states.id')
-//             ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
-//             ->where('cities.is_nearby', 1)
-//             ->where('cities.id', '!=', $baseCityId)
-//             ->select(
-//                 'cities.id',
-//                 'cities.name',
-//                 'cities.state_id',
-//                 'states.name as state_name',
-//                 'states.country_id'
-//             )
-//             ->get();
-
-//         // --- Popular Cities ---
-//         $popularCities = City::query()
-//             ->join('states', 'cities.state_id', '=', 'states.id')
-//             ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
-//             ->where('cities.is_popular', 1)
-//             ->where('cities.id', '!=', $baseCityId)
-//             ->select(
-//                 'cities.id',
-//                 'cities.name',
-//                 'cities.state_id',
-//                 'states.name as state_name',
-//                 'states.country_id'
-//             )
-//             ->get();
-
-//         // --- Other Cities (analytics ke base par order) ---
-//         $otherCities = City::query()
-//             ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
-//             ->join('states', 'cities.state_id', '=', 'states.id')
-//             ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
-//             ->where('cities.is_popular', 0)
-//             ->where('cities.is_nearby', 0)
-//             ->where('cities.id', '!=', $baseCityId)
-//             ->select(
-//                 'cities.id',
-//                 'cities.name',
-//                 'cities.state_id',
-//                 'states.name as state_name',
-//                 'states.country_id',
-//                 DB::raw('COALESCE(SUM(city_visits.count), 0) as total_visits')
-//             )
-//             ->groupBy(
-//                 'cities.id',
-//                 'cities.name',
-//                 'cities.state_id',
-//                 'states.name',
-//                 'states.country_id'
-//             )
-//             ->orderByDesc('total_visits')
-//             ->limit(30)
-//             ->get();
-
-//         // --- Final Response ---
-//         return response()->json([
-//             'country_id'   => $countryId,
-//             'country_name' => $countryName,
-//             'cities'       => [
-//                 'filter_city'    => $filterCity,
-//                 'nearby'         => $nearbyCities,
-//                 'popular'        => $popularCities,
-//                 'other'          => $otherCities,
-//             ]
-//         ]);
-
-//     } catch (\Throwable $th) {
-//         return response()->json(['error' => $th->getMessage()], 500);
-//     }
-// }
 
 
-public function getCityGroups(Request $request)
-{
-    try {
-        $baseCityId = $request->input('city_id');
-        $countryId  = $request->input('country_id');
-        $userId     = auth()->id();
 
-        // --- Track City Visit ---
-        if ($baseCityId) {
-            $visit = CityVisit::where('city_id', $baseCityId)
-                ->when($userId, fn($q) => $q->where('user_id', $userId))
-                ->first();
+    public function getCityGroups(Request $request)
+    {
+        try {
+            $baseCityId = $request->input('city_id');
+            $countryId  = $request->input('country_id');
+            $search     = $request->input('search');
+            $userId     = auth()->id();
 
-            if ($visit) {
-                $visit->increment('count');
-            } else {
-                CityVisit::create([
-                    'city_id' => $baseCityId,
-                    'user_id' => $userId,
-                    'count'   => 1
-                ]);
+            $filterCity  = null;
+            $countryName = null;
+
+            // Common search condition
+            $searchFilter = function ($q) use ($search) {
+                if ($search) {
+                    $q->where(function ($qq) use ($search) {
+                        $qq->where('cities.name', 'LIKE', "%{$search}%")
+                        ->orWhere('states.name', 'LIKE', "%{$search}%");
+                    });
+                }
+            };
+
+            // CASE 1: Filter by city_id
+            if ($baseCityId) {
+                $filterCity = City::query()
+                    ->join('states', 'cities.state_id', '=', 'states.id')
+                    ->join('countries', 'states.country_id', '=', 'countries.id')
+                    ->select(
+                        'cities.id',
+                        'cities.name',
+                        'cities.state_id',
+                        'states.name as state_name',
+                        'states.country_id',
+                        'countries.name as country_name'
+                    )
+                    ->where('cities.id', $baseCityId)
+                    ->when($countryId, fn($q) => $q->where('countries.id', $countryId))
+                    ->first();
+
+                if ($filterCity) {
+                    $this->incrementCityVisit($filterCity->id, $userId);
+                    $countryId   = $countryId ?: $filterCity->country_id;
+                    $countryName = $filterCity->country_name;
+                }
             }
-        }
 
-        $filterCity  = null;
-        $countryName = null;
+            // CASE 2: If search provided but no city_id
+            if ($search && !$baseCityId) {
+                $searchedCities = City::query()
+                    ->join('states', 'cities.state_id', '=', 'states.id')
+                    ->join('countries', 'states.country_id', '=', 'countries.id')
+                    ->where($searchFilter)
+                    ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
+                    ->select(
+                        'cities.id',
+                        'cities.name',
+                        'cities.state_id',
+                        'states.name as state_name',
+                        'states.country_id',
+                        'countries.name as country_name'
+                    )
+                    ->get();
 
-        // --- Filter City (requested city) ---
-        if ($baseCityId) {
-            $filterCity = City::query()
+                if ($searchedCities->count() === 1) {
+                    // Single city → filter_city
+                    $filterCity = $searchedCities->first();
+                    $this->incrementCityVisit($filterCity->id, $userId);
+                    $countryId   = $countryId ?: $filterCity->country_id;
+                    $countryName = $filterCity->country_name;
+                } elseif ($searchedCities->count() > 1) {
+                    // Multiple cities → other list
+                    return response()->json([
+                        'country_id'   => $countryId,
+                        'country_name' => $countryName,
+                        'cities'       => [
+                            'filter_city' => null,
+                            'nearby'      => [],
+                            'popular'     => [],
+                            'other'       => $searchedCities->toArray(),
+                        ]
+                    ]);
+                }
+            }
+
+            // Always resolve country_name if country_id is present
+            if ($countryId && !$countryName) {
+                $country = DB::table('countries')
+                    ->select('id', 'name')
+                    ->where('id', $countryId)
+                    ->first();
+                if ($country) {
+                    $countryName = $country->name;
+                }
+            }
+
+            // Nearby Cities (only if no search)
+            $nearbyCities = !$search ? City::query()
                 ->join('states', 'cities.state_id', '=', 'states.id')
                 ->join('countries', 'states.country_id', '=', 'countries.id')
+                ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
+                ->where('cities.is_nearby', 1)
+                ->where('cities.id', '!=', $baseCityId)
                 ->select(
                     'cities.id',
                     'cities.name',
@@ -653,112 +420,93 @@ public function getCityGroups(Request $request)
                     'states.country_id',
                     'countries.name as country_name'
                 )
-                ->where('cities.id', $baseCityId)
-                ->where('countries.id',$countryId)
-                ->first()?->toArray();
+                ->get() : collect([]);
 
-            if ($filterCity) {
-                // Country info from city
-                $countryId   = $countryId ?: $filterCity['country_id'];
-                $countryName = $filterCity['country_name'];
-            }
+            // Popular Cities (only if no search)
+            $popularCities = !$search ? City::query()
+                ->join('states', 'cities.state_id', '=', 'states.id')
+                ->join('countries', 'states.country_id', '=', 'countries.id')
+                ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
+                ->where('cities.is_popular', 1)
+                ->where('cities.id', '!=', $baseCityId)
+                ->select(
+                    'cities.id',
+                    'cities.name',
+                    'cities.state_id',
+                    'states.name as state_name',
+                    'states.country_id',
+                    'countries.name as country_name'
+                )
+                ->get() : collect([]);
+
+            // Other Cities (only if no search)
+            $otherCities = !$search ? City::query()
+                ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
+                ->join('states', 'cities.state_id', '=', 'states.id')
+                ->join('countries', 'states.country_id', '=', 'countries.id')
+                ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
+                ->where('cities.is_popular', 0)
+                ->where('cities.is_nearby', 0)
+                ->where('cities.id', '!=', $baseCityId)
+                ->select(
+                    'cities.id',
+                    'cities.name',
+                    'cities.state_id',
+                    'states.name as state_name',
+                    'states.country_id',
+                    'countries.name as country_name',
+                    DB::raw('COALESCE(SUM(city_visits.count), 0) as total_visits')
+                )
+                ->groupBy(
+                    'cities.id',
+                    'cities.name',
+                    'cities.state_id',
+                    'states.name',
+                    'states.country_id',
+                    'countries.name'
+                )
+                ->orderByDesc('total_visits')
+                ->limit(30)
+                ->get() : collect([]);
+
+            // Final Response
+            return response()->json([
+                'country_id'   => $countryId,
+                'country_name' => $countryName,
+                'cities'       => [
+                    'filter_city' => $filterCity ? $filterCity->toArray() : null,
+                    'nearby'      => $nearbyCities->toArray(),
+                    'popular'     => $popularCities->toArray(),
+                    'other'       => $otherCities->toArray(),
+                ]
+            ]);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
         }
-
-        // --- Always resolve country_name if country_id is present ---
-        if ($countryId && !$countryName) {
-            $country = DB::table('countries')
-                ->select('id', 'name')
-                ->where('id', $countryId)
-                ->first();
-
-            if ($country) {
-                $countryName = $country->name;
-            }
-        }
-
-        // --- Nearby Cities ---
-        $nearbyCities = City::query()
-            ->join('states', 'cities.state_id', '=', 'states.id')
-            ->join('countries', 'states.country_id', '=', 'countries.id')
-            ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
-            ->where('cities.is_nearby', 1)
-            ->where('cities.id', '!=', $baseCityId)
-            ->select(
-                'cities.id',
-                'cities.name',
-                'cities.state_id',
-                'states.name as state_name',
-                'states.country_id',
-                'countries.name as country_name'
-            )
-            ->get()
-            ->toArray();
-
-        // --- Popular Cities ---
-        $popularCities = City::query()
-            ->join('states', 'cities.state_id', '=', 'states.id')
-            ->join('countries', 'states.country_id', '=', 'countries.id')
-            ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
-            ->where('cities.is_popular', 1)
-            ->where('cities.id', '!=', $baseCityId)
-            ->select(
-                'cities.id',
-                'cities.name',
-                'cities.state_id',
-                'states.name as state_name',
-                'states.country_id',
-                'countries.name as country_name'
-            )
-            ->get()
-            ->toArray();
-
-        // --- Other Cities (analytics ke base par order) ---
-        $otherCities = City::query()
-            ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
-            ->join('states', 'cities.state_id', '=', 'states.id')
-            ->join('countries', 'states.country_id', '=', 'countries.id')
-            ->when($countryId, fn($q) => $q->where('states.country_id', $countryId))
-            ->where('cities.is_popular', 0)
-            ->where('cities.is_nearby', 0)
-            ->where('cities.id', '!=', $baseCityId)
-            ->select(
-                'cities.id',
-                'cities.name',
-                'cities.state_id',
-                'states.name as state_name',
-                'states.country_id',
-                'countries.name as country_name',
-                DB::raw('COALESCE(SUM(city_visits.count), 0) as total_visits')
-            )
-            ->groupBy(
-                'cities.id',
-                'cities.name',
-                'cities.state_id',
-                'states.name',
-                'states.country_id',
-                'countries.name'
-            )
-            ->orderByDesc('total_visits')
-            ->limit(30)
-            ->get()
-            ->toArray();
-
-        // --- Final Response ---
-        return response()->json([
-            'country_id'   => $countryId,
-            'country_name' => $countryName,
-            'cities'       => [
-                'filter_city' => $filterCity,
-                'nearby'      => $nearbyCities,
-                'popular'     => $popularCities,
-                'other'       => $otherCities,
-            ]
-        ]);
-
-    } catch (\Throwable $th) {
-        return response()->json(['error' => $th->getMessage()], 500);
     }
-}
+
+    /**
+     * Helper: Increment city visit count
+     */
+    private function incrementCityVisit($cityId, $userId)
+    {
+        $visit = CityVisit::where('city_id', $cityId)
+            ->when($userId, fn($q) => $q->where('user_id', $userId))
+            ->first();
+
+        if ($visit) {
+            $visit->increment('count');
+        } else {
+            CityVisit::create([
+                'city_id' => $cityId,
+                'user_id' => $userId,
+                'count'   => 1
+            ]);
+        }
+    }
+
+
 
 
 
