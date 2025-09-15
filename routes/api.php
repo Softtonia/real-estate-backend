@@ -95,6 +95,16 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 // User route will start from here
 
+Route::get('/check-ip', function (Request $request) {
+    return response()->json([
+        'client_ip' => $request->ip(),
+        'forwarded' => $request->header('X-Forwarded-For'),
+        'real_ip'   => $request->header('X-Real-IP'),
+        'remote'    => $_SERVER['REMOTE_ADDR'] ?? null,
+    ]);
+});
+
+
 Route::middleware(['throttle:500,2'])->group(function () {
     Route::middleware(['validate.api.client'])->group(function () {
 
