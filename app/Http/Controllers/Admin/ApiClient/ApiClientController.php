@@ -36,6 +36,8 @@ class ApiClientController extends Controller
                 'allowed_domain.*' => 'url',
                 'client_id' => 'required|string|size:15',
                 'client_secret' => 'required|string|size:15',
+                'nextjs_internal_key' => 'required|string|size:50',
+
             ]);
 
             $client = ApiClient::create([
@@ -45,6 +47,8 @@ class ApiClientController extends Controller
                 'app_type' => $validated['app_type'] ?? null,
                 'status' => $validated['status'],
                 'allowed_domain' => $validated['allowed_domain'], // array saved as JSON
+                'nextjs_internal_key' => $validated['nextjs_internal_key']
+
             ]);
 
             return response()->json([
@@ -85,7 +89,7 @@ class ApiClientController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Client not found'
-            ], 404);
+            ], 200);
         }
 
         try {
@@ -97,6 +101,8 @@ class ApiClientController extends Controller
                 'allowed_domain.*' => 'url',
                 'client_id' => 'sometimes|required|string|size:15',
                 'client_secret' => 'sometimes|required|string|size:15',
+                'nextjs_internal_key' => 'sometimes|required|string|size:50',
+
             ]);
 
             $client->update($validated);
@@ -151,6 +157,19 @@ class ApiClientController extends Controller
     }
 
 
+   public function generateNextJsInternalKey()
+    {
+        do {
+            // 50 characters random uppercase string
+            $random = Str::upper(Str::random(50));
+        } while (ApiClient::where('nextjs_internal_key', $random)->exists());
+
+
+        return response()->json([
+            'nextjs_internal_key' => $random
+        ]);
+    }
+
     public function getAppTypes()
     {
         try {
@@ -178,4 +197,25 @@ class ApiClientController extends Controller
             ], 500);
         }
     }
+
+
+    public function showByAppType($appType)
+    {
+        $client = ApiClient::where('app_type', $appType)->first();
+
+        if (!$client) {
+            return response()->json([
+                'error'  => 'Client not found for this app_type'
+            ], 200);
+        }
+
+        return response()->json([
+            'status'  => 200,
+            'message' => 'Client details',
+            'data'    => $client
+        ]);
+    }
+
+
+
 }

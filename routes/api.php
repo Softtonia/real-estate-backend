@@ -105,7 +105,7 @@ Route::get('/check-ip', function (Request $request) {
 });
 
 
-Route::middleware(['throttle:500,2'])->group(function () {
+Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['validate.api.client'])->group(function () {
 
         Route::post('/register', [AuthController::class, 'register']);
@@ -799,7 +799,10 @@ Route::middleware(['throttle:500,2'])->group(function () {
 
     Route::middleware('admin.token')->get('generate-api-client-id', [ApiClientController::class, 'generateApiClientId']);
     Route::middleware('admin.token')->get('generate-api-client-secret', [ApiClientController::class, 'generateApiClientSecret']);
+    Route::middleware('admin.token')->get('generate-next-js-internal-key', [ApiClientController::class, 'generateNextJsInternalKey']);
     Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClientController::class, 'getAppTypes']);
+
+    Route::middleware('admin.token')->get('api-client-secrect-show-by-app-types/{appType}', [ApiClientController::class, 'showByAppType']);
 
     // IpLog
 

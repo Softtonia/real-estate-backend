@@ -19,6 +19,10 @@ return new class extends Migration
             $table->enum('app_type', ['admin', 'business', 'website', 'mobile-app', 'custom'])->nullable();
             $table->enum('status', ['0', '1'])->comment('0 = inactive, 1 = active');
             $table->longText('allowed_domain'); // e.g., https://frontend.com
+        //  Next.js specific key (optional, unique per client)
+            $table->string('nextjs_internal_key', 255)->nullable()->unique()
+                  ->comment('Special key to bypass IP block for Next.js build/server calls');
+
             $table->timestamps();
         });
     }
