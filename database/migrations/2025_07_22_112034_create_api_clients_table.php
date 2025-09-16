@@ -16,12 +16,15 @@ return new class extends Migration
             $table->string('client_name');
             $table->string('client_id')->unique();
             $table->string('client_secret');
-            $table->enum('app_type', ['admin', 'business', 'website', 'mobile-app', 'custom'])->nullable();
+            $table->enum('app_type', ['admin', 'business', 'website', 'mobile-app', 'custom']);
             $table->enum('status', ['0', '1'])->comment('0 = inactive, 1 = active');
             $table->longText('allowed_domain'); // e.g., https://frontend.com
         //  Next.js specific key (optional, unique per client)
             $table->string('nextjs_internal_key', 255)->nullable()->unique()
                   ->comment('Special key to bypass IP block for Next.js build/server calls');
+            $table->string('used_by_origin')->nullable()
+                  ->comment('Stores the Origin header of the last request using this client');
+            $table->timestamp('last_used_at')->nullable();
 
             $table->timestamps();
         });

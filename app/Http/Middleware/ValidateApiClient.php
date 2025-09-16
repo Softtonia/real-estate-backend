@@ -6,6 +6,9 @@ use App\Models\ApiClient;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
 
 class ValidateApiClient
 {
@@ -56,7 +59,6 @@ class ValidateApiClient
 
         if (!$clientId || !$clientSecret || !$origin || !$appType) {
             return response()->json([
-
                 'message'    => 'Missing required headers: X-Client-ID, X-Client-Secret, X-App-Type, or Origin.'
             ], 401);
         }
@@ -70,6 +72,30 @@ class ValidateApiClient
 
         if (!$client) {
             return response()->json(['message' => 'Unauthorized client credentials'], 401);
+        }
+
+
+        if (is_null($client->used_by_origin)) {
+            $updated = ApiClient::where('id', $client->id)
+                ->whereNull('used_by_origin')
+                ->update([
+                    'used_by_origin' => $origin,
+                    'last_used_at'   => Carbon::now(),
+                    'updated_at'     => Carbon::now(),
+                ]);
+
+            if ($updated) {
+                $client->refresh(); // reload with new values
+            }
+        }
+
+
+
+        // If origin mismatch → block
+        if ($client->used_by_origin !== $origin) {
+            return response()->json([
+                'message' => 'Client credentials already locked to another origin: ' . $client->used_by_origin
+            ], 401);
         }
 
         // Allowed domains check

@@ -40,7 +40,6 @@ class ApiClientTableSeeder extends Seeder
                     "http://127.0.0.1:8000",
                     "http://localhost:5173","http://localhost:3000","https://api.urbanrealities.com/public"
                 ]),
-                'nextjs_internal_key' =>"HJQ7CHRZOX1EO3WRUA0ONESEQLQBDECMG3FNUFOKID4WTZGUMG",
             ],
             [
                 'client_name'     => 'Business App',
@@ -53,7 +52,7 @@ class ApiClientTableSeeder extends Seeder
                     "http://127.0.0.1:8000",
                     "http://localhost:5173","http://localhost:3000","https://api.urbanrealities.com/public"
                 ]),
-                'nextjs_internal_key' =>"HJQ7CHRZOX1EO3WRUA0ONESEQLQBDECMG4FNUFOKID4WTZGUMG",
+
             ],
             [
                 'client_name'     => 'Website Frontend',
@@ -79,7 +78,7 @@ class ApiClientTableSeeder extends Seeder
                 'allowed_domain'  => json_encode([
                     "*" // mobile apps ke liye usually CORS check skip karte hain
                 ]),
-                'nextjs_internal_key' =>"HJQ7CHRZOX1EO3WRUA0ONESEQLQBDECMG6FNUFOKID4WTZGUMG",
+
             ],
             [
                 'client_name'     => 'Custom Integration',
@@ -91,7 +90,7 @@ class ApiClientTableSeeder extends Seeder
                     "https://partner1.com",
                     "https://partner2.com"
                 ]),
-                'nextjs_internal_key' =>"HJQ7CHRZOX1EO3WRUA0ONESEQLQBDECMG7FNUFOKID4WTZGUMG",
+
             ],
         ];
 
