@@ -76,6 +76,8 @@ use App\Http\Controllers\EmailOtpController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\CustomField\CustomFieldExportImportController;
 
+use App\Http\Controllers\Menu\MenuController;
+
 
 
 
@@ -781,6 +783,17 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('/get-top-features-by-id', [TopFeatureController::class, 'getTopFeaturesById']);
         Route::middleware('admin.token')->post('create-or-update-top-feature/{id?}', [TopFeatureController::class, 'createOrUpdateTopFeature']);
 
+        // Menu Managements
+
+        Route::prefix('menus')->group(function () {
+            Route::get('/', [MenuController::class, 'index']);
+            Route::get('/show/{id}', [MenuController::class, 'show']);
+            Route::middleware('admin.token')->post('/store', [MenuController::class, 'store']);
+            Route::middleware('admin.token')->post('/update/{id}', [MenuController::class, 'update']);
+            Route::middleware('admin.token')->delete('/delete/{id}', [MenuController::class, 'destroy']);
+            Route::middleware('admin.token')->post('/reorder', [MenuController::class, 'reorder']); // Nested reorder
+        });
+
     });
 
 
@@ -803,7 +816,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClientController::class, 'getAppTypes']);
 
     Route::middleware('admin.token')->get('api-client-secrect-show-by-app-types/{appType}', [ApiClientController::class, 'showByAppType']);
-    Route::middleware('admin.token')->get('api-client-secrect-export-json/{id}', [ApiClientController::class, 'exportJsonApiClient']);
+    Route::middleware('admin.token')->get('api-client-secrect-export-csv/{id}', [ApiClientController::class, 'exportCsvApiClient']);
 
     // IpLog
 

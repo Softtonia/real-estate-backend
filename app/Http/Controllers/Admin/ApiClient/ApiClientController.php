@@ -328,38 +328,52 @@ class ApiClientController extends Controller
     }
 
 
-    public function exportJsonApiClient($id)
-    {
-        $client = ApiClient::find($id);
+    public function exportCsvApiClient($id)
+{
+    $client = ApiClient::find($id);
 
-        if (!$client) {
-            return response()->json(['error' => 'Client not found'], 200);
-        }
-
-        //  required fields
-        $data = $client->only([
-            'id',
-            'client_name',
-            'client_id',
-            'client_secret',
-            'app_type',
-            'nextjs_internal_key',
-            'allowed_domain',
-
-        ]);
-
-        // JSON
-        $jsonContent = json_encode($data, JSON_PRETTY_PRINT);
-
-        // File name dynamic
-        $fileName = "client_{$id}.json";
-
-        // File download
-        return response($jsonContent, 200, [
-            'Content-Type' => 'application/json',
-            'Content-Disposition' => "attachment; filename={$fileName}",
-        ]);
+    if (!$client) {
+        return response()->json(['error' => 'Client not found'], 200);
     }
+
+    // Required fields
+    $data = $client->only([
+        'id',
+        'client_name',
+        'client_id',
+        'client_secret',
+        'app_type',
+        'nextjs_internal_key',
+        'allowed_domain',
+    ]);
+
+    // Convert allowed_domain array to string if it's stored as array
+    if (is_array($data['allowed_domain'])) {
+        $data['allowed_domain'] = implode(',', $data['allowed_domain']);
+    }
+
+    // File name
+    $fileName = "client_{$id}.csv";
+
+    // Callback function for stream download
+    $callback = function () use ($data) {
+        $file = fopen('php://output', 'w');
+
+        // Column headers
+        fputcsv($file, array_keys($data));
+
+        // Row data
+        fputcsv($file, array_values($data));
+
+        fclose($file);
+    };
+
+    return response()->stream($callback, 200, [
+        'Content-Type' => 'text/csv',
+        'Content-Disposition' => "attachment; filename={$fileName}",
+    ]);
+}
+
 
 
 
