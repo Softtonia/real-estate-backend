@@ -268,7 +268,7 @@ class ApiClientController extends Controller
     }
 
 
-   public function generateNextJsInternalKey()
+    public function generateNextJsInternalKey()
     {
         do {
             // 50 characters random uppercase string
@@ -324,6 +324,40 @@ class ApiClientController extends Controller
             'status'  => 200,
             'message' => 'Client details',
             'data'    => $client
+        ]);
+    }
+
+
+    public function exportJsonApiClient($id)
+    {
+        $client = ApiClient::find($id);
+
+        if (!$client) {
+            return response()->json(['error' => 'Client not found'], 200);
+        }
+
+        //  required fields
+        $data = $client->only([
+            'id',
+            'client_name',
+            'client_id',
+            'client_secret',
+            'app_type',
+            'nextjs_internal_key',
+            'allowed_domain',
+
+        ]);
+
+        // JSON
+        $jsonContent = json_encode($data, JSON_PRETTY_PRINT);
+
+        // File name dynamic
+        $fileName = "client_{$id}.json";
+
+        // File download
+        return response($jsonContent, 200, [
+            'Content-Type' => 'application/json',
+            'Content-Disposition' => "attachment; filename={$fileName}",
         ]);
     }
 

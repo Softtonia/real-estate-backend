@@ -803,6 +803,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClientController::class, 'getAppTypes']);
 
     Route::middleware('admin.token')->get('api-client-secrect-show-by-app-types/{appType}', [ApiClientController::class, 'showByAppType']);
+    Route::middleware('admin.token')->get('api-client-secrect-export-json/{id}', [ApiClientController::class, 'exportJsonApiClient']);
 
     // IpLog
 
