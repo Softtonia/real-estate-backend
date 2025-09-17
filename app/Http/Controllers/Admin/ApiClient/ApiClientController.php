@@ -27,84 +27,91 @@ class ApiClientController extends Controller
 
     // Create new client with auto-generated ID & secret
     public function store(Request $request)
-{
-    $validator = Validator::make($request->all(), [
-        'client_name' => 'required|string|max:255',
-        'app_type' => ['required', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
-        'status' => ['required', Rule::in(['0', '1'])],
-        'allowed_domain' => 'required|array',
-        // 'allowed_domain.*' => 'url',
-        'allowed_domain.*' => [
-            'required',
-            'string',
-            function ($attribute, $value, $fail) {
-                //  regex: domains + localhost + IP addresses allow
-                $pattern = '/^(https?:\/\/)?' . // optional http/https
-                        '((localhost)|' .    // localhost allow
-                        '(\d{1,3}(\.\d{1,3}){3})|' . // IPv4 (127.0.0.1)
-                        '([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})' . // domain.com
-                        '(:\d+)?' . // optional port
-                        '(\/.*)?$/'; // optional path
+    {
+        $validator = Validator::make($request->all(), [
+            'client_name' => 'required|string|max:255',
+            'app_type' => [
+                    'required',
+                    Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom']),
+                    Rule::unique('api_clients', 'app_type'),
+                ],
 
-                if (!preg_match($pattern, $value)) {
-                    $fail("The {$attribute} value '{$value}' is not a valid domain or URL.");
+            'status' => ['required', Rule::in(['0', '1'])],
+            'allowed_domain' => 'required|array',
+            // 'allowed_domain.*' => 'url',
+            'allowed_domain.*' => [
+                'required',
+                'string',
+                function ($attribute, $value, $fail) {
+                    //  regex: domains + localhost + IP addresses allow
+                    $pattern = '/^(https?:\/\/)?' . // optional http/https
+                            '((localhost)|' .    // localhost allow
+                            '(\d{1,3}(\.\d{1,3}){3})|' . // IPv4 (127.0.0.1)
+                            '([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})' . // domain.com
+                            '(:\d+)?' . // optional port
+                            '(\/.*)?$/'; // optional path
+
+                    if (!preg_match($pattern, $value)) {
+                        $fail("The {$attribute} value '{$value}' is not a valid domain or URL.");
+                    }
+                },
+            ],
+            'client_id' => 'required|string|size:15|unique:api_clients,client_id',
+            'client_secret' => 'required|string|size:15|unique:api_clients,client_secret',
+            'nextjs_internal_key' => [
+                'nullable',
+                'string',
+                'size:50',
+                Rule::requiredIf(fn () => $request->app_type === 'website'),
+                Rule::unique('api_clients', 'nextjs_internal_key'),
+            ],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $validated = $validator->validated();
+
+            $client = ApiClient::create($validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Client created successfully.',
+                'data' => $client
+            ], 201);
+
+        } catch (QueryException $e) {
+            if ($e->getCode() == "23000") {
+                // map error to readable field
+                $errorMsg = 'Duplicate entry. One of the unique fields already exists.';
+                if (str_contains($e->getMessage(), 'api_clients_client_id_unique')) {
+                    $errorMsg = 'client_id already exists.';
+                } elseif (str_contains($e->getMessage(), 'api_clients_client_secret_unique')) {
+                    $errorMsg = 'client_secret already exists.';
+                } elseif (str_contains($e->getMessage(), 'api_clients_nextjs_internal_key_unique')) {
+                    $errorMsg = 'nextjs_internal_key already exists.';
+                }elseif (str_contains($e->getMessage(), 'api_clients_app_type_unique')) {
+                    $errorMsg = 'app_type already exists.';
                 }
-            },
-        ],
-        'client_id' => 'required|string|size:15|unique:api_clients,client_id',
-        'client_secret' => 'required|string|size:15|unique:api_clients,client_secret',
-        'nextjs_internal_key' => [
-            'nullable',
-            'string',
-            'size:50',
-            Rule::requiredIf(fn () => $request->app_type === 'website'),
-            Rule::unique('api_clients', 'nextjs_internal_key'),
-        ],
-    ]);
 
-    if ($validator->fails()) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Validation failed.',
-            'errors' => $validator->errors()
-        ], 422);
-    }
-
-    try {
-        $validated = $validator->validated();
-
-        $client = ApiClient::create($validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Client created successfully.',
-            'data' => $client
-        ], 201);
-
-    } catch (QueryException $e) {
-        if ($e->getCode() == "23000") {
-            // map error to readable field
-            $errorMsg = 'Duplicate entry. One of the unique fields already exists.';
-            if (str_contains($e->getMessage(), 'api_clients_client_id_unique')) {
-                $errorMsg = 'client_id already exists.';
-            } elseif (str_contains($e->getMessage(), 'api_clients_client_secret_unique')) {
-                $errorMsg = 'client_secret already exists.';
-            } elseif (str_contains($e->getMessage(), 'api_clients_nextjs_internal_key_unique')) {
-                $errorMsg = 'nextjs_internal_key already exists.';
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMsg,
+                ], 409); // 409 Conflict
             }
 
             return response()->json([
                 'success' => false,
-                'message' => $errorMsg,
-            ], 409); // 409 Conflict
+                'message' => 'Database error occurred.',
+            ], 500);
         }
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Database error occurred.',
-        ], 500);
     }
-}
 
 
     // Show one client
@@ -123,97 +130,105 @@ class ApiClientController extends Controller
     }
 
     // Update an existing client
-public function update(Request $request, $id)
-{
-    $client = ApiClient::find($id);
-    if (!$client) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Client not found'
-        ], 200);
-    }
+    public function update(Request $request, $id)
+    {
+        $client = ApiClient::find($id);
+        if (!$client) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Client not found'
+            ], 200);
+        }
 
-    $validator = Validator::make($request->all(), [
-        'client_name' => 'sometimes|required|string|max:255',
-        'app_type' => ['sometimes', Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom'])],
-        'status' => ['sometimes', Rule::in(['0', '1'])],
-        'allowed_domain' => 'sometimes|required|array',
-        // 'allowed_domain.*' => 'url',
-        'allowed_domain.*' => [
-            'required',
-            'string',
-            function ($attribute, $value, $fail) {
-                //  regex: domains + localhost + IP addresses allow
-                $pattern = '/^(https?:\/\/)?' . // optional http/https
-                        '((localhost)|' .    // localhost allow
-                        '(\d{1,3}(\.\d{1,3}){3})|' . // IPv4 (127.0.0.1)
-                        '([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})' . // domain.com
-                        '(:\d+)?' . // optional port
-                        '(\/.*)?$/'; // optional path
+        $validator = Validator::make($request->all(), [
+            'client_name' => 'sometimes|required|string|max:255',
+            'app_type' => [
+                'sometimes',
+                Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom']),
+                Rule::unique('api_clients', 'app_type')->ignore($client->id,'id'),
+            ],
 
-                if (!preg_match($pattern, $value)) {
-                    $fail("The {$attribute} value '{$value}' is not a valid domain or URL.");
-                }
-            },
-        ],
-        'client_id' => [
-            'sometimes', 'required', 'string', 'size:15',
-            Rule::unique('api_clients', 'client_id')->ignore($client->id),
-        ],
-        'client_secret' => [
-            'sometimes', 'required', 'string', 'size:15',
-            Rule::unique('api_clients', 'client_secret')->ignore($client->id),
-        ],
-        'nextjs_internal_key' => [
-            'nullable',
-            'string',
-            'size:50',
-            Rule::requiredIf(fn () => $request->app_type === 'website'),
-            Rule::unique('api_clients', 'nextjs_internal_key')->ignore($client->id),
-        ],
-    ]);
+            'status' => ['sometimes', Rule::in(['0', '1'])],
+            'allowed_domain' => 'sometimes|required|array',
+            'used_by_origin' => 'nullable|string|max:255',
+            'allowed_domain.*' => [
+                'required',
+                'string',
+                function ($attribute, $value, $fail) {
+                    //  regex: domains + localhost + IP addresses allow
+                    $pattern = '/^(https?:\/\/)?' . // optional http/https
+                            '((localhost)|' .    // localhost allow
+                            '(\d{1,3}(\.\d{1,3}){3})|' . // IPv4 (127.0.0.1)
+                            '([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})' . // domain.com
+                            '(:\d+)?' . // optional port
+                            '(\/.*)?$/'; // optional path
 
-    if ($validator->fails()) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Validation failed.',
-            'errors' => $validator->errors()
-        ], 422);
-    }
-
-    try {
-        $validated = $validator->validated();
-        $client->update($validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Client updated successfully.',
-            'data' => $client
+                    if (!preg_match($pattern, $value)) {
+                        $fail("The {$attribute} value '{$value}' is not a valid domain or URL.");
+                    }
+                },
+            ],
+            'client_id' => [
+                'sometimes', 'required', 'string', 'size:15',
+                Rule::unique('api_clients', 'client_id')->ignore($client->id),
+            ],
+            'client_secret' => [
+                'sometimes', 'required', 'string', 'size:15',
+                Rule::unique('api_clients', 'client_secret')->ignore($client->id),
+            ],
+            'nextjs_internal_key' => [
+                'nullable',
+                'string',
+                'size:50',
+                Rule::requiredIf(fn () => $request->app_type === 'website'),
+                Rule::unique('api_clients', 'nextjs_internal_key')->ignore($client->id),
+            ],
         ]);
 
-    } catch (QueryException $e) {
-        if ($e->getCode() == "23000") {
-            $errorMsg = 'Duplicate entry. One of the unique fields already exists.';
-            if (str_contains($e->getMessage(), 'api_clients_client_id_unique')) {
-                $errorMsg = 'client_id already exists.';
-            } elseif (str_contains($e->getMessage(), 'api_clients_client_secret_unique')) {
-                $errorMsg = 'client_secret already exists.';
-            } elseif (str_contains($e->getMessage(), 'api_clients_nextjs_internal_key_unique')) {
-                $errorMsg = 'nextjs_internal_key already exists.';
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $validated = $validator->validated();
+            $client->update($validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Client updated successfully.',
+                'data' => $client
+            ]);
+
+        } catch (QueryException $e) {
+            if ($e->getCode() == "23000") {
+                $errorMsg = 'Duplicate entry. One of the unique fields already exists.';
+                if (str_contains($e->getMessage(), 'api_clients_client_id_unique')) {
+                    $errorMsg = 'client_id already exists.';
+                } elseif (str_contains($e->getMessage(), 'api_clients_client_secret_unique')) {
+                    $errorMsg = 'client_secret already exists.';
+                } elseif (str_contains($e->getMessage(), 'api_clients_nextjs_internal_key_unique')) {
+                    $errorMsg = 'nextjs_internal_key already exists.';
+                }
+                elseif (str_contains($e->getMessage(), 'api_clients_app_type_unique')) {
+                    $errorMsg = 'app_type already exists.';
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMsg,
+                ], 409);
             }
 
             return response()->json([
                 'success' => false,
-                'message' => $errorMsg,
-            ], 409);
+                'message' => 'Database error occurred.',
+            ], 500);
         }
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Database error occurred.',
-        ], 500);
     }
-}
 
 
 
