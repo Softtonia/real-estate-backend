@@ -35,7 +35,7 @@ class MenuController extends Controller
         $menu = Menu::with('children')->find($id);
 
         if (!$menu) {
-            return response()->json(['message' => 'Menu not found'], 404);
+            return response()->json(['message' => 'Menu not found'], 200);
         }
 
         return response()->json($menu);
@@ -64,7 +64,7 @@ class MenuController extends Controller
 
         $menu = Menu::find($id);
         if (!$menu) {
-            return response()->json(['message' => 'Menu not found'], 404);
+            return response()->json(['message' => 'Menu not found'], 200);
         }
 
         $data = $this->validateMenu($request, $menu->id);
@@ -83,7 +83,7 @@ class MenuController extends Controller
 
         $menu = Menu::find($id);
         if (!$menu) {
-            return response()->json(['message' => 'Menu not found'], 404);
+            return response()->json(['message' => 'Menu not found'], 200);
         }
 
         $menu->delete();
