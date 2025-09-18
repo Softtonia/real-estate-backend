@@ -292,6 +292,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
             // Locations
                 Route::get('/locations', [LocationController::class, 'getCityGroups']);
+                Route::get('/get-localities-filter-by-location-id', [LocationController::class, 'getAreaLocalities']);
             // Project Listing No Auth
                 Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
                 Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);

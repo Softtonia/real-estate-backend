@@ -146,4 +146,21 @@ use HasApiTokens, HasFactory, Notifiable, HasRoles;
         return $this->first_name . ' ' . $this->last_name;
     }
 
+
+      /**
+     * Get the properties for the user.
+     */
+    public function properties()
+    {
+        return $this->hasMany(PropertyList::class, 'user_id');
+    }
+
+    /**
+     * Get the projects for the user.
+     */
+    public function projects()
+    {
+        return $this->hasMany(Project::class, 'user_id');
+    }
+
 }

@@ -11,6 +11,8 @@ use App\Models\Country;
 use App\Models\City;
 use App\Models\State;
 use App\Models\PropertyList;
+use App\Models\ProjectList;
+use App\Models\DeveloperList;
 use App\Models\CityVisit;
 use Auth;
 use Spatie\Permission\Models\Role;
@@ -661,48 +663,103 @@ class LocationController extends Controller
 
 
 
-public function locationExportToCSV()
-{
-    try {
-        $fileName = 'locations_export.csv';
+    public function locationExportToCSV()
+    {
+        try {
+            $fileName = 'locations_export.csv';
 
-        $response = new StreamedResponse(function () {
-            $handle = fopen('php://output', 'w');
+            $response = new StreamedResponse(function () {
+                $handle = fopen('php://output', 'w');
 
-            // CSV Header
-            fputcsv($handle, ['country', 'state', 'city', 'is_popular', 'is_nearby']);
+                // CSV Header
+                fputcsv($handle, ['country', 'state', 'city', 'is_popular', 'is_nearby']);
 
-            // Fetch all data with relationships
-            $countries = Country::with('states.cities')->get();
+                // Fetch all data with relationships
+                $countries = Country::with('states.cities')->get();
 
-            foreach ($countries as $country) {
-                foreach ($country->states as $state) {
-                    foreach ($state->cities as $city) {
-                        fputcsv($handle, [
-                            $country->name,
-                            $state->name,
-                            $city->name,
-                            $city->is_popular ? 1 : 0,
-                            $city->is_nearby ? 1 : 0,
-                        ]);
+                foreach ($countries as $country) {
+                    foreach ($country->states as $state) {
+                        foreach ($state->cities as $city) {
+                            fputcsv($handle, [
+                                $country->name,
+                                $state->name,
+                                $city->name,
+                                $city->is_popular ? 1 : 0,
+                                $city->is_nearby ? 1 : 0,
+                            ]);
+                        }
                     }
                 }
-            }
 
-            fclose($handle);
-        });
+                fclose($handle);
+            });
 
-        $response->headers->set('Content-Type', 'text/csv');
-        $response->headers->set('Content-Disposition', 'attachment; filename="' . $fileName . '"');
+            $response->headers->set('Content-Type', 'text/csv');
+            $response->headers->set('Content-Disposition', 'attachment; filename="' . $fileName . '"');
 
-        return $response;
+            return $response;
 
-    } catch (\Throwable $th) {
-        return response()->json(['error' => $th->getMessage()], 500);
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
     }
-}
 
 
+     public function getAreaLocalities(Request $request)
+    {
+        $request->validate([
+            'model'      => 'required|string|in:ProjectList,PropertyList,DeveloperList,Agent',
+            'country_id' => 'nullable|integer',
+            'state_id'   => 'nullable|integer',
+            'city_id'    => 'nullable|integer',
+        ]);
+
+        $filters = $request->only(['country_id', 'state_id', 'city_id']);
+
+        // Map model names to classes
+        $modelClassMap = [
+            'ProjectList'   => ProjectList::class,
+            'PropertyList'  => PropertyList::class,
+            'DeveloperList' => DeveloperList::class,
+            'Agent'          => User::class,
+        ];
+
+        $responseMessages = [
+            'ProjectList'   => 'Project areas retrieved successfully.',
+            'PropertyList'  => 'Property areas retrieved successfully.',
+            'DeveloperList' => 'Developer areas retrieved successfully.',
+            'Agent'          => 'Agent areas retrieved successfully.',
+        ];
+
+        $modelClass = $modelClassMap[$request->model];
+
+        // Start query
+        $query = $modelClass::query();
+
+        // Apply optional filters dynamically
+        foreach (['country_id', 'state_id', 'city_id'] as $key) {
+            if (!empty($filters[$key])) {
+                $query->where($key, $filters[$key]);
+            }
+        }
+
+        // Special case for User: filter by role relationship
+        if ($request->model === 'Agent') {
+            $query->whereHas('role', fn($q) => $q->where('name', 'agent'));
+        }
+
+        // Get distinct area_locality
+        $areas = $query->distinct()
+                       ->pluck('area_locality')
+                       ->filter()
+                       ->values();
+
+        return response()->json([
+            'success' => true,
+            'message' => $responseMessages[$request->model],
+            'data'    => $areas,
+        ]);
+    }
 
 
 
