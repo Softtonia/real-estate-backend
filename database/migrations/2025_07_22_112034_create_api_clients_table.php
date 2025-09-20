@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('api_clients', function (Blueprint $table) {
             $table->id();
             $table->string('client_name');
-            $table->string('client_id')->unique();
+            $table->string('client_id');
             $table->string('client_secret');
             $table->enum('app_type', ['admin', 'business', 'website', 'mobile-app', 'custom']);
             $table->enum('status', ['0', '1'])->comment('0 = inactive, 1 = active');
