@@ -100,13 +100,72 @@ class AssociationService
     /**
      * Return ordered array of associated user IDs (optionally filtered by role).
      */
+    // public function getAssociatedIds(int $userId, ?string $role = null): array
+    // {
+    //     $cacheKey = "assoc:ids:user:{$userId}:role:" . ($role ?: 'all');
+    //     $cacheTagsSupported = $this->cacheSupportsTags();
+
+    //     $closure = function () use ($userId, $role) {
+    //         // ✅ Fix bindings (only 1 placeholder, 1 value)
+    //         $rows = DB::table('connections')
+    //             ->selectRaw(
+    //                 "CASE WHEN requester_id = ? THEN receiver_id ELSE requester_id END as other_id",
+    //                 [$userId]
+    //             )
+    //             ->where('state', 'accepted')
+    //             ->where(function ($q) use ($userId) {
+    //                 $q->where('requester_id', $userId)
+    //                   ->orWhere('receiver_id', $userId);
+    //             })
+    //             ->orderBy('created_at', 'desc')
+    //             ->pluck('other_id')
+    //             ->unique()
+    //             ->values()
+    //             ->all();
+
+    //         if (!$role) {
+    //             return $rows;
+    //         }
+
+    //         if (empty($rows)) {
+    //             return [];
+    //         }
+
+    //         // preserve order with role filtering
+    //         $orderedIdsCsv = implode(',', $rows);
+
+    //         if (DB::getDriverName() === 'mysql') {
+    //             return User::whereIn('id', $rows)
+    //                 ->where('role', $role)
+    //                 ->orderByRaw("FIELD(id, {$orderedIdsCsv})")
+    //                 ->pluck('id')
+    //                 ->all();
+    //         }
+
+    //         // fallback for non-MySQL
+    //         $users = User::whereIn('id', $rows)
+    //             ->where('role', $role)
+    //             ->get()
+    //             ->keyBy('id');
+
+    //         return array_values(array_filter($rows, fn($id) => isset($users[$id])));
+    //     };
+
+    //     if ($cacheTagsSupported) {
+    //         return Cache::tags(['connections', "user_{$userId}"])
+    //             ->remember($cacheKey, $this->ttl, $closure);
+    //     }
+
+    //     return Cache::remember($cacheKey, $this->ttl, $closure);
+    // }
+
     public function getAssociatedIds(int $userId, ?string $role = null): array
     {
         $cacheKey = "assoc:ids:user:{$userId}:role:" . ($role ?: 'all');
         $cacheTagsSupported = $this->cacheSupportsTags();
 
         $closure = function () use ($userId, $role) {
-            // ✅ Fix bindings (only 1 placeholder, 1 value)
+            // Step 1: Get all associated user IDs
             $rows = DB::table('connections')
                 ->selectRaw(
                     "CASE WHEN requester_id = ? THEN receiver_id ELSE requester_id END as other_id",
@@ -123,20 +182,22 @@ class AssociationService
                 ->values()
                 ->all();
 
-            if (!$role) {
+            if (!$role || empty($rows)) {
                 return $rows;
             }
 
-            if (empty($rows)) {
+            // Step 2: Get role_id from roles table
+            $roleId = DB::table('roles')->where('name', $role)->value('id');
+            if (!$roleId) {
                 return [];
             }
 
-            // preserve order with role filtering
+            // Step 3: Filter users by role_id and preserve ordering
             $orderedIdsCsv = implode(',', $rows);
 
             if (DB::getDriverName() === 'mysql') {
                 return User::whereIn('id', $rows)
-                    ->where('role', $role)
+                    ->where('role_id', $roleId)
                     ->orderByRaw("FIELD(id, {$orderedIdsCsv})")
                     ->pluck('id')
                     ->all();
@@ -144,7 +205,7 @@ class AssociationService
 
             // fallback for non-MySQL
             $users = User::whereIn('id', $rows)
-                ->where('role', $role)
+                ->where('role_id', $roleId)
                 ->get()
                 ->keyBy('id');
 
