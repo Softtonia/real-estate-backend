@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('client_name');
             $table->string('client_id')->unique();
             $table->string('client_secret');
-            $table->enum('app_type', ['admin', 'business', 'website', 'mobile-app', 'custom'])->unique();
+            $table->enum('app_type', ['admin', 'business', 'website', 'mobile-app', 'custom']);
             $table->enum('status', ['0', '1'])->comment('0 = inactive, 1 = active');
             $table->longText('allowed_domain'); // e.g., https://frontend.com
         //  Next.js specific key (optional, unique per client)
