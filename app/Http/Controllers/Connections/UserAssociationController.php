@@ -73,10 +73,22 @@ class UserAssociationController extends Controller
     }
 
     // convenience endpoints
-    public function consultancies(Request $request) { $request->merge(['role' => 'consultancy']); return $this->associations($request); }
-    public function companies(Request $request)     { $request->merge(['role' => 'company']);      return $this->associations($request); }
-    public function agents(Request $request)       { $request->merge(['role' => 'agent']);        return $this->associations($request); }
-    public function developers(Request $request)   { $request->merge(['role' => 'developer']);    return $this->associations($request); }
+    public function consultancies(Request $request) { 
+        $request->merge(['role' => 'consultancy']);
+        return $this->associations($request); 
+    }
+    public function companies(Request $request)     { 
+        $request->merge(['role' => 'company']);     
+         return $this->associations($request); 
+        }
+    public function agents(Request $request)       { 
+        $request->merge(['role' => 'agent']);      
+          return $this->associations($request);
+         }
+    public function developers(Request $request)   { 
+        $request->merge(['role' => 'developer']);
+            return $this->associations($request); 
+        }
 
 
 }
