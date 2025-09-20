@@ -11,8 +11,8 @@ class JoinRequest extends Model
     protected $table = "join_requests";
 
     protected $fillable = [
-        'agent_id',
-        'consultancy_id',
+        'user_id',
+        'type',
         'status',
     ];
      public function agent()

@@ -13,12 +13,17 @@ class CompanyConsultancyController extends Controller
 {
 
     // for consultancy agent listings
-    public function getCompanyConsultancyListing(Request $request)
+    public function getConsultancyListingByCompany(Request $request)
     {
         try {
             // Retrieve authenticated user
-            $user = auth()->user();
+            $user = Auth::user();
+             if (!$user) {
+            return response()->json(['error' => 'Unauthorized. No authenticated user found.'], 401);
+        }
             $userId = $user->id;
+
+           
 
             // Fetch users created by the authenticated company
             $consultancy_ids_from_users_created_by = User::where('created_by', $userId)
@@ -41,7 +46,15 @@ class CompanyConsultancyController extends Controller
             // Retrieve users with role and details
             $users = User::whereIn('id', $final_consultancy_id_arr)
                 ->with(['role', 'userDetails'])
-                ->get();
+                ->get()
+                ->map(function ($user) {
+                if ($user->userDetails && $user->userDetails->profile_photo) {
+                    $user->userDetails->profile_photo_url = url( $user->userDetails->profile_photo);
+                } else {
+                    $user->userDetails->profile_photo_url = url('images/default.png');
+                }
+                return $user;
+            });
 
             return response()->json($users, 200);
         } catch (\Throwable $th) {
@@ -150,203 +163,203 @@ class CompanyConsultancyController extends Controller
     }
 
 
-    // for get all join requests of consultancy
-    public function getConsultancyAllJoinRequest(Request $request)
-    {
-        try {
-            $consultancyUser = Auth::user();
+    // // for get all join requests of consultancy
+    // public function getConsultancyAllJoinRequest(Request $request)
+    // {
+    //     try {
+    //         $consultancyUser = Auth::user();
 
-            if (!$consultancyUser) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
+    //         if (!$consultancyUser) {
+    //             return response()->json(['error' => 'Consultancy not found'], 404);
+    //         }
 
-            $userId = $consultancyUser->id;
+    //         $userId = $consultancyUser->id;
 
-            // Fetch join requests with related company and user details
-            $joinRequests = JoinRequest::with(['company.userDetail'])
-                ->where('type', 'company-consultancy')
-                ->where('user_id', $userId)
-                ->get();
+    //         // Fetch join requests with related company and user details
+    //         $joinRequests = JoinRequest::with(['company.userDetail'])
+    //             ->where('type', 'company-consultancy')
+    //             ->where('user_id', $userId)
+    //             ->get();
 
-            if ($joinRequests->isEmpty()) {
-                return response()->json(['error' => 'No request found for this consultancy'], 404);
-            }
+    //         if ($joinRequests->isEmpty()) {
+    //             return response()->json(['error' => 'No request found for this consultancy'], 404);
+    //         }
 
-            // Ensure userDetail exists before accessing its properties
-            $userDetails = $consultancyUser->userDetail ?? null;
+    //         // Ensure userDetail exists before accessing its properties
+    //         $userDetails = $consultancyUser->userDetail ?? null;
 
-            $returnData = [
-                'consultancy' => [
-                    'id' => $consultancyUser->id,
-                    'fullname' => $consultancyUser->fullname,
-                    'email' => $consultancyUser->email,
-                    'phone' => $consultancyUser->phone,
-                    'role_id' => $consultancyUser->role_id,
-                    'role_name' => $consultancyUser->role_name,
-                    'unique_id' => $consultancyUser->unique_id,
-                    'api_token' => $consultancyUser->api_token,
-                    'profile_photo' => $userDetails?->profile_photo,
-                    'business_name' => $userDetails?->bussiness_name,
-                    'business_address' => $userDetails?->bussiness_address,
-                    'business_email' => $userDetails?->bussiness_email,
-                    'business_phone' => $userDetails?->business_phone,
-                    'address' => $userDetails?->address,
-                ],
-                'join_requests' => []
-            ];
+    //         $returnData = [
+    //             'consultancy' => [
+    //                 'id' => $consultancyUser->id,
+    //                 'fullname' => $consultancyUser->fullname,
+    //                 'email' => $consultancyUser->email,
+    //                 'phone' => $consultancyUser->phone,
+    //                 'role_id' => $consultancyUser->role_id,
+    //                 'role_name' => $consultancyUser->role_name,
+    //                 'unique_id' => $consultancyUser->unique_id,
+    //                 'api_token' => $consultancyUser->api_token,
+    //                 'profile_photo' => $userDetails?->profile_photo,
+    //                 'business_name' => $userDetails?->bussiness_name,
+    //                 'business_address' => $userDetails?->bussiness_address,
+    //                 'business_email' => $userDetails?->bussiness_email,
+    //                 'business_phone' => $userDetails?->business_phone,
+    //                 'address' => $userDetails?->address,
+    //             ],
+    //             'join_requests' => []
+    //         ];
 
-            foreach ($joinRequests as $row) {
-                $company = $row->company ?? null; // Check if company exists
+    //         foreach ($joinRequests as $row) {
+    //             $company = $row->company ?? null; // Check if company exists
 
-                if (!$company) {
-                    // Log this error instead of stopping execution
-                    \Log::error("Company not found for join request ID: " . $row->id);
-                    continue; // Skip this request and move to the next one
-                }
+    //             if (!$company) {
+    //                 // Log this error instead of stopping execution
+    //                 \Log::error("Company not found for join request ID: " . $row->id);
+    //                 continue; // Skip this request and move to the next one
+    //             }
 
-                $companyDetails = $company->userDetail ?? null; // Check if userDetail exists
+    //             $companyDetails = $company->userDetail ?? null; // Check if userDetail exists
 
-                $returnData['join_requests'][] = [
-                    'status' => $row->status,
-                    'company' => [
-                        'id' => $company->id ?? null,
-                        'fullname' => $company->fullname ?? null,
-                        'email' => $company->email ?? null,
-                        'phone' => $company->phone ?? null,
-                        'role_id' => $company->role_id ?? null,
-                        'role_name' => $company->role_name ?? null,
-                        'unique_id' => $company->unique_id ?? null,
-                        'api_token' => $company->api_token ?? null,
-                        'profile_photo' => $companyDetails?->profile_photo,
-                        'business_name' => $companyDetails?->bussiness_name,
-                        'business_address' => $companyDetails?->bussiness_address,
-                        'business_email' => $companyDetails?->bussiness_email,
-                        'business_phone' => $companyDetails?->business_phone,
-                        'address' => $companyDetails?->address,
-                    ],
-                ];
-            }
-
-
-            return response()->json($returnData, 200);
-
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
+    //             $returnData['join_requests'][] = [
+    //                 'status' => $row->status,
+    //                 'company' => [
+    //                     'id' => $company->id ?? null,
+    //                     'fullname' => $company->fullname ?? null,
+    //                     'email' => $company->email ?? null,
+    //                     'phone' => $company->phone ?? null,
+    //                     'role_id' => $company->role_id ?? null,
+    //                     'role_name' => $company->role_name ?? null,
+    //                     'unique_id' => $company->unique_id ?? null,
+    //                     'api_token' => $company->api_token ?? null,
+    //                     'profile_photo' => $companyDetails?->profile_photo,
+    //                     'business_name' => $companyDetails?->bussiness_name,
+    //                     'business_address' => $companyDetails?->bussiness_address,
+    //                     'business_email' => $companyDetails?->bussiness_email,
+    //                     'business_phone' => $companyDetails?->business_phone,
+    //                     'address' => $companyDetails?->address,
+    //                 ],
+    //             ];
+    //         }
 
 
-    // for accept and decline the request
+    //         return response()->json($returnData, 200);
 
-    public function acceptDeclineCompanyRequestByConsultancy(Request $request)
-    {
-        try {
-            $authUser = Auth::user();
-
-            if (!$authUser) {
-                return response()->json(['error' => 'User not found'], 404);
-            }
-
-            // Determine user type
-            $userRole = $authUser->role->name;
-            $isCompany = $userRole === 'company';
-            $isConsultancy = $userRole === 'consultancy';
-            $isAgent = $userRole === 'agent';
-
-            if (!$isCompany && !$isConsultancy && !$isAgent) {
-                return response()->json(['error' => 'Unauthorized action'], 403);
-            }
-
-            // Determine the target user and request type
-            if ($isCompany) {
-                $targetUserId = $request->consultancy_id;
-                $requestType = 'company-consultancy';
-            } elseif ($isAgent) {
-                $targetUserId = $request->consultancy_id;
-                $requestType = 'consultancy-agent';
-            } elseif ($isConsultancy) {
-                if ($request->company_id) {
-                    $targetUserId = $request->company_id;
-                    $requestType = 'company-consultancy';
-                } elseif ($request->agent_id) {
-                    $targetUserId = $request->agent_id;
-                    $requestType = 'consultancy-agent';
-                } else {
-                    return response()->json(['error' => 'Missing target user ID.'], 400);
-                }
-            }
-
-            // Ensure the target user exists
-            $targetUser = User::find($targetUserId);
-            if (!$targetUser) {
-                return response()->json(['error' => 'Target user not found'], 404);
-            }
-
-            // Validate status
-            if (!in_array($request->status, [1, 2, 3])) {
-                return response()->json([
-                    'error' => 'Invalid status. Allowed values: 1 (Requested), 2 (Accepted), 3 (Rejected).'
-                ], 422);
-            }
-
-            // Update JoinRequest with correct where conditions
-            $update = JoinRequest::where('type', $requestType)
-                ->where(function ($query) use ($authUser, $targetUserId) {
-                    $query->where('user_id', $authUser->id)
-                        ->orWhere('user_id', $targetUserId);
-                })
-                ->update(['status' => $request->status]);
+    //     } catch (\Throwable $th) {
+    //         return response()->json(['error' => $th->getMessage()], 500);
+    //     }
+    // }
 
 
+    // // for accept and decline the request
 
-            if ($update) {
-                return response()->json([
-                    'status' => true,
-                    'message' => "Request status updated successfully."
-                ], 201);
-            } else {
-                return response()->json(['error' => 'No matching request found.'], 404);
-            }
+    // public function acceptDeclineCompanyRequestByConsultancy(Request $request)
+    // {
+    //     try {
+    //         $authUser = Auth::user();
 
-        } catch (\Exception $e) {
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
+    //         if (!$authUser) {
+    //             return response()->json(['error' => 'User not found'], 404);
+    //         }
+
+    //         // Determine user type
+    //         $userRole = $authUser->role->name;
+    //         $isCompany = $userRole === 'company';
+    //         $isConsultancy = $userRole === 'consultancy';
+    //         $isAgent = $userRole === 'agent';
+
+    //         if (!$isCompany && !$isConsultancy && !$isAgent) {
+    //             return response()->json(['error' => 'Unauthorized action'], 403);
+    //         }
+
+    //         // Determine the target user and request type
+    //         if ($isCompany) {
+    //             $targetUserId = $request->consultancy_id;
+    //             $requestType = 'company-consultancy';
+    //         } elseif ($isAgent) {
+    //             $targetUserId = $request->consultancy_id;
+    //             $requestType = 'consultancy-agent';
+    //         } elseif ($isConsultancy) {
+    //             if ($request->company_id) {
+    //                 $targetUserId = $request->company_id;
+    //                 $requestType = 'company-consultancy';
+    //             } elseif ($request->agent_id) {
+    //                 $targetUserId = $request->agent_id;
+    //                 $requestType = 'consultancy-agent';
+    //             } else {
+    //                 return response()->json(['error' => 'Missing target user ID.'], 400);
+    //             }
+    //         }
+
+    //         // Ensure the target user exists
+    //         $targetUser = User::find($targetUserId);
+    //         if (!$targetUser) {
+    //             return response()->json(['error' => 'Target user not found'], 404);
+    //         }
+
+    //         // Validate status
+    //         if (!in_array($request->status, [1, 2, 3])) {
+    //             return response()->json([
+    //                 'error' => 'Invalid status. Allowed values: 1 (Requested), 2 (Accepted), 3 (Rejected).'
+    //             ], 422);
+    //         }
+
+    //         // Update JoinRequest with correct where conditions
+    //         $update = JoinRequest::where('type', $requestType)
+    //             ->where(function ($query) use ($authUser, $targetUserId) {
+    //                 $query->where('user_id', $authUser->id)
+    //                     ->orWhere('user_id', $targetUserId);
+    //             })
+    //             ->update(['status' => $request->status]);
 
 
-     // for leave the company
-    public function leaveTheComapnyByConsultancy(Request $request)
-    {
-        try {
-            $consultancyUser = Auth::user();
 
-            if (!$consultancyUser) {
-                return response()->json(['error' => 'Consultancy not found'], 404);
-            }
+    //         if ($update) {
+    //             return response()->json([
+    //                 'status' => true,
+    //                 'message' => "Request status updated successfully."
+    //             ], 201);
+    //         } else {
+    //             return response()->json(['error' => 'No matching request found.'], 404);
+    //         }
 
-            $userId = $consultancyUser->id;
+    //     } catch (\Exception $e) {
+    //         \Log::error($e->getMessage());
+    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+    //     }
+    // }
 
-            // Validate that the user exists
-            if (!User::where('id', $request->user_id)->exists()) {
-                return response()->json(['error' => 'Company not found'], 404);
-            }
 
-            // Check if consultancy_id exists in join_requests, otherwise use user_id or consultant_id
-            $update = JoinRequest::where(['user_id' => $userId,])
-                ->update(['status' => '5']); // Change if 'status' is an integer
+    //  // for leave the company
+    // public function leaveTheComapnyByConsultancy(Request $request)
+    // {
+    //     try {
+    //         $consultancyUser = Auth::user();
 
-            if ($update) {
-                return response()->json(['status' => true, 'message' => 'You left the company successfully.'], 201);
-            } else {
-                return response()->json(['error' => 'No matching record found.'], 404);
-            }
+    //         if (!$consultancyUser) {
+    //             return response()->json(['error' => 'Consultancy not found'], 404);
+    //         }
 
-        } catch (\Exception $e) {
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
-        }
-    }
+    //         $userId = $consultancyUser->id;
+
+    //         // Validate that the user exists
+    //         if (!User::where('id', $request->user_id)->exists()) {
+    //             return response()->json(['error' => 'Company not found'], 404);
+    //         }
+
+    //         // Check if consultancy_id exists in join_requests, otherwise use user_id or consultant_id
+    //         $update = JoinRequest::where(['user_id' => $userId,])
+    //             ->update(['status' => '5']); // Change if 'status' is an integer
+
+    //         if ($update) {
+    //             return response()->json(['status' => true, 'message' => 'You left the company successfully.'], 201);
+    //         } else {
+    //             return response()->json(['error' => 'No matching record found.'], 404);
+    //         }
+
+    //     } catch (\Exception $e) {
+    //         \Log::error($e->getMessage());
+    //         return response()->json(['error' => 'Failed. ' . $e->getMessage()], 500);
+    //     }
+    // }
 
 
     // for get consultancy details

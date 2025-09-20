@@ -76,7 +76,7 @@ class CompanyApiToken
     $cleanedUri = ltrim($cleanedUri, '/');
 
     // Assuming you want to log or debug the cleaned URI
-    dd($cleanedUri); // This will output the cleaned URI
+    // dd($cleanedUri); // This will output the cleaned URI
 
     // Here, you would match $cleanedUri to a model name. For instance, a model mapping array:
     $modelMappings = [

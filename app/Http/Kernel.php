@@ -98,6 +98,8 @@ class Kernel extends HttpKernel
 
         'validate.api.client' => \App\Http\Middleware\ValidateApiClient::class,
 
+        'OnlyCompany' => \App\Http\Middleware\OnlyCompanyMiddleware::class,
+
 
 
 

@@ -33,7 +33,6 @@ class ApiClientController extends Controller
             'app_type' => [
                     'required',
                     Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom']),
-                    Rule::unique('api_clients', 'app_type'),
                 ],
 
             'status' => ['required', Rule::in(['0', '1'])],
@@ -96,8 +95,6 @@ class ApiClientController extends Controller
                     $errorMsg = 'client_secret already exists.';
                 } elseif (str_contains($e->getMessage(), 'api_clients_nextjs_internal_key_unique')) {
                     $errorMsg = 'nextjs_internal_key already exists.';
-                }elseif (str_contains($e->getMessage(), 'api_clients_app_type_unique')) {
-                    $errorMsg = 'app_type already exists.';
                 }
 
                 return response()->json([
@@ -145,7 +142,7 @@ class ApiClientController extends Controller
             'app_type' => [
                 'sometimes',
                 Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom']),
-                Rule::unique('api_clients', 'app_type')->ignore($client->id,'id'),
+                
             ],
 
             'status' => ['sometimes', Rule::in(['0', '1'])],
@@ -213,9 +210,7 @@ class ApiClientController extends Controller
                 } elseif (str_contains($e->getMessage(), 'api_clients_nextjs_internal_key_unique')) {
                     $errorMsg = 'nextjs_internal_key already exists.';
                 }
-                elseif (str_contains($e->getMessage(), 'api_clients_app_type_unique')) {
-                    $errorMsg = 'app_type already exists.';
-                }
+               
 
                 return response()->json([
                     'success' => false,

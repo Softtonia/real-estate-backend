@@ -77,6 +77,8 @@ use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\CustomField\CustomFieldExportImportController;
 
 use App\Http\Controllers\Menu\MenuController;
+use App\Http\Controllers\Connections\ConnectionController;
+use App\Http\Controllers\Connections\UserAssociationController;
 
 
 
@@ -147,7 +149,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
 
 
-        Route::middleware('OnlyCompany')->get('get-company-consultancy-listing', [CompanyConsultancyController::class, 'getCompanyConsultancyListing']);   // Done By softtonia
+        Route::middleware('OnlyCompany')->get('get-company-consultancy-listing', [CompanyConsultancyController::class, 'getConsultancyListingByCompany']);   // Done By softtonia
         Route::middleware('OnlyCompany')->get('search-consultancy-by-id', [CompanyConsultancyController::class, 'searchConsultancyById']);  // Done By softtonia
         Route::middleware('OnlyCompany')->post('send-request-by-company-to-consultancy', [CompanyConsultancyController::class, 'sendRequestByCompanyToConsultancy']); // Done By softtonia
         Route::middleware('OnlyConsultancy')->get('get-all-consultancy-join-request-listing', [CompanyConsultancyController::class, 'getConsultancyAllJoinRequest']);  // Done By softtonia
@@ -794,6 +796,20 @@ Route::middleware(['throttle:60,1'])->group(function () {
             Route::middleware('admin.token')->delete('/delete/{id}', [MenuController::class, 'destroy']);
             Route::middleware('admin.token')->post('/reorder', [MenuController::class, 'reorder']); // Nested reorder
         });
+
+
+            // Connection lifecycle
+        Route::post('/connections', [ConnectionController::class, 'store']);         // Send connection request
+        Route::post('/connections/{connection}/accept', [ConnectionController::class, 'accept']);   // Accept
+        Route::post('/connections/{connection}/reject', [ConnectionController::class, 'reject']);   // Reject
+        Route::delete('/connections/{connection}', [ConnectionController::class, 'destroy']);       // Cancel or Leave
+
+        // Associations (connected users by role)
+        Route::get('/my/associations', [UserAssociationController::class, 'associations']);
+        Route::get('/my/consultancies', [UserAssociationController::class, 'consultancies']);
+        Route::get('/my/companies', [UserAssociationController::class, 'companies']);
+        Route::get('/my/agents', [UserAssociationController::class, 'agents']);
+        Route::get('/my/developers', [UserAssociationController::class, 'developers']);
 
     });
 
