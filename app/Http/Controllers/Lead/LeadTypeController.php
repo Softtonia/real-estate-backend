@@ -228,4 +228,55 @@ class LeadTypeController extends Controller
         ], 200);
     }
 
+
+    public function searchLeadType(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'search' => 'required|string|min:2|max:100',
+            'per_page' => 'sometimes|integer|min:1|max:100'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $perPage = $request->per_page ?? 10;
+
+        $leadTypes = LeadType::where('name', 'like', '%' . $request->search . '%')
+            ->orWhere('slug', 'like', '%' . $request->search . '%')
+            ->paginate($perPage);
+
+        if ($leadTypes->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No lead types found matching your search'
+            ], 200);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Lead Types fetched successfully',
+            'data' => $leadTypes->items(),
+            'pagination' => [
+                'current_page' => $leadTypes->currentPage(),
+                'per_page' => $leadTypes->perPage(),
+                'total' => $leadTypes->total(),
+                'last_page' => $leadTypes->lastPage(),
+                'from' => $leadTypes->firstItem(),
+                'to' => $leadTypes->lastItem(),
+                'links' => [
+                    'first' => $leadTypes->url(1),
+                    'last' => $leadTypes->url($leadTypes->lastPage()),
+                    'prev' => $leadTypes->previousPageUrl(),
+                    'next' => $leadTypes->nextPageUrl(),
+                ],
+            ]
+        ], 200);
+    }
+
+
 }

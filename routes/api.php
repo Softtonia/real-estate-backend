@@ -859,13 +859,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
     // Lead Types
 
     Route::get('/lead-types', [LeadTypeController::class, 'index']);     // Get all
+    Route::get('/lead-types/check-slug-unique', [LeadTypeController::class, 'checkSlugUnique']);
+    Route::middleware(['admin.token'])->get('/lead-types/search', [LeadTypeController::class, 'searchLeadType']);
     Route::get('/lead-types/{id}', [LeadTypeController::class, 'show']); // Get single
     Route::middleware(['admin.token'])->post('/lead-types', [LeadTypeController::class, 'store']);    // Create
     Route::middleware(['admin.token'])->post('/lead-types-update/{id}', [LeadTypeController::class, 'update']); // Update
     Route::middleware(['admin.token'])->delete('/lead-types/{id}', [LeadTypeController::class, 'destroy']); // Delete
     Route::post('/lead-types/search-by-name', [LeadTypeController::class, 'getSearchByName']);
     Route::post('/lead-types/search-by-slug', [LeadTypeController::class, 'getSearchBySlug']);
-    Route::get('/lead-types/check-slug-unique', [LeadTypeController::class, 'checkSlugUnique']);
 
 
     Route::middleware(['admin.token'])->get('contact-us-leads', [ContactUsLeadController::class, 'index']);   // List with pagination

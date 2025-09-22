@@ -125,8 +125,16 @@ class GoogleAuthController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Login Successful',
-                'user' => $user,
-                'token' => $user->api_token,
+                // 'user' => $user,
+                // 'token' => $user->api_token,
+                // 'role' => $user->role->name,
+                   'data' => [
+                        'user_id'   => $user->id,
+                        'first_name'      => $user->first_name,
+                        'role_id'   => $user->role_id,
+                        'role_name' => $user->role ? $user->role->name : null,
+                        'token'     => $user->api_token,
+                    ]
             ]);
 
         } catch (\Exception $e) {
