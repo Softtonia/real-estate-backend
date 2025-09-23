@@ -389,6 +389,7 @@ class UserController extends Controller
                     'role_name' => $roleName,
                     'unique_id' => $user->unique_id,
                     'isapproved' => $user->isapproved,
+                    'kyc' => $user->kyc,
                 ];
             });
 
@@ -512,7 +513,7 @@ class UserController extends Controller
                 'role_name' => $userData->role_name,
                 'unique_id' => $userData->unique_id,
                 'isapproved' => $userData->isapproved,
-                // 'kyc' => $userData->kyc,
+                'kyc' => $userData->kyc,
                 'country_id' => $userData->country_id ?? 'N/A',
                 'state_id' => $userData->state_id ?? 'N/A',
                 'city_id' => $userData->city_id ?? 'N/A',
