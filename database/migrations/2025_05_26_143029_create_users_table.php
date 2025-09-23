@@ -28,6 +28,10 @@ return new class extends Migration
                 ->comment('Active=1, Deactive=2, UnderReview=3, Reject=4');
             $table->text('reject_reason')->nullable()
                 ->comment('Reason for rejection if user is rejected');
+
+            $table->integer('kyc')->default(0)
+                ->comment('0 = Kyc Pending, 1 = Kyc In Progress, 2 = Kyc Approved');
+     
             $table->unsignedBigInteger('created_by')->default(0);
             $table->timestamp('email_otp_expires_at')->useCurrent()->nullable();
             $table->timestamp('token_created_at')->nullable();

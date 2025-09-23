@@ -449,7 +449,7 @@ class UserController extends Controller
                     DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
                     'users.unique_id',
                     'users.isapproved',
-
+                    'users.kyc',
                     'users.country_id',
                     'users.state_id',
                     'users.city_id',
@@ -477,6 +477,10 @@ class UserController extends Controller
                     'user_details.street_address as business_street_address',
                     'user_details.pin_code as business_pin_code',
                     // 'user_details.about_us as business_about_us',
+                    'user_details.aadhaar_number',
+                    'user_details.aadhaar_front',
+                    'user_details.aadhaar_back',
+                    'user_details.business_proof',
 
                     'user_details.address',
                     'user_details.profile_photo',
@@ -537,6 +541,10 @@ class UserController extends Controller
                 'business_pin_code' => $userData->business_pin_code ?? 'N/A',
                 'address' => $userData->address,
                 'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
+                'aadhaar_number' => $userData->aadhaar_number,
+                'aadhaar_front' => $userData->aadhaar_front ? url($userData->aadhaar_front) : null,
+                'aadhaar_back' => $userData->aadhaar_back ? url($userData->aadhaar_back) : null,
+                'business_proof' => $userData->business_proof ? url($userData->business_proof) : null,
                 'license_number' => $userData->license_number,
                 'alternate_number' => $userData->alternate_number,
                 'no_of_employees' => $userData->no_of_employees,
@@ -3208,6 +3216,11 @@ class UserController extends Controller
             return response()->json(['error' => 'Failed to update profile. ' . $e->getMessage()], 500);
         }
     }
+
+
+    
+
+
 
 
 

@@ -80,6 +80,8 @@ use App\Http\Controllers\Menu\MenuController;
 use App\Http\Controllers\Connections\ConnectionController;
 use App\Http\Controllers\Connections\UserAssociationController;
 
+use App\Http\Controllers\Auth\Kyc\KycController;
+
 
 
 
@@ -133,6 +135,10 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
         Route::middleware('allrole.token')->post('update-current-user-by-token', [UserController::class, 'updateCurrentUser']);
+
+        Route::middleware(['admin.token'])->post('user-kyc-update', [KycController::class, 'updateKycStatus']);
+        Route::middleware('allrole.token')->post('user-complete-kyc', [KycController::class, 'completeKyc']);
+
 
         Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
         Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);

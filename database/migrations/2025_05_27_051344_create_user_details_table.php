@@ -37,6 +37,23 @@ return new class extends Migration
             $table->unsignedBigInteger('property_id')->nullable();
             $table->unsignedBigInteger('property_type_id')->nullable();
             $table->text('about_us')->nullable();
+            $table->string('aadhaar_number', 20)
+                  ->nullable()
+                  ->unique()
+                  ->comment('Aadhaar card number - unique per user');
+
+            $table->string('aadhaar_front')
+                  ->nullable()
+                  ->comment('Uploaded Aadhaar front image');
+
+            
+            $table->string('aadhaar_back')
+                  ->nullable()
+                  ->comment('Uploaded Aadhaar back image');
+
+            $table->string('business_proof')
+                  ->nullable()
+                  ->comment('Business proof document');
             $table->timestamps();
 
         });
