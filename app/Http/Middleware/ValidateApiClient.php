@@ -19,36 +19,7 @@ class ValidateApiClient
      */
 
 
-    // public function handle(Request $request, Closure $next): Response
-    // {
-    //     $clientId = $request->header('X-Client-ID');
-    //     $clientSecret = $request->header('X-Client-Secret');
-    //     $origin = $request->headers->get('Origin'); // e.g., http://localhost:5173/
-
-
-
-    //     if (!$clientId || !$clientSecret || !$origin) {
-    //         return response()->json(['message' => 'Missing credentials'], 401);
-    //     }
-
-    //     $client = ApiClient::where('client_id', $clientId)
-    //         ->where('client_secret', $clientSecret)->Active()
-    //         ->first();
-
-    //     if (!$client) {
-    //         return response()->json(['message' => 'Unauthorized client credentials'], 401);
-    //     }
-
-    //     // allowed_domain is stored as JSON array in DB and casted to array in model
-    //     $allowedDomains = $client->allowed_domain ?? [];
-
-    //     if (!in_array($origin, $allowedDomains)) {
-    //         return response()->json(['message' => 'Unauthorized origin'], 401);
-    //     }
-
-    //     return $next($request);
-    // }
-
+   
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -60,7 +31,7 @@ class ValidateApiClient
         if (!$clientId || !$clientSecret || !$origin || !$appType) {
             return response()->json([
                 'message'    => 'Missing required headers: X-Client-ID, X-Client-Secret, X-App-Type, or Origin.'
-            ], 401);
+            ], 400);
         }
 
         // Get client directly without scope
@@ -95,13 +66,13 @@ class ValidateApiClient
         if ($client->used_by_origin !== $origin) {
             return response()->json([
                 'message' => 'Client credentials already locked to another origin: ' . $client->used_by_origin
-            ], 401);
+            ], 409);
         }
 
         // Allowed domains check
         $allowedDomains = $client->allowed_domain ?? [];
         if (!in_array($origin, $allowedDomains)) {
-            return response()->json(['message' => 'Unauthorized origin'], 401);
+            return response()->json(['message' => 'Unauthorized origin'], 403);
         }
 
 
