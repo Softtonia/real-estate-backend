@@ -27,6 +27,8 @@ return new class extends Migration {
             $table->string('as')->nullable();
             $table->string('query')->nullable(); // original IP again
             $table->enum('status', ['active', 'blocked'])->default('active');
+            $table->timestamp('blocked_at')->nullable();
+            $table->string('blocked_reason')->nullable();
             $table->timestamps();
         });
     }

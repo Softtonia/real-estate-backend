@@ -26,6 +26,8 @@ class UserIpLog extends Model
         'query',
         'created_at',
         'updated_at',
+        'blocked_at',
+       'blocked_reason'
     ];
 
     public function user()

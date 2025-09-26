@@ -25,28 +25,12 @@ class LogAndBlockIpMiddleware
 
     public function handle(Request $request, Closure $next): Response
     {
-        $ip = $request->ip();
+        $ip = $request->header('X-Forwarded-For') ?? $request->ip();
         $authHeader = $request->header('Authorization');
         $user = null;
         $userId = null;
 
-        // ----- NEW: trusted build key header (case-insensitive) -----
-        // Configure this secret in your Laravel .env as NEXTJS_INTERNAL_KEY
-        // $buildKeyHeader = $request->header('x-nextjs-build-key') ?? $request->header('X-Nextjs-Build-Key') ?? $request->header('X-NextJS-Build-Key');
-        // $trustedBuildKey = env('NEXTJS_INTERNAL_KEY');
-
-        // $isInternalBuildCall = false;
-        // if ($buildKeyHeader && $trustedBuildKey) {
-        //     // use hash_equals to mitigate timing attacks
-        //     try {
-        //         if (is_string($buildKeyHeader) && is_string($trustedBuildKey) && hash_equals((string)$trustedBuildKey, (string)$buildKeyHeader)) {
-        //             $isInternalBuildCall = true;
-        //         }
-        //     } catch (\Throwable $e) {
-        //         // if hash_equals not applicable for some reason, fallback safe compare
-        //         $isInternalBuildCall = ((string)$trustedBuildKey === (string)$buildKeyHeader);
-        //     }
-        // }
+       
 
          // ----- NEW: trusted build key header (case-insensitive) -----
         $buildKeyHeader = $request->header('x-nextjs-build-key')
@@ -215,6 +199,8 @@ class LogAndBlockIpMiddleware
             $ipToBlock = UserIpLog::where('ip_address', $ip)->first();
             if ($ipToBlock && $ipToBlock->status !== 'blocked') {
                 $ipToBlock->status = 'blocked';
+                $ipToBlock->blocked_at = now();
+                $ipToBlock->blocked_reason = 'Too many requests (rate limit exceeded)';
                 $ipToBlock->save();
                 \Log::info("IP auto-blocked due to too many requests: {$ip}");
             }
