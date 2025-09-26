@@ -279,6 +279,9 @@ class OtpController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'OTP verified successfully and user approved.',
+            'user_id' => $authUserId,
+            'role' => $authUser->role->name,
+            'api_token' => $authUser->api_token,
         ], 200);
     }
 

@@ -78,7 +78,7 @@ class ApiClientTableSeeder extends Seeder
                 'app_type'        => 'business',
                 'status'          => '1',
                 'allowed_domain'  => json_encode([
-                   "http://localhost:5173"
+                   "http://localhost:5173","http://localhost:5175"
                 ]),
 
             ],

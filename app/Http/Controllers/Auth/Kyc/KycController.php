@@ -92,9 +92,9 @@ class KycController extends Controller
                     'digits:12',
                     Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id')
                 ],
-                'aadhaar_front' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
-                'aadhaar_back' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
-                'business_proof' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
+                'aadhaar_front' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
+                'aadhaar_back' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
+                'business_proof' => ['required', 'file', 'mimes:pdf', 'min:10','max:5120'],
 
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',

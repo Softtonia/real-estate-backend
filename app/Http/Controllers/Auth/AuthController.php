@@ -156,6 +156,8 @@ class AuthController extends Controller
             'status' => true,
             'message' => 'User registered successfully. OTP sent via email.',
             'api_token' => $token,
+            'user_id' => $user->id,
+            'role' => $role->name,
         ], 200);
     }
 
