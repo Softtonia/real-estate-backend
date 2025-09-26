@@ -111,207 +111,228 @@ Route::get('/check-ip', function (Request $request) {
 });
 
 
-Route::middleware(['throttle:60,1'])->group(function () {
+
     Route::middleware(['validate.api.client'])->group(function () {
 
-        Route::post('/register', [AuthController::class, 'register']);
+        Route::middleware(['throttle:60,1'])->post('/register', [AuthController::class, 'register']);
 
 
-        Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
+        Route::middleware(['throttle:60,1'])->post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData']);
 
-        Route::post('login', [AuthController::class, 'login']);
-        Route::post('/logout', [AuthController::class, 'logout'])->middleware('api.token');
+        Route::middleware(['throttle:60,1'])->post('login', [AuthController::class, 'login']);
+        Route::middleware(['throttle:60,1'])->post('/logout', [AuthController::class, 'logout'])->middleware('api.token');
 
-        Route::post('/check-unique', [UserController::class, 'checkUnique']);
-        Route::post('/admin/profile/change-password', [UserController::class, 'changePassword'])->middleware('api.token');
+        Route::middleware(['throttle:60,1'])->post('/check-unique', [UserController::class, 'checkUnique']);
+        Route::middleware(['throttle:60,1'])->post('/admin/profile/change-password', [UserController::class, 'changePassword'])->middleware('api.token');
 
-        Route::post('forget-password', [ForgotPasswordController::class, 'forgetPassword']);
-        Route::post('/reset-password-from', [ForgotPasswordController::class, 'resetPassword']);
-        Route::get('/validate-reset-token', [ForgotPasswordController::class, 'validateResetToken']);
+        Route::middleware(['throttle:60,1'])->post('forget-password', [ForgotPasswordController::class, 'forgetPassword']);
+        Route::middleware(['throttle:60,1'])->post('/reset-password-from', [ForgotPasswordController::class, 'resetPassword']);
+        Route::middleware(['throttle:60,1'])->get('/validate-reset-token', [ForgotPasswordController::class, 'validateResetToken']);
 
-        Route::middleware('admin.token')->post('/user/search', [UserController::class, 'SearchUser']);
-        Route::middleware('admin.token')->get('all-user-listing', [UserController::class, 'alluserlist']);
-
-
-        Route::middleware('adminOrCurrentUser')->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
-        Route::middleware('allrole.token')->post('update-current-user-by-token', [UserController::class, 'updateCurrentUser']);
-
-        Route::middleware(['admin.token'])->post('user-kyc-update', [KycController::class, 'updateKycStatus']);
-        Route::middleware('allrole.token')->post('user-complete-kyc', [KycController::class, 'completeKyc']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('/user/search', [UserController::class, 'SearchUser']);
+        Route::middleware(['admin.token','throttle:60,1'])->get('all-user-listing', [UserController::class, 'alluserlist']);
 
 
-        Route::middleware('admin.token')->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
-        Route::middleware('admin.token')->post('update-user-status', [UserController::class, 'updateuserstatus']);
-        Route::middleware('admin.token')->post('create-user', [UserController::class, 'createUser']);
-        Route::middleware('allrole.token')->post('update-front-user-by-id', [UserController::class, 'updateUser']);
-        Route::middleware('admin.token')->post('delete-user', [UserController::class, 'deleteUser']);
-        Route::post('user-bulk-delete', [UserController::class, 'bulkDelete']);
-        Route::get('/users/filter-by-role', [UserController::class, 'filterByRole']);
-        Route::get('/users/filter-by-status', [UserController::class, 'filterByStatus']);
-        Route::get('/get-user-status', [UserController::class, 'getUserStatusList']);
+        Route::middleware(['adminOrCurrentUser','throttle:60,1'])->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
+        Route::middleware(['allrole.token','throttle:60,1'])->post('update-current-user-by-token', [UserController::class, 'updateCurrentUser']);
 
-        Route::get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole']);
-        Route::get('/get-userdata-by-id', [UserController::class, 'getDataUserDetailsById']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('user-kyc-update', [KycController::class, 'updateKycStatus']);
+        Route::middleware(['allrole.token','throttle:60,1'])->post('user-complete-kyc', [KycController::class, 'completeKyc']);
 
 
+        Route::middleware(['admin.token','throttle:60,1'])->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('update-user-status', [UserController::class, 'updateuserstatus']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('create-user', [UserController::class, 'createUser']);
+        Route::middleware(['allrole.token','throttle:60,1'])->post('update-front-user-by-id', [UserController::class, 'updateUser']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('delete-user', [UserController::class, 'deleteUser']);
+        Route::middleware(['throttle:60,1'])->post('user-bulk-delete', [UserController::class, 'bulkDelete']);
+        Route::middleware(['throttle:60,1'])->get('/users/filter-by-role', [UserController::class, 'filterByRole']);
+        Route::middleware(['throttle:60,1'])->get('/users/filter-by-status', [UserController::class, 'filterByStatus']);
+        Route::middleware(['throttle:60,1'])->get('/get-user-status', [UserController::class, 'getUserStatusList']);
 
-        Route::middleware('OnlyCompany')->get('get-company-consultancy-listing', [CompanyConsultancyController::class, 'getConsultancyListingByCompany']);   // Done By softtonia
-        Route::middleware('OnlyCompany')->get('search-consultancy-by-id', [CompanyConsultancyController::class, 'searchConsultancyById']);  // Done By softtonia
-        Route::middleware('OnlyCompany')->post('send-request-by-company-to-consultancy', [CompanyConsultancyController::class, 'sendRequestByCompanyToConsultancy']); // Done By softtonia
-        Route::middleware('OnlyConsultancy')->get('get-all-consultancy-join-request-listing', [CompanyConsultancyController::class, 'getConsultancyAllJoinRequest']);  // Done By softtonia
-        Route::middleware(['allowed_roles'])->post('accept-decline-company-request-by-consultancy', [CompanyConsultancyController::class, 'acceptDeclineCompanyRequestByConsultancy']); // Done By softtonia
-        Route::middleware('OnlyConsultancy')->post('leave-the-comapny-by-consultancy', [CompanyConsultancyController::class, 'leaveTheComapnyByConsultancy']); // Done By softtonia
-        Route::middleware('OnlyConsultancy')->get('get-consultancy-details-with-company', [CompanyConsultancyController::class, 'getConsultancyDetailsWithCompany']);  // Done By softtonia
-
-        Route::middleware('OnlyCompany')->get('get-company-project-listing', [CompanyProjectController::class, 'getCompanyProjectListing']); // Done By softtonia
-        Route::middleware('OnlyCompany')->get('fetch-assigned-project-of-company', [CompanyProjectController::class, 'fetchAssignedProjectOfCompany']); // Done By softtonia
-        Route::post('property-details-by-projectId', [UserController::class, 'propertyDetailsByProjectId']);
-        Route::middleware('OnlyConsultancy')->get('fetch-total-assigned-project-to-consultancy', [ConsultancyProjectController::class, 'fetchTotalAssignedProjectToConsultancy']);
-        Route::get('fetch-consultancy-total-assigned-project', [ConsultancyProjectController::class, 'fetchConsultancyTotalAssignedProjects']);
-        Route::post('assign-project-to-agent-by-consultancy', [ConsultancyProjectController::class, 'assignProjectToAgentByConsultancy']);
-        Route::get('fetch-assigned-project-of-agent', [AgentProjectController::class, 'fetchAssignedProjectOfAgent']);
-        Route::get('fetch-agent-total-assigned-project', [AgentProjectController::class, 'fetchAgentTotalAssignedProject']);
-        Route::get('fetch-total-project-of-consultancy', [ConsultancyProjectController::class, 'fetchTotalProjectOfConsultancy']);
-        Route::post('view-project-details-of-consultancy', [ConsultancyProjectController::class, 'viewProjectDetailsOfConsultancy']);
-        Route::post('view-project-details-of-company', [CompanyProjectController::class, 'viewProjectDetailsOfCompany']);
-        Route::post('globle-search-engine', [SearchEngineController::class, 'globleSearchEngine']);
-
-        Route::get('listing-of-all-projects', [UserController::class, 'listingOfAllProjects']);
-
-        Route::get('all-top-agent-listing', [UserController::class, 'allTopAgentListing']);
-
-        Route::get('listing-of-trending-project', [UserController::class, 'listingOfAllTrendingProject']);
-
-        Route::middleware('admin.token')->post('update-site-setting', [SiteSettingController::class, 'updateSiteSetting']);
-        Route::get('site-setting', [SiteSettingController::class, 'siteSetting']);
-        Route::get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
-
-
-        Route::middleware('allow.owner.role')->get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
+        Route::middleware(['throttle:60,1'])->get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole']);
+        Route::middleware(['throttle:60,1'])->get('/get-userdata-by-id', [UserController::class, 'getDataUserDetailsById']);
 
 
 
+        Route::middleware(['OnlyCompany','throttle:60,1'])->get('get-company-consultancy-listing', [CompanyConsultancyController::class, 'getConsultancyListingByCompany']);   // Done By softtonia
+        Route::middleware(['OnlyCompany','throttle:60,1'])->get('search-consultancy-by-id', [CompanyConsultancyController::class, 'searchConsultancyById']);  // Done By softtonia
+        Route::middleware(['OnlyCompany','throttle:60,1'])->post('send-request-by-company-to-consultancy', [CompanyConsultancyController::class, 'sendRequestByCompanyToConsultancy']); // Done By softtonia
+        Route::middleware(['OnlyConsultancy','throttle:60,1'])->get('get-all-consultancy-join-request-listing', [CompanyConsultancyController::class, 'getConsultancyAllJoinRequest']);  // Done By softtonia
+        Route::middleware(['allowed_roles','throttle:60,1'])->post('accept-decline-company-request-by-consultancy', [CompanyConsultancyController::class, 'acceptDeclineCompanyRequestByConsultancy']); // Done By softtonia
+        Route::middleware(['OnlyConsultancy','throttle:60,1'])->post('leave-the-comapny-by-consultancy', [CompanyConsultancyController::class, 'leaveTheComapnyByConsultancy']); // Done By softtonia
+        Route::middleware(['OnlyConsultancy','throttle:60,1'])->get('get-consultancy-details-with-company', [CompanyConsultancyController::class, 'getConsultancyDetailsWithCompany']);  // Done By softtonia
 
-        Route::get('property-listing-by-location', [UserController::class, 'propertyListingByLocation']);
+        Route::middleware(['OnlyCompany','throttle:60,1'])->get('get-company-project-listing', [CompanyProjectController::class, 'getCompanyProjectListing']); // Done By softtonia
+        Route::middleware(['OnlyCompany','throttle:60,1'])->get('fetch-assigned-project-of-company', [CompanyProjectController::class, 'fetchAssignedProjectOfCompany']); // Done By softtonia
+        Route::middleware(['throttle:60,1'])->post('property-details-by-projectId', [UserController::class, 'propertyDetailsByProjectId']);
+        Route::middleware(['OnlyConsultancy','throttle:60,1'])->get('fetch-total-assigned-project-to-consultancy', [ConsultancyProjectController::class, 'fetchTotalAssignedProjectToConsultancy']);
+        Route::middleware(['throttle:60,1'])->get('fetch-consultancy-total-assigned-project', [ConsultancyProjectController::class, 'fetchConsultancyTotalAssignedProjects']);
+        Route::middleware(['throttle:60,1'])->post('assign-project-to-agent-by-consultancy', [ConsultancyProjectController::class, 'assignProjectToAgentByConsultancy']);
+        Route::middleware(['throttle:60,1'])->get('fetch-assigned-project-of-agent', [AgentProjectController::class, 'fetchAssignedProjectOfAgent']);
+        Route::middleware(['throttle:60,1'])->get('fetch-agent-total-assigned-project', [AgentProjectController::class, 'fetchAgentTotalAssignedProject']);
+        Route::middleware(['throttle:60,1'])->get('fetch-total-project-of-consultancy', [ConsultancyProjectController::class, 'fetchTotalProjectOfConsultancy']);
+        Route::middleware(['throttle:60,1'])->post('view-project-details-of-consultancy', [ConsultancyProjectController::class, 'viewProjectDetailsOfConsultancy']);
+        Route::middleware(['throttle:60,1'])->post('view-project-details-of-company', [CompanyProjectController::class, 'viewProjectDetailsOfCompany']);
+        Route::middleware(['throttle:60,1'])->post('globle-search-engine', [SearchEngineController::class, 'globleSearchEngine']);
+
+
+        Route::prefix('search')->group(function () {
+            // GET filter data by search result
+            Route::middleware(['throttle:60,1'])->get('/get-filterdata-by-search-result', [SearchEngineController::class, 'getFilterDataBySearchResult']);
+
+            // POST apply filters and get property list
+            Route::middleware(['throttle:60,1'])->post('/apply-filters', [SearchEngineController::class, 'applyFilters']);
+        });
+
+
+        ############# new ########
+            // 1. Global Search API
+                Route::middleware(['throttle:60,1'])->post('/global-search', [SearchEngineController::class, 'globalSearch']);
+
+                // 2. Global Filters API
+                Route::middleware(['throttle:60,1'])->post('/global-filters', [SearchEngineController::class, 'globalFilters']);
+
+                // 3. Apply Filter API
+                Route::middleware(['throttle:60,1'])->post('/apply-filter', [SearchEngineController::class, 'applyFilter']);
+        ############ end new #########
+
+        Route::middleware(['throttle:60,1'])->get('listing-of-all-projects', [UserController::class, 'listingOfAllProjects']);
+
+        Route::middleware(['throttle:60,1'])->get('all-top-agent-listing', [UserController::class, 'allTopAgentListing']);
+
+        Route::middleware(['throttle:60,1'])->get('listing-of-trending-project', [UserController::class, 'listingOfAllTrendingProject']);
+
+        Route::middleware(['admin.token','throttle:60,1'])->post('update-site-setting', [SiteSettingController::class, 'updateSiteSetting']);
+        Route::middleware(['throttle:60,1'])->get('site-setting', [SiteSettingController::class, 'siteSetting']);
+        Route::middleware(['throttle:60,1'])->get('listing-of-property-with-project', [UserController::class, 'listingOfPropertyWithProject']);
+
+
+        Route::middleware(['allow.owner.role','throttle:60,1'])->get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
 
 
 
 
-        Route::middleware('admin.token')->get('get-all-consultancy-listing', [UserController::class, 'allConsultancyListing']); //Done By softtonia
-        Route::middleware(['admin_or_consultancy'])->get('get-consultancy-agents/{id}', [UserController::class, 'getConsultancyAgents']);
-        Route::middleware('company.admin')->get('get-all-consultancy-listing-by-company', [UserController::class, 'getAllConsultancyListingByCompany']); //Done By softtonia
+        Route::middleware(['throttle:60,1'])->get('property-listing-by-location', [UserController::class, 'propertyListingByLocation']);
+
+
+
+
+        Route::middleware(['admin.token','throttle:60,1'])->get('get-all-consultancy-listing', [UserController::class, 'allConsultancyListing']); //Done By softtonia
+        Route::middleware(['admin_or_consultancy','throttle:60,1'])->get('get-consultancy-agents/{id}', [UserController::class, 'getConsultancyAgents']);
+        Route::middleware(['company.admin','throttle:60,1'])->get('get-all-consultancy-listing-by-company', [UserController::class, 'getAllConsultancyListingByCompany']); //Done By softtonia
 
 
         // User route will end from here
-        Route::get('get-all-roles', [RoleController::class, 'getallrole']);
-        Route::get('get-default-roles', [RoleController::class, 'getDefaultRole']);
-        Route::post('/password/reset', [ResetPasswordController::class, 'reset'])->name('password.update');
-        Route::get('verify-email/{id}/{code}', [VerificationController::class, 'verifyEmail'])->name('verify-email');
+        Route::middleware(['throttle:60,1'])->get('get-all-roles', [RoleController::class, 'getallrole']);
+        Route::middleware(['throttle:60,1'])->get('get-default-roles', [RoleController::class, 'getDefaultRole']);
+        Route::middleware(['throttle:60,1'])->post('/password/reset', [ResetPasswordController::class, 'reset'])->name('password.update');
+        Route::middleware(['throttle:60,1'])->get('verify-email/{id}/{code}', [VerificationController::class, 'verifyEmail'])->name('verify-email');
 
 
 
         // ========== Subscribe Emails Import ===============
-        Route::post('insert-subscribe-email', [SubscribeController::class, 'insertSubscribeEmail']);
-        Route::get('listing-subscribe-email', [SubscribeController::class, 'listingOfSubscribedEmails'])->middleware('admin.token');
-        Route::post('import-subscribed-emails', [SubscribeController::class, 'importSubscribedEmails'])->middleware('admin.token');
+        Route::middleware(['throttle:60,1'])->post('insert-subscribe-email', [SubscribeController::class, 'insertSubscribeEmail']);
+        Route::middleware(['throttle:60,1'])->get('listing-subscribe-email', [SubscribeController::class, 'listingOfSubscribedEmails'])->middleware('admin.token');
+        Route::middleware(['throttle:60,1'])->post('import-subscribed-emails', [SubscribeController::class, 'importSubscribedEmails'])->middleware('admin.token');
 
         // ========= Subscribe Emails Export ===============
-        Route::get('/subscribed-emails/export/{format}', [SubscribeController::class, 'exportSubscribedEmails'])->name('subscribed_emails.export')->middleware('admin.token');
+        Route::middleware(['throttle:60,1'])->get('/subscribed-emails/export/{format}', [SubscribeController::class, 'exportSubscribedEmails'])->name('subscribed_emails.export')->middleware('admin.token');
 
         // =======Error Log Listing=================
-        Route::get('error-logs', [ErrorLogController::class, 'listErrorLogs'])->middleware('api.token');
-        Route::get('error-logs/download/{file}', [ErrorLogController::class, 'downloadFile'])->middleware('api.token');
+        Route::middleware(['throttle:60,1'])->get('error-logs', [ErrorLogController::class, 'listErrorLogs'])->middleware('api.token');
+        Route::middleware(['throttle:60,1'])->get('error-logs/download/{file}', [ErrorLogController::class, 'downloadFile'])->middleware('api.token');
         // Single delete route
-        Route::delete('/error-logs/delete/{fileName}', [ErrorLogController::class, 'deleteErrorLog'])->middleware('api.token');
+        Route::middleware(['throttle:60,1'])->delete('/error-logs/delete/{fileName}', [ErrorLogController::class, 'deleteErrorLog'])->middleware('api.token');
         // Bulk delete route
-        Route::post('/error-logs/bulk-delete', [ErrorLogController::class, 'bulkDeleteErrorLogs'])->middleware('api.token');
+        Route::middleware(['throttle:60,1'])->post('/error-logs/bulk-delete', [ErrorLogController::class, 'bulkDeleteErrorLogs'])->middleware('api.token');
 
 
         // ======Project Listing============
-        Route::middleware('allow.admin_company')->post('add-project-listing', [ProjectlistingController::class, 'store']);
-        Route::middleware('allow.admin_company')->post('edit-project-listing', [ProjectlistingController::class, 'update']);
-        Route::middleware('allow.admin_company')->post('delete-project-listing', [ProjectlistingController::class, 'destroy']);
-        Route::middleware('admin.token')->get('get-all-project-listing-by-admin', [ProjectlistingController::class, 'indexByAdmin']);
-        Route::middleware('allow.admin_company')->get('/user-project', [ProjectlistingController::class, 'getUserProject']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->post('add-project-listing', [ProjectlistingController::class, 'store']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->post('edit-project-listing', [ProjectlistingController::class, 'update']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->post('delete-project-listing', [ProjectlistingController::class, 'destroy']);
+        Route::middleware(['admin.token','throttle:60,1'])->get('get-all-project-listing-by-admin', [ProjectlistingController::class, 'indexByAdmin']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->get('/user-project', [ProjectlistingController::class, 'getUserProject']);
 
-        Route::middleware('allow.admin_company')->get('get-data-project/{id}', [ProjectlistingController::class, 'getdatabyId']);
-        Route::middleware('allow.admin_company')->post('update-project-status', [ProjectlistingController::class, 'updateProjectStatus']);
-        Route::middleware('admin.token')->post('update-project-status-by-admin', [ProjectlistingController::class, 'updateProjectStatusByAdmin']);
-        Route::middleware('adminOrCurrentUser')->post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
-        Route::middleware('allow.admin_company')->post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->get('get-data-project/{id}', [ProjectlistingController::class, 'getdatabyId']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->post('update-project-status', [ProjectlistingController::class, 'updateProjectStatus']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('update-project-status-by-admin', [ProjectlistingController::class, 'updateProjectStatusByAdmin']);
+        Route::middleware(['adminOrCurrentUser','throttle:60,1'])->post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
 
-        Route::middleware('allow.admin_company')->post('update-project-temporary-status', [ProjectlistingController::class, 'updateTemporaryStatus']);
-        Route::middleware('allow.admin_company')->get('project-search', [ProjectlistingController::class, 'projectSearch']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->post('update-project-temporary-status', [ProjectlistingController::class, 'updateTemporaryStatus']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->get('project-search', [ProjectlistingController::class, 'projectSearch']);
         ### No Auth ###
 
 
-        Route::get('get-project-by-user-id-filter-by-purpose/{userId}',[ProjectlistingController::class,'getProjectsByUserId']);
-         Route::get('get-related-projects-id/{projectId}',[ProjectlistingController::class,'getRelatedProjectsByProjectId']);
+        Route::middleware(['throttle:60,1'])->get('get-project-by-user-id-filter-by-purpose/{userId}',[ProjectlistingController::class,'getProjectsByUserId']);
+         Route::middleware(['throttle:60,1'])->get('get-related-projects-id/{projectId}',[ProjectlistingController::class,'getRelatedProjectsByProjectId']);
 
         // ======Developer Listing============
-        Route::middleware('allow.admin_developer')->post('add-developer-listing', [DeveloperlistingController::class, 'store']);
-        Route::middleware('allow.admin_developer')->post('edit-developer-listing', [DeveloperlistingController::class, 'update']);
-        Route::middleware('allow.admin_developer')->post('developer-delete', [DeveloperlistingController::class, 'destroy']);
-        Route::middleware('admin.token')->get('fetch-all-developer-listing-by-admin', [DeveloperlistingController::class, 'indexByAdmin']);
-        Route::middleware('allow.admin_developer')->get('get-data-developer/{id}', [DeveloperlistingController::class, 'getdatabyId']);
-        Route::middleware('allow.admin_developer')->post('developer-bulk-delete', [DeveloperlistingController::class, 'bulkDelete']);
-        Route::middleware('admin.token')->post('update-developer-status', [DeveloperlistingController::class, 'updateDeveloperStatus']);
-        Route::middleware('allow.admin_developer')->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
-        Route::middleware('allow.admin_developer')->post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->post('add-developer-listing', [DeveloperlistingController::class, 'store']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->post('edit-developer-listing', [DeveloperlistingController::class, 'update']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->post('developer-delete', [DeveloperlistingController::class, 'destroy']);
+        Route::middleware(['admin.token','throttle:60,1'])->get('fetch-all-developer-listing-by-admin', [DeveloperlistingController::class, 'indexByAdmin']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->get('get-data-developer/{id}', [DeveloperlistingController::class, 'getdatabyId']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->post('developer-bulk-delete', [DeveloperlistingController::class, 'bulkDelete']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('update-developer-status', [DeveloperlistingController::class, 'updateDeveloperStatus']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->get('/user-developer', [DeveloperlistingController::class, 'getUserDeveloper']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->post('get-all-developer-by-location-id', [DeveloperlistingController::class, 'getAllDeveloperByLocationId']);
 
-        Route::middleware('allow.admin_developer')->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
-        Route::middleware('allow.admin_developer')->get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
+        Route::middleware(['allow.admin_developer','throttle:60,1'])->get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
 
         ### No Auth ###
 
 
-         Route::get('get-developer-by-user-id-filter-by-purpose/{userId}',[DeveloperlistingController::class,'getDevelopersByUserId']);
-         Route::get('get-related-developers-id/{developerId}',[DeveloperlistingController::class,'getRelatedDevelopersByDeveloperId']);
+         Route::middleware(['throttle:60,1'])->get('get-developer-by-user-id-filter-by-purpose/{userId}',[DeveloperlistingController::class,'getDevelopersByUserId']);
+         Route::middleware(['throttle:60,1'])->get('get-related-developers-id/{developerId}',[DeveloperlistingController::class,'getRelatedDevelopersByDeveloperId']);
 
 
 
 
         // =======Property Listing============
-        Route::middleware('allow.property.listing')->post('add-properties-listing', [PropertylistingController::class, 'store']);
-        Route::middleware('allow.property.listing')->post('edit-properties-listing', [PropertylistingController::class, 'update']);
-        Route::middleware('allow.property.listing')->post('delete-properties-listing', [PropertylistingController::class, 'destroy']);
-        Route::middleware('allow.property.listing')->get('get-all-properties-listing', [PropertylistingController::class, 'indexByadmin']);
+        Route::middleware(['allow.property.listing','throttle:60,1'])->post('add-properties-listing', [PropertylistingController::class, 'store']);
+        Route::middleware(['allow.property.listing','throttle:60,1'])->post('edit-properties-listing', [PropertylistingController::class, 'update']);
+        Route::middleware(['allow.property.listing','throttle:60,1'])->post('delete-properties-listing', [PropertylistingController::class, 'destroy']);
+        Route::middleware(['allow.property.listing','throttle:60,1'])->get('get-all-properties-listing', [PropertylistingController::class, 'indexByadmin']);
 
-        Route::middleware('api.token')->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
+        Route::middleware(['api.token','throttle:60,1'])->get('properties-search', [PropertylistingController::class, 'propertiesSearch']);
 
-        Route::middleware('allow.property.listing')->get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
-        Route::middleware('allow.property.listing')->post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);
-        Route::middleware('api.token')->get('get-temporary-statuses', [PropertylistingController::class, 'getTemporaryStatuses']);
-        Route::middleware('api.token')->get('get-property-statuses', [PropertylistingController::class, 'getPropertyStatuses']);
-        Route::middleware('admin.token')->post('update-property-status', [PropertylistingController::class, 'updatePropertyStatus']);
-        Route::middleware('api.token')->post('get-all-project-by-location-id', [PropertylistingController::class, 'getAllProjectByLocationId']);
-        Route::middleware('allow.admin_company')->post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
-        Route::middleware('adminOrCurrentUser')->post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
+        Route::middleware(['allow.property.listing','throttle:60,1'])->get('get-data-properties/{id}', [PropertylistingController::class, 'getdatabyId']);
+        Route::middleware(['allow.property.listing','throttle:60,1'])->post('update-temporary-status', [PropertylistingController::class, 'updateTemporaryStatus']);
+        Route::middleware(['api.token','throttle:60,1'])->get('get-temporary-statuses', [PropertylistingController::class, 'getTemporaryStatuses']);
+        Route::middleware(['api.token','throttle:60,1'])->get('get-property-statuses', [PropertylistingController::class, 'getPropertyStatuses']);
+        Route::middleware(['admin.token','throttle:60,1'])->post('update-property-status', [PropertylistingController::class, 'updatePropertyStatus']);
+        Route::middleware(['api.token','throttle:60,1'])->post('get-all-project-by-location-id', [PropertylistingController::class, 'getAllProjectByLocationId']);
+        Route::middleware(['allow.admin_company','throttle:60,1'])->post('get-company-project-by-location-id', [PropertylistingController::class, 'getComapnyProjectByLocationId']);
+        Route::middleware(['adminOrCurrentUser','throttle:60,1'])->post('properties-bulk-delete', [PropertylistingController::class, 'bulkDelete']);
         //
         #### No Auth ######
 
-        Route::middleware('adminOrCurrentUser')->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
+        Route::middleware(['adminOrCurrentUser','throttle:60,1'])->get('/user-properties', [PropertylistingController::class, 'getUserProperties']);
 
-        Route::get('/get-property-by-user-id-filter-by-purpose/{userId}', [PropertylistingController::class, 'getPropertyByUserId']);
-        Route::get('/get-related-properties-id/{propertyId}', [PropertylistingController::class, 'getRelatedPropertiesByPropertyId']);
+        Route::middleware(['throttle:60,1'])->get('/get-property-by-user-id-filter-by-purpose/{userId}', [PropertylistingController::class, 'getPropertyByUserId']);
+        Route::middleware(['throttle:60,1'])->get('/get-related-properties-id/{propertyId}', [PropertylistingController::class, 'getRelatedPropertiesByPropertyId']);
 
 
         // Start Website Route
 
             // Locations
-                Route::get('/locations', [LocationController::class, 'getCityGroups']);
-                Route::get('/get-localities-filter-by-location-id', [LocationController::class, 'getAreaLocalities']);
+                Route::middleware(['throttle:60,1'])->get('/locations', [LocationController::class, 'getCityGroups']);
+                Route::middleware(['throttle:60,1'])->get('/get-localities-filter-by-location-id', [LocationController::class, 'getAreaLocalities']);
             // Project Listing No Auth
-                Route::get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
-                Route::get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
+                Route::middleware(['throttle:60,1'])->get('get-all-project-listing-no-auth', [ProjectlistingController::class, 'index']);
+                Route::middleware(['throttle:60,1'])->get('get-data-project-no-auth/{id}', [ProjectlistingController::class, 'getdatabyIdNoAuth']);
 
             // Developer Listing No Auth
-                Route::get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
-                Route::get('get-data-developer-no-auth/{id}', [DeveloperlistingController::class, 'getdatabyIdNoAuth']);
+                Route::middleware(['throttle:60,1'])->get('fetch-all-developer-listing-no-auth', [DeveloperlistingController::class, 'index']);
+                Route::middleware(['throttle:60,1'])->get('get-data-developer-no-auth/{id}', [DeveloperlistingController::class, 'getdatabyIdNoAuth']);
 
             // Property Listing No Auth
-                Route::get('get-all-properties-listing-no-auth', [PropertylistingController::class, 'index']);
-                Route::get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
+                Route::middleware(['throttle:60,1'])->get('get-all-properties-listing-no-auth', [PropertylistingController::class, 'index']);
+                Route::middleware(['throttle:60,1'])->get('get-data-properties-no-auth/{id}', [PropertylistingController::class, 'getdatabyIdNoAuth']);
 
         // End Website Route
 
@@ -320,26 +341,26 @@ Route::middleware(['throttle:60,1'])->group(function () {
         // =======Front Property Listing============
 
 
-        Route::post('store-property-analytics', [frontPropertylistingController::class, 'storePropertyAnalytics']);
-        Route::get('list-property-analytics', [frontPropertylistingController::class, 'listPropertyAnalytics']);
-        Route::get('view-property-analytics', [frontPropertylistingController::class, 'viewPropertyAnalytics']);
+        Route::middleware(['throttle:60,1'])->post('store-property-analytics', [frontPropertylistingController::class, 'storePropertyAnalytics']);
+        Route::middleware(['throttle:60,1'])->get('list-property-analytics', [frontPropertylistingController::class, 'listPropertyAnalytics']);
+        Route::middleware(['throttle:60,1'])->get('view-property-analytics', [frontPropertylistingController::class, 'viewPropertyAnalytics']);
         // frontend side
         // =======Front Project Listing============
-        Route::post('add-website-project-listing', [frontProjectlistingController::class, 'store']);
-        Route::post('edit-website-project-listing', [frontProjectlistingController::class, 'update']);
-        Route::post('delete-website-project-listing', [frontProjectlistingController::class, 'destroy']);
-        Route::get('get-all-website-project-listing', [frontProjectlistingController::class, 'index']);
-        Route::get('get-data-website-project/{id}', [frontProjectlistingController::class, 'getdatabyId']);
-        Route::post('update-website-project-status', [frontProjectlistingController::class, 'updateProjectStatus']);
-        Route::post('store-project-analytics', [frontProjectlistingController::class, 'storeProjectAnalytics']);
-        Route::get('list-project-analytics', [frontProjectlistingController::class, 'listProjectAnalytics']);
-        Route::get('view-project-analytics', [frontProjectlistingController::class, 'viewProjectAnalytics']);
+        Route::middleware(['throttle:60,1'])->post('add-website-project-listing', [frontProjectlistingController::class, 'store']);
+        Route::middleware(['throttle:60,1'])->post('edit-website-project-listing', [frontProjectlistingController::class, 'update']);
+        Route::middleware(['throttle:60,1'])->post('delete-website-project-listing', [frontProjectlistingController::class, 'destroy']);
+        Route::middleware(['throttle:60,1'])->get('get-all-website-project-listing', [frontProjectlistingController::class, 'index']);
+        Route::middleware(['throttle:60,1'])->get('get-data-website-project/{id}', [frontProjectlistingController::class, 'getdatabyId']);
+        Route::middleware(['throttle:60,1'])->post('update-website-project-status', [frontProjectlistingController::class, 'updateProjectStatus']);
+        Route::middleware(['throttle:60,1'])->post('store-project-analytics', [frontProjectlistingController::class, 'storeProjectAnalytics']);
+        Route::middleware(['throttle:60,1'])->get('list-project-analytics', [frontProjectlistingController::class, 'listProjectAnalytics']);
+        Route::middleware(['throttle:60,1'])->get('view-project-analytics', [frontProjectlistingController::class, 'viewProjectAnalytics']);
     });
-    Route::post('admin/login', [AdminController::class, 'login'])->name('login');
+    Route::middleware(['throttle:60,1'])->post('admin/login', [AdminController::class, 'login'])->name('login');
 
     // admin route will start from here
 
-    Route::middleware('admin.token')->post('/profile/update', [AdminController::class, 'update']);
+    Route::middleware(['admin.token','throttle:60,1'])->post('/profile/update', [AdminController::class, 'update']);
     // Add other routes here if needed
 
 
@@ -349,34 +370,34 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['validate.api.client'])->group(function () {
 
         Route::middleware(['admin'])->prefix('admin')->group(function () {
-            Route::middleware(['token.expiration'])->group(function () {
+            Route::middleware(['token.expiration','throttle:60,1'])->group(function () {
 
                 Route::middleware('admin.token')->get('/get-admin-profile', [Admincontroller::class, 'getAdminProfile']);
             });
 
-            Route::middleware('admin.token')->post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
-            Route::post('/user-bulk-delete', [Admincontroller::class, 'userAllRecordBulksDelete']);
+            Route::middleware(['admin.token','throttle:60,1'])->post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
+            Route::middleware(['throttle:60,1'])->post('/user-bulk-delete', [Admincontroller::class, 'userAllRecordBulksDelete']);
 
-            Route::middleware('admin.token')->post('/mail-config', [MailConfigController::class, 'store']);
-            Route::middleware('admin.token')->post('/mail-config/{id}', [MailConfigController::class, 'update']);
-            Route::middleware('admin.token')->post('/get-mail-config', [MailConfigController::class, 'getMailConfig']);
-            Route::middleware('admin.token')->post('/active-mail-config', [MailConfigController::class, 'ActiveMailConfig']);
-            Route::middleware('admin.token')->post('/mail-config-delete/{id}', [MailConfigController::class, 'deleteMailConfig']);
-            Route::middleware('admin.token')->post('/bulk-mail-configs-delete', [MailConfigController::class, 'bulkDeleteMailConfigs']);
-            Route::middleware('admin.token')->get('/search-mail-configs', [MailConfigController::class, 'searchMailConfigs']);
+            Route::middleware(['admin.token','throttle:60,1'])->post('/mail-config', [MailConfigController::class, 'store']);
+            Route::middleware(['admin.token','throttle:60,1'])->post('/mail-config/{id}', [MailConfigController::class, 'update']);
+            Route::middleware(['admin.token','throttle:60,1'])->post('/get-mail-config', [MailConfigController::class, 'getMailConfig']);
+            Route::middleware(['admin.token','throttle:60,1'])->post('/active-mail-config', [MailConfigController::class, 'ActiveMailConfig']);
+            Route::middleware(['admin.token','throttle:60,1'])->post('/mail-config-delete/{id}', [MailConfigController::class, 'deleteMailConfig']);
+            Route::middleware(['admin.token','throttle:60,1'])->post('/bulk-mail-configs-delete', [MailConfigController::class, 'bulkDeleteMailConfigs']);
+            Route::middleware(['admin.token','throttle:60,1'])->get('/search-mail-configs', [MailConfigController::class, 'searchMailConfigs']);
 
 
-            Route::post('/create-role-prefix-repeater', [SystemController::class, 'CreateRolePrefixRepeater']);
-            Route::post('/get-role-prefix-repeater', [SystemController::class, 'GetRolePrefixRepeater']);
-            Route::post('/delete-role-prefix-repeater/{ic}', [SystemController::class, 'DeleteRolePrefixRepeater']);
-            Route::post('/update-role-prefix-repeater-by-id/{id}', [SystemController::class, 'UpdateRolePrefixRepeater']);
+            Route::middleware(['throttle:60,1'])->post('/create-role-prefix-repeater', [SystemController::class, 'CreateRolePrefixRepeater']);
+            Route::middleware(['throttle:60,1'])->post('/get-role-prefix-repeater', [SystemController::class, 'GetRolePrefixRepeater']);
+            Route::middleware(['throttle:60,1'])->post('/delete-role-prefix-repeater/{ic}', [SystemController::class, 'DeleteRolePrefixRepeater']);
+            Route::middleware(['throttle:60,1'])->post('/update-role-prefix-repeater-by-id/{id}', [SystemController::class, 'UpdateRolePrefixRepeater']);
 
-            Route::post('role-create', [RoleController::class, 'createRole']);
-            Route::post('role-edit', [RoleController::class, 'editRole']);
-            Route::post('role-delete', [RoleController::class, 'deleteRole']);
-            Route::get('role-listing/{id?}', [RoleController::class, 'index']); // Optional ID parameter
-            Route::post('roles/bulk-delete', [RoleController::class, 'bulkDeleteRoles']);
-            Route::post('roles/search', [RoleController::class, 'searchRole']);
+            Route::middleware(['throttle:60,1'])->post('role-create', [RoleController::class, 'createRole']);
+            Route::middleware(['throttle:60,1'])->post('role-edit', [RoleController::class, 'editRole']);
+            Route::middleware(['throttle:60,1'])->post('role-delete', [RoleController::class, 'deleteRole']);
+            Route::middleware(['throttle:60,1'])->get('role-listing/{id?}', [RoleController::class, 'index']); // Optional ID parameter
+            Route::middleware(['throttle:60,1'])->post('roles/bulk-delete', [RoleController::class, 'bulkDeleteRoles']);
+            Route::middleware(['throttle:60,1'])->post('roles/search', [RoleController::class, 'searchRole']);
         });
 
         Route::middleware('admin.token')->post('import-keywords', [Admincontroller::class, 'import']);
@@ -817,6 +838,40 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('/my/agents', [UserAssociationController::class, 'agents']);
         Route::get('/my/developers', [UserAssociationController::class, 'developers']);
 
+
+        // Get all leads
+    Route::post('/leads/send-otp', [LeadController::class, 'sendOtp']);
+    Route::middleware(['admin.token'])->get('/leads', [LeadController::class, 'index']);
+    Route::post('/leads', [LeadController::class, 'store']);
+    Route::middleware(['admin.token'])->get('/leads/{id}', [LeadController::class, 'show']);
+    Route::middleware(['admin.token'])->post('/leads/update/{id}', [LeadController::class, 'update']);
+    Route::middleware(['admin.token'])->delete('/leads/{id}', [LeadController::class, 'destroy']);
+
+    Route::get('/get-assign-lead-to-user', [LeadController::class, 'assignUserLead']);
+
+    // Lead Types
+
+    Route::get('/lead-types', [LeadTypeController::class, 'index']);     // Get all
+    Route::get('/lead-types/check-slug-unique', [LeadTypeController::class, 'checkSlugUnique']);
+    Route::middleware(['admin.token'])->get('/lead-types/search', [LeadTypeController::class, 'searchLeadType']);
+    Route::get('/lead-types/{id}', [LeadTypeController::class, 'show']); // Get single
+    Route::middleware(['admin.token'])->post('/lead-types', [LeadTypeController::class, 'store']);    // Create
+    Route::middleware(['admin.token'])->post('/lead-types-update/{id}', [LeadTypeController::class, 'update']); // Update
+    Route::middleware(['admin.token'])->delete('/lead-types/{id}', [LeadTypeController::class, 'destroy']); // Delete
+    Route::post('/lead-types/search-by-name', [LeadTypeController::class, 'getSearchByName']);
+    Route::post('/lead-types/search-by-slug', [LeadTypeController::class, 'getSearchBySlug']);
+
+
+    Route::middleware(['admin.token'])->get('contact-us-leads', [ContactUsLeadController::class, 'index']);   // List with pagination
+    Route::post('contact-us-leads', [ContactUsLeadController::class, 'store']); // Create
+    Route::middleware(['admin.token'])->get('contact-us-leads/{id}', [ContactUsLeadController::class, 'show']); // Show single
+    Route::middleware(['admin.token'])->put('contact-us-leads/{id}', [ContactUsLeadController::class, 'update']); // Update
+    Route::middleware(['admin.token'])->delete('contact-us-leads/{id}', [ContactUsLeadController::class, 'destroy']); // Delete
+     Route::middleware(['admin.token'])->post('contact-us-leads/bulk-delete', [ContactUsLeadController::class, 'bulkDestroy']); // Delete
+    Route::middleware(['admin.token'])->post('/contact-us-leads/{id}/status', [ContactUsLeadController::class, 'updateStatus']);
+    Route::middleware(['admin.token'])->post('contact-us-leads/search', [ContactUsLeadController::class, 'contactUsLeadSearch']);
+
+
     });
 
 
@@ -852,41 +907,9 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::middleware(['admin.token'])->post('admin/ip-logs-update-status-by-ip', [IpLogController::class, 'updateStatusByIp']);
 
 
-    // Get all leads
-    Route::post('/leads/send-otp', [LeadController::class, 'sendOtp']);
-    Route::middleware(['admin.token'])->get('/leads', [LeadController::class, 'index']);
-    Route::post('/leads', [LeadController::class, 'store']);
-    Route::middleware(['admin.token'])->get('/leads/{id}', [LeadController::class, 'show']);
-    Route::middleware(['admin.token'])->post('/leads/update/{id}', [LeadController::class, 'update']);
-    Route::middleware(['admin.token'])->delete('/leads/{id}', [LeadController::class, 'destroy']);
-
-    Route::get('/get-assign-lead-to-user', [LeadController::class, 'assignUserLead']);
-
-    // Lead Types
-
-    Route::get('/lead-types', [LeadTypeController::class, 'index']);     // Get all
-    Route::get('/lead-types/check-slug-unique', [LeadTypeController::class, 'checkSlugUnique']);
-    Route::middleware(['admin.token'])->get('/lead-types/search', [LeadTypeController::class, 'searchLeadType']);
-    Route::get('/lead-types/{id}', [LeadTypeController::class, 'show']); // Get single
-    Route::middleware(['admin.token'])->post('/lead-types', [LeadTypeController::class, 'store']);    // Create
-    Route::middleware(['admin.token'])->post('/lead-types-update/{id}', [LeadTypeController::class, 'update']); // Update
-    Route::middleware(['admin.token'])->delete('/lead-types/{id}', [LeadTypeController::class, 'destroy']); // Delete
-    Route::post('/lead-types/search-by-name', [LeadTypeController::class, 'getSearchByName']);
-    Route::post('/lead-types/search-by-slug', [LeadTypeController::class, 'getSearchBySlug']);
+    
 
 
-    Route::middleware(['admin.token'])->get('contact-us-leads', [ContactUsLeadController::class, 'index']);   // List with pagination
-    Route::post('contact-us-leads', [ContactUsLeadController::class, 'store']); // Create
-    Route::middleware(['admin.token'])->get('contact-us-leads/{id}', [ContactUsLeadController::class, 'show']); // Show single
-    Route::middleware(['admin.token'])->put('contact-us-leads/{id}', [ContactUsLeadController::class, 'update']); // Update
-    Route::middleware(['admin.token'])->delete('contact-us-leads/{id}', [ContactUsLeadController::class, 'destroy']); // Delete
-     Route::middleware(['admin.token'])->post('contact-us-leads/bulk-delete', [ContactUsLeadController::class, 'bulkDestroy']); // Delete
-    Route::middleware(['admin.token'])->post('/contact-us-leads/{id}/status', [ContactUsLeadController::class, 'updateStatus']);
-    Route::middleware(['admin.token'])->post('contact-us-leads/search', [ContactUsLeadController::class, 'contactUsLeadSearch']);
-
-
-
-});
 
 
 Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle']);

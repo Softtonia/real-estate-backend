@@ -14,6 +14,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Models\Developer;
 
+
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+
+
+use App\Models\PropertyType;
+
 class SearchEngineController extends Controller
 {
 
@@ -1355,5 +1362,756 @@ class SearchEngineController extends Controller
         return response()->json(['error' => $th->getMessage() . ' on line ' . $th->getLine()], 500);
     }
 }
+
+
+
+##########################
+
+
+
+ /**
+     * Build the base property query used by both filter aggregation and property listing.
+     */
+    protected function buildBasePropertyQuery(Request $request)
+    {
+        $q = PropertyList::query()->where('live_status', 'Approve');
+
+        if ($request->filled('country_id')) {
+            $q->where('country_id', $request->country_id);
+        }
+        if ($request->filled('state_id')) {
+            $q->where('state_id', $request->state_id);
+        }
+        if ($request->filled('city_id')) {
+            $q->where('city_id', $request->city_id);
+        }
+        if ($request->filled('area_locality')) {
+            $q->where('area_locality', $request->area_locality);
+        }
+
+        // purpose filter (buy/rent/pgco-living/plot_land/project)
+        if ($request->filled('purpose')) {
+            $purpose = DB::table('purposes')->where('slug', $request->purpose)->first();
+            if ($purpose) {
+                $q->where('purpose_id', $purpose->id);
+            }
+        }
+
+        // property_id
+        if ($request->filled('property_id')) {
+            $q->where('property_id', $request->property_id);
+        }
+
+        // property_type_id may be CSV
+        if ($request->filled('property_type_id')) {
+            $ids = explode(',', $request->property_type_id);
+            $q->where(function ($sub) use ($ids) {
+                foreach ($ids as $id) {
+                    $id = trim($id);
+                    if ($id === '') continue;
+                    $sub->orWhereRaw("FIND_IN_SET(?, property_type_id)", [$id]);
+                }
+            });
+        }
+
+        // property_status_id may be CSV
+        if ($request->filled('property_status_id')) {
+            $ids = explode(',', $request->property_status_id);
+            $ids = array_filter(array_map('trim', $ids));
+            if (!empty($ids)) $q->whereIn('property_status_id', $ids);
+        }
+
+        // posted_by -> agent/owner
+        if ($request->filled('posted_by')) {
+            if ($request->posted_by === 'agent') {
+                $q->whereIn('user_id', User::where('role_id', 3)->pluck('id')->toArray());
+            } elseif ($request->posted_by === 'owner') {
+                $q->whereIn('user_id', User::where('role_id', 2)->pluck('id')->toArray());
+            }
+        }
+
+        // bhk filter
+        if ($request->filled('bhk')) {
+            $bhkRequested = $request->get('bhk');
+            $matchedIds = $this->propertyIdsByBhk($bhkRequested);
+            if (empty($matchedIds)) {
+                $q->whereRaw('1 = 0');
+            } else {
+                $q->whereIn('id', $matchedIds);
+            }
+        }
+
+        return $q;
+    }
+
+    /**
+     * GET /api/search/get-filterdata-by-search-result
+     */
+    public function getFilterDataBySearchResult(Request $request)
+    {
+        try {
+            $baseQuery = $this->buildBasePropertyQuery($request);
+
+            $propertyIds = (clone $baseQuery)->pluck('id')->toArray();
+
+            if (empty($propertyIds)) {
+                return response()->json([
+                    'topLocalities' => [],
+                    'budget' => null,
+                    'property_type' => [],
+                    'bhk' => [],
+                    'postedBy' => []
+                ], 200);
+            }
+
+            // topLocalities
+            $topLocalities = (clone $baseQuery)
+                ->select('area_locality', DB::raw('COUNT(*) as cnt'))
+                ->whereNotNull('area_locality')
+                ->groupBy('area_locality')
+                ->orderByDesc('cnt')
+                ->limit(10)
+                ->pluck('area_locality')
+                ->filter()
+                ->values()
+                ->toArray();
+
+            // budget
+            $budget = $this->deriveBudgetRange($propertyIds);
+
+            // property types
+            $propertyTypeNames = $this->derivePropertyTypes((clone $baseQuery));
+
+            // bhk
+            $bhk = $this->deriveBhk($propertyIds);
+
+            // posted by
+            $propertiesTable = (new PropertyList)->getTable();
+            $postedByRows = DB::table($propertiesTable)
+                ->join('users', "{$propertiesTable}.user_id", '=', 'users.id')
+                ->whereIn("{$propertiesTable}.id", $propertyIds)
+                ->select('users.role_id', DB::raw("COUNT({$propertiesTable}.id) as cnt"))
+                ->groupBy('users.role_id')
+                ->get();
+
+            $postedBy = $postedByRows->map(function ($row) {
+                if ($row->role_id == 3) return 'agent';
+                if ($row->role_id == 2) return 'owner';
+                return 'admin';
+            })->unique()->values()->toArray();
+
+            return response()->json([
+                'topLocalities' => $topLocalities,
+                'budget' => $budget,
+                'property_type' => $propertyTypeNames,
+                'bhk' => $bhk,
+                'postedBy' => $postedBy,
+            ], 200);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'message' => 'Failed to generate filter data',
+                'error' => $th->getMessage() . ' on line ' . $th->getLine()
+            ], 500);
+        }
+    }
+
+    /**
+     * POST /api/search/apply-filters
+     */
+    public function applyFilters(Request $request)
+    {
+        try {
+            $q = $this->buildBasePropertyQuery($request)
+                ->with([
+                    'country','state','city','user',
+                    'propertyType', 'purpose', 'property',
+                    'propertystatus', 'project', 'customFieldValues.customField',
+                    'customFieldValues.customFieldOption'
+                ])
+                ->orderByDesc('created_at');
+
+            if ($request->filled('price_min') && $request->filled('price_max')) {
+                $propertyIdsByPrice = $this->propertyIdsByPriceRange($request->price_min, $request->price_max);
+                if (!empty($propertyIdsByPrice)) {
+                    $q->whereIn('id', $propertyIdsByPrice);
+                } else {
+                    return response()->json([
+                        'total_count' => 0,
+                        'properties' => []
+                    ], 200);
+                }
+            }
+
+            $perPage = (int) $request->get('per_page', 20);
+            $page = (int) $request->get('page', 1);
+
+            $paginator = $q->paginate($perPage, ['*'], 'page', $page);
+            $properties = $paginator->items();
+
+            return response()->json([
+                'total_count' => $paginator->total(),
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'properties' => $properties,
+            ], 200);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'message' => 'Failed to apply filters',
+                'error' => $th->getMessage() . ' on line ' . $th->getLine()
+            ], 500);
+        }
+    }
+
+    /* ----------------------- Helper methods ----------------------- */
+
+    protected function deriveBudgetRange(array $propertyIds)
+    {
+        if (empty($propertyIds)) return null;
+
+        $candidates = [
+            ['field_name_slug' => 'property-rent-amount'],
+            ['field_name_slug' => 'price'],
+            ['field_label' => 'Price'],
+        ];
+
+        foreach ($candidates as $cond) {
+            $cfQuery = CustomField::query();
+            if (isset($cond['field_name_slug'])) $cfQuery->where('field_name_slug', $cond['field_name_slug']);
+            if (isset($cond['field_label'])) $cfQuery->where('field_label', $cond['field_label']);
+            $cf = $cfQuery->first();
+            if (!$cf) continue;
+
+            $values = CustomFieldValue::where('custom_field_id', $cf->id)
+                ->whereIn('properties_listing_id', $propertyIds)
+                ->whereRaw("field_meta_value REGEXP '^[0-9]+(\\.[0-9]+)?$'")
+                ->pluck('field_meta_value')
+                ->map(function ($v) { return (float) $v; });
+
+            if ($values->isEmpty()) continue;
+
+            return [
+                'min' => (float) $values->min(),
+                'max' => (float) $values->max()
+            ];
+        }
+
+        return null;
+    }
+
+    protected function propertyIdsByPriceRange($min, $max)
+    {
+        $min = (float)$min;
+        $max = (float)$max;
+
+        $candidates = [
+            ['field_name_slug' => 'property-rent-amount'],
+            ['field_name_slug' => 'price'],
+            ['field_label' => 'Price']
+        ];
+
+        foreach ($candidates as $cond) {
+            $cfQuery = CustomField::query();
+            if (isset($cond['field_name_slug'])) $cfQuery->where('field_name_slug', $cond['field_name_slug']);
+            if (isset($cond['field_label'])) $cfQuery->where('field_label', $cond['field_label']);
+            $cf = $cfQuery->first();
+            if (!$cf) continue;
+
+            $ids = CustomFieldValue::where('custom_field_id', $cf->id)
+                ->whereRaw('field_meta_value REGEXP "^[0-9]+(\\.[0-9]+)?$"')
+                ->whereBetween(DB::raw('CAST(field_meta_value AS DECIMAL(20,2))'), [$min, $max])
+                ->pluck('properties_listing_id')
+                ->unique()
+                ->values()
+                ->toArray();
+
+            if (!empty($ids)) {
+                return $ids;
+            }
+        }
+
+        return [];
+    }
+
+    protected function derivePropertyTypes($baseQuery)
+    {
+        $raw = $baseQuery->pluck('property_type_id')->filter()->unique()->toArray();
+        $ids = [];
+        foreach ($raw as $csv) {
+            foreach (explode(',', $csv) as $id) {
+                $trim = trim($id);
+                if ($trim !== '') $ids[(int)$trim] = true;
+            }
+        }
+        $ids = array_keys($ids);
+        if (empty($ids)) return [];
+
+        $names = PropertyType::whereIn('id', $ids)->pluck('name')->unique()->values()->toArray();
+        return $names;
+    }
+
+    protected function deriveBhk(array $propertyIds)
+    {
+        if (empty($propertyIds)) return [];
+
+        $possible = [
+            ['field_label' => 'Bedrooms'],
+            ['field_name_slug' => 'bedrooms'],
+            ['field_label' => 'BHK'],
+            ['field_name_slug' => 'bhk'],
+        ];
+
+        $valuesCollected = collect();
+
+        foreach ($possible as $cond) {
+            $cfQuery = CustomField::query();
+            if (isset($cond['field_name_slug'])) $cfQuery->where('field_name_slug', $cond['field_name_slug']);
+            if (isset($cond['field_label'])) $cfQuery->where('field_label', $cond['field_label']);
+            $cf = $cfQuery->first();
+            if (!$cf) continue;
+
+            $rawValues = CustomFieldValue::where('custom_field_id', $cf->id)
+                ->whereIn('properties_listing_id', $propertyIds)
+                ->pluck('field_meta_value')
+                ->filter()
+                ->map(function ($v) {
+                    if (is_array($v)) return $v;
+                    $vStr = (string) $v;
+
+                    if (Str::startsWith($vStr, '[') && Str::endsWith($vStr, ']')) {
+                        $decoded = json_decode($vStr, true);
+                        if (is_array($decoded)) return $decoded;
+                    }
+
+                    if (strpos($vStr, ',') !== false) {
+                        return array_map('trim', explode(',', $vStr));
+                    }
+
+                    return trim($vStr);
+                })
+                ->flatten();
+
+            if ($rawValues->isEmpty()) continue;
+
+            foreach ($rawValues->unique() as $val) {
+                $val = trim((string)$val);
+                if ($val === '') continue;
+
+                if (preg_match('/\d+/', $val, $m)) {
+                    $num = (int)$m[0];
+                    if ($num > 0) {
+                        $valuesCollected->push((string)$num);
+                        continue;
+                    }
+                }
+
+                $valuesCollected->push($val);
+            }
+
+            if ($valuesCollected->isNotEmpty()) break;
+        }
+
+        $numeric = $valuesCollected->filter(fn($v) => is_numeric($v))
+            ->map('intval')->unique()->sort()->values()->map(fn($v)=> (string)$v);
+
+        $nonNumeric = $valuesCollected->filter(fn($v) => !is_numeric($v))
+            ->unique()->sort()->values();
+
+        return $numeric->merge($nonNumeric)->values()->toArray();
+    }
+
+    protected function propertyIdsByBhk($bhkRequested)
+    {
+        if (empty($bhkRequested) && $bhkRequested !== '0') return [];
+
+        if (!is_array($bhkRequested)) {
+            $bhkRequested = array_filter(array_map('trim', explode(',', (string)$bhkRequested)));
+        }
+
+        if (empty($bhkRequested)) return [];
+
+        $possible = [
+            ['field_label' => 'Bedrooms'],
+            ['field_name_slug' => 'bedrooms'],
+            ['field_label' => 'BHK'],
+            ['field_name_slug' => 'bhk'],
+        ];
+
+        $matchedPropertyIds = collect();
+
+        foreach ($possible as $cond) {
+            $cfQuery = CustomField::query();
+            if (isset($cond['field_name_slug'])) $cfQuery->where('field_name_slug', $cond['field_name_slug']);
+            if (isset($cond['field_label'])) $cfQuery->where('field_label', $cond['field_label']);
+            $cf = $cfQuery->first();
+            if (!$cf) continue;
+
+            $q = CustomFieldValue::where('custom_field_id', $cf->id);
+
+            $q->where(function ($sub) use ($bhkRequested) {
+                foreach ($bhkRequested as $req) {
+                    $req = trim((string)$req);
+                    if ($req === '') continue;
+
+                    if (is_numeric($req)) {
+                        $sub->orWhereRaw('field_meta_value REGEXP ?', [$this->regexNumberToken($req)]);
+                        $sub->orWhere('field_meta_value', 'like', "%{$req}%");
+                    } else {
+                        $sub->orWhere('field_meta_value', 'like', "%{$req}%");
+                    }
+                }
+            });
+
+            $ids = $q->pluck('properties_listing_id')->filter()->unique()->values();
+            if ($ids->isNotEmpty()) {
+                $matchedPropertyIds = $matchedPropertyIds->merge($ids);
+            }
+        }
+
+        return $matchedPropertyIds->unique()->values()->toArray();
+    }
+
+    protected function regexNumberToken($num)
+    {
+        $escaped = preg_quote((string)$num, '/');
+        return '(^|[^0-9])' . $escaped . '([^0-9]|$)';
+    }
+
+
+
+
+    ################################################
+
+
+      // =======================
+    // 1. Global Search API
+    // =======================
+    public function globalSearch(Request $request)
+    {
+        try {
+            $baseURL = config('app.url');
+            $AuthUser = auth('sanctum')->user();
+
+            // --- Query Properties ---
+            $propertiesQuery = PropertyList::with([
+                'country','state','city','user',
+                'propertyType','purpose','property',
+                'propertystatus','project',
+                'customFieldValues.customField',
+                'customFieldValues.customFieldOption'
+            ])->where('live_status','Approve');
+
+            // Apply location filters
+            foreach(['country_id','state_id','city_id','area_locality'] as $field){
+                if($request->filled($field)) $propertiesQuery->where($field,$request->$field);
+            }
+
+            // Keyword filter
+            if($request->filled('keyword')){
+                $propertyIds = Keyword::where('keyword', $request->keyword)
+                    ->whereNotNull('property_id')
+                    ->pluck('property_id');
+                $propertiesQuery->whereIn('id', $propertyIds);
+            }
+
+            // Purpose filter
+            if($request->filled('purpose')){
+                $purpose = Purpose::where('slug', $request->purpose)->first();
+                if($purpose) $propertiesQuery->where('purpose_id', $purpose->id);
+            }
+
+            // Apply purpose-specific filters dynamically
+            $this->applyPurposeFilters($propertiesQuery, $request);
+
+            $properties = $propertiesQuery->get();
+
+            // --- Query Projects ---
+            $projectsQuery = ProjectList::with([
+                'country','state','city','user',
+                'propertyType','purpose','property',
+                'propertystatus','developer',
+                'customFieldValues.customField',
+                'customFieldValues.customFieldOption'
+            ])->where('live_status','Approve');
+
+            foreach(['country_id','state_id','city_id','area_locality'] as $field){
+                if($request->filled($field)) $projectsQuery->where($field,$request->$field);
+            }
+
+            $projects = $projectsQuery->get();
+
+            // --- Query Agents ---
+            $agentsQuery = User::with(['role','userDetails.country','userDetails.state','userDetails.city'])
+                ->where('role_id',3)
+                ->where('isapproved',1);
+
+            foreach(['country_id','state_id','city_id','area_locality'] as $field){
+                if($request->filled($field)){
+                    $agentsQuery->whereHas('properties', function($q) use($field,$request){
+                        $q->where($field,$request->$field);
+                    });
+                }
+            }
+
+            $agents = $agentsQuery->withCount(['properties'=>function($q) use($request){
+                foreach(['country_id','state_id','city_id','area_locality'] as $field){
+                    if(request()->filled($field)){
+                        $q->where($field,request()->$field);
+                    }
+                }
+            }])->orderBy('properties_count','desc')->limit(100)->get();
+
+            // Format all data
+            return response()->json([
+                'total_properties' => $properties->count(),
+                'properties' => $this->formatProperties($properties, $baseURL),
+                'total_projects' => $projects->count(),
+                'projects' => $this->formatProjects($projects, $baseURL),
+                'total_agents' => $agents->count(),
+                'agents' => $this->formatAgents($agents, $AuthUser, $baseURL)
+            ],200);
+
+        } catch(\Throwable $th){
+            return response()->json(['error'=>$th->getMessage().' on line '.$th->getLine()],500);
+        }
+    }
+
+    // =======================
+    // 2. Global Filters API
+    // =======================
+    public function globalFilters(Request $request)
+    {
+        try {
+            $propertiesQuery = PropertyList::where('live_status','Approve');
+            foreach(['country_id','state_id','city_id','area_locality','purpose','keyword'] as $field){
+                if($request->filled($field)){
+                    if($field=='keyword'){
+                        $ids = Keyword::where('keyword',$request->keyword)->pluck('property_id');
+                        $propertiesQuery->whereIn('id',$ids);
+                    }else{
+                        $propertiesQuery->where($field,$request->$field);
+                    }
+                }
+            }
+
+            $propertyIds = $propertiesQuery->pluck('id');
+
+            $filters = [];
+
+            // Property types
+            $filters['property_types'] = PropertyList::whereIn('id',$propertyIds)
+                ->pluck('property_type_id')
+                ->map(fn($v)=>explode(',',$v))->flatten()->unique()->values();
+
+            // Property statuses
+            $filters['property_statuses'] = PropertyList::whereIn('id',$propertyIds)
+                ->pluck('property_status_id')->unique()->values();
+
+            // Price range
+            // $filters['price_min'] = PropertyList::whereIn('id',$propertyIds)->min('price') ?? 0;
+            // $filters['price_max'] = PropertyList::whereIn('id',$propertyIds)->max('price') ?? 0;
+
+            // Price range from custom fields
+            $priceFieldIds = CustomField::whereIn('field_label', ['property_rent_amount','plot_price','project_price'])->pluck('id');
+            $priceValues = CustomFieldValue::whereIn('custom_field_id', $priceFieldIds)
+                ->whereIn('properties_listing_id', $propertyIds)
+                ->pluck('field_meta_value')
+                ->map(fn($v) => (float)$v);
+
+            $filters['price_min'] = $priceValues->min() ?? 0;
+            $filters['price_max'] = $priceValues->max() ?? 0;
+            // Custom fields
+            $customFieldValues = CustomFieldValue::whereIn('properties_listing_id',$propertyIds)->get();
+            $filters['custom_fields'] = $customFieldValues->groupBy('custom_field_id')
+                ->map(fn($group)=>$group->pluck('field_meta_value')->unique()->values());
+
+            return response()->json(['status'=>true,'filters'=>$filters],200);
+
+        } catch(\Throwable $th){
+            return response()->json(['status'=>false,'error'=>$th->getMessage().' on line '.$th->getLine()],500);
+        }
+    }
+
+    // =======================
+    // 3. Apply Filter API
+    // =======================
+    public function applyFilter(Request $request)
+    {
+        try {
+            $request->merge($request->filters ?? []); // merge selected filters dynamically
+            return $this->globalSearch($request); // reuse globalSearch function
+        } catch(\Throwable $th){
+            return response()->json(['error'=>$th->getMessage().' on line '.$th->getLine()],500);
+        }
+    }
+
+    // =======================
+    // Helper Functions
+    // =======================
+
+    private function applyPurposeFilters(&$query, $request)
+    {
+        if(!$request->filled('purpose')) return;
+
+        $purpose = $request->purpose;
+
+        // Property Type filter
+        if($request->filled('property_type_id')){
+            $ids = explode(',',$request->property_type_id);
+            $query->where(function($q) use($ids){
+                foreach($ids as $id) $q->orWhereRaw("FIND_IN_SET(?,property_type_id)",[$id]);
+            });
+        }
+
+        // Property Status filter
+        if($request->filled('property_status_id')){
+            $ids = explode(',',$request->property_status_id);
+            $query->whereIn('property_status_id',$ids);
+        }
+
+        // Posted By filter
+        if($request->filled('posted_by')){
+            $user_ids = [];
+            if($request->posted_by=='agent') $user_ids = User::where('role_id',3)->pluck('id')->toArray();
+            if($request->posted_by=='owner') $user_ids = User::where('role_id',2)->pluck('id')->toArray();
+            $query->whereIn('user_id',$user_ids);
+        }
+
+        // Price filters based on purpose
+        if($purpose=='buy' && $request->filled('property_price_low') && $request->filled('property_price_high')){
+            $cf = CustomField::where('field_name','property_rent_amount')->first();
+            if($cf){
+                $ids = CustomFieldValue::where('custom_field_id',$cf->id)
+                    ->whereBetween('field_meta_value',[$request->property_price_low,$request->property_price_high])
+                    ->pluck('properties_listing_id')->toArray();
+                $query->whereIn('id',$ids);
+            }
+        }
+
+        if($purpose=='rent' && $request->filled('rent_price_low') && $request->filled('rent_price_high')){
+            $cf = CustomField::where('field_label','property_rent_amount')->first();
+            if($cf){
+                $ids = CustomFieldValue::where('custom_field_id',$cf->id)
+                    ->whereBetween('field_meta_value',[$request->rent_price_low,$request->rent_price_high])
+                    ->pluck('properties_listing_id')->toArray();
+                $query->whereIn('id',$ids);
+            }
+        }
+
+        // Similar logic for pgco-living, plot_land, project
+        if($purpose=='pgco-living'){
+            if($request->filled('pg_rent_price_low') && $request->filled('pg_rent_price_high')){
+                $cf = CustomField::where('field_name','property_rent_amount')->first();
+                if($cf){
+                    $ids = CustomFieldValue::where('custom_field_id',$cf->id)
+                        ->whereBetween('field_meta_value',[$request->pg_rent_price_low,$request->pg_rent_price_high])
+                        ->pluck('properties_listing_id')->toArray();
+                    $query->whereIn('id',$ids);
+                }
+            }
+            if($request->filled('availabel_for')){
+                $cf = CustomField::where('field_name','listing_available_for')->first();
+                if($cf){
+                    $ids = CustomFieldValue::where('custom_field_id',$cf->id)
+                        ->whereRaw("FIND_IN_SET(?,field_meta_value)",[$request->availabel_for])
+                        ->pluck('properties_listing_id')->toArray();
+                    $query->whereIn('id',$ids);
+                }
+            }
+        }
+
+        if($purpose=='plot_land'){
+            if($request->filled('plot_price_low') && $request->filled('plot_price_high')){
+                $cf = CustomField::where('field_name','property_rent_amount')->first();
+                if($cf){
+                    $ids = CustomFieldValue::where('custom_field_id',$cf->id)
+                        ->whereBetween('field_meta_value',[$request->plot_price_low,$request->plot_price_high])
+                        ->pluck('properties_listing_id')->toArray();
+                    $query->whereIn('id',$ids);
+                }
+            }
+        }
+
+        if($purpose=='project'){
+            if($request->filled('project_price_low') && $request->filled('project_price_high')){
+                $cf = CustomField::where('field_name','property_rent_amount')->first();
+                if($cf){
+                    $ids = CustomFieldValue::where('custom_field_id',$cf->id)
+                        ->whereBetween('field_meta_value',[$request->project_price_low,$request->project_price_high])
+                        ->pluck('properties_listing_id')->toArray();
+                    $query->whereIn('id',$ids);
+                }
+            }
+        }
+    }
+
+    private function formatProperties($properties,$baseURL)
+    {
+        return $properties->map(function($p) use($baseURL){
+            $customFields = $p->customFieldValues->map(function($cfv) use($baseURL){
+                $value = $cfv->field_meta_value;
+                if($cfv->customField->field_type=='checkbox') $value = explode(',',$value);
+                elseif($cfv->customField->field_type=='media') $value = collect(json_decode($value))->map(fn($v)=>$baseURL.'/uploads/media/'.$v);
+                return [
+                    'id'=>$cfv->customField->id,
+                    'type'=>$cfv->customField->field_type,
+                    'value'=>$value,
+                    'label'=>$cfv->customField->field_label
+                ];
+            });
+            return [
+                'id'=>$p->id,
+                'name'=>$p->name,
+                'country'=>$p->country->name ?? null,
+                'state'=>$p->state->name ?? null,
+                'city'=>$p->city->name ?? null,
+                'custom_fields'=>$customFields
+            ];
+        });
+    }
+
+    private function formatProjects($projects,$baseURL)
+    {
+        return $projects->map(function($p) use($baseURL){
+            $customFields = $p->customFieldValues->map(function($cfv) use($baseURL){
+                $value = $cfv->field_meta_value;
+                if($cfv->customField->field_type=='checkbox') $value = explode(',',$value);
+                elseif($cfv->customField->field_type=='media') $value = collect(json_decode($value))->map(fn($v)=>$baseURL.'/uploads/media/'.$v);
+                return [
+                    'id'=>$cfv->customField->id,
+                    'type'=>$cfv->customField->field_type,
+                    'value'=>$value,
+                    'label'=>$cfv->customField->field_label
+                ];
+            });
+            return [
+                'id'=>$p->id,
+                'name'=>$p->name,
+                'country'=>$p->country->name ?? null,
+                'state'=>$p->state->name ?? null,
+                'city'=>$p->city->name ?? null,
+                'custom_fields'=>$customFields
+            ];
+        });
+    }
+
+    private function formatAgents($agents,$AuthUser,$baseURL)
+    {
+        return $agents->map(function($a) use($AuthUser){
+            $email = $a->email; $phone = $a->phone;
+            if(!$AuthUser){
+                if($email) $email = preg_replace('/(?<=.{2}).(?=.*@)/','*',$email);
+                if($phone) $phone = substr($phone,0,3).'****'.substr($phone,-3);
+            }
+            return [
+                'id'=>$a->id,
+                'name'=>$a->first_name.' '.$a->last_name,
+                'email'=>$email,
+                'phone'=>$phone,
+                'properties_count'=>$a->properties_count
+            ];
+        });
+    }
+
+
 
 }
