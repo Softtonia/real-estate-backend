@@ -2867,6 +2867,143 @@ class CustomFieldController extends Controller
         }
     }
 
+    public function exportCustomFieldUniqueCode()
+    {
+        $fileName = 'custom_field_unique_codes.csv';
+        $columns = ['id', 'name', 'slug', 'post_type', 'status'];
+
+        $callback = function () use ($columns) {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, $columns);
+
+            $records = CustomFieldUniqueCode::all($columns);
+            foreach ($records as $record) {
+                fputcsv($file, $record->toArray());
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, [
+            "Content-Type" => "text/csv",
+            "Content-Disposition" => "attachment; filename={$fileName}",
+        ]);
+    }
+
+
+    public function importCustomFieldUniqueCode(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
+
+        $file = $request->file('file');
+        $handle = fopen($file->getRealPath(), 'r');
+
+        $header = fgetcsv($handle, 1000, ','); // read first row (header)
+
+        $updated = 0;
+        $created = 0;
+
+        while (($row = fgetcsv($handle, 1000, ',')) !== false) {
+            $data = array_combine($header, $row);
+
+            // Slugify to keep it consistent
+            $slug = Str::slug($data['slug'] ?? $data['name']);
+
+            // First try update
+            $record = CustomFieldUniqueCode::where('slug', $slug)
+                ->where('post_type', $data['post_type'])
+                ->first();
+
+            if ($record) {
+                $record->update([
+                    'name' => $data['name'],
+                    'slug' => $slug,
+                    'post_type' => $data['post_type'],
+                    'status' => $data['status'],
+                ]);
+                $updated++;
+            } else {
+                CustomFieldUniqueCode::create([
+                    'name' => $data['name'],
+                    'slug' => $slug,
+                    'post_type' => $data['post_type'],
+                    'status' => $data['status'],
+                ]);
+                $created++;
+            }
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'status' => true,
+            'message' => "Import completed. {$updated} updated, {$created} created.",
+        ]);
+    }
+
+
+    public function searchCustomFieldUniqueCode(Request $request)
+    {
+        $request->validate([
+            'search' => 'required|string|max:100',
+        ]);
+
+        $term = $request->search;
+
+        $results = CustomFieldUniqueCode::where('status', 1)
+            ->where(function ($q) use ($term) {
+                $q->where('name', 'like', "%{$term}%")
+                ->orWhere('slug', 'like', "%{$term}%");
+            })
+            ->get();
+
+        if ($results->isEmpty()) {
+            return response()->json(['message' => 'No records found'], 200);
+        }
+
+        $data = $results->map(function ($model) {
+            return [
+                'id' => $model->id,
+                'show' => ucwords(str_replace('_', ' ', $model->name)),
+                'name' => $model->slug,
+                'type' => $model->post_type,
+            ];
+        });
+
+        return response()->json(['data' => $data], 200);
+    }
+
+
+
+    public function filterCustomFieldByType(Request $request)
+    {
+        $request->validate([
+            'post_type' => 'required|in:project_list,property_list,developer_list',
+        ]);
+
+        $results = CustomFieldUniqueCode::where('status', 1)
+            ->where('post_type', $request->post_type)
+            ->get();
+
+        if ($results->isEmpty()) {
+            return response()->json(['message' => 'No records found for this type'], 200);
+        }
+
+        $data = $results->map(function ($model) {
+            return [
+                'id' => $model->id,
+                'show' => ucwords(str_replace('_', ' ', $model->name)),
+                'name' => $model->slug,
+                'type' => $model->post_type,
+            ];
+        });
+
+        return response()->json(['data' => $data], 200);
+    }
+
+
 
 
     // end template
@@ -2990,100 +3127,194 @@ class CustomFieldController extends Controller
 
     ################# new code #############
 
+    // public function searchAndFilter(Request $request)
+    // {
+    //     try {
+    //         $dropdownValue = $request->input('dropdown_value');
+    //         $searchQuery = $request->input('search');
+    //         $modelValue = $request->input('model_value');
+    //         $conditionValue = $request->input('condition');
+    //         $sortField = $request->input('sort_field');
+    //         $sortOrder = $request->input('sort_order');
+    //         $perPage = $request->input('per_page', 10);
+    //         $fieldType = $request->input('field_type');
+    //         $field = $request->input('field');
+
+    //         $query = CustomField::query();
+
+    //         // ✅ Group filter
+    //         $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
+    //         if ($dropdownValue && $groupId) {
+    //             $query->where('group_id', $groupId);
+    //         }
+
+    //         // ✅ Filter by model_fields JSON column (model + condition)
+    //         if ($modelValue && $conditionValue !== null) {
+    //             $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+    //             foreach ($conditions as $cond) {
+    //                 $query->whereRaw(
+    //                     "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+    //                  AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+    //                     [$modelValue, $cond]
+    //                 );
+    //             }
+    //         }
+
+    //         // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
+    //         if ($field && $conditionValue) {
+    //             $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+    //             foreach ($values as $val) {
+    //                 $query->whereRaw(
+    //                     "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+    //                  AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+    //                     [$field, $val]
+    //                 );
+    //             }
+    //         }
+
+    //         // ✅ Filter by field_type
+    //         if ($fieldType) {
+    //             $query->where('field_type', $fieldType);
+    //         }
+
+    //         // ✅ Search filtering (joins group_name table)
+    //         if ($searchQuery) {
+    //             $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+    //                 ->where(function ($q) use ($searchQuery) {
+    //                     $q->where('field_label', 'LIKE', "%{$searchQuery}%")
+    //                         ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
+    //                         ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
+    //                         ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
+    //                 })
+    //                 ->select('custom_fields.*', 'group_name.group_name');
+    //         }
+
+    //         // ✅ Sorting (excluding model which is not a column)
+    //         if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
+    //             if ($sortField === 'group_name') {
+    //                 $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+    //                     ->orderBy('group_name.group_name', $sortOrder)
+    //                     ->select('custom_fields.*', 'group_name.group_name');
+    //             } else {
+    //                 $query->orderBy($sortField, $sortOrder);
+    //             }
+    //         }
+
+    //         // ✅ Paginate
+    //         $results = $query->paginate($perPage);
+
+    //         return response()->json([
+    //             'message' => 'Filtered results retrieved successfully',
+    //             'data' => $results->items(),
+    //             'pagination' => [
+    //                 'current_page' => $results->currentPage(),
+    //                 'last_page' => $results->lastPage(),
+    //                 'per_page' => $results->perPage(),
+    //                 'total' => $results->total(),
+    //             ],
+    //         ], 200);
+
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'error' => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
+
+
+
     public function searchAndFilter(Request $request)
-    {
-        try {
-            $dropdownValue = $request->input('dropdown_value');
-            $searchQuery = $request->input('search');
-            $modelValue = $request->input('model_value');
-            $conditionValue = $request->input('condition');
-            $sortField = $request->input('sort_field');
-            $sortOrder = $request->input('sort_order');
-            $perPage = $request->input('per_page', 10);
-            $fieldType = $request->input('field_type');
-            $field = $request->input('field');
+{
+    try {
+        $dropdownValue = $request->input('dropdown_value');
+        $searchQuery = $request->input('search');
+        $modelValue = $request->input('model_value');
+        $conditionValue = $request->input('condition');
+        $sortField = $request->input('sort_field');
+        $sortOrder = $request->input('sort_order');
+        $perPage = $request->input('per_page', 10);
+        $fieldType = $request->input('field_type');
+        $field = $request->input('field');
 
-            $query = CustomField::query();
+        // ✅ Always include group_name
+        $query = CustomField::query()
+            ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+            ->select('custom_fields.*', 'group_name.group_name');
 
-            // ✅ Group filter
-            $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
-            if ($dropdownValue && $groupId) {
-                $query->where('group_id', $groupId);
-            }
-
-            // ✅ Filter by model_fields JSON column (model + condition)
-            if ($modelValue && $conditionValue !== null) {
-                $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
-                foreach ($conditions as $cond) {
-                    $query->whereRaw(
-                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
-                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
-                        [$modelValue, $cond]
-                    );
-                }
-            }
-
-            // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
-            if ($field && $conditionValue) {
-                $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
-                foreach ($values as $val) {
-                    $query->whereRaw(
-                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
-                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
-                        [$field, $val]
-                    );
-                }
-            }
-
-            // ✅ Filter by field_type
-            if ($fieldType) {
-                $query->where('field_type', $fieldType);
-            }
-
-            // ✅ Search filtering (joins group_name table)
-            if ($searchQuery) {
-                $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
-                    ->where(function ($q) use ($searchQuery) {
-                        $q->where('field_label', 'LIKE', "%{$searchQuery}%")
-                            ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
-                            ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
-                            ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
-                    })
-                    ->select('custom_fields.*', 'group_name.group_name');
-            }
-
-            // ✅ Sorting (excluding model which is not a column)
-            if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
-                if ($sortField === 'group_name') {
-                    $query->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
-                        ->orderBy('group_name.group_name', $sortOrder)
-                        ->select('custom_fields.*', 'group_name.group_name');
-                } else {
-                    $query->orderBy($sortField, $sortOrder);
-                }
-            }
-
-            // ✅ Paginate
-            $results = $query->paginate($perPage);
-
-            return response()->json([
-                'message' => 'Filtered results retrieved successfully',
-                'data' => $results->items(),
-                'pagination' => [
-                    'current_page' => $results->currentPage(),
-                    'last_page' => $results->lastPage(),
-                    'per_page' => $results->perPage(),
-                    'total' => $results->total(),
-                ],
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => $e->getMessage(),
-            ], 500);
+        // ✅ Group filter
+        $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
+        if ($dropdownValue && $groupId) {
+            $query->where('group_id', $groupId);
         }
-    }
 
+        // ✅ Filter by model_fields JSON column (model + condition)
+        if ($modelValue && $conditionValue !== null) {
+            $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+            foreach ($conditions as $cond) {
+                $query->whereRaw(
+                    "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+                    [$modelValue, $cond]
+                );
+            }
+        }
+
+        // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
+        if ($field && $conditionValue) {
+            $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+            foreach ($values as $val) {
+                $query->whereRaw(
+                    "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+                    [$field, $val]
+                );
+            }
+        }
+
+        // ✅ Filter by field_type
+        if ($fieldType) {
+            $query->where('field_type', $fieldType);
+        }
+
+        // ✅ Search filtering
+        if ($searchQuery) {
+            $query->where(function ($q) use ($searchQuery) {
+                $q->where('field_label', 'LIKE', "%{$searchQuery}%")
+                    ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
+                    ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
+                    ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
+            });
+        }
+
+        // ✅ Sorting
+        if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
+            if ($sortField === 'group_name') {
+                $query->orderBy('group_name.group_name', $sortOrder);
+            } else {
+                $query->orderBy($sortField, $sortOrder);
+            }
+        }
+
+        // ✅ Paginate
+        $results = $query->paginate($perPage);
+
+        return response()->json([
+            'message' => 'Filtered results retrieved successfully',
+            'data' => $results->items(),
+            'pagination' => [
+                'current_page' => $results->currentPage(),
+                'last_page' => $results->lastPage(),
+                'per_page' => $results->perPage(),
+                'total' => $results->total(),
+            ],
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+}
 
 
     ################## end new code ############

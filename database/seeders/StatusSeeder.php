@@ -149,6 +149,22 @@ class StatusSeeder extends Seeder
                 'name' => 'Functional Unit',
                 'status_display_order' => 26,
             ],
+
+             [
+                'property_type_id' => [27],
+                'name' => 'Single Room',
+                'status_display_order' => 27,
+            ],
+            [
+                'property_type_id' => [27],
+                'name' => 'Double Bed Room',
+                'status_display_order' => 28,
+            ],
+            [
+                'property_type_id' => [27],
+                'name' => 'Triple Bed Room',
+                'status_display_order' => 29,
+            ],
         ];
 
         foreach ($statuses as $status) {

@@ -21,6 +21,12 @@ class GroupNameSeeder extends Seeder
                 'created_at' => Carbon::now(),
                 'updated_at' => Carbon::now(),
             ],
+            [
+                'group_name' => 'Custom Field for PG',
+                'status' => 1,
+                'created_at' => Carbon::now(),
+                'updated_at' => Carbon::now(),
+            ] 
 
         ];
 

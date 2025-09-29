@@ -801,11 +801,16 @@ Route::get('/check-ip', function (Request $request) {
         // Template  Id
 
         // CustomFieldUniqueCode
+        Route::middleware(['admin.token'])->get('export-template-id-listings', [CustomFieldController::class, 'exportCustomFieldUniqueCode']);
+        Route::middleware(['admin.token'])->post('import-template-id-listings', [CustomFieldController::class, 'importCustomFieldUniqueCode']);
+        Route::middleware(['admin.token'])->get('template-id-listings-search', [CustomFieldController::class, 'searchCustomFieldUniqueCode']);
+        Route::middleware(['admin.token'])->get('template-id-listings-filter', [CustomFieldController::class, 'filterCustomFieldByType']);
         Route::middleware(['admin.token'])->post('add-template-id-listings', [CustomFieldController::class, 'storeCustomFieldUniqueCode']);
         Route::get('/get-template-id-listings-by-id', [CustomFieldController::class, 'showCustomFieldUniqueCodeById']);
         Route::middleware(['admin.token'])->post('update-template-id-listings', [CustomFieldController::class, 'updateCustomFieldUniqueCode']);
         Route::middleware(['admin.token'])->delete('delete-template-id-listings', [CustomFieldController::class, 'destroyCustomFieldUniqueCode']);
         Route::middleware(['admin.token'])->post('bulk-delete-template-id-listings', [CustomFieldController::class, 'bulkDeleteCustomFieldUniqueCode']);
+
 
 
         // Top Features for project developer and listings

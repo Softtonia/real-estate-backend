@@ -54,20 +54,20 @@ public function importFromCsv(Request $request)
                 [
                     'group_id' => $group->id,
                     'field_label' => $row[2],
-                    'field_placeholder' => $row[5],
-                    'field_type' => $row[6],
-                    'required' => $row[7],
-                    'post_type' => $row[8],
-                    'template_id' => $row[9] ?: null,
-                    'media_limit' => $row[10] ?: null,
-                    'media_size' => $row[11] ?: null,
-                    'media_format' => $row[12] ?: null,
-                    'model_fields' => $row[15] ?: null,
+                    'field_placeholder' => $row[4],
+                    'field_type' => $row[5],
+                    'required' => $row[6],
+                    'post_type' => $row[7],
+                    'template_id' => $row[8] ?: null,
+                    'media_limit' => $row[9] ?: null,
+                    'media_size' => $row[10] ?: null,
+                    'media_format' => $row[11] ?: null,
+                    'model_fields' => $row[14] ?: null,
                 ]
             );
 
             // 3️⃣ Delete Old Options + Insert New Options
-            $options = json_decode($row[13], true);
+            $options = json_decode($row[12], true);
             if (is_array($options)) {
                 // delete
                 CustomFieldOption::where('custom_field_id', $field->id)->delete();
@@ -84,7 +84,7 @@ public function importFromCsv(Request $request)
             }
 
             // 4️⃣ Insert/Update Repeaters (unique by slug only)
-            $repeaters = json_decode($row[14], true);
+            $repeaters = json_decode($row[13], true);
             if (is_array($repeaters)) {
                 foreach ($repeaters as $rep) {
                     $repeater = CustomFieldRepeater::updateOrCreate(
@@ -183,7 +183,7 @@ public function exportToCsv()
                     "group_name" => $group->group_name,
                     "field_label" => $field->field_label,
                     "field_name_slug" => $field->field_name_slug,
-                    "field_name" => $field->field_name_slug, // adjust if DB has separate field_name column
+                    // "field_name" => $field->field_name_slug, // adjust if DB has separate field_name column
                     "field_placeholder" => $field->field_placeholder,
                     "field_type" => $field->field_type,
                     "required" => $field->required,

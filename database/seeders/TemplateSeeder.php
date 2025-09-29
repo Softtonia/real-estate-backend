@@ -642,6 +642,18 @@ class TemplateSeeder extends Seeder
                 "show" => "Developer.rera-number",
                 "name" => "developerrera-number",
                 "type" => "developer_list"
+            ],
+            [
+
+                "show" => "Pg-Gender",
+                "name" => "pg-gender",
+                "type" => "property_list"
+            ],
+            [
+
+                "show" => "Pg-looking For",
+                "name" => "pg-looking-for",
+                "type" => "developer_list"
             ]
         ];
 
