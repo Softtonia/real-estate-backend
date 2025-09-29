@@ -1077,11 +1077,18 @@ class SearchEngineController extends Controller
                     if($field=='keyword'){
                         $ids = Keyword::where('keyword',$request->keyword)->pluck('property_id');
                         $propertiesQuery->whereIn('id',$ids);
-                    }else{
-                        $propertiesQuery->where($field,$request->$field);
+                    } elseif($field == 'purpose'){
+                        // purpose slug 
+                        $purpose = Purpose::where('slug', $request->purpose)->first();
+                        if($purpose) {
+                            $propertiesQuery->where('purpose_id', $purpose->id);
+                        }
+                    } else {
+                        $propertiesQuery->where($field, $request->$field);
                     }
                 }
             }
+
 
             $propertyIds = $propertiesQuery->pluck('id');
 
