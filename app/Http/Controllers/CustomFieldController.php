@@ -3224,97 +3224,97 @@ class CustomFieldController extends Controller
 
 
     public function searchAndFilter(Request $request)
-{
-    try {
-        $dropdownValue = $request->input('dropdown_value');
-        $searchQuery = $request->input('search');
-        $modelValue = $request->input('model_value');
-        $conditionValue = $request->input('condition');
-        $sortField = $request->input('sort_field');
-        $sortOrder = $request->input('sort_order');
-        $perPage = $request->input('per_page', 10);
-        $fieldType = $request->input('field_type');
-        $field = $request->input('field');
+    {
+        try {
+            $dropdownValue = $request->input('dropdown_value');
+            $searchQuery = $request->input('search');
+            $modelValue = $request->input('model_value');
+            $conditionValue = $request->input('condition');
+            $sortField = $request->input('sort_field');
+            $sortOrder = $request->input('sort_order');
+            $perPage = $request->input('per_page', 10);
+            $fieldType = $request->input('field_type');
+            $field = $request->input('field');
 
-        // ✅ Always include group_name
-        $query = CustomField::query()
-            ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
-            ->select('custom_fields.*', 'group_name.group_name');
+            // ✅ Always include group_name
+            $query = CustomField::query()
+                ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+                ->select('custom_fields.*', 'group_name.group_name');
 
-        // ✅ Group filter
-        $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
-        if ($dropdownValue && $groupId) {
-            $query->where('group_id', $groupId);
-        }
-
-        // ✅ Filter by model_fields JSON column (model + condition)
-        if ($modelValue && $conditionValue !== null) {
-            $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
-            foreach ($conditions as $cond) {
-                $query->whereRaw(
-                    "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
-                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
-                    [$modelValue, $cond]
-                );
+            // ✅ Group filter
+            $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
+            if ($dropdownValue && $groupId) {
+                $query->where('group_id', $groupId);
             }
-        }
 
-        // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
-        if ($field && $conditionValue) {
-            $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
-            foreach ($values as $val) {
-                $query->whereRaw(
-                    "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
-                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
-                    [$field, $val]
-                );
+            // ✅ Filter by model_fields JSON column (model + condition)
+            if ($modelValue && $conditionValue !== null) {
+                $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+                foreach ($conditions as $cond) {
+                    $query->whereRaw(
+                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+                        AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+                        [$modelValue, $cond]
+                    );
+                }
             }
-        }
 
-        // ✅ Filter by field_type
-        if ($fieldType) {
-            $query->where('field_type', $fieldType);
-        }
-
-        // ✅ Search filtering
-        if ($searchQuery) {
-            $query->where(function ($q) use ($searchQuery) {
-                $q->where('field_label', 'LIKE', "%{$searchQuery}%")
-                    ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
-                    ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
-                    ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
-            });
-        }
-
-        // ✅ Sorting
-        if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
-            if ($sortField === 'group_name') {
-                $query->orderBy('group_name.group_name', $sortOrder);
-            } else {
-                $query->orderBy($sortField, $sortOrder);
+            // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
+            if ($field && $conditionValue) {
+                $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+                foreach ($values as $val) {
+                    $query->whereRaw(
+                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+                        AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+                        [$field, $val]
+                    );
+                }
             }
+
+            // ✅ Filter by field_type
+            if ($fieldType) {
+                $query->where('field_type', $fieldType);
+            }
+
+            // ✅ Search filtering
+            if ($searchQuery) {
+                $query->where(function ($q) use ($searchQuery) {
+                    $q->where('field_label', 'LIKE', "%{$searchQuery}%")
+                        ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
+                        ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
+                        ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
+                });
+            }
+
+            // ✅ Sorting
+            if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
+                if ($sortField === 'group_name') {
+                    $query->orderBy('group_name.group_name', $sortOrder);
+                } else {
+                    $query->orderBy($sortField, $sortOrder);
+                }
+            }
+
+            // ✅ Paginate
+            $results = $query->paginate($perPage);
+
+            return response()->json([
+                'message' => 'Filtered results retrieved successfully',
+                'data' => $results->items(),
+                'pagination' => [
+                    'current_page' => $results->currentPage(),
+                    'last_page' => $results->lastPage(),
+                    'per_page' => $results->perPage(),
+                    'total' => $results->total(),
+                ],
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // ✅ Paginate
-        $results = $query->paginate($perPage);
-
-        return response()->json([
-            'message' => 'Filtered results retrieved successfully',
-            'data' => $results->items(),
-            'pagination' => [
-                'current_page' => $results->currentPage(),
-                'last_page' => $results->lastPage(),
-                'per_page' => $results->perPage(),
-                'total' => $results->total(),
-            ],
-        ], 200);
-
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => $e->getMessage(),
-        ], 500);
     }
-}
 
 
     ################## end new code ############
