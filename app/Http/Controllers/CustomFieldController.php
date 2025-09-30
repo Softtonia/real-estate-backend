@@ -2578,56 +2578,112 @@ class CustomFieldController extends Controller
 
 
     // this  id for listing of models
+    // public function customFieldUniqueCode(Request $request)
+    // {
+    //     try {
+    //         // Check if 'name' exists in the request and ensure its uniqueness
+    //         $name = $request->input('name');
+
+    //         // Check if name already exists in the CustomFieldUniqueCode table
+    //         $existingField = CustomFieldUniqueCode::where('slug', $name)->first();
+
+    //         if ($existingField) {
+    //             return response()->json(['error' => 'The name is already taken.'], 422);
+    //         }
+
+    //         if (isset($request->post_type) && $request->post_type == 'project_list') {
+    //             $post_type = 'project_list';
+    //         } elseif (isset($request->post_type) && $request->post_type == 'developer_list') {
+    //             $post_type = 'developer_list';
+    //         } else {
+    //             $post_type = 'property_list';
+    //         }
+
+    //         // Retrieve all CustomField records with their associated Groupname
+    //         $Codedata = CustomFieldUniqueCode::where('status', 1)->get();
+
+    //         $data = [];
+
+    //         if (count($Codedata) > 0) {
+    //             foreach ($Codedata as $model) {
+    //                 // Modify the name field
+    //                 $name = ucwords(str_replace('_', ' ', $model->name));
+
+    //                 $data[] = [
+    //                     'id' => $model->id,
+    //                     'show' => $name,
+    //                     'name' => $model->slug,
+    //                     'type' => $model->post_type,
+    //                 ];
+    //             }
+    //             $arr['data'] = $data;
+    //             return response()->json($arr, 200);
+    //         } else {
+    //             return response()->json(['success' => 'No data found'], 200);
+    //         }
+
+    //     } catch (\Exception $e) {
+    //         // Log and return generic error response
+    //         Log::error('Error: ' . $e->getMessage());
+    //         return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+    //     }
+    // }
+
     public function customFieldUniqueCode(Request $request)
-    {
-        try {
-            // Check if 'name' exists in the request and ensure its uniqueness
-            $name = $request->input('name');
+{
+    try {
+        $nameInput = $request->input('name');
 
-            // Check if name already exists in the CustomFieldUniqueCode table
-            $existingField = CustomFieldUniqueCode::where('slug', $name)->first();
-
-            if ($existingField) {
-                return response()->json(['error' => 'The name is already taken.'], 422);
-            }
-
-            if (isset($request->post_type) && $request->post_type == 'project_list') {
-                $post_type = 'project_list';
-            } elseif (isset($request->post_type) && $request->post_type == 'developer_list') {
-                $post_type = 'developer_list';
-            } else {
-                $post_type = 'property_list';
-            }
-
-            // Retrieve all CustomField records with their associated Groupname
-            $Codedata = CustomFieldUniqueCode::where('status', 1)->get();
-
-            $data = [];
-
-            if (count($Codedata) > 0) {
-                foreach ($Codedata as $model) {
-                    // Modify the name field
-                    $name = ucwords(str_replace('_', ' ', $model->name));
-
-                    $data[] = [
-                        'id' => $model->id,
-                        'show' => $name,
-                        'name' => $model->slug,
-                        'type' => $model->post_type,
-                    ];
-                }
-                $arr['data'] = $data;
-                return response()->json($arr, 200);
-            } else {
-                return response()->json(['success' => 'No data found'], 200);
-            }
-
-        } catch (\Exception $e) {
-            // Log and return generic error response
-            Log::error('Error: ' . $e->getMessage());
-            return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
+        // Check if name already exists
+        $existingField = CustomFieldUniqueCode::where('slug', $nameInput)->first();
+        if ($existingField) {
+            return response()->json(['error' => 'The name is already taken.'], 422);
         }
+
+        // Determine post type
+        $post_type = match($request->post_type) {
+            'project_list' => 'project_list',
+            'developer_list' => 'developer_list',
+            default => 'property_list',
+        };
+
+        // Pagination: get 10 items per page (can be changed)
+        $perPage = $request->input('per_page', 10);
+        $page = $request->input('page', 1);
+
+        $Codedata = CustomFieldUniqueCode::where('status', 1)
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        if ($Codedata->count() > 0) {
+            $data = $Codedata->map(function ($model) {
+                return [
+                    'id' => $model->id,
+                    'show' => ucwords(str_replace('_', ' ', $model->name)),
+                    'name' => $model->slug,
+                    'type' => $model->post_type,
+                ];
+            });
+
+            return response()->json([
+                'data' => $data,
+                'pagination' => [
+                    'total' => $Codedata->total(),
+                    'per_page' => $Codedata->perPage(),
+                    'current_page' => $Codedata->currentPage(),
+                    'last_page' => $Codedata->lastPage(),
+                    'next_page_url' => $Codedata->nextPageUrl(),
+                    'prev_page_url' => $Codedata->previousPageUrl(),
+                ],
+            ], 200);
+        } else {
+            return response()->json(['success' => 'No data found'], 200);
+        }
+    } catch (\Exception $e) {
+        Log::error('Error: ' . $e->getMessage());
+        return response()->json(['error' => 'Something went wrong. ' . $e->getMessage()], 500);
     }
+}
+
 
     // start template
 
@@ -3223,98 +3279,186 @@ class CustomFieldController extends Controller
 
 
 
+    // public function searchAndFilter(Request $request)
+    // {
+    //     try {
+    //         $dropdownValue = $request->input('dropdown_value');
+    //         $searchQuery = $request->input('search');
+    //         $modelValue = $request->input('model_value');
+    //         $conditionValue = $request->input('condition');
+    //         $sortField = $request->input('sort_field');
+    //         $sortOrder = $request->input('sort_order');
+    //         $perPage = $request->input('per_page', 10);
+    //         $fieldType = $request->input('field_type');
+    //         $field = $request->input('field');
+
+    //         // ✅ Always include group_name
+    //         $query = CustomField::query()
+    //             ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+    //             ->select('custom_fields.*', 'group_name.group_name');
+
+    //         // ✅ Group filter
+    //         $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
+    //         if ($dropdownValue && $groupId) {
+    //             $query->where('group_id', $groupId);
+    //         }
+
+    //         // ✅ Filter by model_fields JSON column (model + condition)
+    //         if ($modelValue && $conditionValue !== null) {
+    //             $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+    //             foreach ($conditions as $cond) {
+    //                 $query->whereRaw(
+    //                     "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+    //                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+    //                     [$modelValue, $cond]
+    //                 );
+    //             }
+    //         }
+
+    //         // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
+    //         if ($field && $conditionValue) {
+    //             $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
+    //             foreach ($values as $val) {
+    //                 $query->whereRaw(
+    //                     "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+    //                     AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+    //                     [$field, $val]
+    //                 );
+    //             }
+    //         }
+
+    //         // ✅ Filter by field_type
+    //         if ($fieldType) {
+    //             $query->where('field_type', $fieldType);
+    //         }
+
+    //         // ✅ Search filtering
+    //         if ($searchQuery) {
+    //             $query->where(function ($q) use ($searchQuery) {
+    //                 $q->where('field_label', 'LIKE', "%{$searchQuery}%")
+    //                     ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
+    //                     ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
+    //                     ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
+    //             });
+    //         }
+
+    //         // ✅ Sorting
+    //         if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
+    //             if ($sortField === 'group_name') {
+    //                 $query->orderBy('group_name.group_name', $sortOrder);
+    //             } else {
+    //                 $query->orderBy($sortField, $sortOrder);
+    //             }
+    //         }
+
+    //         // ✅ Paginate
+    //         $results = $query->paginate($perPage);
+
+    //         return response()->json([
+    //             'message' => 'Filtered results retrieved successfully',
+    //             'data' => $results->items(),
+    //             'pagination' => [
+    //                 'current_page' => $results->currentPage(),
+    //                 'last_page' => $results->lastPage(),
+    //                 'per_page' => $results->perPage(),
+    //                 'total' => $results->total(),
+    //             ],
+    //         ], 200);
+
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'error' => $e->getMessage(),
+    //         ], 500);
+    //     }
+    // }
+
     public function searchAndFilter(Request $request)
-    {
-        try {
-            $dropdownValue = $request->input('dropdown_value');
-            $searchQuery = $request->input('search');
-            $modelValue = $request->input('model_value');
-            $conditionValue = $request->input('condition');
-            $sortField = $request->input('sort_field');
-            $sortOrder = $request->input('sort_order');
-            $perPage = $request->input('per_page', 10);
-            $fieldType = $request->input('field_type');
-            $field = $request->input('field');
+{
+    try {
+        $dropdownValue = $request->input('dropdown_value');
+        $searchQuery = $request->input('search');
+        $modelConditions = $request->input('model_conditions'); // Array of {model, condition}
+        $fieldType = $request->input('field_type');
+        $sortField = $request->input('sort_field');
+        $sortOrder = $request->input('sort_order');
+        $perPage = $request->input('per_page', 10);
 
-            // ✅ Always include group_name
-            $query = CustomField::query()
-                ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
-                ->select('custom_fields.*', 'group_name.group_name');
+        $query = CustomField::query()
+            ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+            ->select('custom_fields.*', 'group_name.group_name');
 
-            // ✅ Group filter
+        // ✅ Group filter
+        if ($dropdownValue) {
             $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
-            if ($dropdownValue && $groupId) {
+            if ($groupId) {
                 $query->where('group_id', $groupId);
             }
-
-            // ✅ Filter by model_fields JSON column (model + condition)
-            if ($modelValue && $conditionValue !== null) {
-                $conditions = is_array($conditionValue) ? $conditionValue : [$conditionValue];
-                foreach ($conditions as $cond) {
-                    $query->whereRaw(
-                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
-                        AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
-                        [$modelValue, $cond]
-                    );
-                }
-            }
-
-            // ✅ Additional filtering from model_fields if "field" is provided (acts as model)
-            if ($field && $conditionValue) {
-                $values = is_array($conditionValue) ? $conditionValue : [$conditionValue];
-                foreach ($values as $val) {
-                    $query->whereRaw(
-                        "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
-                        AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
-                        [$field, $val]
-                    );
-                }
-            }
-
-            // ✅ Filter by field_type
-            if ($fieldType) {
-                $query->where('field_type', $fieldType);
-            }
-
-            // ✅ Search filtering
-            if ($searchQuery) {
-                $query->where(function ($q) use ($searchQuery) {
-                    $q->where('field_label', 'LIKE', "%{$searchQuery}%")
-                        ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
-                        ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
-                        ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
-                });
-            }
-
-            // ✅ Sorting
-            if ($sortField && in_array($sortField, ['field_type', 'group_name', 'field_label'])) {
-                if ($sortField === 'group_name') {
-                    $query->orderBy('group_name.group_name', $sortOrder);
-                } else {
-                    $query->orderBy($sortField, $sortOrder);
-                }
-            }
-
-            // ✅ Paginate
-            $results = $query->paginate($perPage);
-
-            return response()->json([
-                'message' => 'Filtered results retrieved successfully',
-                'data' => $results->items(),
-                'pagination' => [
-                    'current_page' => $results->currentPage(),
-                    'last_page' => $results->lastPage(),
-                    'per_page' => $results->perPage(),
-                    'total' => $results->total(),
-                ],
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => $e->getMessage(),
-            ], 500);
         }
+
+        // ✅ Filter by model_conditions array
+        if (!empty($modelConditions) && is_array($modelConditions)) {
+            $query->where(function($q) use ($modelConditions) {
+                foreach ($modelConditions as $item) {
+                    $model = $item['model'] ?? null;
+                    $conditions = $item['condition'] ?? [];
+                    if ($model && !empty($conditions)) {
+                        foreach ($conditions as $cond) {
+                            $q->orWhereRaw(
+                                "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+                                 AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
+                                [$model, $cond]
+                            );
+                        }
+                    }
+                }
+            });
+        }
+
+        // ✅ Field type filter
+        if ($fieldType) {
+            $query->where('field_type', $fieldType);
+        }
+
+        // ✅ Search filter
+        if ($searchQuery) {
+            $query->where(function ($q) use ($searchQuery) {
+                $q->where('field_label', 'LIKE', "%{$searchQuery}%")
+                    ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
+                    ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
+                    ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
+            });
+        }
+
+        // ✅ Sorting
+        if ($sortField && in_array($sortField, ['field_label', 'field_type', 'group_name'])) {
+            if ($sortField === 'group_name') {
+                $query->orderBy('group_name.group_name', $sortOrder ?? 'asc');
+            } else {
+                $query->orderBy($sortField, $sortOrder ?? 'asc');
+            }
+        }
+
+        // ✅ Paginate
+        $results = $query->paginate($perPage);
+
+        return response()->json([
+            'message' => 'Filtered results retrieved successfully',
+            'data' => $results->items(),
+            'pagination' => [
+                'current_page' => $results->currentPage(),
+                'last_page' => $results->lastPage(),
+                'per_page' => $results->perPage(),
+                'total' => $results->total(),
+            ],
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
+
 
 
     ################## end new code ############
@@ -3382,7 +3526,7 @@ class CustomFieldController extends Controller
         try {
             // Define the model mappings
             $models = [
-                'Purposes' => Property::all(),
+                'Purposes' => Purpose::all(),
                 'Properties' => Property::all(),
                 'Property Types' => PropertyType::all(),
                 'Property Statuses' => Status::all(),
@@ -3397,12 +3541,15 @@ class CustomFieldController extends Controller
                     return [
                         'value' => $item->id,
                         'label' => $item->name, // Assuming the model has `id` and `name` fields
+                        'slug' => $item->slug ?? null, // Include slug if available
                     ];
                 });
 
                 $data[] = [
                     'label' => $name,
+                    'slug' => Str::slug($name) ?? null,
                     'options' => $options,
+
                 ];
             }
 
