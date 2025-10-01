@@ -3534,6 +3534,17 @@ class CustomFieldController extends Controller
                 //'Amenities Categories' => AmenitiesCategory::all(),
             ];
 
+            // Define slug mappings
+            $slugMap = [
+                'Purposes' => 'purpose',
+                'Properties' => 'property',
+                'Property Types' => 'property_type',
+                'Property Statuses' => 'property_status',
+                //'Amenities' => 'amenity',
+                //'Amenities Categories' => 'amenities_category',
+            ];
+
+
             // Build the response data dynamically
             $data = [];
             foreach ($models as $name => $dataset) {
@@ -3547,7 +3558,7 @@ class CustomFieldController extends Controller
 
                 $data[] = [
                     'label' => $name,
-                    'slug' => Str::slug($name) ?? null,
+                     'slug' => $slugMap[$name] ?? Str::snake($name), 
                     'options' => $options,
 
                 ];

@@ -30,7 +30,7 @@ class ModelsTableSeeder extends Seeder
             ],
             [
                 'name' => 'property_type',
-                'slug' => 'property-type',
+                'slug' => 'property_type',
                 'created_at' => now(),
                 'updated_at' => now(),
                 'status' => true
@@ -51,7 +51,7 @@ class ModelsTableSeeder extends Seeder
             ],
             [
                 'name' => 'amenities_categories',
-                'slug' => 'amenities-categories',
+                'slug' => 'amenities_categories',
                 'created_at' => now(),
                 'updated_at' => now(),
                 'status' => true
