@@ -658,6 +658,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['admin.token'])->post('bulk-delete-pages', [PageController::class, 'bulkDestroy']);
         Route::middleware(['admin.token'])->get('search-pages', [PageController::class, 'searchPage']);
         Route::middleware(['admin.token'])->post('check-unique-pages', [PageController::class, 'checkUnique']);
+        Route::middleware(['admin.token'])->post('update-page-status/{id}', [PageController::class, 'updatePageStatus']);
 
 
 

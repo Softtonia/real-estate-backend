@@ -12,61 +12,73 @@ use Illuminate\Support\Str;
 class PageController extends Controller
 {
     // Get all pages
-    public function index()
+   
+
+    public function index(Request $request)
     {
-        $pages = Page::all()->map(function ($page) {
-            if ($page->featured_image) {
-                $page->featured_image_url = url($page->featured_image);
-            } else {
-                $page->featured_image_url = null;
-            }
+        // Per page parameter (default 10)
+        $perPage = $request->get('per_page', 10);
+
+        // Paginate pages
+        $pages = Page::paginate($perPage);
+
+        // Map featured_image_url
+        $pages->getCollection()->transform(function ($page) {
+            $page->featured_image_url = $page->featured_image ? url($page->featured_image) : null;
             return $page;
         });
+
         return response()->json([
             'status' => true,
             'message' => 'Pages retrieved successfully',
-            'data' => $pages
+            'data' => $pages->items(),
+            'pagination' => [
+                'current_page' => $pages->currentPage(),
+                'per_page' => $pages->perPage(),
+                'total' => $pages->total(),
+                'last_page' => $pages->lastPage(),
+                'next_page_url' => $pages->nextPageUrl(),
+                'prev_page_url' => $pages->previousPageUrl(),
+            ]
         ], 200);
     }
 
+
     // Get single page by ID
-    // public function show($id)
-    // {
-    //     $page = Page::find($id);
-    //     if (!$page) {
-    //         return response()->json([
-    //             'status' => false,
-    //             'message' => 'Page not found'
-    //         ], 200);
-    //     }
+   
 
-    //     if ($page->featured_image) {
-    //         $page->featured_image_url = url($page->featured_image);
-    //     } else {
-    //         $page->featured_image_url = null;
-    //     }
-
-    //     return response()->json([
-    //         'status' => true,
-    //         'message' => 'Page retrieved successfully',
-    //         'data' => $page
-    //     ], 200);
-    // }
 
     public function show(Request $request)
     {
+        $authUser = auth('sanctum')->user(); // current logged-in user
 
         if ($request->has('id')) {
+            
+            if (!$authUser || $authUser->role->name !== 'admin') {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized access'
+                ], 403);
+            }
+
             $page = Page::find($request->id);
+
         } elseif ($request->has('slug')) {
-            $page = Page::where('slug', $request->slug)->first();
+            if ($authUser && $authUser->role === 'admin') {
+                
+                $page = Page::where('slug', $request->slug)->first();
+            } else {
+                
+                $page = Page::where('slug', $request->slug)
+                            ->where('status', 'published')
+                            ->first();
+            }
         } else {
             return response()->json([
                 'status' => false,
                 'message' => 'Please provide either id or slug'
             ], 200);
         }
-
 
         if (!$page) {
             return response()->json([
@@ -94,9 +106,10 @@ class PageController extends Controller
         $validator = Validator::make($request->all(), [
             'page_title' => 'required|string',
             'slug' => 'required|string|unique:pages,slug',
-            'content' => 'required|string',
+            'content' => 'nullable|string',
             'breadcrumb' => 'nullable|string',
-            'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048'
+            'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+            'status' => 'required|in:draft,published'
         ]);
 
         if ($validator->fails()) {
@@ -143,7 +156,8 @@ class PageController extends Controller
             'slug' => 'required|string|unique:pages,slug,' . $page->id,
             'content' => 'required|string',
             'breadcrumb' => 'nullable|string',
-            'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048'
+            'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+            'status' => 'sometimes|in:draft,published'
         ]);
 
         if ($validator->fails()) {
@@ -301,6 +315,43 @@ class PageController extends Controller
                 : "The slug you entered is available."
         ], 200);
     }
+
+    // update page status
+
+    public function updatePageStatus(Request $request, $id)
+    {
+        $page = Page::find($id);
+        if (!$page) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Page not found'
+            ], 200);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'status' => 'required|in:draft,published'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()->toArray(), // clear array response
+                'first_error' => $validator->errors()->first(), // single error message
+            ], 422);
+        }
+
+        $page->status = $request->status;
+        $page->save();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Page status updated successfully',
+            'data' => $page
+        ], 200);
+    }
+
+
 
 
 

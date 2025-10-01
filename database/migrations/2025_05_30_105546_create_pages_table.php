@@ -18,6 +18,7 @@ return new class extends Migration
             $table->longText('content')->nullable();
             $table->string('featured_image')->nullable();
             $table->string('breadcrumb')->nullable();
+            $table->enum('status', ['published', 'draft'])->default('draft');
             $table->timestamps();
         });
     }
