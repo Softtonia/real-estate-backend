@@ -51,8 +51,13 @@ class DeveloperlistingController extends Controller
                 'city_id' => 'nullable|exists:cities,id',
                 'purpose_id' => 'nullable',
                 'property_id' => 'nullable',
-                'property_status_id' => 'nullable',
-                'property_type_id' => 'nullable',
+                
+                'property_type_id' => 'nullable|array',
+                'property_type_id.*' => 'exists:property_types,id',
+
+                'property_status_id' => 'nullable|array',
+                'property_status_id.*' => 'exists:status,id',
+
                 'live_status' => 'nullable|in:Approve,Disapprove,Reject,Under Review,Modify Review',
                 'status_reason' => $request->live_status === 'Reject' ? 'required|string|max:500' : 'nullable',
                 'area_locality' => 'nullable|string',
@@ -116,6 +121,43 @@ class DeveloperlistingController extends Controller
             } else {
                 $validatedData['user_id'] = $userId;
             }
+
+            // if (!empty($request->property_type_id) && is_array($request->property_type_id)) {
+            //     $validatedData['property_type_id'] = $request->property_type_id ?? [];
+            // }
+
+            // if (!empty($request->property_status_id) && is_array($request->property_status_id)) {
+            //     $validatedData['property_status_id'] = $request->property_status_id ?? [];
+            // }
+
+            // ✅ Convert property_type_id and property_status_id to JSON strings (safe)
+            if ($request->has('property_type_id')) {
+                if (is_array($request->property_type_id)) {
+                    $validatedData['property_type_id'] = json_encode($request->property_type_id);
+                } elseif (is_string($request->property_type_id)) {
+                    // Already a stringified array, ensure valid JSON
+                    $decoded = json_decode($request->property_type_id, true);
+                    $validatedData['property_type_id'] = json_last_error() === JSON_ERROR_NONE
+                        ? $request->property_type_id
+                        : json_encode([$request->property_type_id]);
+                } else {
+                    $validatedData['property_type_id'] = json_encode([]);
+                }
+            }
+
+            if ($request->has('property_status_id')) {
+                if (is_array($request->property_status_id)) {
+                    $validatedData['property_status_id'] = json_encode($request->property_status_id);
+                } elseif (is_string($request->property_status_id)) {
+                    $decoded = json_decode($request->property_status_id, true);
+                    $validatedData['property_status_id'] = json_last_error() === JSON_ERROR_NONE
+                        ? $request->property_status_id
+                        : json_encode([$request->property_status_id]);
+                } else {
+                    $validatedData['property_status_id'] = json_encode([]);
+                }
+            }
+
 
 
             // Prepare developer data
@@ -360,100 +402,7 @@ class DeveloperlistingController extends Controller
 
 
     // this is for listing
-    // public function index(Request $request)
-    // {
-
-    //     try {
-    //         $baseURL = config('app.url');
-    //         $basePath = public_path();
-
-    //         // Fetch only listings where live_status is "Approve"
-    //         $projects = Developerlist::where('live_status', 'Approve')
-    //             ->with([
-    //                 'user',
-    //                 'propertyType',
-    //                 'purpose',
-    //                 'property',
-    //                 'propertystatus',
-    //                 'customFieldValues.customField',
-    //                 'customFieldValues.customFieldOption',
-    //                 'country', // Add country relationship
-    //                 'state',   // Add state relationship
-    //                 'city',    // Add city relationship
-    //                 'createdBy.role', // ✅ Include creator's role
-    //                 'updatedBy.role'  // ✅ Include updater's role
-    //             ])
-    //             ->get();
-
-    //         $projectsData = $projects->map(function ($property) use ($baseURL, $basePath) {
-    //             $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
-    //                 $customField = $customFieldValue->customField;
-
-    //                 $fieldValue = $customFieldValue->field_meta_value;
-    //                 if ($customField && $customField->field_type == 'checkbox') {
-    //                     $fieldValueArray = explode(',', $fieldValue);
-    //                 } elseif ($customField && $customField->field_type == 'media') {
-    //                     $fieldValueArray = json_decode($fieldValue);
-    //                     $fieldValueArray = collect($fieldValueArray)->map(function ($file) use ($baseURL) {
-    //                         return $baseURL . '/uploads/media/' . $file;
-    //                     });
-    //                 } else {
-    //                     $fieldValueArray = $fieldValue;
-    //                 }
-
-    //                 return [
-    //                     'custom_field_id' => $customField ? $customField->id : null,
-    //                     'field_type' => $customField ? $customField->field_type : null,
-    //                     'field_value' => $fieldValueArray,
-    //                     'field_name' => $customField ? $customField->field_label : null,
-    //                 ];
-    //             });
-
-    //             // Prepare property data
-    //             return [
-    //                 'id' => $property->id,
-    //                 'developer_unique_id' => $property->developer_unique_id,
-    //                 'name' => $property->name,
-    //                 'description' => $property->description,
-    //                 'live_status' => $property->live_status,
-    //                 'temporary_status' => $property->temporary_status,
-    //                 'status_reason' => $property->status_reason,
-    //                 'user_id' => $property->user_id,
-    //                 'created_by' => $property->created_by,
-    //                 'created_by_role' => optional(optional($property->createdBy)->role)->name,
-    //                 'updated_by' => $property->updated_by,
-    //                 'updated_by_role' => optional(optional($property->updatedBy)->role)->name,
-    //                 'listed_by' => optional(optional($property->user)->role)->name,
-    //                 'purpose_id' => $property->purpose_id,
-    //                 'purpose_id_name' => optional($property->purpose)->name,
-    //                 'property_id' => $property->property_id,
-    //                 'property_id_name' => optional($property->property)->name,
-    //                 'property_status_id' => $property->property_status_id,
-    //                 'property_status_id_name' => optional($property->propertystatus)->name,
-    //                 'property_type_id' => $property->property_type_id,
-    //                 'property_type_id_name' => optional($property->propertyType)->name,
-
-    //                 // Newly added fields
-    //                 'address' => $property->address,
-    //                 'country_id' => $property->country_id,
-    //                 'country_name' => optional($property->country)->name,
-    //                 'state_id' => $property->state_id,
-    //                 'state_name' => optional($property->state)->name,
-    //                 'city_id' => $property->city_id,
-    //                 'city_name' => optional($property->city)->name,
-
-    //                 'date' => date('d m Y', strtotime($property->created_at)),
-    //                 'time' => date('h:i A', strtotime($property->created_at)),
-    //                 'timestamp' => date('d m Y h:i A', strtotime($property->created_at)),
-    //                 'custom_field_values' => $formattedCustomFieldValues,
-    //             ];
-    //         });
-
-    //         return response()->json($projectsData);
-    //     } catch (\Throwable $th) {
-    //         return response()->json(['error' => $th->getMessage() . ' ' . $th->getLine() . ' ' . $th->getFile()], 500);
-    //     }
-    // }
+   
 
     ### new index code ###
     public function index(Request $request)
@@ -640,6 +589,35 @@ class DeveloperlistingController extends Controller
                     return $fieldArray;
                 });
 
+                 //  Decode property_type_id safely
+
+            $propertyTypeIds = is_array($developer->property_type_id)
+                ? array_map('intval', $developer->property_type_id)
+                : ((is_string($developer->property_type_id) && ($decoded = json_decode($developer->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_type_id)) ? [(int)$developer->property_type_id] : []));
+
+            //  Decode property_status_id safely
+            $propertyStatusIds = is_array($developer->property_status_id)
+                ? array_map('intval', $developer->property_status_id)
+                : ((is_string($developer->property_status_id) && ($decoded = json_decode($developer->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_status_id)) ? [(int)$developer->property_status_id] : []));
+
+            //  Fetch id + name together
+            $propertyTypes = !empty($propertyTypeIds)
+                ? PropertyType::whereIn('id', $propertyTypeIds)
+                    ->get(['id as property_type_id', 'name as property_type_name'])
+                    ->toArray()
+                : [];
+
+            $propertyStatuses = !empty($propertyStatusIds)
+                ? Status::whereIn('id', $propertyStatusIds)
+                    ->get(['id as property_status_id', 'name as property_status_name'])
+                    ->toArray()
+                : [];
+
+
                 return [
                     'id' => $developer->id,
                     'developer_unique_id' => $developer->developer_unique_id,
@@ -665,10 +643,8 @@ class DeveloperlistingController extends Controller
                     'purpose_id_name' => optional($developer->purpose)->name,
                     'property_id' => $developer->property_id,
                     'property_id_name' => optional($developer->property)->name,
-                    'property_status_id' => $developer->property_status_id,
-                    'property_status_id_name' => optional($developer->propertystatus)->name,
-                    'property_type_id' => $developer->property_type_id,
-                    'property_type_id_name' => optional($developer->propertyType)->name,
+                  'property_type' => $propertyTypes,
+                   'property_status' => $propertyStatuses,
                     'address' => $developer->address,
                     'country_id' => $developer->country_id,
                     'country_name' => optional($developer->country)->name,
@@ -761,6 +737,38 @@ class DeveloperlistingController extends Controller
                     ];
                 });
 
+              // Since $casts already converts them to arrays, just ensure they are arrays
+           //  Decode property_type_id safely
+
+            $propertyTypeIds = is_array($developer->property_type_id)
+                ? array_map('intval', $developer->property_type_id)
+                : ((is_string($developer->property_type_id) && ($decoded = json_decode($developer->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_type_id)) ? [(int)$developer->property_type_id] : []));
+
+            //  Decode property_status_id safely
+            $propertyStatusIds = is_array($developer->property_status_id)
+                ? array_map('intval', $developer->property_status_id)
+                : ((is_string($developer->property_status_id) && ($decoded = json_decode($developer->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_status_id)) ? [(int)$developer->property_status_id] : []));
+
+            //  Fetch id + name together
+            $propertyTypes = !empty($propertyTypeIds)
+                ? PropertyType::whereIn('id', $propertyTypeIds)
+                    ->get(['id as property_type_id', 'name as property_type_name'])
+                    ->toArray()
+                : [];
+
+            $propertyStatuses = !empty($propertyStatusIds)
+                ? Status::whereIn('id', $propertyStatusIds)
+                    ->get(['id as property_status_id', 'name as property_status_name'])
+                    ->toArray()
+                : [];
+
+
+
+
                 return [
                     'id' => $developer->id,
                     'developer_unique_id' => $developer->developer_unique_id,
@@ -787,10 +795,11 @@ class DeveloperlistingController extends Controller
                     'purpose_id_name' => optional($developer->purpose)->name,
                     'property_id' => $developer->property_id,
                     'property_id_name' => optional($developer->property)->name,
-                    'property_status_id' => $developer->property_status_id,
-                    'property_status_id_name' => optional($developer->propertystatus)->name,
-                    'property_type_id' => $developer->property_type_id,
-                    'property_type_id_name' => optional($developer->propertyType)->name,
+                    
+                   'property_type' => $propertyTypes,
+                   'property_status' => $propertyStatuses,
+
+
 
                     'address' => $developer->address,
 
@@ -867,6 +876,50 @@ class DeveloperlistingController extends Controller
                 ], 403);
             }
 
+          // ✅ Validate array fields safely
+            $validatedData = $request->validate([
+                'property_type_id'   => 'nullable|array',
+                'property_type_id.*' => 'exists:property_types,id',
+                'property_status_id'   => 'nullable|array',
+                'property_status_id.*' => 'exists:status,id',
+            ]);
+
+            // ✅ Convert array fields to JSON before merging into request
+            if ($request->has('property_type_id')) {
+                if (is_array($validatedData['property_type_id'])) {
+                    $validatedData['property_type_id'] = json_encode($validatedData['property_type_id']);
+                } elseif (is_string($validatedData['property_type_id'])) {
+                    $decoded = json_decode($validatedData['property_type_id'], true);
+                    $validatedData['property_type_id'] =
+                        (json_last_error() === JSON_ERROR_NONE && is_array($decoded))
+                        ? $validatedData['property_type_id']
+                        : json_encode([$validatedData['property_type_id']]);
+                } else {
+                    $validatedData['property_type_id'] = json_encode([]);
+                }
+            }
+
+            if ($request->has('property_status_id')) {
+                if (is_array($validatedData['property_status_id'])) {
+                    $validatedData['property_status_id'] = json_encode($validatedData['property_status_id']);
+                } elseif (is_string($validatedData['property_status_id'])) {
+                    $decoded = json_decode($validatedData['property_status_id'], true);
+                    $validatedData['property_status_id'] =
+                        (json_last_error() === JSON_ERROR_NONE && is_array($decoded))
+                        ? $validatedData['property_status_id']
+                        : json_encode([$validatedData['property_status_id']]);
+                } else {
+                    $validatedData['property_status_id'] = json_encode([]);
+                }
+            }
+
+            // ✅ Merge back safely to request (so you can reuse $request->all() later)
+            $request->merge([
+                'property_type_id' => $validatedData['property_type_id'] ?? null,
+                'property_status_id' => $validatedData['property_status_id'] ?? null,
+            ]);
+
+
 
 
             // Store old image path
@@ -909,8 +962,8 @@ class DeveloperlistingController extends Controller
                 'city_id' => $request->city_id,
                 'purpose_id' => $request->purpose_id,
                 'property_id' => $request->property_id,
-                'property_status_id' => $request->property_status_id,
-                'property_type_id' => $request->property_type_id,
+                'property_status_id' => $request->property_status_id ?? null,
+                'property_type_id' => $request->property_type_id ?? null,
                 'live_status' => $request->live_status,
                 'status_reason' => $request->status_reason,
                 'updated_by' => $userId,  // Store the user ID in the updated_by field
@@ -1829,6 +1882,35 @@ class DeveloperlistingController extends Controller
                 return $fieldArray;
             });
 
+
+                   //  Decode property_type_id safely
+
+            $propertyTypeIds = is_array($developer->property_type_id)
+                ? array_map('intval', $developer->property_type_id)
+                : ((is_string($developer->property_type_id) && ($decoded = json_decode($developer->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_type_id)) ? [(int)$developer->property_type_id] : []));
+
+            //  Decode property_status_id safely
+            $propertyStatusIds = is_array($developer->property_status_id)
+                ? array_map('intval', $developer->property_status_id)
+                : ((is_string($developer->property_status_id) && ($decoded = json_decode($developer->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_status_id)) ? [(int)$developer->property_status_id] : []));
+
+            //  Fetch id + name together
+            $propertyTypes = !empty($propertyTypeIds)
+                ? PropertyType::whereIn('id', $propertyTypeIds)
+                    ->get(['id as property_type_id', 'name as property_type_name'])
+                    ->toArray()
+                : [];
+
+            $propertyStatuses = !empty($propertyStatusIds)
+                ? Status::whereIn('id', $propertyStatusIds)
+                    ->get(['id as property_status_id', 'name as property_status_name'])
+                    ->toArray()
+                : [];
+
             return response()->json([
                 'id' => $developer->id,
                 'developer_unique_id' => $developer->developer_unique_id,
@@ -1863,10 +1945,9 @@ class DeveloperlistingController extends Controller
                 'purpose_id_name' => optional($developer->purpose)->name,
                 'property_id' => $developer->property_id,
                 'property_id_name' => optional($developer->property)->name,
-                'property_status_id' => $developer->property_status_id,
-                'property_status_id_name' => optional($developer->propertystatus)->name,
-                'property_type_id' => $developer->property_type_id,
-                'property_type_id_name' => optional($developer->propertyType)->name,
+
+                'property_type' => $propertyTypes,
+                'property_status' => $propertyStatuses,
                 'total_view' => 0,
                 'date' => $developer->created_at ? $developer->created_at->format('d m Y') : null,
                 'time' => $developer->created_at ? $developer->created_at->format('h:i A') : null,
@@ -2483,6 +2564,35 @@ class DeveloperlistingController extends Controller
                 return $fieldArray;
             });
 
+
+                   //  Decode property_type_id safely
+
+            $propertyTypeIds = is_array($developer->property_type_id)
+                ? array_map('intval', $developer->property_type_id)
+                : ((is_string($developer->property_type_id) && ($decoded = json_decode($developer->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_type_id)) ? [(int)$developer->property_type_id] : []));
+
+            //  Decode property_status_id safely
+            $propertyStatusIds = is_array($developer->property_status_id)
+                ? array_map('intval', $developer->property_status_id)
+                : ((is_string($developer->property_status_id) && ($decoded = json_decode($developer->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_status_id)) ? [(int)$developer->property_status_id] : []));
+
+            //  Fetch id + name together
+            $propertyTypes = !empty($propertyTypeIds)
+                ? PropertyType::whereIn('id', $propertyTypeIds)
+                    ->get(['id as property_type_id', 'name as property_type_name'])
+                    ->toArray()
+                : [];
+
+            $propertyStatuses = !empty($propertyStatusIds)
+                ? Status::whereIn('id', $propertyStatusIds)
+                    ->get(['id as property_status_id', 'name as property_status_name'])
+                    ->toArray()
+                : [];
+
             return response()->json([
                 'id' => $developer->id,
                 'developer_unique_id' => $developer->developer_unique_id,
@@ -2517,10 +2627,8 @@ class DeveloperlistingController extends Controller
                 'purpose_id_name' => optional($developer->purpose)->name,
                 'property_id' => $developer->property_id,
                 'property_id_name' => optional($developer->property)->name,
-                'property_status_id' => $developer->property_status_id,
-                'property_status_id_name' => optional($developer->propertystatus)->name,
-                'property_type_id' => $developer->property_type_id,
-                'property_type_id_name' => optional($developer->propertyType)->name,
+                'property_type' => $propertyTypes,
+                'property_status' => $propertyStatuses,
                 'total_view' => 0,
                 'date' => $developer->created_at ? $developer->created_at->format('d m Y') : null,
                 'time' => $developer->created_at ? $developer->created_at->format('h:i A') : null,

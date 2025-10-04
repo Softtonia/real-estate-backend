@@ -24,8 +24,8 @@ return new class extends Migration
 
             $table->unsignedBigInteger('purpose_id')->nullable();
             $table->unsignedBigInteger('property_id')->nullable();
-            $table->unsignedBigInteger('property_type_id')->nullable();
-            $table->unsignedBigInteger('property_status_id')->nullable();
+            $table->json('property_type_id')->nullable();
+            $table->json('property_status_id')->nullable();
             $table->unsignedBigInteger('user_id')->nullable();
 
 

@@ -82,4 +82,12 @@ class Developerlist extends Model
 
 
 
+    // protected $casts = [
+    //     'property_type_id' => 'array',
+    //     'property_status_id' => 'array',
+    // ];
+
+
+
+
 }
