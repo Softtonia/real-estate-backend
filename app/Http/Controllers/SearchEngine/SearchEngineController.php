@@ -1816,17 +1816,26 @@ private function formatProperties($properties, $baseURL)
 
         // ---- Custom Fields ----
         $customFields = $p->customFieldValues->map(function($cfv) use($baseURL){
+            $customField = $cfv->customField;
             $value = $cfv->field_meta_value;
             if($cfv->customField->field_type=='checkbox'){
                 $value = explode(',', $value);
             } elseif($cfv->customField->field_type=='media'){
                 $value = collect(json_decode($value))->map(fn($v)=>$baseURL.'/uploads/media/'.$v);
             }
+
+             // ✅ Template Handling (added)
+            $templateData = optional(optional($customField)->templateValue)?->toArray();
+            $templateId = optional(optional($customField)->templateValue)?->id;
+
             return [
                 'id'    => $cfv->customField->id,
                 'type'  => $cfv->customField->field_type,
                 'value' => $value,
-                'label' => $cfv->customField->field_label
+                'label' => $cfv->customField->field_label,
+                'placeholder' => $customField->field_placeholder ?? null,
+                'template_id' => $templateId,
+                'template'    => $templateData,
             ];
         });
 
@@ -1891,17 +1900,28 @@ private function formatProjects($projects, $baseURL)
 
         // Custom Fields
         $customFields = $p->customFieldValues->map(function($cfv) use($baseURL){
+            $customField = $cfv->customField;
+
             $value = $cfv->field_meta_value;
             if($cfv->customField->field_type=='checkbox'){
                 $value = explode(',', $value);
             } elseif($cfv->customField->field_type=='media'){
                 $value = collect(json_decode($value))->map(fn($v)=>$baseURL.'/uploads/media/'.$v);
             }
+
+            //  Template Handling (added)
+            $templateData = optional(optional($customField)->templateValue)?->toArray();
+            $templateId = optional(optional($customField)->templateValue)?->id; 
+
+
             return [
                 'id' => $cfv->customField->id,
                 'type' => $cfv->customField->field_type,
                 'value' => $value,
-                'label' => $cfv->customField->field_label
+                'label' => $cfv->customField->field_label,
+                'placeholder' => $customField->field_placeholder ?? null,
+                'template_id' => $templateId,
+                'template'    => $templateData,
             ];
         });
 
