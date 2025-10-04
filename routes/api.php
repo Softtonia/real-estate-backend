@@ -82,6 +82,8 @@ use App\Http\Controllers\Connections\UserAssociationController;
 
 use App\Http\Controllers\Auth\Kyc\KycController;
 
+use App\Http\Controllers\Keyword\KeywordController;
+
 
 
 
@@ -400,9 +402,10 @@ Route::get('/check-ip', function (Request $request) {
             Route::post('roles/search', [RoleController::class, 'searchRole']);
         });
 
-        Route::middleware(['admin.token'])->post('import-keywords', [Admincontroller::class, 'import']);
-        Route::middleware(['admin.token'])->get('export-keywords', [Admincontroller::class, 'export']);
-        Route::middleware(['admin.token'])->get('fetch-keywords', [Admincontroller::class, 'fetchKeywordList']);
+        Route::middleware(['admin.token'])->post('import-keywords', [KeywordController::class, 'import']);
+        Route::middleware(['admin.token'])->get('export-keywords', [KeywordController::class, 'export']);
+        Route::middleware(['admin.token'])->get('search-keywords', [KeywordController::class, 'searchKeywordList']);
+        Route::middleware(['admin.token'])->get('fetch-keywords', [KeywordController::class, 'fetchKeywordList']);
 
 
         Route::middleware(['api.token'])->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
