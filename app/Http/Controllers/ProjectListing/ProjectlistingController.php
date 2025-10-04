@@ -47,8 +47,12 @@ class ProjectlistingController extends Controller
             $validatedData = $request->validate([
                 'purpose_id' => 'nullable',
                 'property_id' => 'nullable',
-                'property_status_id' => 'nullable',
-                'property_type_id' => 'nullable',
+                'property_type_id' => 'nullable|array',
+                'property_type_id.*' => 'exists:property_types,id',
+
+                'property_status_id' => 'nullable|array',
+                'property_status_id.*' => 'exists:status,id',
+
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'developer_id' => 'nullable|exists:developer_listings,id',
@@ -121,6 +125,36 @@ class ProjectlistingController extends Controller
             } else {
                 $validatedData['user_id'] = $userId;
             }
+
+
+             // ✅ Convert property_type_id and property_status_id to JSON strings (safe)
+            if ($request->has('property_type_id')) {
+                if (is_array($request->property_type_id)) {
+                    $validatedData['property_type_id'] = json_encode($request->property_type_id);
+                } elseif (is_string($request->property_type_id)) {
+                    // Already a stringified array, ensure valid JSON
+                    $decoded = json_decode($request->property_type_id, true);
+                    $validatedData['property_type_id'] = json_last_error() === JSON_ERROR_NONE
+                        ? $request->property_type_id
+                        : json_encode([$request->property_type_id]);
+                } else {
+                    $validatedData['property_type_id'] = json_encode([]);
+                }
+            }
+
+            if ($request->has('property_status_id')) {
+                if (is_array($request->property_status_id)) {
+                    $validatedData['property_status_id'] = json_encode($request->property_status_id);
+                } elseif (is_string($request->property_status_id)) {
+                    $decoded = json_decode($request->property_status_id, true);
+                    $validatedData['property_status_id'] = json_last_error() === JSON_ERROR_NONE
+                        ? $request->property_status_id
+                        : json_encode([$request->property_status_id]);
+                } else {
+                    $validatedData['property_status_id'] = json_encode([]);
+                }
+            }
+
 
 
             // Prepare project data
@@ -627,6 +661,34 @@ class ProjectlistingController extends Controller
                     return $fieldArray;
                 });
 
+                 //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($project->property_type_id)
+                    ? array_map('intval', $project->property_type_id)
+                    : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($project->property_status_id)
+                    ? array_map('intval', $project->property_status_id)
+                    : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+
 
 
                 return [
@@ -652,10 +714,9 @@ class ProjectlistingController extends Controller
                     'purpose_id_name' => optional($project->purpose)->name,
                     'property_id' => $project->property_id,
                     'property_id_name' => optional($project->property)->name,
-                    'property_status_id' => $project->property_status_id,
-                    'property_status_id_name' => optional($project->propertystatus)->name,
-                    'property_type_id' => $project->property_type_id,
-                    'property_type_id_name' => optional($project->propertyType)->name,
+                   
+                    'property_status '=> $propertyStatuses, 
+                    'property_type '=> $propertyTypes,
                     'total_view' => $project->analytics()->count(),
                     'date' => date('d m Y', strtotime($project->created_at)),
                     'time' => date('h:i A', strtotime($project->created_at)),
@@ -790,11 +851,44 @@ class ProjectlistingController extends Controller
 
             // Format featured_image URL
             $projects = $projects->map(function ($project) {
+
+                  //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($project->property_type_id)
+                    ? array_map('intval', $project->property_type_id)
+                    : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($project->property_status_id)
+                    ? array_map('intval', $project->property_status_id)
+                    : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+
+                
                 if (!empty($project->featured_image)) {
                     $project->featured_image = filter_var($project->featured_image, FILTER_VALIDATE_URL)
                         ? $project->featured_image
                         : url(ltrim($project->featured_image, '/'));
                 }
+
+                $project->property_type = $propertyTypes;
+                $project->property_status = $propertyStatuses;
                 return $project;
             });
 
@@ -858,6 +952,35 @@ class ProjectlistingController extends Controller
                     ];
                 });
 
+                  //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($project->property_type_id)
+                    ? array_map('intval', $project->property_type_id)
+                    : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($project->property_status_id)
+                    ? array_map('intval', $project->property_status_id)
+                    : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+
+
 
 
                 return [
@@ -893,10 +1016,8 @@ class ProjectlistingController extends Controller
                     'purpose_id_name' => optional($project->purpose)->name,
                     'property_id' => $project->property_id,
                     'property_id_name' => optional($project->property)->name,
-                    'property_status_id' => $project->property_status_id,
-                    'property_status_id_name' => optional($project->propertystatus)->name,
-                    'property_type_id' => $project->property_type_id,
-                    'property_type_id_name' => optional($project->propertyType)->name,
+                    'property_status '=> $propertyStatuses,
+                    'property_type '=> $propertyTypes,
                     'total_view' => $project->analytics()->count(),
                     'date' => date('d m Y', strtotime($project->created_at)),
                     'time' => date('h:m A', strtotime($project->created_at)),
@@ -990,8 +1111,11 @@ class ProjectlistingController extends Controller
                 'id' => 'required|exists:project_listings,id',
                 'purpose_id' => 'nullable',
                 'property_id' => 'nullable',
-                'property_status_id' => 'nullable',
-                'property_type_id' => 'nullable',
+                'property_type_id' => 'nullable|array',
+                'property_type_id.*' => 'exists:property_types,id',
+
+                'property_status_id' => 'nullable|array',
+                'property_status_id.*' => 'exists:status,id',
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'developer_id' => 'nullable|exists:developer_listings,id',
@@ -1055,6 +1179,35 @@ class ProjectlistingController extends Controller
             } else {
                 $validatedData['user_id'] = $userId;
             }
+
+              // ✅ Convert property_type_id and property_status_id to JSON strings (safe)
+            if ($request->has('property_type_id')) {
+                if (is_array($request->property_type_id)) {
+                    $validatedData['property_type_id'] = json_encode($request->property_type_id);
+                } elseif (is_string($request->property_type_id)) {
+                    // Already a stringified array, ensure valid JSON
+                    $decoded = json_decode($request->property_type_id, true);
+                    $validatedData['property_type_id'] = json_last_error() === JSON_ERROR_NONE
+                        ? $request->property_type_id
+                        : json_encode([$request->property_type_id]);
+                } else {
+                    $validatedData['property_type_id'] = json_encode([]);
+                }
+            }
+
+            if ($request->has('property_status_id')) {
+                if (is_array($request->property_status_id)) {
+                    $validatedData['property_status_id'] = json_encode($request->property_status_id);
+                } elseif (is_string($request->property_status_id)) {
+                    $decoded = json_decode($request->property_status_id, true);
+                    $validatedData['property_status_id'] = json_last_error() === JSON_ERROR_NONE
+                        ? $request->property_status_id
+                        : json_encode([$request->property_status_id]);
+                } else {
+                    $validatedData['property_status_id'] = json_encode([]);
+                }
+            }
+
 
             // Prepare update data
             $updateData = [
@@ -1795,6 +1948,35 @@ class ProjectlistingController extends Controller
                 return $fieldArray;
             });
 
+               //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($projects->property_type_id)
+                    ? array_map('intval', $projects->property_type_id)
+                    : ((is_string($projects->property_type_id) && ($decoded = json_decode($projects->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($projects->property_type_id)) ? [(int)$projects->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($projects->property_status_id)
+                    ? array_map('intval', $projects->property_status_id)
+                    : ((is_string($projects->property_status_id) && ($decoded = json_decode($projects->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($projects->property_status_id)) ? [(int)$projects->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+            
+
             return response()->json([
                 'id' => $projects->id,
                 'project_unique_id' => $projects->project_unique_id,
@@ -1830,10 +2012,9 @@ class ProjectlistingController extends Controller
                 'purpose_id_name' => optional($projects->purpose)->name,
                 'property_id' => $projects->property_id,
                 'property_id_name' => optional($projects->property)->name,
-                'property_status_id' => $projects->property_status_id,
-                'property_status_id_name' => optional($projects->propertystatus)->name,
-                'property_type_id' => $projects->property_type_id,
-                'property_type_id_name' => optional($projects->propertyType)->name,
+                
+                'property_type' => $propertyTypes,
+                'property_status' => $propertyStatuses,
                 'total_view' => $projects->analytics()->count(),
                 'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
                 'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
@@ -2246,6 +2427,35 @@ class ProjectlistingController extends Controller
                     return $fieldData;
                 });
 
+                  //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($property->property_type_id)
+                    ? array_map('intval', $property->property_type_id)
+                    : ((is_string($property->property_type_id) && ($decoded = json_decode($property->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($property->property_type_id)) ? [(int)$property->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($property->property_status_id)
+                    ? array_map('intval', $property->property_status_id)
+                    : ((is_string($property->property_status_id) && ($decoded = json_decode($property->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($property->property_status_id)) ? [(int)$property->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+
+
                 return [
                     'id' => $property->id,
                     'project_unique_id' => $property->project_unique_id,
@@ -2270,10 +2480,8 @@ class ProjectlistingController extends Controller
                     'purpose_id_name' => optional($property->purpose)->name,
                     'property_id' => $property->property_id,
                     'property_id_name' => optional($property->property)->name,
-                    'property_status_id' => $property->property_status_id,
-                    'property_status_id_name' => optional($property->propertystatus)->name,
-                    'property_type_id' => $property->property_type_id,
-                    'property_type_id_name' => optional($property->propertyType)->name,
+                    'property_type' => $propertyTypes,
+                    'property_status' => $propertyStatuses,
                     'custom_field_values' => $formattedCustomFieldValues,
                 ];
             });
@@ -2537,6 +2745,35 @@ class ProjectlistingController extends Controller
                     ];
                 });
 
+                  //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($property->property_type_id)
+                    ? array_map('intval', $property->property_type_id)
+                    : ((is_string($property->property_type_id) && ($decoded = json_decode($property->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($property->property_type_id)) ? [(int)$property->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($property->property_status_id)
+                    ? array_map('intval', $property->property_status_id)
+                    : ((is_string($property->property_status_id) && ($decoded = json_decode($property->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($property->property_status_id)) ? [(int)$property->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+
+
                 $developer = $property->developer;
                 $developerData = $developer ? [
                     'id' => $developer->id,
@@ -2575,10 +2812,8 @@ class ProjectlistingController extends Controller
                     'purpose_id_name' => optional($property->purpose)->name,
                     'property_id' => $property->property_id,
                     'property_id_name' => optional($property->property)->name,
-                    'property_status_id' => $property->property_status_id,
-                    'property_status_id_name' => optional($property->propertystatus)->name,
-                    'property_type_id' => $property->property_type_id,
-                    'property_type_id_name' => optional($property->propertyType)->name,
+                    'property_type' => $propertyTypes,
+                    'property_status' => $propertyStatuses,
                     'total_view' => $property->analytics()->count(),
                     'date' => date('d m Y', strtotime($property->created_at)),
                     'time' => date('h:i A', strtotime($property->created_at)),
@@ -2809,6 +3044,35 @@ class ProjectlistingController extends Controller
                 return $fieldArray;
             });
 
+              //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($projects->property_type_id)
+                    ? array_map('intval', $projects->property_type_id)
+                    : ((is_string($projects->property_type_id) && ($decoded = json_decode($projects->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($projects->property_type_id)) ? [(int)$projects->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($projects->property_status_id)
+                    ? array_map('intval', $projects->property_status_id)
+                    : ((is_string($projects->property_status_id) && ($decoded = json_decode($projects->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($projects->property_status_id)) ? [(int)$projects->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+
+
             return response()->json([
                 'id' => $projects->id,
                 'project_unique_id' => $projects->project_unique_id,
@@ -2844,10 +3108,8 @@ class ProjectlistingController extends Controller
                 'purpose_id_name' => optional($projects->purpose)->name,
                 'property_id' => $projects->property_id,
                 'property_id_name' => optional($projects->property)->name,
-                'property_status_id' => $projects->property_status_id,
-                'property_status_id_name' => optional($projects->propertystatus)->name,
-                'property_type_id' => $projects->property_type_id,
-                'property_type_id_name' => optional($projects->propertyType)->name,
+                'property_type' => $propertyTypes,
+                'property_status' => $propertyStatuses,
                 'total_view' => $projects->analytics()->count(),
                 'date' => $projects->created_at ? $projects->created_at->format('d m Y') : null,
                 'time' => $projects->created_at ? $projects->created_at->format('h:i A') : null,
@@ -3257,6 +3519,35 @@ class ProjectlistingController extends Controller
                     return $fieldArray;
                 });
 
+                  //  Decode property_type_id safely
+
+                $propertyTypeIds = is_array($project->property_type_id)
+                    ? array_map('intval', $project->property_type_id)
+                    : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
+
+                //  Decode property_status_id safely
+                $propertyStatusIds = is_array($project->property_status_id)
+                    ? array_map('intval', $project->property_status_id)
+                    : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                        ? array_map('intval', $decoded)
+                        : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
+
+                //  Fetch id + name together
+                $propertyTypes = !empty($propertyTypeIds)
+                    ? PropertyType::whereIn('id', $propertyTypeIds)
+                        ->get(['id as property_type_id', 'name as property_type_name'])
+                        ->toArray()
+                    : [];
+
+                $propertyStatuses = !empty($propertyStatusIds)
+                    ? Status::whereIn('id', $propertyStatusIds)
+                        ->get(['id as property_status_id', 'name as property_status_name'])
+                        ->toArray()
+                    : [];
+
+
                 return [
                     'id' => $project->id,
                     'name' => $project->name ?? null,
@@ -3274,10 +3565,8 @@ class ProjectlistingController extends Controller
                     'colony' => $project->colony ?? null,
                     'street_address' => $project->street_address ?? null,
                     'pin_code' => $project->pin_code ?? null,
-                    'property_type_id' => $project->property_type_id ?? null,
-                    'property_type_name' => $propertyTypeNames ? implode(', ', $propertyTypeNames) : null,
-                    'property_status_id' => $project->property_status_id ?? null,
-                    'property_status_name' => $project->propertystatus->name ?? null,
+                    'property_type' => $propertyTypes,
+                    'property_status' => $propertyStatuses,
                     'developer_id' => $project->developer_id ?? null,
                     'developer_name' => $project->developer->name ?? null,
                     'property_id' => $project->property_id ?? null,
@@ -3622,6 +3911,8 @@ class ProjectlistingController extends Controller
 
                     return $fieldArray;
                 });
+
+                
 
                 return [
                     'id' => $project->id,

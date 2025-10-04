@@ -19,8 +19,8 @@ return new class extends Migration
             $table->longText('description')->nullable();
             $table->integer('purpose_id')->nullable();
             $table->integer('property_id')->nullable();
-            $table->integer('property_type_id')->nullable();
-            $table->integer('property_status_id')->nullable();
+            $table->json('property_type_id')->nullable();
+            $table->json('property_status_id')->nullable();
             $table->integer('user_id')->nullable();
             $table->timestamp('created_at')->useCurrent();
             $table->timestamp('updated_at')->useCurrent();

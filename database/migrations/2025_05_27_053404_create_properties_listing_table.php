@@ -32,8 +32,8 @@ return new class extends Migration
 
             $table->integer('purpose_id')->nullable();
             $table->integer('property_id')->nullable();
-            $table->integer('property_status_id')->nullable();
-            $table->string('property_type_id', 255)->nullable();
+            $table->json('property_status_id')->nullable();
+            $table->json('property_type_id')->nullable();
             $table->unsignedBigInteger('project_id')->nullable();
             $table->string('status_reason', 100)->nullable();
             $table->timestamps();
