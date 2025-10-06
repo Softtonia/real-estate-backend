@@ -808,7 +808,8 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['admin.token'])->get('export-template-id-listings', [CustomFieldController::class, 'exportCustomFieldUniqueCode']);
         Route::middleware(['admin.token'])->post('import-template-id-listings', [CustomFieldController::class, 'importCustomFieldUniqueCode']);
         Route::middleware(['admin.token'])->get('template-id-listings-search', [CustomFieldController::class, 'searchCustomFieldUniqueCode']);
-        Route::middleware(['admin.token'])->get('template-id-listings-filter', [CustomFieldController::class, 'filterCustomFieldByType']);
+        Route::middleware(['admin.token'])->get('template-id-listings-filter', [CustomFieldController::class, 'filterCustomFieldUniqueCodeByType']);
+            Route::middleware(['admin.token'])->get('template-id-listings-by-type', [CustomFieldController::class, 'customFieldUniqueCodeByType']);
         Route::middleware(['admin.token'])->post('add-template-id-listings', [CustomFieldController::class, 'storeCustomFieldUniqueCode']);
         Route::get('/get-template-id-listings-by-id', [CustomFieldController::class, 'showCustomFieldUniqueCodeById']);
         Route::middleware(['admin.token'])->post('update-template-id-listings', [CustomFieldController::class, 'updateCustomFieldUniqueCode']);

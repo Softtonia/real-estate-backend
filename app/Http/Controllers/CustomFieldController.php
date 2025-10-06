@@ -2630,59 +2630,59 @@ class CustomFieldController extends Controller
     // }
 
     public function customFieldUniqueCode(Request $request)
-{
-    try {
-        $nameInput = $request->input('name');
+    {
+        try {
+            $nameInput = $request->input('name');
 
-        // Check if name already exists
-        $existingField = CustomFieldUniqueCode::where('slug', $nameInput)->first();
-        if ($existingField) {
-            return response()->json(['error' => 'The name is already taken.'], 422);
+            // Check if name already exists
+            $existingField = CustomFieldUniqueCode::where('slug', $nameInput)->first();
+            if ($existingField) {
+                return response()->json(['error' => 'The name is already taken.'], 422);
+            }
+
+            // Determine post type
+            $post_type = match($request->post_type) {
+                'project_list' => 'project_list',
+                'developer_list' => 'developer_list',
+                default => 'property_list',
+            };
+
+            // Pagination: get 10 items per page (can be changed)
+            $perPage = $request->input('per_page', 10);
+            $page = $request->input('page', 1);
+
+            $Codedata = CustomFieldUniqueCode::where('status', 1)
+                ->paginate($perPage, ['*'], 'page', $page);
+
+            if ($Codedata->count() > 0) {
+                $data = $Codedata->map(function ($model) {
+                    return [
+                        'id' => $model->id,
+                        'show' => ucwords(str_replace('_', ' ', $model->name)),
+                        'name' => $model->slug,
+                        'type' => $model->post_type,
+                    ];
+                });
+
+                return response()->json([
+                    'data' => $data,
+                    'pagination' => [
+                        'total' => $Codedata->total(),
+                        'per_page' => $Codedata->perPage(),
+                        'current_page' => $Codedata->currentPage(),
+                        'last_page' => $Codedata->lastPage(),
+                        'next_page_url' => $Codedata->nextPageUrl(),
+                        'prev_page_url' => $Codedata->previousPageUrl(),
+                    ],
+                ], 200);
+            } else {
+                return response()->json(['success' => 'No data found'], 200);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error: ' . $e->getMessage());
+            return response()->json(['error' => 'Something went wrong. ' . $e->getMessage()], 500);
         }
-
-        // Determine post type
-        $post_type = match($request->post_type) {
-            'project_list' => 'project_list',
-            'developer_list' => 'developer_list',
-            default => 'property_list',
-        };
-
-        // Pagination: get 10 items per page (can be changed)
-        $perPage = $request->input('per_page', 10);
-        $page = $request->input('page', 1);
-
-        $Codedata = CustomFieldUniqueCode::where('status', 1)
-            ->paginate($perPage, ['*'], 'page', $page);
-
-        if ($Codedata->count() > 0) {
-            $data = $Codedata->map(function ($model) {
-                return [
-                    'id' => $model->id,
-                    'show' => ucwords(str_replace('_', ' ', $model->name)),
-                    'name' => $model->slug,
-                    'type' => $model->post_type,
-                ];
-            });
-
-            return response()->json([
-                'data' => $data,
-                'pagination' => [
-                    'total' => $Codedata->total(),
-                    'per_page' => $Codedata->perPage(),
-                    'current_page' => $Codedata->currentPage(),
-                    'last_page' => $Codedata->lastPage(),
-                    'next_page_url' => $Codedata->nextPageUrl(),
-                    'prev_page_url' => $Codedata->previousPageUrl(),
-                ],
-            ], 200);
-        } else {
-            return response()->json(['success' => 'No data found'], 200);
-        }
-    } catch (\Exception $e) {
-        Log::error('Error: ' . $e->getMessage());
-        return response()->json(['error' => 'Something went wrong. ' . $e->getMessage()], 500);
     }
-}
 
 
     // start template
@@ -3033,7 +3033,7 @@ class CustomFieldController extends Controller
 
 
 
-    public function filterCustomFieldByType(Request $request)
+    public function customFieldUniqueCodeByType(Request $request)
     {
         $request->validate([
             'post_type' => 'required|in:project_list,property_list,developer_list',
@@ -3058,6 +3058,47 @@ class CustomFieldController extends Controller
 
         return response()->json(['data' => $data], 200);
     }
+
+
+    public function filterCustomFieldUniqueCodeByType(Request $request)
+    {
+        $request->validate([
+            'post_type' => 'required|in:project_list,property_list,developer_list',
+            'per_page' => 'sometimes|integer|min:1', // optional, default per page
+        ]);
+
+        $perPage = $request->input('per_page', 10); // Default 10 items per page
+
+        $results = CustomFieldUniqueCode::where('status', 1)
+            ->where('post_type', $request->post_type)
+            ->paginate($perPage); // use paginate instead of get()
+
+        if ($results->isEmpty()) {
+            return response()->json(['message' => 'No records found for this type'], 200);
+        }
+
+        // Transform data
+        $data = $results->getCollection()->map(function ($model) {
+            return [
+                'id' => $model->id,
+                'show' => ucwords(str_replace('_', ' ', $model->name)),
+                'name' => $model->slug,
+                'type' => $model->post_type,
+            ];
+        });
+
+        // Return paginated response
+        return response()->json([
+            'data' => $data,
+            'current_page' => $results->currentPage(),
+            'last_page' => $results->lastPage(),
+            'per_page' => $results->perPage(),
+            'total' => $results->total(),
+            'next_page_url' => $results->nextPageUrl(),
+            'prev_page_url' => $results->previousPageUrl(),
+        ], 200);
+    }
+
 
 
 

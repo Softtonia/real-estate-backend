@@ -12,9 +12,9 @@ class PropertyList extends Model
     protected $guarded = [];
 
 
-    protected $casts = [
-        'property_type_id' => 'array',
-    ];
+    // protected $casts = [
+    //     'property_type_id' => 'array',
+    // ];
 
 
     public function amenity()
