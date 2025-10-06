@@ -3090,12 +3090,14 @@ class CustomFieldController extends Controller
         // Return paginated response
         return response()->json([
             'data' => $data,
+            'pagination' => [
             'current_page' => $results->currentPage(),
             'last_page' => $results->lastPage(),
             'per_page' => $results->perPage(),
             'total' => $results->total(),
             'next_page_url' => $results->nextPageUrl(),
             'prev_page_url' => $results->previousPageUrl(),
+            ]
         ], 200);
     }
 
