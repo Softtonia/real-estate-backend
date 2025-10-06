@@ -654,6 +654,10 @@ class UserController extends Controller
 
     public function updateuserbyid(Request $request)
     {
+
+        $authUser = Auth::user();
+
+
         try {
             $request->validate([
                 'first_name' => ['required', 'string', 'max:255'],
@@ -675,14 +679,24 @@ class UserController extends Controller
                     'regex:/^[a-zA-Z0-9._]+$/',
                     Rule::unique('users', 'user_name')->ignore($request->id),
                 ],
-                'country_id' => ['required', 'exists:countries,id'],
-                'state_id' => ['required', 'exists:states,id'],
-                'city_id' => ['required', 'exists:cities,id'],
+                'country_id' => ['nullable', 'exists:countries,id'],
+                'state_id' => ['nullable', 'exists:states,id'],
+                'city_id' => ['nullable', 'exists:cities,id'],
                 'area_locality' => ['nullable', 'string'],
                 'colony' => ['nullable', 'string'],
                 'street_address' => ['nullable', 'string'],
                 'pin_code' => ['required', 'numeric', 'min:6'],
                 'about' => ['nullable', 'string'],
+                // KYC fields
+                'kyc' => 'nullable|in:0,1,2',
+                'aadhaar_number' => [
+                    'required',
+                    'digits:12',
+                    Rule::unique('user_details', 'aadhaar_number')->ignore($request->id, 'user_id'),
+                ],
+                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
+                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
+                
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
                 'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
@@ -722,6 +736,7 @@ class UserController extends Controller
                     'business_street_address' => 'nullable|string',
                     'business_pin_code' => 'required|numeric|min:6',
                     'about_me' => 'nullable|string',
+                    'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10','max:5120'],
                 ]);
             } catch (ValidationException $e) {
                 return response()->json(['error' => $e->errors()], 400);
@@ -750,6 +765,10 @@ class UserController extends Controller
         $user->street_address = $request->street_address;
         $user->pin_code = $request->pin_code;
         $user->about = $request->about;
+
+       if ($authUser->role->name == 'admin'){
+         $user->kyc = $request->kyc ?? $user->kyc;
+       }
 
         if ($request->filled('password')) {
             $user->password = Hash::make($request->password);
@@ -786,6 +805,50 @@ class UserController extends Controller
                 $file->move(public_path('uploads/users'), $fileName);
                 $userDetail['profile_photo'] = 'uploads/users/' . $fileName;
             }
+
+
+                if ($authUser->role->name == 'admin'){
+
+                    $userDetail['aadhaar_number'] = $request->aadhaar_number;
+                    if($user->role->name == 'owner'){
+                        if ($request->hasFile('aadhaar_front')) {
+                            $file = $request->file('aadhaar_front');
+                            $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
+                            $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
+                            $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
+                        }
+
+                        if ($request->hasFile('aadhaar_back')) {
+                            $file = $request->file('aadhaar_back');
+                            $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
+                            $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
+                            $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
+                        }
+
+                    } else {
+
+                        if ($request->hasFile('aadhaar_front')) {
+                            $file = $request->file('aadhaar_front');
+                            $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
+                            $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
+                            $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
+                        }
+
+                        if ($request->hasFile('aadhaar_back')) {
+                            $file = $request->file('aadhaar_back');
+                            $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
+                            $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
+                            $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
+                        }
+
+                        if ($request->hasFile('business_proof')) {
+                            $file = $request->file('business_proof');
+                            $fileName = time() . '_proof_' . str_replace(' ', '_', $file->getClientOriginalName());
+                            $file->move(public_path('uploads/kyc/businessProof'), $fileName);
+                            $userDetail['business_proof'] = 'uploads/kyc/businessProof/' . $fileName;
+                        }
+                    }
+                }               
 
             UserDetail::where('user_id', $user->id)->update($userDetail);
 
@@ -1143,6 +1206,18 @@ class UserController extends Controller
                 'pin_code' => 'required|numeric|min:6',
                 'about' => 'nullable|string',
                 'user_name' => 'required|string|min:3|max:20|unique:users,user_name|regex:/^[a-zA-Z0-9._]+$/',
+
+                // KYC fields
+                'kyc' => 'nullable|in:0,1,2',
+                'aadhaar_number' => [
+                    'required',
+                    'digits:12',
+                    Rule::unique('user_details', 'aadhaar_number')
+                ],
+                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
+                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
+                'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10','max:5120'],
+
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot and underscore are allowed in username.',
             ]);
@@ -1201,6 +1276,10 @@ class UserController extends Controller
 
         // Handle profile photo upload
         $profilePhotoPath = null;
+        $aadhaarFrontPath = null;
+        $aadhaarBackPath = null;
+        $businessProofPath = null;
+
         if ($request->hasFile('profile_photo')) {
             $photo = $request->file('profile_photo');
             $fileName = time() . '_' . str_replace(' ', '_', $photo->getClientOriginalName());
@@ -1208,6 +1287,27 @@ class UserController extends Controller
             $profilePhotoPath = 'uploads/users/' . $fileName;
         } elseif ($request->has('icon') && !empty($request->icon)) {
             $profilePhotoPath = $request->icon;
+        }
+
+        if ($request->hasFile('aadhaar_front')) {
+            $aadhaarFront = $request->file('aadhaar_front');
+            $fileName = time() . '_aadhaar_front_' . str_replace(' ', '_', $aadhaarFront->getClientOriginalName());
+            $aadhaarFront->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
+            $aadhaarFrontPath = 'uploads/kyc/aadhaarFront/' . $fileName;
+        }
+
+        if ($request->hasFile('aadhaar_back')) {
+            $aadhaarBack = $request->file('aadhaar_back');
+            $fileName = time() . '_aadhaar_back_' . str_replace(' ', '_', $aadhaarBack->getClientOriginalName());
+            $aadhaarBack->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
+            $aadhaarBackPath = 'uploads/kyc/aadhaarBack/' . $fileName;
+        }
+
+        if ($request->hasFile('business_proof')) {
+            $businessProof = $request->file('business_proof');
+            $fileName = time() . '_business_proof_' . str_replace(' ', '_', $businessProof->getClientOriginalName());
+            $businessProof->move(public_path('uploads/kyc/businessProof'), $fileName);
+            $businessProofPath = 'uploads/kyc/businessProof/' . $fileName;
         }
 
         DB::beginTransaction();
@@ -1224,6 +1324,7 @@ class UserController extends Controller
                 'role_id' => $request->role_id,
                 'password' => Hash::make($request->password),
                 'isapproved' => $request->isapproved,
+                'kyc' => $request->kyc ?? 0,
                 'created_by' => $authUser->id,
                 'country_id' => $request->country_id,
                 'state_id' => $request->state_id,
@@ -1261,6 +1362,11 @@ class UserController extends Controller
                 'area_locality' => $request->business_area_locality,
                 'colony' => $request->business_colony,
                 'street_address' => $request->business_street_address,
+                // KYC fields
+                'aadhaar_number' => $request->aadhaar_number,
+                'aadhaar_front' => $aadhaarFrontPath,
+                'aadhaar_back' => $aadhaarBackPath,
+                'business_proof' => $businessProofPath,
             ]);
 
             DB::commit();

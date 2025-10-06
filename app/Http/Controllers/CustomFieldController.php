@@ -3004,7 +3004,10 @@ class CustomFieldController extends Controller
     {
         $request->validate([
             'search' => 'required|string|max:100',
+            'per_page' => 'sometimes|integer|min:1', // optional, default per page
         ]);
+
+        $perPage = $request->input('per_page', 10); // Default 10 items per page
 
         $term = $request->search;
 
@@ -3013,7 +3016,7 @@ class CustomFieldController extends Controller
                 $q->where('name', 'like', "%{$term}%")
                 ->orWhere('slug', 'like', "%{$term}%");
             })
-            ->get();
+            ->paginate($perPage); 
 
         if ($results->isEmpty()) {
             return response()->json(['message' => 'No records found'], 200);
@@ -3028,7 +3031,17 @@ class CustomFieldController extends Controller
             ];
         });
 
-        return response()->json(['data' => $data], 200);
+        return response()->json([
+            'data' => $data,
+            'pagination' => [
+            'current_page' => $results->currentPage(),
+            'last_page' => $results->lastPage(),
+            'per_page' => $results->perPage(),
+            'total' => $results->total(),
+            'next_page_url' => $results->nextPageUrl(),
+            'prev_page_url' => $results->previousPageUrl(),
+            ]
+        ], 200);
     }
 
 

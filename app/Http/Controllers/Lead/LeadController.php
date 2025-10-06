@@ -260,65 +260,81 @@ class LeadController extends Controller
     }
 
 
+    public function storeByAdmin(Request $request)
+    {
+        try {
+            // ✅ Validate input
+            $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'email' => 'required|email|max:255',
+                'phone' => 'required|string|max:20',
+                'message' => 'nullable|string',
+                'lead_type_id' => 'required|exists:lead_types,id',
+                'property_id' => 'nullable|exists:properties_listing,id',
+                'project_id' => 'nullable|exists:project_listings,id',
+                'developer_id' => 'nullable|exists:developer_listings,id',
+                'user_ids' => 'nullable|array',
+                'user_ids.*' => 'exists:users,id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => $validator->errors(),
+                    'message' => 'Validation failed',
+                ], 422);
+            }
+
+            // ✅ Ensure at least one related item is selected
+            if (
+                empty($request->property_id) &&
+                empty($request->project_id) &&
+                empty($request->developer_id) &&
+                empty($request->user_ids)
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => ['relation_error' => 'At least one of Property, Project, Developer or User must be selected.'],
+                    'message' => 'Validation failed'
+                ], 422);
+            }
+
+            // ✅ Create Lead
+            $lead = Lead::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'message' => $request->message,
+                'property_id' => $request->property_id,
+                'project_id' => $request->project_id,
+                'developer_id' => $request->developer_id,
+                'lead_type_id' => $request->lead_type_id,
+                'user_ids' => $request->user_ids ? array_values(array_unique($request->user_ids)) : [],
+                'created_by_admin' => auth('sanctum')->id() ?? null, // optional tracking
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Lead created successfully (Admin)',
+                'data' => $lead,
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+
+
 
     /**
      * Display the specified resource by ID.
      */
-    // public function show($id)
-    // {
-    //     // Find lead with relationships
-    //     $lead = Lead::with(['property', 'project', 'developer'])->find($id);
-
-    //     if (!$lead) {
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Lead not found'
-    //         ], 200);
-    //     }
-
-    //     // Get user_ids (already array because of casts)
-    //     $userIds = $lead->user_ids ?? [];
-
-    //     // Fetch related users
-    //     $users = User::whereIn('id', $userIds)
-    //         ->select('id', 'first_name', 'last_name', 'email', 'phone', 'area_locality')
-    //         ->get()
-    //         ->keyBy('id');
-
-    //     // Attach users to this lead
-    //     $lead->users = collect($userIds)
-    //         ->map(fn($id) => $users->get($id))
-    //         ->filter()
-    //         ->values(); // clean array
-
-    //     //  Add featured_image_url for property
-    //     if ($lead->property) {
-    //         $lead->property->featured_image_url = $lead->property->featured_image
-    //             ? url($lead->property->featured_image)
-    //             : null;
-    //     }
-
-    //     //  Add featured_image_url for project
-    //     if ($lead->project) {
-    //         $lead->project->featured_image_url = $lead->project->featured_image
-    //             ? url($lead->project->featured_image)
-    //             : null;
-    //     }
-
-    //     //  Add featured_image_url for developer
-    //     if ($lead->developer) {
-    //         $lead->developer->featured_image_url = $lead->developer->featured_image
-    //             ? url($lead->developer->featured_image)
-    //             : null;
-    //     }
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Lead retrieved successfully',
-    //         'data' => $lead,
-    //     ]);
-    // }
-
+  
 
 
     public function show($id)
