@@ -88,15 +88,28 @@ class GoogleAuthController extends Controller
                     }
                 }
 
-                // Naya user create karo
+                //  Generate unique username
+                    $baseUsername = preg_replace('/\s+/', '', strtolower($googleUser->getName())); // remove spaces
+                    $username = $baseUsername;
+                    $counter = 1;
+
+                    // Check if username already exists and increment until unique
+                    while (User::where('user_name', $username)->exists()) {
+                        $username = $baseUsername . $counter;
+                        $counter++;
+                    }
+
+                // new user create
                 $user = User::create([
                     'first_name' => $googleUser->getName(),
                     'email' => $googleUser->getEmail(),
-                    'user_name' => $googleUser->getEmail(),
+                    'user_name' => $username,
                     'google_id' => $googleUser->getId(),
                     'role_id' => $roleId,
                     'password' => Hash::make(uniqid()), // dummy password
                     'isapproved' => 1, // isapproved = 1
+                    'is_otp_verified' => true, // Google se verified email milta hai
+                    'kyc' => 0, // Default KYC status to Pending
                     'unique_id' => $uniqueIDModel->unique_id,
                 ]);
 

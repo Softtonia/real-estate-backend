@@ -57,7 +57,7 @@ class AuthController extends Controller
         }
 
         // Set isapproved based on the role_name
-        $isApproved = ($role->name === 'owner') ? 1 : 3;
+        // $isApproved = ($role->name === 'owner') ? 1 : 3;
 
         // Generate unique ID based on role
         $userRole = User::where('role_id', $role->id)->count();
@@ -88,6 +88,7 @@ class AuthController extends Controller
         $otp = random_int(1000, 9999); // 4-digit OTP
 
 
+        $isApproved = 1;
         // Save user and OTP data
         $user = new User();
         $user->user_name = $request->input('user_name');
@@ -97,9 +98,11 @@ class AuthController extends Controller
         $user->role_id = $request->role_id;
         $user->unique_id = $uniqueIDModel->unique_id;
         $user->isapproved = $isApproved; // Set isapproved based on role
+        $user->is_otp_verified = false; // Initially set to false
+        $user->kyc = 0; // Set default KYC status to Pending
         $user->first_name = $request->first_name;
         $user->last_name = $request->last_name;
-        $user->isapproved = 3; // Set default isapproved Under Review
+        
 
         $user->save();
 
@@ -121,7 +124,7 @@ class AuthController extends Controller
             'otp' => $otp,
             'user_id' => $user->id,
             'isOTPVerified' => false,
-            'expire_date_time' => Carbon::now()->addMinutes(2), // Add 5 minutes to the current time
+            'expire_date_time' => Carbon::now()->addMinutes(10), // Add 5 minutes to the current time
         ]);
 
         $fullName = $user->first_name . ' ' . $user->last_name;
@@ -193,13 +196,29 @@ class AuthController extends Controller
         // Retrieve the user's role
         $role = $user->role ? $user->role->name : null;
 
-        // ❌ Restrict login for admin users
+        //  Restrict login for admin users
         if ($role === 'admin') {
             return response()->json([
                 'status' => false,
                 'message' => 'Admins are not allowed to log in here.'
             ], 403);
         }
+
+        //  Check if user is approved or deactivated
+        if ($user->isapproved == 2) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Your account is deactivated. Please contact the administrator.',
+            ], 403);
+        }
+
+        if ($user->isapproved !== 1) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Your account is not yet approved. Please wait for approval.',
+            ], 403);
+        }
+
 
         // Define roles that require KYC verification
         $rolesRequiringKYC = ['agent', 'company', 'consultancy', 'developer'];

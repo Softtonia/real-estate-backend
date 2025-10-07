@@ -128,7 +128,7 @@ class KycController extends Controller
 
             // Set KYC status to In Progress
             $user->kyc = 1;
-            $user->isapproved = 3; // Under Review
+            $user->isapproved = 1; 
             $user->save();
 
             // Update user_details table
@@ -206,47 +206,112 @@ class KycController extends Controller
      * Update KYC status of a user
      * status: 2 = Approved, 0 = Rejected
      */
-   public function updateKycStatus(Request $request)
+//    public function updateKycStatus(Request $request)
+// {
+//     try {
+//         // Validation
+//         $request->validate([
+//             'user_id' => ['required', 'exists:users,id'],
+//             'status' => ['required', 'in:0,1,2,3'], // 0 = Pending, 1 = In Progress, 2 = Approved, 3 = Rejected
+//             'reject_reason' => ['nullable', 'string']
+//         ], [
+//             'user_id.required' => 'User ID is required.',
+//             'user_id.exists' => 'User not found.',
+//             'status.required' => 'Status is required.',
+//             'status.in' => 'Invalid status. Only 0 (Pending), 1 (In Progress) or 2 (Approved) or 3 (Rejected) allowed .',
+//         ]);
+
+//         $user = User::find($request->user_id);
+
+//         if (!$user) {
+//             return response()->json(['status' => false, 'error' => 'User not found.'], 200);
+//         }
+
+//         // Update KYC and isapproved mapping
+//         $user->kyc = $request->status;
+
+//         if ($request->status == 2) {
+//             $user->isapproved = 1; // Active
+//             $user->reject_reason = null;
+//         } elseif ($request->status == 1) {
+//             $user->isapproved = 3; // Under Review
+//             $user->reject_reason = null;
+//         } else {
+//             $user->isapproved = 4; // Rejected
+//             $user->reject_reason = $request->reject_reason ?? 'KYC rejected by admin';
+//         }
+
+//         $user->save();
+
+//         $statusText = match ($request->status) {
+//             0 => 'KYC set to Pending / Rejected.',
+//             1 => 'KYC set to In Progress.',
+//             2 => 'KYC approved successfully.',
+//             default => 'KYC status updated.',
+//         };
+
+//         return response()->json([
+//             'status' => true,
+//             'message' => $statusText,
+//             'user' => [
+//                 'id' => $user->id,
+//                 'kyc' => $user->kyc,
+//                 'isapproved' => $user->isapproved,
+//                 'reject_reason' => $user->reject_reason,
+//             ]
+//         ], 200);
+
+//     } catch (\Illuminate\Validation\ValidationException $e) {
+//         return response()->json([
+//             'status' => false,
+//             'error' => $e->errors()
+//         ], 422);
+//     } catch (\Exception $e) {
+//         return response()->json([
+//             'status' => false,
+//             'error' => $e->getMessage()
+//         ], 500);
+//     }
+// }
+
+public function updateKycStatus(Request $request)
 {
     try {
-        // Validation
+        // ✅ Validate incoming data
         $request->validate([
             'user_id' => ['required', 'exists:users,id'],
-            'status' => ['required', 'in:0,1,2'], // 0 = Pending, 1 = In Progress, 2 = Approved
+            'status' => ['required', 'in:0,1,2,3'], // 0 = Pending, 1 = In Progress, 2 = Approved, 3 = Rejected
             'reject_reason' => ['nullable', 'string']
         ], [
             'user_id.required' => 'User ID is required.',
             'user_id.exists' => 'User not found.',
             'status.required' => 'Status is required.',
-            'status.in' => 'Invalid status. Only 0 (Pending), 1 (In Progress) or 2 (Approved) allowed.',
+            'status.in' => 'Invalid status. Allowed values: 0 (Pending), 1 (In Progress), 2 (Approved), 3 (Rejected).',
         ]);
 
         $user = User::find($request->user_id);
 
         if (!$user) {
-            return response()->json(['status' => false, 'error' => 'User not found.'], 200);
+            return response()->json([
+                'status' => false,
+                'message' => 'User not found.',
+            ], 404);
         }
 
-        // Update KYC and isapproved mapping
+        // ✅ Update only KYC fields
         $user->kyc = $request->status;
-
-        if ($request->status == 2) {
-            $user->isapproved = 1; // Active
-            $user->reject_reason = null;
-        } elseif ($request->status == 1) {
-            $user->isapproved = 3; // Under Review
-            $user->reject_reason = null;
-        } else {
-            $user->isapproved = 4; // Rejected
-            $user->reject_reason = $request->reject_reason ?? 'KYC rejected by admin';
-        }
+        $user->reject_reason = $request->status == 3
+            ? ($request->reject_reason ?? 'KYC rejected by admin')
+            : null;
 
         $user->save();
 
+        // ✅ Prepare message based on status
         $statusText = match ($request->status) {
-            0 => 'KYC set to Pending / Rejected.',
+            0 => 'KYC set to Pending.',
             1 => 'KYC set to In Progress.',
             2 => 'KYC approved successfully.',
+            3 => 'KYC rejected.',
             default => 'KYC status updated.',
         };
 
@@ -255,8 +320,7 @@ class KycController extends Controller
             'message' => $statusText,
             'user' => [
                 'id' => $user->id,
-                'kyc' => $user->kyc,
-                'isapproved' => $user->isapproved,
+                'kyc_status' => $user->kyc,
                 'reject_reason' => $user->reject_reason,
             ]
         ], 200);
@@ -273,6 +337,7 @@ class KycController extends Controller
         ], 500);
     }
 }
+
 
 
 

@@ -451,6 +451,7 @@ class UserController extends Controller
                     'users.unique_id',
                     'users.isapproved',
                     'users.kyc',
+                    'users.is_otp_verified',
                     'users.country_id',
                     'users.state_id',
                     'users.city_id',
@@ -514,6 +515,7 @@ class UserController extends Controller
                 'unique_id' => $userData->unique_id,
                 'isapproved' => $userData->isapproved,
                 'kyc' => $userData->kyc,
+                'is_otp_verified' => $userData->is_otp_verified,
                 'country_id' => $userData->country_id ?? 'N/A',
                 'state_id' => $userData->state_id ?? 'N/A',
                 'city_id' => $userData->city_id ?? 'N/A',
@@ -889,7 +891,7 @@ class UserController extends Controller
             // Validate the incoming request data
             $validator = Validator::make($request->all(), [
                 'user_id' => 'required|exists:users,id',
-                'isapproved' => 'required|integer|in:1,2,3,4', // Ensure it's one of the allowed values
+                'isapproved' => 'required|integer|in:1,2', // Ensure it's one of the allowed values
                 'reject_reason' => 'required_if:isapproved,4|string|min:3', // Required if isapproved is 4
             ], [
                 'reject_reason.required_if' => 'Reject reason is required when status is rejected.',
@@ -915,11 +917,7 @@ class UserController extends Controller
             $user->isapproved = $request->input('isapproved');
 
             // Save reject_reason if status is rejected
-            if ($request->input('isapproved') == 4) {
-                $user->reject_reason = $request->input('reject_reason');
-            } else {
-                $user->reject_reason = null; // Clear reject_reason if not rejected
-            }
+           
 
             $user->save();
 

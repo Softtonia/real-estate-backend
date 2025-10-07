@@ -768,6 +768,7 @@ Route::get('/check-ip', function (Request $request) {
 
         // Otp Route
         Route::middleware(['api.token'])->post('/verify-email-otp', [OtpController::class, 'emailVerifyOtp']);
+        Route::middleware(['api.token'])->get('/resend-email-otp', [OtpController::class, 'resendOtp']);
         Route::post('send-otp', [OtpController::class, 'sendOtp']);
         Route::post('verify-otp', [OtpController::class, 'verifyOtp']);
 
