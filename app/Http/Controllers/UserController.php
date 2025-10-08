@@ -687,7 +687,7 @@ class UserController extends Controller
                 'area_locality' => ['nullable', 'string'],
                 'colony' => ['nullable', 'string'],
                 'street_address' => ['nullable', 'string'],
-                'pin_code' => ['required', 'numeric', 'min:6'],
+                'pin_code' => ['nullable', 'numeric', 'min:6'],
                 'about' => ['nullable', 'string'],
                 // KYC fields
                 'kyc' => 'nullable|in:0,1,2',
