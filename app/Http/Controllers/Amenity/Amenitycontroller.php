@@ -359,4 +359,56 @@ class AmenityController extends Controller
     }
 
 
+
+    public function searchByName(Request $request)
+{
+    try {
+        $search = $request->input('search'); // search keyword
+
+        $query = Amenity::with('media', 'category');
+
+        // Agar search keyword diya gaya ho to LIKE filter lagao
+        if (!empty($search)) {
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        $amenities = $query->get();
+
+        // Format data
+        $formattedAmenities = [];
+
+        foreach ($amenities as $amenity) {
+            $formattedAmenities[] = [
+                'id' => $amenity->id,
+                'display_amenities_order' => $amenity->display_amenities_order,
+                'name' => $amenity->name,
+                'slug' => $amenity->slug,
+                'media' => $amenity->media ? [
+                    'id' => $amenity->media->id,
+                    'icon_name' => $amenity->media->icon_name,
+                    'icon_css_id' => $amenity->media->icon_css_id,
+                    'created_at' => $amenity->media->created_at,
+                    'updated_at' => $amenity->media->updated_at,
+                ] : null,
+                'category' => $amenity->category ? [
+                    'id' => $amenity->category->id,
+                    'name' => $amenity->category->name,
+                    'slug' => $amenity->category->slug,
+                    'display_amenities_categories_order' => $amenity->category->display_amenities_categories_order,
+                    'image' => $amenity->category->image,
+                    'created_at' => $amenity->category->created_at,
+                    'updated_at' => $amenity->category->updated_at,
+                ] : null,
+                'created_at' => $amenity->created_at,
+                'updated_at' => $amenity->updated_at,
+            ];
+        }
+
+        return response()->json($formattedAmenities);
+
+    } catch (\Throwable $th) {
+        return response()->json(['error' => $th->getMessage()], 500);
+    }
+}
+
 }

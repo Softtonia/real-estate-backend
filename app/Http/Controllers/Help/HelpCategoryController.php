@@ -72,6 +72,34 @@ class HelpCategoryController extends Controller
     }
 
 
+    public function searchByName(Request $request)
+    {
+        try {
+            $baseURL = config('app.url');
+            $search = $request->input('search'); // keyword from query or body
+
+            $query = HelpCategory::query();
+
+            // Agar search keyword diya gaya ho to LIKE filter lagao
+            if (!empty($search)) {
+                $query->where('name', 'like', "%{$search}%");
+            }
+
+            $data = $query->get();
+
+            // Optional: image URL convert karna ho to uncomment kar lo
+            // foreach ($data as $row) {
+            //     $row->image = $row->image ? url('uploads/help/' . $row->image) : null;
+            // }
+
+            return response()->json($data);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
 
     // this is for update the record
     public function update(Request $request)

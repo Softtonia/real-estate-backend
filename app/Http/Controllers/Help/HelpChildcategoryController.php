@@ -233,5 +233,28 @@ class HelpChildcategoryController extends Controller
     //
 
 
+    public function searchByName(Request $request)
+    {
+        try {
+            $baseURL = config('app.url');
+            $search = $request->input('search'); // keyword from query/body
+
+            $query = HelpChildcategory::with('category', 'subcategory');
+
+            // Agar search keyword diya gaya ho to LIKE filter lagao
+            if (!empty($search)) {
+                $query->where('name', 'like', "%{$search}%");
+            }
+
+            $data = $query->get();
+
+            return response()->json($data);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
 
 }

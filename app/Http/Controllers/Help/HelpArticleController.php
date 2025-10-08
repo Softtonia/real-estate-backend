@@ -67,6 +67,26 @@ class HelpArticleController extends Controller
         }
     }
 
+    public function searchByTitle(Request $request)
+    {
+        try {
+            $search = $request->input('search'); // search keyword
+
+            $query = HelpArticle::with('category', 'subcategory', 'childcategory');
+
+            // Agar search keyword diya gaya ho to title par LIKE search lagao
+            if (!empty($search)) {
+                $query->where('title', 'like', "%{$search}%");
+            }
+
+            $data = $query->get();
+
+            return response()->json($data);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
 
 
     // this is for update the record

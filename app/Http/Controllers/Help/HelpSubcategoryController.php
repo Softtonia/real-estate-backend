@@ -56,6 +56,29 @@ class HelpSubcategoryController extends Controller
         }
     }
 
+    public function searchByName(Request $request)
+    {
+        try {
+            $baseURL = config('app.url');
+            $search = $request->input('search'); // search keyword from query or body
+
+            $query = HelpSubcategory::with('category');
+
+            // Apply search filter agar keyword diya gaya ho
+            if (!empty($search)) {
+                $query->where('name', 'like', "%{$search}%");
+            }
+
+            $data = $query->get();
+
+            return response()->json($data);
+
+        } catch (\Throwable $th) {
+            return response()->json(['error' => $th->getMessage()], 500);
+        }
+    }
+
+
 
 
     // this is for update the record

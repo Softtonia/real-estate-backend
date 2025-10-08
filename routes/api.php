@@ -433,6 +433,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['api.token'])->get('amenity-listing', [Amenitycontroller::class, 'index']);
         Route::middleware(['admin.token'])->post('amenity', [Amenitycontroller::class, 'destroy']);
         Route::middleware(['api.token'])->post('getdatabyId-amenity', [Amenitycontroller::class, 'getdatabyId']);
+          Route::middleware(['api.token'])->get('search-amenity-listing', [Amenitycontroller::class, 'searchByName']);
         Route::middleware(['admin.token'])->post('amenity-bulk-delete', [Amenitycontroller::class, 'bulkDelete']);
 
 
@@ -590,6 +591,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['admin.token'])->post('tickets-department-create', [TicketDepartmentController::class, 'store']);  //Done By softtonia
         Route::middleware(['admin.token'])->post('tickets-department-update', [TicketDepartmentController::class, 'update']); //Done By softtonia
         Route::get('tickets-department-list', [TicketDepartmentController::class, 'index']);
+        Route::middleware(['admin.token'])->get('search-tickets-department-list', [TicketDepartmentController::class, 'searchDepartment']);
         Route::middleware(['admin.token'])->post('tickets-department-delete', [TicketDepartmentController::class, 'destroy']); //Done By softtonia
         Route::middleware(['admin.token'])->post('get-tickets-department-byid', [TicketDepartmentController::class, 'show']); //Done By softtonia
         Route::middleware(['admin.token'])->post('tickets-department-bulk-delete', [TicketDepartmentController::class, 'bulkDestroy']);
@@ -684,6 +686,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['admin.token'])->post('help-category-update', [HelpCategoryController::class, 'update']);
         Route::middleware(['admin.token'])->post('help-category-delete', [HelpCategoryController::class, 'delete']);
         Route::get('get-help-category-by-id/{id}', [HelpCategoryController::class, 'getdatabyId']);
+        Route::get('search-help-category-list', [HelpCategoryController::class, 'searchByName']);
         Route::middleware(['admin.token'])->post('help-category-bulk-delete', [HelpCategoryController::class, 'bulkDelete']);
 
 
@@ -693,6 +696,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['admin.token'])->post('help-subcategory-update', [HelpSubcategoryController::class, 'update']);
         Route::middleware(['admin.token'])->post('help-subcategory-delete', [HelpSubcategoryController::class, 'delete']);
         Route::get('get-help-subcategory-by-id/{id}', [HelpSubcategoryController::class, 'getdatabyId']);
+         Route::get('search-help-subcategory-list', [HelpSubcategoryController::class, 'searchByName']);
         Route::post('help-subcategory-by-categoryid', [HelpSubcategoryController::class, 'getHelpSubcategoryByCategoryId']);
 
         Route::middleware(['admin.token'])->post('help-subcategory-bulk-delete', [HelpSubcategoryController::class, 'bulkDelete']);
@@ -703,6 +707,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['admin.token'])->post('help-childcategory-update', [HelpChildcategoryController::class, 'update']);
         Route::middleware(['admin.token'])->post('help-childcategory-delete', [HelpChildcategoryController::class, 'delete']);
         Route::get('get-help-childcategory-by-id/{id}', [HelpChildcategoryController::class, 'getdatabyId']);
+        Route::get('search-help-childcategory-list', [HelpChildcategoryController::class, 'searchByName']);
         Route::post('help-childcategory-by-subcategoryid', [HelpChildcategoryController::class, 'getHelpChildcategoryBySubcategoryId']);
 
 
@@ -714,6 +719,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['admin.token'])->post('help-article-update', [HelpArticleController::class, 'update']);
         Route::middleware(['admin.token'])->post('help-article-delete', [HelpArticleController::class, 'delete']);
         Route::get('get-help-article-by-id/{id}', [HelpArticleController::class, 'getdatabyId']);
+        Route::get('search-help-article-list', [HelpArticleController::class, 'searchByTitle']);
         Route::middleware(['admin.token'])->post('help-article-bulk-delete', [HelpArticleController::class, 'bulkDelete']);
         Route::get('get-help-article',[HelpArticleController::class,'getArticles']);
 
@@ -748,7 +754,9 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['api.token'])->post('add-client-review', [ClientReviewController::class, 'store']);
         Route::middleware(['api.token'])->post('edit-client-review', [ClientReviewController::class, 'update']);
         Route::middleware(['admin.token'])->post('delete-client-review', [ClientReviewController::class, 'destroy']);
+         Route::middleware(['admin.token'])->post('bulk-delete-client-review', [ClientReviewController::class, 'bulkDelete']);
         Route::get('get-client-review', [ClientReviewController::class, 'index']);
+        Route::get('search-client-review', [ClientReviewController::class, 'searchByTitle']);
         Route::middleware(['api.token'])->get('get-client-review-by-id/{id}', [ClientReviewController::class, 'getdatabyId']);
 
         // =====For Faq Category=====
@@ -787,6 +795,7 @@ Route::get('/check-ip', function (Request $request) {
          Route::middleware(['admin.token'])->get('/get-location-countries', [LocationController::class, 'getLocationCountries']);
          Route::middleware(['admin.token'])->get('/get-location-states', [LocationController::class, 'getLocationStates']);
          Route::middleware(['admin.token'])->get('/get-location-cities', [LocationController::class, 'getLocationCities']);
+         Route::middleware(['admin.token'])->get('/search-all-locations', [LocationController::class, 'searchAllLocations']);
 
          Route::middleware(['admin.token'])->post('/cities/{id}/update-flags', [LocationController::class, 'updateCityFlags']);
 

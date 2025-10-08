@@ -154,6 +154,43 @@ class ClientReviewController extends Controller
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
+
+	public function bulkDelete(Request $request)
+	{
+		try {
+			$ids = $request->input('ids'); // array of IDs
+
+			if (empty($ids) || !is_array($ids)) {
+				return response()->json([
+					'status' => false,
+					'message' => 'Please provide an array of IDs to delete.'
+				], 400);
+			}
+
+			// Find all records that match IDs
+			$clients = ClientReview::whereIn('id', $ids)->get();
+
+			if ($clients->isEmpty()) {
+				return response()->json([
+					'status' => false,
+					'message' => 'No matching data found.'
+				], 200);
+			}
+
+			// Delete all matching records
+			ClientReview::whereIn('id', $ids)->delete();
+
+			return response()->json([
+				'status' => true,
+				'message' => 'Selected data deleted successfully.',
+				'deleted_ids' => $ids
+			], 200);
+
+		} catch (\Throwable $th) {
+			return response()->json(['error' => $th->getMessage()], 500);
+		}
+	}
+
     
     
     // this is foe get data by id
@@ -173,5 +210,36 @@ class ClientReviewController extends Controller
 	        return response()->json(['error' => $th->getMessage()], 500);
 	    }
 	}
+
+
+	public function searchByTitle(Request $request)
+	{
+		try {
+			$baseURL = config('app.url');
+			$search = $request->input('search'); // Search keyword from query
+
+			$query = ClientReview::query();
+
+			// Apply search if keyword provided
+			if (!empty($search)) {
+				$query->where('title', 'like', "%{$search}%");
+			}
+
+			$data = $query->get();
+
+			// Append image full URL
+			if ($data->count()) {
+				foreach ($data as $row) {
+					$row->client_photo = $row->client_photo ? url('uploads/client_photo/' . $row->client_photo) : null;
+				}
+			}
+
+			return response()->json($data);
+
+		} catch (\Throwable $th) {
+			return response()->json(['error' => $th->getMessage()], 500);
+		}
+	}
+
     
 }

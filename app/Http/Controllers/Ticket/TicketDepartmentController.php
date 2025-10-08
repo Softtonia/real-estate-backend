@@ -17,6 +17,26 @@ class TicketDepartmentController extends Controller
         return response()->json($departments);
     }
 
+    public function searchDepartment(Request $request)
+    {
+        // Get search keyword from query param (?search=xyz)
+        $search = $request->input('search');
+
+        // Query builder
+        $query = TicketDepartment::with('media')->orderBy('display_order');
+
+        // If search keyword provided, filter results
+        if (!empty($search)) {
+            $query->where('ticket_department_name', 'LIKE', "%{$search}%");
+        }
+
+        // Fetch results
+        $departments = $query->get();
+
+        return response()->json($departments);
+    }
+
+
     // Store a new department
     public function store(Request $request)
     {
