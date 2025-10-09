@@ -24,6 +24,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+
+
 
 class LocationController extends Controller
 {
@@ -765,82 +769,88 @@ class LocationController extends Controller
     public function searchAllLocations(Request $request)
     {
         try {
-            $request->validate([
+            // ✅ Custom Validator
+            $validator = Validator::make($request->all(), [
+                'type' => 'required|string|in:countries,states,cities',
                 'search' => 'nullable|string'
             ]);
 
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation error',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $type = $request->input('type');
             $search = $request->input('search');
+            $data = collect();
+            $message = 'No records found';
 
-            // 1️⃣ Search Countries
-            $countries = DB::table('countries')
-                ->leftJoin('states', 'states.country_id', '=', 'countries.id')
-                ->select(
-                    'countries.id',
-                    'countries.name',
-                    DB::raw('COUNT(states.id) as state_count')
-                )
-                ->where('countries.name', 'LIKE', "%{$search}%")
-                ->groupBy('countries.id', 'countries.name')
-                ->orderBy('countries.name')
-                ->get();
+            switch ($type) {
+                case 'countries':
+                    $data = DB::table('countries')
+                        ->leftJoin('states', 'states.country_id', '=', 'countries.id')
+                        ->select(
+                            'countries.id',
+                            'countries.name',
+                            DB::raw('COUNT(states.id) as state_count')
+                        )
+                        ->when($search, function ($query) use ($search) {
+                            $query->where('countries.name', 'LIKE', "%{$search}%");
+                        })
+                        ->groupBy('countries.id', 'countries.name')
+                        ->orderBy('countries.name')
+                        ->get();
 
-            if ($countries->isNotEmpty()) {
-                return response()->json([
-                    'status' => true,
-                    'message' => 'Countries fetched successfully',
-                    'data' => $countries
-                ]);
+                    $message = 'Countries fetched successfully';
+                    break;
+
+                case 'states':
+                    $data = DB::table('states')
+                        ->leftJoin('cities', 'cities.state_id', '=', 'states.id')
+                        ->select(
+                            'states.id',
+                            'states.name',
+                            DB::raw('COUNT(cities.id) as city_count')
+                        )
+                        ->when($search, function ($query) use ($search) {
+                            $query->where('states.name', 'LIKE', "%{$search}%");
+                        })
+                        ->groupBy('states.id', 'states.name')
+                        ->orderBy('states.name')
+                        ->get();
+
+                    $message = 'States fetched successfully';
+                    break;
+
+                case 'cities':
+                    $data = DB::table('cities')
+                        ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
+                        ->select(
+                            'cities.id',
+                            'cities.name',
+                            'cities.is_nearby',
+                            'cities.is_popular',
+                            DB::raw('COALESCE(SUM(city_visits.count), 0) as visitor_count')
+                        )
+                        ->when($search, function ($query) use ($search) {
+                            $query->where('cities.name', 'LIKE', "%{$search}%");
+                        })
+                        ->groupBy('cities.id', 'cities.name', 'cities.is_nearby', 'cities.is_popular')
+                        ->orderBy('cities.name')
+                        ->get();
+
+                    $message = 'Cities fetched successfully';
+                    break;
             }
 
-            // 2️⃣ Search States
-            $states = DB::table('states')
-                ->leftJoin('cities', 'cities.state_id', '=', 'states.id')
-                ->select(
-                    'states.id',
-                    'states.name',
-                    DB::raw('COUNT(cities.id) as city_count')
-                )
-                ->where('states.name', 'LIKE', "%{$search}%")
-                ->groupBy('states.id', 'states.name')
-                ->orderBy('states.name')
-                ->get();
-
-            if ($states->isNotEmpty()) {
-                return response()->json([
-                    'status' => true,
-                    'message' => 'States fetched successfully',
-                    'data' => $states
-                ]);
-            }
-
-            // 3️⃣ Search Cities
-            $cities = DB::table('cities')
-                ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
-                ->select(
-                    'cities.id',
-                    'cities.name',
-                    'cities.is_nearby',
-                    'cities.is_popular',
-                    DB::raw('COALESCE(SUM(city_visits.count), 0) as visitor_count')
-                )
-                ->where('cities.name', 'LIKE', "%{$search}%")
-                ->groupBy('cities.id', 'cities.name', 'cities.is_nearby', 'cities.is_popular')
-                ->orderBy('cities.name')
-                ->get();
-
-            if ($cities->isNotEmpty()) {
-                return response()->json([
-                    'status' => true,
-                    'message' => 'Cities fetched successfully',
-                    'data' => $cities
-                ]);
-            }
-
-            // Agar kuch nahi mila
             return response()->json([
-                'status' => false,
-                'message' => 'No records found',
-                'data' => []
+                'status'  => $data->isNotEmpty(),
+                'message' => $data->isNotEmpty() ? $message : 'No records found',
+                'type'    => $type,
+                'data'    => $data
             ]);
 
         } catch (\Throwable $th) {
@@ -850,6 +860,118 @@ class LocationController extends Controller
             ], 500);
         }
     }
+
+
+
+    public function searchCountries(Request $request)
+    {
+        try {
+            $search = $request->input('search');
+
+            $countries = DB::table('countries')
+                ->leftJoin('states', 'states.country_id', '=', 'countries.id')
+                ->select(
+                    'countries.id',
+                    'countries.name',
+                    DB::raw('COUNT(states.id) as state_count')
+                )
+                ->when($search, function ($query) use ($search) {
+                    $query->where('countries.name', 'LIKE', "%{$search}%");
+                })
+                ->groupBy('countries.id', 'countries.name')
+                ->orderBy('countries.name')
+                ->get();
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Countries fetched successfully',
+                'data'    => $countries
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+
+    public function searchStates(Request $request)
+    {
+        try {
+            $search = $request->input('search');
+            $countryId = $request->input('country_id');
+
+            $states = DB::table('states')
+                ->leftJoin('cities', 'cities.state_id', '=', 'states.id')
+                ->select(
+                    'states.id',
+                    'states.name',
+                    DB::raw('COUNT(cities.id) as city_count')
+                )
+                ->when($countryId, function ($query) use ($countryId) {
+                    $query->where('states.country_id', $countryId);
+                })
+                ->when($search, function ($query) use ($search) {
+                    $query->where('states.name', 'LIKE', "%{$search}%");
+                })
+                ->groupBy('states.id', 'states.name')
+                ->orderBy('states.name')
+                ->get();
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'States fetched successfully',
+                'data'    => $states
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+
+    public function searchCities(Request $request)
+    {
+        try {
+            $search = $request->input('search');
+            $stateId = $request->input('state_id');
+
+            $cities = DB::table('cities')
+                ->leftJoin('city_visits', 'cities.id', '=', 'city_visits.city_id')
+                ->select(
+                    'cities.id',
+                    'cities.name',
+                    'cities.is_nearby',
+                    'cities.is_popular',
+                    DB::raw('COALESCE(SUM(city_visits.count), 0) as visitor_count')
+                )
+                ->when($stateId, function ($query) use ($stateId) {
+                    $query->where('cities.state_id', $stateId);
+                })
+                ->when($search, function ($query) use ($search) {
+                    $query->where('cities.name', 'LIKE', "%{$search}%");
+                })
+                ->groupBy('cities.id', 'cities.name', 'cities.is_nearby', 'cities.is_popular')
+                ->orderBy('cities.name')
+                ->get();
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Cities fetched successfully',
+                'data'    => $cities
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+
 
 
 

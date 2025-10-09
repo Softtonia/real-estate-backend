@@ -796,6 +796,9 @@ Route::get('/check-ip', function (Request $request) {
          Route::middleware(['admin.token'])->get('/get-location-states', [LocationController::class, 'getLocationStates']);
          Route::middleware(['admin.token'])->get('/get-location-cities', [LocationController::class, 'getLocationCities']);
          Route::middleware(['admin.token'])->get('/search-all-locations', [LocationController::class, 'searchAllLocations']);
+         Route::middleware(['admin.token'])->get('/search-countries-location', [LocationController::class, 'searchCountries']);
+         Route::middleware(['admin.token'])->get('/search-states-location', [LocationController::class, 'searchStates']);
+         Route::middleware(['admin.token'])->get('/search-cities-location', [LocationController::class, 'searchCities']);
 
          Route::middleware(['admin.token'])->post('/cities/{id}/update-flags', [LocationController::class, 'updateCityFlags']);
 
