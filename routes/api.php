@@ -544,6 +544,8 @@ Route::get('/check-ip', function (Request $request) {
         Route::get('/check-unique-group-name', [GroupController::class, 'checkUniqueGroupName']);
         Route::middleware(['admin.token'])->post('groups-bulk-delete', [GroupController::class, 'bulkDeleteGroups']);
         Route::middleware(['admin.token'])->get('groups-search', [GroupController::class, 'searchByGroupName']);
+        Route::middleware(['admin.token'])->post('/groups/import', [GroupController::class, 'importGroups']);
+        Route::middleware(['admin.token'])->get('/groups/export', [GroupController::class, 'exportGroups']);
 
 
 

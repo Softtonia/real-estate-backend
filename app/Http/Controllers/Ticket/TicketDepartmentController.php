@@ -11,16 +11,34 @@ use Illuminate\Validation\Rule;
 class TicketDepartmentController extends Controller
 {
     // Get all departments
-    public function index()
+    public function index(Request $request)
     {
-        $departments = TicketDepartment::with('media')->orderBy('display_order')->get();
-        return response()->json($departments);
+        $perPage = $request->input('per_page', 10); // Default to 10 if not provided
+        $query = TicketDepartment::with('media')->orderBy('display_order');
+        $departments = $query->paginate($perPage);
+        return response()->json([
+            'data' => $departments->items(),
+            'meta' => [
+                'current_page' => $departments->currentPage(),
+                'per_page' => $departments->perPage(),
+                'total' => $departments->total(),
+                'last_page' => $departments->lastPage(),
+            ],
+            'links' => [
+                'first' => $departments->url(1),
+                'last' => $departments->url($departments->lastPage()),
+                'prev' => $departments->previousPageUrl(),
+                'next' => $departments->nextPageUrl(),
+            ],
+         
+        ],200);
     }
 
     public function searchDepartment(Request $request)
     {
         // Get search keyword from query param (?search=xyz)
         $search = $request->input('search');
+        $perPage = $request->input('per_page', 10); // Default to 10 if not provided
 
         // Query builder
         $query = TicketDepartment::with('media')->orderBy('display_order');
@@ -31,9 +49,21 @@ class TicketDepartmentController extends Controller
         }
 
         // Fetch results
-        $departments = $query->get();
+        $departments = $query->paginate($perPage);
 
-        return response()->json($departments);
+        return response()->json([ 'data' => $departments->items(),
+            'meta' => [
+                'current_page' => $departments->currentPage(),
+                'per_page' => $departments->perPage(),
+                'total' => $departments->total(),
+                'last_page' => $departments->lastPage(),
+            ],
+            'links' => [
+                'first' => $departments->url(1),
+                'last' => $departments->url($departments->lastPage()),
+                'prev' => $departments->previousPageUrl(),
+                'next' => $departments->nextPageUrl(),
+            ],],200);
     }
 
 

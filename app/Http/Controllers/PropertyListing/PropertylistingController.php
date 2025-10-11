@@ -2414,6 +2414,7 @@ class PropertylistingController extends Controller
         try {
             $user = Auth::user();
             $search = $request->input('search'); // 🔍 Single input for both name & unique ID
+             $perPage = $request->input('per_page', 10);
             $baseURL = url('/');
 
             $projects = PropertyList::when($search, function ($query) use ($search) {
@@ -2438,8 +2439,8 @@ class PropertylistingController extends Controller
                     'state',
                     'city'
                 ])
-                ->orderBy('created_at', 'desc')
-                ->get();
+                ->orderBy('created_at', 'desc');
+               $projects= $projects->paginate($perPage);
 
 
 
@@ -2523,7 +2524,22 @@ class PropertylistingController extends Controller
 
             return response()->json(
                 [
-                    'data' => $projectsData
+                    'data' => $projectsData,
+                    'meta' => [
+                            'current_page' => $projects->currentPage(),
+                            'from' => $projects->firstItem(),
+                            'last_page' => $projects->lastPage(),
+                            'path' => $request->url(),
+                            'per_page' => $projects->perPage(),
+                            'to' => $projects->lastItem(),
+                            'total' => $projects->total(),
+                        ],
+                    'links' => [
+                            'first' => $projects->url(1),
+                            'last' => $projects->url($projects->lastPage()),
+                            'prev' => $projects->previousPageUrl(),
+                            'next' => $projects->nextPageUrl(),
+                        ]   
                 ],
                 200
             );

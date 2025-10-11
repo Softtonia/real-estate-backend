@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
+use App\Models\User;
 
 class PageController extends Controller
 {
@@ -50,7 +52,27 @@ class PageController extends Controller
 
     public function show(Request $request)
     {
-        $authUser = auth('sanctum')->user(); // current logged-in user
+
+        // Check for Authorization header
+        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
+            return response()->json(['error' => 'Please provide an API token.'], 422);
+        }
+
+        // Validate token format
+        $authorizationHeader = $request->header('Authorization');
+        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
+            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+        }
+
+        // Extract token
+        $token = substr($authorizationHeader, 7);
+        if (empty($token)) {
+            return response()->json(['error' => 'Token is missing.'], 422);
+        }
+
+        // Get user by token
+        $authUser = User::with('role')->where('api_token', $token)->first();
+       
 
         if ($request->has('id')) {
             
@@ -253,6 +275,7 @@ class PageController extends Controller
     public function searchPage(Request $request)
     {
         try {
+            $perPage = $request->get('per_page', 10);
             $query = Page::query();
 
             if ($request->filled('search')) {
@@ -263,7 +286,7 @@ class PageController extends Controller
                 });
             }
 
-            $pages = $query->latest()->get();
+            $pages = $query->latest()->paginate($perPage);
 
             // featured_image ka full URL add karein
             $pages->transform(function ($page) {
@@ -277,7 +300,15 @@ class PageController extends Controller
 
             return response()->json([
                 'status' => true,
-                'data' => $pages
+                'data' => $pages->items(),
+                'pagination' => [
+                    'current_page' => $pages->currentPage(),
+                    'per_page' => $pages->perPage(),
+                    'total' => $pages->total(),
+                    'last_page' => $pages->lastPage(),
+                    'next_page_url' => $pages->nextPageUrl(),
+                    'prev_page_url' => $pages->previousPageUrl(),
+                ]
             ], 200);
 
         } catch (\Exception $e) {

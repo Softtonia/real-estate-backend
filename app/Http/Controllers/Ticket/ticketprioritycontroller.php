@@ -15,10 +15,28 @@ use Log;
 class ticketprioritycontroller extends Controller
 {
 
-    public function index()
+    public function index(Request $request)
     {
-        $ticketPriorities = TicketPriority::orderByRaw("FIELD(ticket_priority, 'low', 'medium', 'high')")->with('media')->get();
-        return response()->json($ticketPriorities);
+        $perPage = $request->input('per_page', 10); // Default to 10 if not provided
+        $query = TicketPriority::orderByRaw("FIELD(ticket_priority, 'low', 'medium', 'high')")->with('media');
+
+        $ticketPriorities = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $ticketPriorities->items(),
+            'meta' => [
+                'current_page' => $ticketPriorities->currentPage(),
+                'last_page' => $ticketPriorities->lastPage(),
+                'per_page' => $ticketPriorities->perPage(),
+                'total' => $ticketPriorities->total(),
+            ],
+            'links' => [
+                'first' => $ticketPriorities->url(1),
+                'last' => $ticketPriorities->url($ticketPriorities->lastPage()),
+                'prev' => $ticketPriorities->previousPageUrl(),
+                'next' => $ticketPriorities->nextPageUrl(),
+            ],
+        ],200);
     }
 
 
@@ -373,6 +391,7 @@ class ticketprioritycontroller extends Controller
     {
         try {
             $searchTerm = $request->input('search');
+            $perPage = $request->input('per_page', 10); // Default to 10 if not provided
 
             $query = TicketPriority::query();
 
@@ -380,12 +399,24 @@ class ticketprioritycontroller extends Controller
                 $query->where('ticket_priority', 'like', '%' . $searchTerm . '%');
             }
 
-            $results = $query->orderBy('display_order', 'asc')->paginate(10); // 10 results per page
+            $results = $query->orderBy('display_order', 'asc')->paginate($perPage); // 10 results per page
 
             return response()->json([
                 'status' => true,
                 'message' => 'Ticket priorities fetched successfully.',
-                'data' => $results
+                'data' => $results->items(),
+                'meta' => [
+                    'current_page' => $results->currentPage(),
+                    'last_page' => $results->lastPage(),
+                    'per_page' => $results->perPage(),
+                    'total' => $results->total(),
+                ],
+                'links' => [
+                    'first' => $results->url(1),
+                    'last' => $results->url($results->lastPage()),
+                    'prev' => $results->previousPageUrl(),
+                    'next' => $results->nextPageUrl(),
+                ],
             ]);
         } catch (\Throwable $th) {
             return response()->json([

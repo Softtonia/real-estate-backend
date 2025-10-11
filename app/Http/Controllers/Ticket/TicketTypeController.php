@@ -13,11 +13,28 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 class TicketTypeController extends Controller
 {
 
-    public function index()
+    public function index(Request $request)
     {
-        $TicketType = TicketType::with('media')->get();
+        $perPage = $request->input('per_page', 10); // Default to 10 if not provided
+        $query = TicketType::with('media')->orderBy('display_order', 'asc');
+        $TicketType = $query->paginate($perPage);
 
-        return $TicketType;
+        return response()->json([
+            'data' => $TicketType->items(),
+            'meta' => [
+                'current_page' => $TicketType->currentPage(),
+                'per_page' => $TicketType->perPage(),
+                'total' => $TicketType->total(),
+                'last_page' => $TicketType->lastPage(),
+            ],
+            'links' => [
+                'first' => $TicketType->url(1),
+                'last' => $TicketType->url($TicketType->lastPage()),
+                'prev' => $TicketType->previousPageUrl(),
+                'next' => $TicketType->nextPageUrl(),
+            ],
+    
+           ],200); 
     }
 
     public function store(Request $request)
@@ -229,6 +246,7 @@ class TicketTypeController extends Controller
     public function searchTicketType(Request $request)
     {
         $search = $request->input('search');
+        $perPage = $request->input('per_page', 10); // Default to 10 if not provided
 
         if (!$search) {
             return response()->json(['error' => 'Search term is required.'], 422);
@@ -237,11 +255,23 @@ class TicketTypeController extends Controller
         $results = TicketType::with('media')
             ->where('ticket_type_name', 'like', '%' . $search . '%')
             ->orderBy('display_order', 'asc')
-            ->paginate(10);
+            ->paginate($perPage);
 
         return response()->json([
             'count' => $results->count(),
-            'data' => $results
+            'data' => $results->items(),
+            'meta' => [
+                'current_page' => $results->currentPage(),
+                'per_page' => $results->perPage(),
+                'total' => $results->total(),
+                'last_page' => $results->lastPage(),
+            ],
+            'links' => [
+                'first' => $results->url(1),
+                'last' => $results->url($results->lastPage()),
+                'prev' => $results->previousPageUrl(),
+                'next' => $results->nextPageUrl(),
+            ],
         ]);
     }
 

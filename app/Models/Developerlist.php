@@ -80,6 +80,8 @@ class Developerlist extends Model
         return $this->belongsToMany(ImportKeyword::class, 'keywords', 'developer_id', 'keyword');
     }
 
+    
+
 
 
     // protected $casts = [

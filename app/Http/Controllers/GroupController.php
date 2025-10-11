@@ -7,6 +7,7 @@ use App\Models\Groupname;
 use App\Models\CustomField;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+ use Illuminate\Support\Facades\Response;
 
 class GroupController extends Controller
 {
@@ -267,5 +268,133 @@ class GroupController extends Controller
             'data' => $groupsWithCounts
         ], 200);
     }
+
+
+   
+
+    public function exportGroups()
+    {
+        try {
+            $groups = Groupname::all(['id', 'group_name', 'created_at', 'updated_at']);
+
+            if ($groups->isEmpty()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No groups found to export.',
+                ], 200);
+            }
+
+            $fileName = 'groups_export_' . now()->format('Y-m-d_H-i-s') . '.csv';
+
+            $headers = [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => "attachment; filename=\"$fileName\"",
+            ];
+
+            $callback = function () use ($groups) {
+                $file = fopen('php://output', 'w');
+
+                // Header Row
+                fputcsv($file, ['ID', 'Group Name', 'Created At', 'Updated At']);
+
+                // Data Rows
+                foreach ($groups as $group) {
+                    fputcsv($file, [
+                        $group->id,
+                        $group->group_name,
+                        $group->created_at,
+                        $group->updated_at,
+                    ]);
+                }
+
+                fclose($file);
+            };
+
+            return Response::stream($callback, 200, $headers);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to export groups.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+
+    public function importGroups(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'csv_file' => 'required|file|mimes:csv,txt|max:2048',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation error.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $file = $request->file('csv_file');
+            $path = $file->getRealPath();
+            $handle = fopen($path, 'r');
+
+            if (!$handle) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unable to read CSV file.',
+                ], 400);
+            }
+
+            $header = fgetcsv($handle); // Skip header row
+            $inserted = 0;
+            $skipped = 0;
+
+            while (($row = fgetcsv($handle)) !== false) {
+                // Expecting 2nd column to be group_name
+                $groupName = trim($row[1] ?? '');
+
+                if (!empty($groupName)) {
+                    $exists = Groupname::where('group_name', $groupName)->exists();
+
+                    if (!$exists) {
+                        Groupname::create(['group_name' => $groupName]);
+                        $inserted++;
+                    } else {
+                        $skipped++;
+                    }
+                }
+            }
+
+            fclose($handle);
+
+            if ($inserted === 0 && $skipped === 0) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No valid records found in the file.',
+                ], 400);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => "Import completed successfully.",
+                'data' => [
+                    'inserted' => $inserted,
+                    'skipped' => $skipped,
+                ],
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to import groups.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+
 
 }

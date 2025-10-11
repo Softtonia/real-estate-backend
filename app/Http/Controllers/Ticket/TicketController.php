@@ -19,10 +19,11 @@ class TicketController extends Controller
 {
 
 
-    public function index()
+    public function index(Request $request)
     {
+        $perPage = request()->get('per_page', 10); // Default to 10 if not provided
         // Fetch all tickets with raised_by user details, assigned_to user details, and priority name
-        $tickets = DB::table('tickets')
+        $query = DB::table('tickets')
             ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
             ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
             ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
@@ -39,18 +40,19 @@ class TicketController extends Controller
                 'ticket_status.ticket_status_name',
                 'ticket_types.ticket_type_name',
                 'ticket_departments.ticket_department_name'
-            )
-            ->get();
+            );
+           $tickets = $query->paginate($perPage);
 
 
         // Check if no tickets found
-        if ($tickets->isEmpty()) {
+      if ($tickets->total() === 0) {
             return response()->json([
                 'status' => false,
-                'message' => 'Ticket not found',
-                'data' => []
+                'message' => 'No tickets found',
+                'data' => [],
             ], 200);
         }
+
 
 
 
@@ -93,7 +95,21 @@ class TicketController extends Controller
         }
 
         // Return the formatted tickets as JSON response
-        return response()->json($formattedTickets, 200);
+        return response()->json([ 
+            'data' => $formattedTickets,
+            'meta' => [
+                'current_page' => $tickets->currentPage(),
+                'per_page' => $tickets->perPage(),
+                'total' => $tickets->total(),
+                'last_page' => $tickets->lastPage(),
+            ],
+            'links' => [
+                'first' => $tickets->url(1),
+                'last' => $tickets->url($tickets->lastPage()),
+                'prev' => $tickets->previousPageUrl(),
+                'next' => $tickets->nextPageUrl(),
+            ],
+        ], 200);
     }
 
 
@@ -295,13 +311,7 @@ class TicketController extends Controller
         }
 
         // Handle media attachment
-        // if ($request->hasFile('media_attachment')) {
-        //     $file = $request->file('media_attachment');
-        //     $extension = $file->getClientOriginalExtension();
-        //     $fileName = time() . '.' . $extension;
-        //     $file->storeAs('attachments', $fileName);
-        //     $ticket->media_attachment = $fileName;
-        // }
+       
 
 
         if ($request->hasFile('media_attachment')) {
@@ -340,30 +350,7 @@ class TicketController extends Controller
     }
 
 
-    // public function destroy(Request $request, Ticket $ticket)
-    // {
-    //     $user = $request->user();                     // Authenticated user
-    //     $isAdmin = $user->role && strcasecmp($user->role->name, 'admin') === 0;
 
-
-    //     if (
-    //         !$isAdmin &&
-    //         $ticket->user_id !== $user->id &&
-    //         $ticket->raised_by !== $user->id
-    //     ) {
-
-    //         return response()->json([
-    //             'error' => 'You are only allowed to delete your own tickets.'
-    //         ], 403);
-    //     }
-
-    //     $ticket->delete();
-
-    //     return response()->json([
-    //         'status' => true,
-    //         'message' => 'Ticket deleted successfully'
-    //     ], 200);
-    // }
 
     ## new delete code by id 15-07-2025 ##
 
@@ -705,102 +692,7 @@ class TicketController extends Controller
         ], 200);
     }
 
-    //  public function ticketResponseHistory($ticketId)
-// {
-//     //  Fetch ticket details (main ticket information)
-//     $ticket = DB::table('tickets')
-//         ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
-//         ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
-//         ->where('tickets.id', $ticketId)
-//         ->select(
-//             'tickets.id',
-//             'tickets.ticket_number',
-//             'tickets.subject',
-//             'tickets.message',
-//             'tickets.status_id',
-//             'tickets.priority_id',
-//             'tickets.media_attachment',
-//             'tickets.ticket_type_id',
-//             'tickets.ticket_department_id',
-//             'tickets.created_at',
-//             'tickets.updated_at',
-//             DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_by_name"),
-//             DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_name")
-//         )
-//         ->first();
-
-    //     if (!$ticket) {
-//         return response()->json([
-//             'status' => false,
-//             'message' => 'Ticket not found',
-//             'data' => []
-//         ], 200);
-//     }
-
-    //     // Step 2: Fetch responses for this ticket (history)
-//     $responses = DB::table('tickets_response')
-//         ->join('users', 'tickets_response.user_id', '=', 'users.id')
-//         ->where('tickets_response.ticket_id', $ticketId)
-//         ->select(
-//             'tickets_response.id',
-//             'tickets_response.message',
-//             'tickets_response.message_by',
-//             'tickets_response.created_at',
-//             DB::raw("CONCAT_WS(' ', users.first_name, users.last_name) as user_name")
-//         )
-//         ->orderBy('tickets_response.created_at', 'asc')
-//         ->get();
-
-    //     // Step 3: Format the data into chat history
-//     $chatHistory = [];
-
-    //     // Initial message (ticket's main message)
-//     $chatHistory[] = [
-//         'message' => $ticket->message,
-//         'media_attachment' => $ticket->media_attachment
-//             ? config('app.url') . Storage::url('attachments/' . $ticket->media_attachment)
-//             : null,
-//         'user_name' => $ticket->raised_by_name,
-//         'message_by' => 'raised_by',
-//         'created_at' => $ticket->created_at,
-//     ];
-
-    //     // Responses (user/admin replies)
-//     foreach ($responses as $response) {
-//         $chatHistory[] = [
-//             'message' => $response->message,
-//             'media_attachment' => $response->media_attachment
-//                 ? config('app.url') . Storage::url('attachments/' . $response->media_attachment)
-//                 : null,
-//             'user_name' => $response->user_name,
-//             'message_by' => $response->message_by,
-//             'created_at' => $response->created_at,
-//         ];
-//     }
-
-    //     //  Return the final response with ticket and chat history
-//     return response()->json([
-//         'status' => true,
-//         'message' => 'Ticket response history fetched successfully',
-//         'data' => [
-//             'ticket_id' => $ticket->id,
-//             'ticket_number' => $ticket->ticket_number,
-//             'subject' => $ticket->subject,
-//             'status_id' => $ticket->status_id,
-//             'priority_id' => $ticket->priority_id,
-//             'ticket_type_id' => $ticket->ticket_type_id,
-//             'ticket_department_id' => $ticket->ticket_department_id,
-//             'media_attachment' => $ticket->media_attachment
-//                 ? config('app.url') . Storage::url('attachments/' . $ticket->media_attachment)
-//                 : null,
-//             'created_at' => $ticket->created_at,
-//             'updated_at' => $ticket->updated_at,
-//             'raised_by_name' => $ticket->raised_by_name,
-//             'assigned_user_name' => $ticket->assigned_user_name,
-//             'chat_history' => $chatHistory
-//         ]
-//     ], 200);
-// }
+    
 
 
 
@@ -964,9 +856,10 @@ class TicketController extends Controller
         ]);
 
         $ticketNumber = $request->search;
+        $perPage = $request->input('per_page', 10); // Default to 10 if not provided
 
         // Fetch matching tickets using LIKE for partial match
-        $tickets = DB::table('tickets')
+        $query = DB::table('tickets')
             ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
             ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
             ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
@@ -984,11 +877,11 @@ class TicketController extends Controller
                 'ticket_types.ticket_type_name',
                 'ticket_departments.ticket_department_name'
             )
-            ->where('tickets.ticket_number', 'like', "%$ticketNumber%")
-            ->get();
+            ->where('tickets.ticket_number', 'like', "%$ticketNumber%");
+        $tickets= $query->paginate($perPage);
 
         // If no ticket found
-        if ($tickets->isEmpty()) {
+        if ($tickets->total() === 0) {
             return response()->json([
                 'status' => false,
                 'message' => 'No matching tickets found',
@@ -1027,7 +920,19 @@ class TicketController extends Controller
         return response()->json([
             'status' => true,
             'message' => 'Matching tickets found',
-            'data' => $formattedTickets
+            'data' => $formattedTickets,
+            'meta' => [
+                'current_page' => $tickets->currentPage(),
+                'per_page' => $tickets->perPage(),
+                'total' => $tickets->total(),
+                'last_page' => $tickets->lastPage(),
+            ],
+            'links' => [
+                'first' => $tickets->url(1),
+                'last' => $tickets->url($tickets->lastPage()),
+                'prev' => $tickets->previousPageUrl(),
+                'next' => $tickets->nextPageUrl(),
+            ],
         ], 200);
     }
 

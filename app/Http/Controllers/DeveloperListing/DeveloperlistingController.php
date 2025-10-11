@@ -695,6 +695,7 @@ class DeveloperlistingController extends Controller
         try {
             $baseURL = config('app.url');
             $basePath = public_path();
+            $perPage = $request->get('per_page', 10);
 
             // Fetch all listings without filtering live_status
             $developers = Developerlist::with([
@@ -711,7 +712,7 @@ class DeveloperlistingController extends Controller
                 'importKeywords',
                 'createdBy.role', // ✅ Include creator's role
                 'updatedBy.role'  // ✅ Include updater's role
-            ])->get();
+            ])->paginate($perPage);
 
             $projectsData = $developers->map(function ($developer) use ($baseURL, $basePath) {
                 $formattedCustomFieldValues = $developer->customFieldValues->map(function ($customFieldValue) use ($baseURL) {
@@ -778,7 +779,7 @@ class DeveloperlistingController extends Controller
                     'temporary_status' => $developer->temporary_status,
                     'status_reason' => $developer->status_reason,
                     'user_id' => $developer->user_id,
-                    'user' => $developer->user_id? [
+                    'user' => ($developer->user && $developer->user_id) ? [
                         'id' => $developer->user->id,
                         'name' => $developer->user->first_name,
                         'email' => $developer->user->email,
@@ -826,7 +827,24 @@ class DeveloperlistingController extends Controller
                 ];
             });
 
-            return response()->json($projectsData);
+            return response()->json([
+                'data'=>$projectsData,
+                'meta' => [
+                    'current_page' => $developers->currentPage(),
+                    'from' => $developers->firstItem(),
+                    'last_page' => $developers->lastPage(),
+                    'path' => $request->url(),
+                    'per_page' => $developers->perPage(),
+                    'to' => $developers->lastItem(),
+                    'total' => $developers->total(),
+                ],
+                'links' => [
+                    'first' => $developers->url(1),
+                    'last' => $developers->url($developers->lastPage()),
+                    'prev' => $developers->previousPageUrl(),
+                    'next' => $developers->nextPageUrl(),
+                ]
+            ],200);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
@@ -966,6 +984,7 @@ class DeveloperlistingController extends Controller
                 'property_type_id' => $request->property_type_id ?? null,
                 'live_status' => $request->live_status,
                 'status_reason' => $request->status_reason,
+                'temporary_status' => $request->temporary_status,
                 'updated_by' => $userId,  // Store the user ID in the updated_by field
                 'address' => $request->address,
                 'featured_image' => $featuredImage,
@@ -2270,6 +2289,7 @@ class DeveloperlistingController extends Controller
         try {
             $user = Auth::user(); // Get the authenticated user
             $search = $request->input('search'); // name query from frontend
+            $perPage = $request->input('per_page', 10); // Default to 10 if not provided
             $baseURL = config('app.url');
 
 
@@ -2291,7 +2311,7 @@ class DeveloperlistingController extends Controller
                     'updatedBy.role',
                     'importKeywords'
                 ])
-                ->get();
+                ->paginate($perPage);
 
 
             $isAdmin = isset($user->role->name) && $user->role->name === 'admin';
@@ -2411,6 +2431,18 @@ class DeveloperlistingController extends Controller
                     ? 'Admin: Showing all matched developers.'
                     : 'Showing only your own matched developers.',
                 'data' => $developersData,
+                'meta' => [
+                    'current_page' => $developers->currentPage(),
+                    'last_page' => $developers->lastPage(),
+                    'per_page' => $developers->perPage(),
+                    'total' => $developers->total(),
+                ],
+                'link' => [
+                    'first' => $developers->url(1),
+                    'last' => $developers->url($developers->lastPage()),
+                    'prev' => $developers->previousPageUrl(),
+                    'next' => $developers->nextPageUrl(),
+                ],
             ]);
 
         } catch (\Throwable $th) {
