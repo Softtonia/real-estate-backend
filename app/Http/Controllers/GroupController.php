@@ -295,15 +295,13 @@ class GroupController extends Controller
                 $file = fopen('php://output', 'w');
 
                 // Header Row
-                fputcsv($file, ['ID', 'Group Name', 'Created At', 'Updated At']);
+                fputcsv($file, ['ID', 'Group Name']);
 
                 // Data Rows
                 foreach ($groups as $group) {
                     fputcsv($file, [
                         $group->id,
                         $group->group_name,
-                        $group->created_at,
-                        $group->updated_at,
                     ]);
                 }
 
@@ -322,78 +320,91 @@ class GroupController extends Controller
     }
 
 
-    public function importGroups(Request $request)
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'csv_file' => 'required|file|mimes:csv,txt|max:2048',
-            ]);
+  public function importGroups(Request $request)
+{
+    try {
+        $validator = Validator::make($request->all(), [
+            'csv_file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Validation error.',
-                    'errors' => $validator->errors(),
-                ], 422);
-            }
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation error.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
 
-            $file = $request->file('csv_file');
-            $path = $file->getRealPath();
-            $handle = fopen($path, 'r');
+        $file = $request->file('csv_file');
+        $path = $file->getRealPath();
+        $handle = fopen($path, 'r');
 
-            if (!$handle) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Unable to read CSV file.',
-                ], 400);
-            }
+        if (!$handle) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to read CSV file.',
+            ], 400);
+        }
 
-            $header = fgetcsv($handle); // Skip header row
-            $inserted = 0;
-            $skipped = 0;
+        $header = fgetcsv($handle); // skip header
+        $inserted = 0;
+        $updated = 0;
+        $skipped = 0;
 
-            while (($row = fgetcsv($handle)) !== false) {
-                // Expecting 2nd column to be group_name
-                $groupName = trim($row[1] ?? '');
+        while (($row = fgetcsv($handle)) !== false) {
+            // Expecting CSV columns => ID, Group Name
+            $id = trim($row[0] ?? '');
+            $groupName = trim($row[1] ?? '');
 
-                if (!empty($groupName)) {
+            if (!empty($groupName)) {
+                // If ID is given and exists, update record
+                if (!empty($id) && Groupname::where('id', $id)->exists()) {
+                    Groupname::where('id', $id)->update(['group_name' => $groupName]);
+                    $updated++;
+                }
+                // Else create new record if group_name doesn't exist
+                else {
                     $exists = Groupname::where('group_name', $groupName)->exists();
-
                     if (!$exists) {
-                        Groupname::create(['group_name' => $groupName]);
+                        Groupname::create([
+                            'group_name' => $groupName,
+                        ]);
                         $inserted++;
                     } else {
                         $skipped++;
                     }
                 }
             }
+        }
 
-            fclose($handle);
+        fclose($handle);
 
-            if ($inserted === 0 && $skipped === 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'No valid records found in the file.',
-                ], 400);
-            }
-
-            return response()->json([
-                'status' => true,
-                'message' => "Import completed successfully.",
-                'data' => [
-                    'inserted' => $inserted,
-                    'skipped' => $skipped,
-                ],
-            ], 200);
-
-        } catch (\Exception $e) {
+        if ($inserted === 0 && $updated === 0 && $skipped === 0) {
             return response()->json([
                 'status' => false,
-                'message' => 'Failed to import groups.',
-                'error' => $e->getMessage(),
-            ], 500);
+                'message' => 'No valid records found in the file.',
+            ], 400);
         }
+
+        return response()->json([
+            'status' => true,
+            'message' => "Import completed successfully.",
+            'data' => [
+                'inserted' => $inserted,
+                'updated' => $updated,
+                'skipped' => $skipped,
+            ],
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => false,
+            'message' => 'Failed to import groups.',
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
+
 
 
 
