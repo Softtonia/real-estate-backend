@@ -265,7 +265,13 @@ Route::get('/check-ip', function (Request $request) {
 
         Route::middleware(['allow.admin_company'])->post('update-project-temporary-status', [ProjectlistingController::class, 'updateTemporaryStatus']);
         Route::middleware(['allow.admin_company'])->get('project-search', [ProjectlistingController::class, 'projectSearch']);
+
+        Route::middleware(['admin.token'])->post('/project-listings/{id}/update-complete-status', [ProjectlistingController::class, 'completeStatusUpdate']);
         ### No Auth ###
+
+        Route::get('/projects/developer/ongoing', [ProjectlistingController::class, 'getOngoingProjectsByDeveloper']);
+        Route::get('/projects/developer/completed', [ProjectlistingController::class, 'getCompletedProjectsByDeveloper']);
+
 
 
         Route::get('get-project-by-user-id-filter-by-purpose/{userId}',[ProjectlistingController::class,'getProjectsByUserId']);
