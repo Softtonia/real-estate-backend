@@ -3699,59 +3699,59 @@ class ProjectlistingController extends Controller
 
 
 
-public function completeStatusUpdate(Request $request, $id)
-{
-    try {
-        // Validate the incoming request
-        $validator = Validator::make($request->all(), [
-            'complete_status' => 'required|boolean',
-        ]);
+    public function completeStatusUpdate(Request $request, $id)
+    {
+        try {
+            // Validate the incoming request
+            $validator = Validator::make($request->all(), [
+                'complete_status' => 'required|boolean',
+            ]);
 
-        if ($validator->fails()) {
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation error.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            // Find project by ID
+            $project = ProjectList::find($id);
+
+            if (!$project) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Project not found.',
+                ], 200);
+            }
+
+            // Update logic
+            $completeStatus = $request->complete_status;
+
+            $project->complete_status = $completeStatus;
+            $project->completed_at = $completeStatus ? now() : null;
+            $project->save();
+
+            return response()->json([
+                'status' => true,
+                'message' => $completeStatus
+                    ? 'Project marked as completed.'
+                    : 'Project marked as incomplete.',
+                'data' => [
+                    'id' => $project->id,
+                    'complete_status' => $project->complete_status,
+                    'completed_at' => $project->completed_at,
+                ],
+            ], 200);
+
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
-                'message' => 'Validation error.',
-                'errors' => $validator->errors(),
-            ], 422);
+                'message' => 'Failed to update project status.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // Find project by ID
-        $project = ProjectList::find($id);
-
-        if (!$project) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Project not found.',
-            ], 404);
-        }
-
-        // Update logic
-        $completeStatus = $request->complete_status;
-
-        $project->complete_status = $completeStatus;
-        $project->completed_at = $completeStatus ? now() : null;
-        $project->save();
-
-        return response()->json([
-            'status' => true,
-            'message' => $completeStatus
-                ? 'Project marked as completed.'
-                : 'Project marked as incomplete.',
-            'data' => [
-                'id' => $project->id,
-                'complete_status' => $project->complete_status,
-                'completed_at' => $project->completed_at,
-            ],
-        ], 200);
-
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => false,
-            'message' => 'Failed to update project status.',
-            'error' => $e->getMessage(),
-        ], 500);
     }
-}
 
 
 
@@ -3789,6 +3789,7 @@ public function completeStatusUpdate(Request $request, $id)
             ])
             ->where('live_status', 'Approve')
             ->where('complete_status', false)
+            ->where('developer_id', $request->developer_id)
             ->when($request->country_id, function ($query) use ($request) {
                 return $query->where('country_id', $request->country_id);
             })
@@ -3800,7 +3801,7 @@ public function completeStatusUpdate(Request $request, $id)
             })
             ->paginate($request->get('per_page', 10));
 
-            if ($projects->isEmpty()) {
+            if (!$projects) {
                 return response()->json([
                     'status' => false,
                     'message' => 'No ongoing projects found for this developer.',
@@ -4145,6 +4146,7 @@ public function completeStatusUpdate(Request $request, $id)
             ])
             ->where('live_status', 'Approve')
             ->where('complete_status', true)
+            ->where('developer_id', $request->developer_id)
             ->when($request->country_id, function ($query) use ($request) {
                 return $query->where('country_id', $request->country_id);
             })
@@ -4156,7 +4158,7 @@ public function completeStatusUpdate(Request $request, $id)
             })
             ->paginate($request->get('per_page', 10));
 
-            if ($projects->isEmpty()) {
+            if (!$projects) {
                 return response()->json([
                     'status' => false,
                     'message' => 'No Completed projects found for this developer.',
@@ -4465,6 +4467,170 @@ public function completeStatusUpdate(Request $request, $id)
             return response()->json(['error' => $th->getMessage() . ' on line ' . $th->getLine()], 500);
         }
     }
+
+
+    public function  getCurrentDeveloperByProject(Request $request, $project_id)
+    {
+        try {
+            $baseURL = config('app.url');
+
+            // ✅ Validate project_id
+            $validator = Validator::make(['project_id' => $project_id], [
+                'project_id' => 'required|exists:project_listings,id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation error.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            // ✅ Fetch project with related developer
+            $project = ProjectList::with([
+                'developer',
+                'developer.user.role',
+                'developer.createdBy.role',
+                'developer.updatedBy.role',
+                'developer.country',
+                'developer.state',
+                'developer.city',
+                'developer.propertyType',
+                'developer.propertystatus',
+                'developer.purpose',
+                'importKeywords',
+            ])
+            // ->where('live_status', 'Approve')
+            ->find($project_id);
+
+            if (!$project) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Project not found.',
+                    'data' => [],
+                ], 404);
+            }
+
+            // ✅ Developer not linked
+            if (!$project->developer) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No developer linked with this project.',
+                    'data' => [],
+                ], 200);
+            }
+
+            // ✅ Format Developer Data
+            $developer = $project->developer;
+
+            // ✅ Decode developer property_type_id safely
+            $developerPropertyTypeIds = is_array($developer->property_type_id)
+                ? array_map('intval', $developer->property_type_id)
+                : ((is_string($developer->property_type_id) && ($decoded = json_decode($developer->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_type_id)) ? [(int)$developer->property_type_id] : []));
+
+            // ✅ Decode developer property_status_id safely
+            $developerPropertyStatusIds = is_array($developer->property_status_id)
+                ? array_map('intval', $developer->property_status_id)
+                : ((is_string($developer->property_status_id) && ($decoded = json_decode($developer->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                    ? array_map('intval', $decoded)
+                    : ((is_numeric($developer->property_status_id)) ? [(int)$developer->property_status_id] : []));
+
+            // ✅ Fetch Property Types & Statuses for developer
+            $developerPropertyTypes = !empty($developerPropertyTypeIds)
+                ? PropertyType::whereIn('id', $developerPropertyTypeIds)
+                    ->get(['id as property_type_id', 'name as property_type_name'])
+                    ->toArray()
+                : [];
+
+            $developerPropertyStatuses = !empty($developerPropertyStatusIds)
+                ? Status::whereIn('id', $developerPropertyStatusIds)
+                    ->get(['id as property_status_id', 'name as property_status_name'])
+                    ->toArray()
+                : [];
+
+
+            $developerData = [
+                'id' => $developer->id,
+                'developer_unique_id' => $developer->developer_unique_id,
+                'name' => $developer->name,
+                'description' => $developer->description,
+                'purpose_id' => $developer->purpose_id,
+                'purpose_name' => optional($developer->purpose)->name,
+                'property_id' => $developer->property_id,
+                'property_name' => optional($developer->property)->name,
+                'property_status_id' => $developer->property_status_id,
+                'property_status_name' => optional($developer->propertystatus)->name,
+                'property_type_id' => $developer->property_type_id,
+                'property_type_name' => optional($developer->propertyType)->name,
+                'property_types' => $developerPropertyTypes,
+                'property_statuses' => $developerPropertyStatuses,
+                'country_id' => $developer->country_id,
+                'country_name' => optional($developer->country)->name,
+                'state_id' => $developer->state_id,
+                'state_name' => optional($developer->state)->name,
+                'city_id' => $developer->city_id,
+                'city_name' => optional($developer->city)->name,
+                'address' => $developer->address,
+                'area_locality' => $developer->area_locality,
+                'colony' => $developer->colony,
+                'street_address' => $developer->street_address,
+                'pin_code' => $developer->pin_code,
+                'featured_image' => $developer->featured_image ? url($developer->featured_image) : null,
+                'live_status' => $developer->live_status,
+                'temporary_status' => $developer->temporary_status,
+                'status_reason' => $developer->status_reason,
+
+                'user' => $developer->user ? [
+                    'id' => $developer->user->id,
+                    'name' => $developer->user->first_name,
+                    'email' => $developer->user->email,
+                    'role' => optional($developer->user->role)->name,
+                ] : null,
+
+                'created_by' => $developer->createdBy ? [
+                    'id' => $developer->createdBy->id,
+                    'name' => $developer->createdBy->first_name,
+                    'email' => $developer->createdBy->email,
+                    'role' => optional($developer->createdBy->role)->name,
+                ] : null,
+
+                'updated_by' => $developer->updatedBy ? [
+                    'id' => $developer->updatedBy->id,
+                    'name' => $developer->updatedBy->first_name,
+                    'email' => $developer->updatedBy->email,
+                    'role' => optional($developer->updatedBy->role)->name,
+                ] : null,
+
+                'keywords' => $developer->importKeywords ?? [],
+            ];
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Developer details retrieved successfully.',
+                'data' => [
+                    'project_id' => $project->id,
+                    'project_name' => $project->name,
+                    'developer' => $developerData,
+                ],
+            ], 200);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Something went wrong.',
+                'error' => $th->getMessage() . ' on line ' . $th->getLine(),
+            ], 500);
+        }
+    }
+
+
+   
+
+
+
 
 
 

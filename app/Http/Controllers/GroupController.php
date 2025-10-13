@@ -320,9 +320,95 @@ class GroupController extends Controller
     }
 
 
-  public function importGroups(Request $request)
+//   public function importGroups(Request $request)
+// {
+//     try {
+//         $validator = Validator::make($request->all(), [
+//             'csv_file' => 'required|file|mimes:csv,txt|max:2048',
+//         ]);
+
+//         if ($validator->fails()) {
+//             return response()->json([
+//                 'status' => false,
+//                 'message' => 'Validation error.',
+//                 'errors' => $validator->errors(),
+//             ], 422);
+//         }
+
+//         $file = $request->file('csv_file');
+//         $path = $file->getRealPath();
+//         $handle = fopen($path, 'r');
+
+//         if (!$handle) {
+//             return response()->json([
+//                 'status' => false,
+//                 'message' => 'Unable to read CSV file.',
+//             ], 400);
+//         }
+
+//         $header = fgetcsv($handle); // skip header
+//         $inserted = 0;
+//         $updated = 0;
+//         $skipped = 0;
+
+//         while (($row = fgetcsv($handle)) !== false) {
+//             // Expecting CSV columns => ID, Group Name
+//             $id = trim($row[0] ?? '');
+//             $groupName = trim($row[1] ?? '');
+
+//             if (!empty($groupName)) {
+//                 // If ID is given and exists, update record
+//                 if (!empty($id) && Groupname::where('id', $id)->exists()) {
+//                     Groupname::where('id', $id)->update(['group_name' => $groupName]);
+//                     $updated++;
+//                 }
+//                 // Else create new record if group_name doesn't exist
+//                 else {
+//                     $exists = Groupname::where('group_name', $groupName)->exists();
+//                     if (!$exists) {
+//                         Groupname::create([
+//                             'group_name' => $groupName,
+//                         ]);
+//                         $inserted++;
+//                     } else {
+//                         $skipped++;
+//                     }
+//                 }
+//             }
+//         }
+
+//         fclose($handle);
+
+//         if ($inserted === 0 && $updated === 0 && $skipped === 0) {
+//             return response()->json([
+//                 'status' => false,
+//                 'message' => 'No valid records found in the file.',
+//             ], 400);
+//         }
+
+//         return response()->json([
+//             'status' => true,
+//             'message' => "Import completed successfully.",
+//             'data' => [
+//                 'inserted' => $inserted,
+//                 'updated' => $updated,
+//                 'skipped' => $skipped,
+//             ],
+//         ], 200);
+
+//     } catch (\Exception $e) {
+//         return response()->json([
+//             'status' => false,
+//             'message' => 'Failed to import groups.',
+//             'error' => $e->getMessage(),
+//         ], 500);
+//     }
+// }
+
+public function importGroups(Request $request)
 {
     try {
+        // Validate the uploaded CSV file
         $validator = Validator::make($request->all(), [
             'csv_file' => 'required|file|mimes:csv,txt|max:2048',
         ]);
@@ -346,29 +432,40 @@ class GroupController extends Controller
             ], 400);
         }
 
-        $header = fgetcsv($handle); // skip header
+        $header = fgetcsv($handle); // Skip header row
         $inserted = 0;
         $updated = 0;
         $skipped = 0;
 
         while (($row = fgetcsv($handle)) !== false) {
-            // Expecting CSV columns => ID, Group Name
+            // CSV columns: ID, Group Name
             $id = trim($row[0] ?? '');
             $groupName = trim($row[1] ?? '');
 
             if (!empty($groupName)) {
-                // If ID is given and exists, update record
-                if (!empty($id) && Groupname::where('id', $id)->exists()) {
-                    Groupname::where('id', $id)->update(['group_name' => $groupName]);
+                // Find existing record by ID
+                $existing = !empty($id) ? Groupname::find($id) : null;
+
+                if ($existing) {
+                    // Update if found
+                    $existing->update(['group_name' => $groupName]);
                     $updated++;
-                }
-                // Else create new record if group_name doesn't exist
-                else {
-                    $exists = Groupname::where('group_name', $groupName)->exists();
-                    if (!$exists) {
-                        Groupname::create([
+                } else {
+                    // Check duplicate group_name
+                    $existsByName = Groupname::where('group_name', $groupName)->exists();
+
+                    if (!$existsByName) {
+                        // Create new record (use same ID if given)
+                        $group = new Groupname([
                             'group_name' => $groupName,
+                            'status' => '1',
                         ]);
+
+                        if (!empty($id)) {
+                            $group->id = (int) $id;
+                        }
+
+                        $group->save();
                         $inserted++;
                     } else {
                         $skipped++;
@@ -404,6 +501,7 @@ class GroupController extends Controller
         ], 500);
     }
 }
+
 
 
 

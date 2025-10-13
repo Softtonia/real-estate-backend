@@ -9,9 +9,10 @@ class Groupname extends Model
 {
     use HasFactory;
     protected $table = 'group_name'; // Ensure the table name matches your database table name
-    protected $fillable = [
-        'group_name',
-    ];
+    protected $guarded = [];
+
+     public $incrementing = true; // keep auto-increment default
+    protected $keyType = 'int';
     
     // public function customfield()
     // {

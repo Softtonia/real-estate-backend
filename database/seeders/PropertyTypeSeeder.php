@@ -42,6 +42,7 @@ class PropertyTypeSeeder extends Seeder
             ['name' => 'Hazardous Industry Zones', 'display_order' => '25', 'property_id' => 4],
             ['name' => 'Textile', 'display_order' => '26', 'property_id' => 4],
             ['name' => 'Pg', 'display_order' => '27', 'property_id' => 2],
+            ['name' => 'Room/Bed in a Shared-Flat', 'display_order' => '28', 'property_id' => 2],
         ];
 
         foreach ($propertyTypes as $type) {

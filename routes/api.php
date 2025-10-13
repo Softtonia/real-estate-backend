@@ -267,10 +267,14 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['allow.admin_company'])->get('project-search', [ProjectlistingController::class, 'projectSearch']);
 
         Route::middleware(['admin.token'])->post('/project-listings/{id}/update-complete-status', [ProjectlistingController::class, 'completeStatusUpdate']);
+        # 13 Oct 2025S
+        Route::middleware(['allow.admin_company'])->get('/get-current-developer-by-project/{project_id}', [ProjectlistingController::class, 'getCurrentDeveloperByProject']);
         ### No Auth ###
 
+        # 13 Oct 2025 Project / Developer Ongoing / Completed API
         Route::get('/projects/developer/ongoing', [ProjectlistingController::class, 'getOngoingProjectsByDeveloper']);
         Route::get('/projects/developer/completed', [ProjectlistingController::class, 'getCompletedProjectsByDeveloper']);
+
 
 
 
@@ -290,6 +294,11 @@ Route::get('/check-ip', function (Request $request) {
 
         Route::middleware(['allow.admin_developer'])->post('update-developer-temporary-status', [DeveloperlistingController::class, 'updateTemporaryStatus']);
         Route::middleware(['allow.admin_developer'])->get('/developer-search', [DeveloperlistingController::class, 'developerSearch']);
+
+        # 13 Oct 2025S
+
+         Route::middleware(['allow.admin_developer'])->get('get-all-projects-by-developer', [DeveloperlistingController::class, 'getAllProjectsByDeveloper']);
+
 
         ### No Auth ###
 
