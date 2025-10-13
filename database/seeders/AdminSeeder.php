@@ -42,7 +42,8 @@ class AdminSeeder extends Seeder
             // Create a default admin user with unique_id = 'ADMIN'
             User::create([
                 'first_name' => 'Admin',
-                'last_name' => 'Admin',
+                'last_name' => 'User',
+                'user_name' => 'adminuser',
                 'email' => 'sales@softtonia.com',
                 'password' => Hash::make('Zen@1234'),
                 'role_id' => $adminRoleId,

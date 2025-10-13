@@ -101,6 +101,7 @@ class DefaultUser extends Seeder
                         'street_address' => 'Main Street',
                         'pin_code' => '110011',
                         'about' => 'System generated user for role ' . ucfirst($roleName),
+                        'created_by' => 1,
                     ]
                 );
 
@@ -124,14 +125,17 @@ class DefaultUser extends Seeder
                             'state_id' => 1,
                             'city_id' => 1,
                             'address' => 'HQ - ' . ucfirst($roleName),
+                            'bussiness_address' => '123 ' . ucfirst($roleName) . ' St, Business Park',
+                            'area_locality' => 'Business Area',
+                            'colony' => 'Sector 20',
+                            'street_address' => 'Business Street',
                             'pin_code' => '110011',
                             'alternate_number' => rand(7000000000, 7999999999),
                             'no_of_employees' => rand(5, 50),
+                            'rera_number' => 'RERA' . rand(10000, 99999),
                             'about_us' => 'This is a demo ' . ucfirst($roleName) . ' company account.',
                             'aadhaar_number' => str_pad(rand(100000000000, 999999999999), 12, '0', STR_PAD_LEFT),
-                            'aadhaar_front' => 'uploads/kyc/aadhaarFront/sample_front.jpg',
-                            'aadhaar_back' => 'uploads/kyc/aadhaarBack/sample_back.jpg',
-                            'business_proof' => 'uploads/kyc/businessProof/sample_proof.pdf',
+                          
                             'created_by' => 1,
                         ]
                     );
