@@ -1733,8 +1733,8 @@ class ProjectlistingController extends Controller
                 'status_reason' => $projects->status_reason,
                 'project_status' => $projects->project_status,
                 'temporary_status' => $projects->temporary_status,
-                'complete_status' => $project->complete_status,
-                    'completed_at' => $project->completed_at,
+                'complete_status' => $projects->complete_status,
+                    'completed_at' => $projects->completed_at,
                 'user_id' => $projects->user_id,
                 'user' => $projects->user_id ? [
                         'id' => $projects->user->id,

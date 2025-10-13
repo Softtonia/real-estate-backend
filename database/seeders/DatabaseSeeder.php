@@ -45,6 +45,7 @@ class DatabaseSeeder extends Seeder
          $this->call(ClientReviewsSeeder::class);
          $this->call(LocationSeeder::class);
          $this->call(LeadTypesSeeder::class);
+         $this->call(DefaultUser::class);
 
 
     }
