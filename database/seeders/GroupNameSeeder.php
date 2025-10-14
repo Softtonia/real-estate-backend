@@ -14,22 +14,22 @@ class GroupNameSeeder extends Seeder
      */
     public function run(): void
     {
-        $groups = [
-            [
-                'group_name' => 'Custom Fields for Sell > Residentials',
-                'status' => 1,
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
-            ],
-            [
-                'group_name' => 'Custom Field for PG',
-                'status' => 1,
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
-            ] 
+        // $groups = [
+        //     [
+        //         'group_name' => 'Custom Fields for Sell > Residentials',
+        //         'status' => 1,
+        //         'created_at' => Carbon::now(),
+        //         'updated_at' => Carbon::now(),
+        //     ],
+        //     [
+        //         'group_name' => 'Custom Field for PG',
+        //         'status' => 1,
+        //         'created_at' => Carbon::now(),
+        //         'updated_at' => Carbon::now(),
+        //     ] 
 
-        ];
+        // ];
 
-        DB::table('group_name')->insert($groups);
+        // DB::table('group_name')->insert($groups);
     }
 }
