@@ -2467,6 +2467,15 @@ class ProjectlistingController extends Controller
                     ] : null,
                     'keyword' => $projects->developer->importKeywords ?? [],
 
+                     // ✅ Add these lines:
+                    'total_project_count' => \App\Models\ProjectList::where('developer_id', $projects->developer->id)->count(),
+                    'project_completed_count' => \App\Models\ProjectList::where('developer_id', $projects->developer->id)
+                        ->where('complete_status', true)
+                        ->count(),
+                    'project_ongoing_count' => \App\Models\ProjectList::where('developer_id', $projects->developer->id)
+                        ->where('complete_status', false)
+                        ->count(),
+
                 ] : null,
 
             ]);
@@ -3968,7 +3977,7 @@ class ProjectlistingController extends Controller
     }
 
 
-    public function getAllProjectsListingByCompanyToken(Request $request)
+    public function getAllProjectsListingByCompanyOrAdminToken(Request $request)
     {
         try {
             $authUser = Auth::user();
@@ -3976,16 +3985,7 @@ class ProjectlistingController extends Controller
                 return response()->json(['error' => 'Unauthorized'], 401);
             }
             $userId = $authUser->id;
-            // Property Owner check (exclude admin)
-            $propertyOwner = User::where('id', $userId)
-                ->whereHas('role', function ($q) {
-                    $q->where('name', '!=', 'admin');
-                })
-                ->first();
-
-            if (!$propertyOwner) {
-                return response()->json(['error' => 'User not found or is admin.'], 200);
-            }
+            
 
             $baseURL = config('app.url');
 
@@ -4001,8 +4001,18 @@ class ProjectlistingController extends Controller
                 'city',
                 'customFieldValues.customField.templateValue',
                 'customFieldValues.customFieldOption',
-            ])
-                ->where('user_id', $userId);
+            ]);
+
+            if($authUser->role->name !== 'admin') {
+                // Non-admin users can only access their own projects
+                $query->where('user_id', $userId);
+            } else{
+                if ($request->filled('user_id')) {
+                    $query->where('user_id', $request->user_id);
+                }
+
+            }
+                
 
             // Purpose filter
             if ($request->filled('purpose_id')) {
@@ -4242,6 +4252,13 @@ class ProjectlistingController extends Controller
                     'developer_name' => $project->developer->name ?? null,
                     'property_id' => $project->property_id ?? null,
                     'property_name' => $project->property->name ?? null,
+                    'user_id' => $project->user_id ?? null,
+                    'user' => $project->user_id ? [
+                        'id' => $project->user->id,
+                        'name' => $project->user->first_name,
+                        'email' => $project->user->email,
+                        'role' => optional($project->user->role)->name,
+                    ] : null,
                     'created_by' => $project->created_by ?? null,
                     'updated_by' => $project->updated_by ?? null,
                     'created_at' => $project->created_at ?? null,
