@@ -273,8 +273,8 @@ Route::get('/check-ip', function (Request $request) {
         ### No Auth ###
 
         # 13 Oct 2025 Project / Developer Ongoing / Completed API
-        Route::get('/projects/developer/ongoing', [ProjectlistingController::class, 'getOngoingProjectsByDeveloper']);
-        Route::get('/projects/developer/completed', [ProjectlistingController::class, 'getCompletedProjectsByDeveloper']);
+        Route::get('get-all-ongoing-projects-by-developer', [ProjectlistingController::class, 'getOngoingProjectsByDeveloper']);
+        Route::get('get-all-completed-projects-by-developer', [ProjectlistingController::class, 'getCompletedProjectsByDeveloper']);
 
 
 
