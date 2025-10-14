@@ -667,24 +667,27 @@ class ProjectlistingController extends Controller
                         'temporary_status' => $project->developer->temporary_status,
                         'status_reason' => $project->developer->status_reason,
                         'user_id' => $project->developer->user_id,
-                        'user' => $project->developer->user_id ? [
+                       'user' => $project->developer && $project->developer->user ? [
                             'id' => $project->developer->user->id,
                             'name' => $project->developer->user->first_name,
                             'email' => $project->developer->user->email,
                             'role' => optional($project->developer->user->role)->name,
-                        ] :null,
-                        'created_by' => $project->developer->createdBy ? [
-                            'id' => $project->developer->createdBy->id,
-                            'name' => $project->developer->createdBy->first_name,
-                            'email' => $project->developer->createdBy->email,
-                            'role' => optional($project->developer->createdBy->role)->name,
                         ] : null,
-                        'updated_by' => $project->developer->updatedBy ? [
-                            'id' => $project->developer->updatedBy->id,
-                            'name' => $project->developer->updatedBy->first_name,
-                            'email' => $project->developer->updatedBy->email,
-                            'role' => optional($project->developer->updatedBy->role)->name,
+
+                        'created_by' => optional($project->developer->createdBy) ? [
+                            'id' => optional($project->developer->createdBy)->id,
+                            'name' => optional($project->developer->createdBy)->first_name,
+                            'email' => optional($project->developer->createdBy)->email,
+                            'role' => optional(optional($project->developer->createdBy)->role)->name,
                         ] : null,
+
+                        'updated_by' => optional($project->developer->updatedBy) ? [
+                            'id' => optional($project->developer->updatedBy)->id,
+                            'name' => optional($project->developer->updatedBy)->first_name,
+                            'email' => optional($project->developer->updatedBy)->email,
+                            'role' => optional(optional($project->developer->updatedBy)->role)->name,
+                        ] : null,
+
                         'keyword' => $project->developer->importKeywords ?? [],
 
                     ] : null,
