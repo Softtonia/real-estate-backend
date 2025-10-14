@@ -2947,57 +2947,124 @@ class CustomFieldController extends Controller
     }
 
 
+    // public function importCustomFieldUniqueCode(Request $request)
+    // {
+    //     $request->validate([
+    //         'file' => 'required|file|mimes:csv,txt|max:2048',
+    //     ]);
+
+    //     $file = $request->file('file');
+    //     $handle = fopen($file->getRealPath(), 'r');
+
+    //     $header = fgetcsv($handle, 1000, ','); // read first row (header)
+
+    //     $updated = 0;
+    //     $created = 0;
+
+    //     while (($row = fgetcsv($handle, 1000, ',')) !== false) {
+    //         $data = array_combine($header, $row);
+
+    //         // Slugify to keep it consistent
+    //         $slug = Str::slug($data['slug'] ?? $data['name']);
+
+    //         // First try update
+    //         $record = CustomFieldUniqueCode::where('slug', $slug)
+    //             ->where('post_type', $data['post_type'])
+    //             ->first();
+
+    //         if ($record) {
+    //             $record->update([
+    //                 'name' => $data['name'],
+    //                 'slug' => $slug,
+    //                 'post_type' => $data['post_type'],
+    //                 'status' => $data['status'],
+    //             ]);
+    //             $updated++;
+    //         } else {
+    //             CustomFieldUniqueCode::create([
+    //                 'name' => $data['name'],
+    //                 'slug' => $slug,
+    //                 'post_type' => $data['post_type'],
+    //                 'status' => $data['status'],
+    //             ]);
+    //             $created++;
+    //         }
+    //     }
+
+    //     fclose($handle);
+
+    //     return response()->json([
+    //         'status' => true,
+    //         'message' => "Import completed. {$updated} updated, {$created} created.",
+    //     ]);
+    // }
+
     public function importCustomFieldUniqueCode(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|file|mimes:csv,txt|max:2048',
-        ]);
+{
+    $request->validate([
+        'file' => 'required|file|mimes:csv,txt|max:2048',
+    ]);
 
-        $file = $request->file('file');
-        $handle = fopen($file->getRealPath(), 'r');
+    $file = $request->file('file');
+    $handle = fopen($file->getRealPath(), 'r');
 
-        $header = fgetcsv($handle, 1000, ','); // read first row (header)
+    $header = fgetcsv($handle, 1000, ','); // Read header row
 
-        $updated = 0;
-        $created = 0;
+    $created = 0;
+    $updated = 0;
+    $skipped = 0;
 
-        while (($row = fgetcsv($handle, 1000, ',')) !== false) {
-            $data = array_combine($header, $row);
+    while (($row = fgetcsv($handle, 1000, ',')) !== false) {
+        $data = array_combine($header, $row);
 
-            // Slugify to keep it consistent
-            $slug = Str::slug($data['slug'] ?? $data['name']);
-
-            // First try update
-            $record = CustomFieldUniqueCode::where('slug', $slug)
-                ->where('post_type', $data['post_type'])
-                ->first();
-
-            if ($record) {
-                $record->update([
-                    'name' => $data['name'],
-                    'slug' => $slug,
-                    'post_type' => $data['post_type'],
-                    'status' => $data['status'],
-                ]);
-                $updated++;
-            } else {
-                CustomFieldUniqueCode::create([
-                    'name' => $data['name'],
-                    'slug' => $slug,
-                    'post_type' => $data['post_type'],
-                    'status' => $data['status'],
-                ]);
-                $created++;
-            }
+        // Skip rows missing required fields
+        if (empty($data['name']) || empty($data['post_type'])) {
+            continue;
         }
 
-        fclose($handle);
+        $slug = Str::slug($data['slug'] ?? $data['name']);
+        $templateName = $data['name']; // Use name as the "template" for skipping
 
-        return response()->json([
-            'status' => true,
-            'message' => "Import completed. {$updated} updated, {$created} created.",
-        ]);
+        // Check if template name already exists → skip
+        $templateExists = CustomFieldUniqueCode::where('name', $templateName)->exists();
+        if ($templateExists) {
+            $skipped++;
+            continue;
+        }
+
+        // Check if record exists by ID (optional)
+        $record = !empty($data['id']) ? CustomFieldUniqueCode::find($data['id']) : null;
+
+        if ($record) {
+            // Update existing record
+            $record->update([
+                'name' => $data['name'],
+                'slug' => $slug,
+                'post_type' => $data['post_type'],
+                'status' => $data['status'] ?? 1,
+            ]);
+            $updated++;
+        } else {
+            // Insert new record
+            CustomFieldUniqueCode::create([
+                'id' => $data['id'] ?? null,
+                'name' => $data['name'],
+                'slug' => $slug,
+                'post_type' => $data['post_type'],
+                'status' => $data['status'] ?? 1,
+            ]);
+            $created++;
+        }
     }
+
+    fclose($handle);
+
+    return response()->json([
+        'status' => true,
+        'message' => "Import completed. {$updated} updated, {$created} created, {$skipped} skipped.",
+    ]);
+}
+
 
 
     public function searchCustomFieldUniqueCode(Request $request)
