@@ -467,7 +467,7 @@ class ProjectlistingController extends Controller
                         case 'repeater':
                             $nestedRows = DB::table('custom_field_repeater_values')
                                 ->where('custom_field_repeater_id', $customField->id)
-                                ->where('project_listing_id', $property->id)
+                                ->where('project_listing_id', $project->id)
                                 ->get()
                                 ->groupBy('unique_id');
 
