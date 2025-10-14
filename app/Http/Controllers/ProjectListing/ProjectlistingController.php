@@ -717,95 +717,7 @@ class ProjectlistingController extends Controller
     ### end new index function 10/07/2025 ####
 
 
-    public function getUserProject(Request $request)
-    {
-        try {
-            $user = Auth::user();
-            if (!$user) {
-                return response()->json(['error' => 'Unauthorized.'], 401);
-            }
-
-            $isAdmin = $user->role->name === 'admin';
-
-            // Base query
-            $query = ProjectList::query();
-
-            if ($isAdmin) {
-                // Admin logic
-                if ($request->has('user_id') && is_numeric($request->user_id)) {
-                    $query->where(function ($q) use ($request) {
-                        $q->where('created_by', $request->user_id)
-                            ->orWhere('updated_by', $request->user_id);
-                    });
-                }
-                // else: no filter, show all projects
-            } else {
-                // Non-admin user can only see their own projects
-                $query->where(function ($q) use ($user) {
-                    $q->where('created_by', $user->id)
-                        ->orWhere('updated_by', $user->id);
-                });
-            }
-
-            $projects = $query->get();
-
-            if ($projects->isEmpty()) {
-                return response()->json(['message' => 'No Project found.'], 200);
-            }
-
-            // Format featured_image URL
-            $projects = $projects->map(function ($project) {
-
-                  //  Decode property_type_id safely
-
-                $propertyTypeIds = is_array($project->property_type_id)
-                    ? array_map('intval', $project->property_type_id)
-                    : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
-
-                //  Decode property_status_id safely
-                $propertyStatusIds = is_array($project->property_status_id)
-                    ? array_map('intval', $project->property_status_id)
-                    : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
-
-                //  Fetch id + name together
-                $propertyTypes = !empty($propertyTypeIds)
-                    ? PropertyType::whereIn('id', $propertyTypeIds)
-                        ->get(['id as property_type_id', 'name as property_type_name'])
-                        ->toArray()
-                    : [];
-
-                $propertyStatuses = !empty($propertyStatusIds)
-                    ? Status::whereIn('id', $propertyStatusIds)
-                        ->get(['id as property_status_id', 'name as property_status_name'])
-                        ->toArray()
-                    : [];
-
-                
-                if (!empty($project->featured_image)) {
-                    $project->featured_image = filter_var($project->featured_image, FILTER_VALIDATE_URL)
-                        ? $project->featured_image
-                        : url(ltrim($project->featured_image, '/'));
-                }
-
-                $project->property_type = $propertyTypes;
-                $project->property_status = $propertyStatuses;
-                return $project;
-            });
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Project retrieved successfully.',
-                'data' => $projects
-            ], 200);
-
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
+   
 
 
     public function indexByAdmin(Request $request)
@@ -1914,224 +1826,7 @@ class ProjectlistingController extends Controller
 
 
     
-    ## new listing by user id ###
-
-    public function getProjectByUserId(Request $request)
-    {
-        try {
-            $baseURL = config('app.url');
-            $basePath = public_path();
-            $user = $request->user();
-            $requestedUserId = $request->input('user_id');
-
-            if (strtolower($user->role->name) !== 'admin') {
-                $requestedUserId = $user->id;
-            }
-
-            $projects = ProjectList::with([
-                'country',
-                'state',
-                'city',
-                'user.role',
-                'propertyType',
-                'purpose',
-                'property',
-                'propertystatus',
-                'customFieldValues.customField.templateValue',
-                'customFieldValues.customFieldOption'
-            ])->where('user_id', $requestedUserId)->get();
-
-            $projectsData = $projects->map(function ($property) use ($baseURL) {
-                $formattedCustomFieldValues = $property->customFieldValues->map(function ($customFieldValue) use ($baseURL, $property) {
-                    $customField = $customFieldValue->customField;
-                    $fieldType = $customField->field_type ?? null;
-                    $fieldValue = $customFieldValue->field_meta_value ?? '';
-                    $fieldValueArray = null;
-                    $allAvailableOptions = [];
-
-                    if (in_array($fieldType, ['select', 'radio', 'checkbox'])) {
-                        $options = DB::table('custom_field_options')
-                            ->where('custom_field_id', $customField->id)
-                            ->get(['id', 'name', 'value']);
-
-                        foreach ($options as $option) {
-                            $allAvailableOptions[] = [
-                                'name' => $option->name,
-                                'value' => $option->value,
-                            ];
-                        }
-                    }
-
-                    if ($fieldType === 'checkbox') {
-                        $optionIds = explode(',', $customFieldValue->custom_field_options_id);
-                        $fieldValueArray = DB::table('custom_field_options')
-                            ->whereIn('id', $optionIds)
-                            ->pluck('name')
-                            ->toArray();
-                    } elseif ($fieldType === 'media') {
-                        $decoded = json_decode($fieldValue, true);
-                        $fieldValueArray = is_array($decoded)
-                            ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-                            : [];
-                    } elseif ($fieldType === 'file') {
-                        $fieldValueArray = $fieldValue ? url($fieldValue) : null;
-                    } elseif ($fieldType === 'repeater') {
-                        $nestedRows = DB::table('custom_field_repeater_values')
-                            ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
-                            ->where('project_listing_id', $property->id)
-                            ->get()
-                            ->groupBy('unique_id');
-
-                        $fieldValueArray = [];
-
-                        foreach ($nestedRows as $groupId => $rows) {
-                            $groupData = [];
-
-                            foreach ($rows as $row) {
-                                $value = $row->field_meta_value;
-                                $fieldTypeNested = $row->field_type;
-                                $nestedOptions = [];
-
-                                if (in_array($fieldTypeNested, ['select', 'radio'])) {
-                                    $option = DB::table('custom_field_repeater_options')
-                                        ->where('id', $row->custom_field_repeater_options_id)
-                                        ->first();
-                                    $value = optional($option)->name ?? $value;
-
-                                    $nestedOptions = DB::table('custom_field_repeater_options')
-                                        ->where('custom_field_repeater_id', $row->custom_field_id)
-                                        ->get(['name', 'value'])
-                                        ->map(fn($opt) => [
-                                            'name' => $opt->name,
-                                            'value' => $opt->value,
-                                        ])->toArray();
-                                } elseif ($fieldTypeNested === 'checkbox') {
-                                    $ids = explode(',', $row->custom_field_repeater_options_id);
-                                    $value = DB::table('custom_field_repeater_options')
-                                        ->whereIn('id', $ids)
-                                        ->pluck('name')
-                                        ->toArray();
-
-                                    $nestedOptions = DB::table('custom_field_repeater_options')
-                                        ->where('custom_field_repeater_id', $row->custom_field_id)
-                                        ->get(['name', 'value'])
-                                        ->map(fn($opt) => [
-                                            'name' => $opt->name,
-                                            'value' => $opt->value,
-                                        ])->toArray();
-                                } elseif ($fieldTypeNested === 'file') {
-                                    $decoded = is_string($value) ? json_decode($value, true) : $value;
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => url($file), $decoded)
-                                        : [];
-                                } elseif ($fieldTypeNested === 'media') {
-                                    $decoded = json_decode($value, true);
-                                    $value = is_array($decoded)
-                                        ? array_map(fn($file) => $baseURL . '/uploads/media/' . $file, $decoded)
-                                        : [];
-                                }
-
-                                $groupData[] = [
-                                    'sub_field_id' => $row->custom_field_id,
-                                    'field_type' => $fieldTypeNested,
-                                    'field_value' => $value,
-                                    'options' => $nestedOptions,
-                                ];
-                            }
-
-                            $fieldValueArray[] = $groupData;
-                        }
-                    } elseif (in_array($fieldType, ['select', 'radio'])) {
-                        $option = DB::table('custom_field_options')
-                            ->where('id', $customFieldValue->custom_field_options_id)
-                            ->first();
-                        $fieldValueArray = optional($option)->name;
-                    } else {
-                        $fieldValueArray = $fieldValue;
-                    }
-
-                    $fieldData = [
-                        'custom_field_id' => $customField->id ?? null,
-                        'field_label' => $customField->field_label ?? null,
-                        'field_type' => $fieldType,
-                        'placeholder' => $customField->field_placeholder ?? null,
-                        'template_id' => $customField->template_id ?? null,
-                        'template' => $customField->templateValue ?? null,
-                        'field_value' => $fieldValueArray,
-                        'options' => $allAvailableOptions,
-                    ];
-
-                    if ($fieldType === 'checkbox') {
-                        $fieldData['checkbox_type'] = $customField->checkbox_type ?? null;
-                    }
-
-                    return $fieldData;
-                });
-
-                  //  Decode property_type_id safely
-
-                $propertyTypeIds = is_array($property->property_type_id)
-                    ? array_map('intval', $property->property_type_id)
-                    : ((is_string($property->property_type_id) && ($decoded = json_decode($property->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($property->property_type_id)) ? [(int)$property->property_type_id] : []));
-
-                //  Decode property_status_id safely
-                $propertyStatusIds = is_array($property->property_status_id)
-                    ? array_map('intval', $property->property_status_id)
-                    : ((is_string($property->property_status_id) && ($decoded = json_decode($property->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($property->property_status_id)) ? [(int)$property->property_status_id] : []));
-
-                //  Fetch id + name together
-                $propertyTypes = !empty($propertyTypeIds)
-                    ? PropertyType::whereIn('id', $propertyTypeIds)
-                        ->get(['id as property_type_id', 'name as property_type_name'])
-                        ->toArray()
-                    : [];
-
-                $propertyStatuses = !empty($propertyStatusIds)
-                    ? Status::whereIn('id', $propertyStatusIds)
-                        ->get(['id as property_status_id', 'name as property_status_name'])
-                        ->toArray()
-                    : [];
-
-
-                return [
-                    'id' => $property->id,
-                    'project_unique_id' => $property->project_unique_id,
-                    'name' => $property->name,
-                    'description' => $property->description,
-                    'country_id' => $property->country_id,
-                    'country_name' => optional($property->country)->name,
-                    'state_id' => $property->state_id,
-                    'state_name' => optional($property->state)->name,
-                    'city_id' => $property->city_id,
-                    'city_name' => optional($property->city)->name,
-                    'area_locality' => $property->area_locality,
-                    'colony' => $property->colony,
-                    'street_address' => $property->street_address,
-                    'pin_code' => $property->pin_code,
-                    'live_status' => $property->live_status,
-                    'status_reason' => $property->status_reason,
-                    'project_status' => $property->project_status,
-                    'user_id' => $property->user_id,
-                    'listed_by' => optional(optional($property->user)->role)->name,
-                    'purpose_id' => $property->purpose_id,
-                    'purpose_id_name' => optional($property->purpose)->name,
-                    'property_id' => $property->property_id,
-                    'property_id_name' => optional($property->property)->name,
-                    'property_type' => $propertyTypes,
-                    'property_status' => $propertyStatuses,
-                    'custom_field_values' => $formattedCustomFieldValues,
-                ];
-            });
-
-            return response()->json($projectsData);
-        } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
-        }
-    }
+   
 
 
     // bulk delete project by ids
@@ -4103,12 +3798,16 @@ class ProjectlistingController extends Controller
     }
 
 
-    public function  getCurrentDeveloperByProject(Request $request, $project_id)
+    public function  getAssociatedDeveloperWithProject(Request $request, $project_id)
     {
         try {
             $baseURL = config('app.url');
+            $user = auth()->user();
+            if (!$user) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
 
-            // ✅ Validate project_id
+            //  Validate project_id
             $validator = Validator::make(['project_id' => $project_id], [
                 'project_id' => 'required|exists:project_listings,id',
             ]);
@@ -4121,8 +3820,8 @@ class ProjectlistingController extends Controller
                 ], 422);
             }
 
-            // ✅ Fetch project with related developer
-            $project = ProjectList::with([
+            //  Fetch project with related developer
+            $projectQuery = ProjectList::with([
                 'developer',
                 'developer.user.role',
                 'developer.createdBy.role',
@@ -4134,19 +3833,24 @@ class ProjectlistingController extends Controller
                 'developer.propertystatus',
                 'developer.purpose',
                 'importKeywords',
-            ])
-            // ->where('live_status', 'Approve')
-            ->find($project_id);
+            ]);
+           // ✅ Role-based access
+            if ($user->role->name !== 'admin') {
+                // Non-admin users can only access their own projects
+                $projectQuery->where('user_id', $user->id);
+            }
+
+            $project = $projectQuery->find($project_id);
 
             if (!$project) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Project not found.',
                     'data' => [],
-                ], 404);
+                ], 200);
             }
 
-            // ✅ Developer not linked
+            //  Developer not linked
             if (!$project->developer) {
                 return response()->json([
                     'status' => false,
@@ -4155,24 +3859,24 @@ class ProjectlistingController extends Controller
                 ], 200);
             }
 
-            // ✅ Format Developer Data
+            //  Format Developer Data
             $developer = $project->developer;
 
-            // ✅ Decode developer property_type_id safely
+            //  Decode developer property_type_id safely
             $developerPropertyTypeIds = is_array($developer->property_type_id)
                 ? array_map('intval', $developer->property_type_id)
                 : ((is_string($developer->property_type_id) && ($decoded = json_decode($developer->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
                     ? array_map('intval', $decoded)
                     : ((is_numeric($developer->property_type_id)) ? [(int)$developer->property_type_id] : []));
 
-            // ✅ Decode developer property_status_id safely
+            //  Decode developer property_status_id safely
             $developerPropertyStatusIds = is_array($developer->property_status_id)
                 ? array_map('intval', $developer->property_status_id)
                 : ((is_string($developer->property_status_id) && ($decoded = json_decode($developer->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
                     ? array_map('intval', $decoded)
                     : ((is_numeric($developer->property_status_id)) ? [(int)$developer->property_status_id] : []));
 
-            // ✅ Fetch Property Types & Statuses for developer
+            //  Fetch Property Types & Statuses for developer
             $developerPropertyTypes = !empty($developerPropertyTypeIds)
                 ? PropertyType::whereIn('id', $developerPropertyTypeIds)
                     ->get(['id as property_type_id', 'name as property_type_name'])

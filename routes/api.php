@@ -165,7 +165,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['OnlyConsultancy'])->post('leave-the-comapny-by-consultancy', [CompanyConsultancyController::class, 'leaveTheComapnyByConsultancy']); // Done By softtonia
         Route::middleware(['OnlyConsultancy'])->get('get-consultancy-details-with-company', [CompanyConsultancyController::class, 'getConsultancyDetailsWithCompany']);  // Done By softtonia
 
-        Route::middleware(['OnlyCompany'])->get('get-company-project-listing', [CompanyProjectController::class, 'getCompanyProjectListing']); // Done By softtonia
+
         Route::middleware(['OnlyCompany'])->get('fetch-assigned-project-of-company', [CompanyProjectController::class, 'fetchAssignedProjectOfCompany']); // Done By softtonia
         Route::post('property-details-by-projectId', [UserController::class, 'propertyDetailsByProjectId']);
         Route::middleware(['OnlyConsultancy'])->get('fetch-total-assigned-project-to-consultancy', [ConsultancyProjectController::class, 'fetchTotalAssignedProjectToConsultancy']);
@@ -255,12 +255,11 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['allow.admin_company'])->post('edit-project-listing', [ProjectlistingController::class, 'update']);
         Route::middleware(['allow.admin_company'])->post('delete-project-listing', [ProjectlistingController::class, 'destroy']);
         Route::middleware(['admin.token'])->get('get-all-project-listing-by-admin', [ProjectlistingController::class, 'indexByAdmin']);
-        Route::middleware(['allow.admin_company'])->get('/user-project', [ProjectlistingController::class, 'getUserProject']);
-
+       
         Route::middleware(['allow.admin_company'])->get('get-data-project/{id}', [ProjectlistingController::class, 'getdatabyId']);
         Route::middleware(['allow.admin_company'])->post('update-project-status', [ProjectlistingController::class, 'updateProjectStatus']);
         Route::middleware(['admin.token'])->post('update-project-status-by-admin', [ProjectlistingController::class, 'updateProjectStatusByAdmin']);
-        Route::middleware(['adminOrCurrentUser'])->post('get-project-by-userid', [ProjectlistingController::class, 'getProjectByUserId']);
+       
         Route::middleware(['allow.admin_company'])->post('project-bulk-delete', [ProjectlistingController::class, 'bulkDelete']);
 
         Route::middleware(['allow.admin_company'])->post('update-project-temporary-status', [ProjectlistingController::class, 'updateTemporaryStatus']);
@@ -268,7 +267,7 @@ Route::get('/check-ip', function (Request $request) {
 
         Route::middleware(['admin.token'])->post('/project-listings/{id}/update-complete-status', [ProjectlistingController::class, 'completeStatusUpdate']);
         # 13 Oct 2025S
-        Route::middleware(['allow.admin_company'])->get('/get-current-developer-by-project/{project_id}', [ProjectlistingController::class, 'getCurrentDeveloperByProject']);
+        Route::middleware(['allow.admin_company'])->get('/get-associated-developer-with-project/{project_id}', [ProjectlistingController::class, 'getAssociatedDeveloperWithProject']);
         Route::middleware(['allow.admin_company'])->get('/get-all-project-listings-by-company-token', [ProjectlistingController::class, 'getAllProjectsListingByCompanyToken']);
         ### No Auth ###
 
@@ -298,7 +297,7 @@ Route::get('/check-ip', function (Request $request) {
 
         # 13 Oct 2025S
 
-         Route::middleware(['allow.admin_developer'])->get('get-all-projects-by-developer', [DeveloperlistingController::class, 'getAllProjectsByDeveloper']);
+         Route::middleware(['allow.admin_developer'])->get('get-associated-projects-with-developer', [DeveloperlistingController::class, 'getAssociatedProjectsWithDeveloper']);
 
 
         ### No Auth ###
