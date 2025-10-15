@@ -67,6 +67,11 @@ class ProjectList extends Model
         return $this->hasMany(Customfieldvalue::class, 'project_listing_id');
     }
 
+    public function customFieldRepeaterValues()
+    {
+        return $this->hasMany(Customfieldrepeatervalue::class, 'project_listing_id');
+    }
+
 
     public function properties()
     {
