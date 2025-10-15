@@ -3271,6 +3271,8 @@ class ProjectlistingController extends Controller
             }
             // Purpose counts
 
+         
+
             $projectsData = $projects->map(function ($project) use ($baseURL) {
                 $formattedCustomFieldValues = $project->customFieldValues->map(function ($customFieldValue) use ($baseURL, $project) {
                     $customField = $customFieldValue->customField;
@@ -3321,7 +3323,7 @@ class ProjectlistingController extends Controller
 
                         case 'repeater':
                             $nestedRows = DB::table('custom_field_repeater_values')
-                                ->where('custom_field_repeater_id', $customField->id)
+                                ->where('custom_field_repeater_id', $customFieldValue->custom_field_id) // ✅ Changed from $customField->id to $customFieldValue->custom_field_id
                                 ->where('project_listing_id', $project->id)
                                 ->get()
                                 ->groupBy('unique_id');
@@ -3375,19 +3377,16 @@ class ProjectlistingController extends Controller
                                             : [];
                                     }
 
-                                    // 💡 Get template info for nested field
-                                    $subField = DB::table('custom_fields')->where('id', $row->custom_field_id)->first();
-                                    $template = $subField && $subField->template_id
-                                        ? DB::table('custom_field_unique_codes')->where('id', $subField->template_id)->first()
-                                        : null;
+                                    // ✅ Get sub-field details from custom_field_repeaters table
+                                    $subField = DB::table('custom_field_repeaters')->where('id', $row->custom_field_id)->first();
 
                                     $groupData[] = [
                                         'sub_field_id' => $row->custom_field_id,
+                                        'field_label' => $subField->field_label ?? null,
+                                        'placeholder' => $subField->field_placeholder ?? null,
                                         'field_type' => $nestedType,
                                         'field_value' => $nestedValue,
                                         'options' => $nestedOptions,
-                                        'template_id' => $subField->template_id ?? null,
-                                        'template' => $template,
                                     ];
                                 }
 
@@ -3405,8 +3404,8 @@ class ProjectlistingController extends Controller
                     $fieldArray = [
                         'custom_field_id' => optional($customField)->id,
                         'field_type' => $fieldType,
-                        'field_value' => $fieldValueFormatted,
                         'field_name' => optional($customField)->field_label,
+                        'field_value' => $fieldValueFormatted,
                         'placeholder' => optional($customField)->field_placeholder,
                         'template_id' => $templateId,
                         'template' => $templateData,
@@ -3420,135 +3419,152 @@ class ProjectlistingController extends Controller
                     return $fieldArray;
                 });
 
-                 //  Decode property_type_id safely
+              // Decode property_type_id safely
+               $propertyTypeIds = is_array($project->property_type_id)
+                        ? array_map('intval', $project->property_type_id)
+                        : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                            ? array_map('intval', $decoded)
+                            : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
 
-                $propertyTypeIds = is_array($project->property_type_id)
-                    ? array_map('intval', $project->property_type_id)
-                    : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
+                    //  Decode property_status_id safely
+                    $propertyStatusIds = is_array($project->property_status_id)
+                        ? array_map('intval', $project->property_status_id)
+                        : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                            ? array_map('intval', $decoded)
+                            : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
 
-                //  Decode property_status_id safely
-                $propertyStatusIds = is_array($project->property_status_id)
-                    ? array_map('intval', $project->property_status_id)
-                    : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
+                    //  Fetch id + name together
+                    $propertyTypes = !empty($propertyTypeIds)
+                        ? PropertyType::whereIn('id', $propertyTypeIds)
+                            ->get(['id as property_type_id', 'name as property_type_name'])
+                            ->toArray()
+                        : [];
 
-                //  Fetch id + name together
-                $propertyTypes = !empty($propertyTypeIds)
-                    ? PropertyType::whereIn('id', $propertyTypeIds)
-                        ->get(['id as property_type_id', 'name as property_type_name'])
-                        ->toArray()
-                    : [];
+                    $propertyStatuses = !empty($propertyStatusIds)
+                        ? Status::whereIn('id', $propertyStatusIds)
+                            ->get(['id as property_status_id', 'name as property_status_name'])
+                            ->toArray()
+                        : [];
 
-                $propertyStatuses = !empty($propertyStatusIds)
-                    ? Status::whereIn('id', $propertyStatusIds)
-                        ->get(['id as property_status_id', 'name as property_status_name'])
-                        ->toArray()
-                    : [];
+                    // ✅ Get createdBy and updatedBy data
+                    $createdByData = $project->createdBy ? [
+                        'id' => $project->createdBy->id,
+                        'name' => $project->createdBy->first_name,
+                        'email' => $project->createdBy->email,
+                        'role' => optional($project->createdBy->role)->name,
+                    ] : null;
 
+                    $updatedByData = $project->updatedBy ? [
+                        'id' => $project->updatedBy->id,
+                        'name' => $project->updatedBy->first_name,
+                        'email' => $project->updatedBy->email,
+                        'role' => optional($project->updatedBy->role)->name,
+                    ] : null;
 
+                    // ✅ Format featured_image URL
+                    $featuredImage = !empty($project->featured_image) 
+                        ? (filter_var($project->featured_image, FILTER_VALIDATE_URL) 
+                            ? $project->featured_image 
+                            : url($project->featured_image))
+                        : null;
 
-                return [
-                    'id' => $project->id,
-                    'project_unique_id' => $project->project_unique_id,
-                    'name' => $project->name,
-                    'description' => $project->description,
-                    'live_status' => $project->live_status,
-                    'status_reason' => $project->status_reason,
-                    'project_status' => $project->project_status,
-
-                    'user_id' => $project->user_id,
-                    'user' => $project->user_id ? [
-                        'id' => $project->user->id,
-                        'name' => $project->user->first_name,
-                        'email' => $project->user->email,
-                        'role' => optional($project->user->role)->name,
-                    ] :null,
-                    'created_by' => $project->created_by,
-                    'updated_by' => $project->updated_by,
-                    'listed_by' => optional(optional($project->user)->role)->name,
-                    'purpose_id' => $project->purpose_id,
-                    'purpose_id_name' => optional($project->purpose)->name,
-                    'property_id' => $project->property_id,
-                    'property_id_name' => optional($project->property)->name,
-                   
-                    'property_status '=> $propertyStatuses, 
-                    'property_type '=> $propertyTypes,
-                    'total_view' => $project->analytics()->count(),
-                    'date' => date('d m Y', strtotime($project->created_at)),
-                    'time' => date('h:i A', strtotime($project->created_at)),
-                    'timestamp' => date('d m Y h:i A', strtotime($project->created_at)),
-                    'keyword' => $project->importKeywords,
-                    'address' => $project->address,
-                    'country' => $project->country,
-                    'state' => $project->state,
-                    'city' => $project->city,
-                    'area_locality' => $project->area_locality,
-                    'colony' => $project->colony,
-                    'street_address' => $project->street_address,
-                    'pin_code' => $project->pin_code,
-                    'complete_status' => $project->complete_status,
-                    'completed_at' => $project->completed_at,
-                    'custom_field_values' => $formattedCustomFieldValues,
-                    'developer_id' => $project->developer_id,
-                     'developer' => $project->developer ? [
-                        'id' => $project->developer->id,
-                        'developer_unique_id' => $project->developer->developer_unique_id,
-                        'name' => $project->developer->name,
-                        'description' => $project->developer->description,
-                        'purpose_id' => $project->developer->purpose_id,
-                        'purpose_id_name' => optional($project->developer->purpose)->name,
-                        'property_id' => $project->developer->property_id,
-                        'property_id_name' => optional($project->developer->property)->name,
-                        'property_status_id' => $project->developer->property_status_id,
-                        'property_status_id_name' => optional($project->developer->propertystatus)->name,
-                        'property_type_id' => $project->developer->property_type_id,
-                        'property_type_id_name' => optional($project->developer->propertyType)->name,
-                        'country_id' => $project->developer->country_id,
-                        'country_name' => optional($project->developer->country)->name,
-                        'state_id' => $project->developer->state_id,
-                        'state_name' => optional($project->developer->state)->name,
-                        'city_id' => $project->developer->city_id,
-                        'city_name' => optional($project->developer->city)->name,
-                        'address' => $project->developer->address,
-                        'area_locality' => $project->developer->area_locality,
-                        'colony' => $project->developer->colony,
-                        'street_address' => $project->developer->street_address,
-                        'pin_code' => $project->developer->pin_code,
-                        'featured_image' => $project->developer->featured_image
-                            ? url($project->developer->featured_image)
-                            : null,
-                        'live_status' => $project->developer->live_status,
-                        'temporary_status' => $project->developer->temporary_status,
-                        'status_reason' => $project->developer->status_reason,
-                        'user_id' => $project->developer->user_id,
-                        'user' => $project->developer->user_id ? [
-                            'id' => $project->developer->user->id,
-                            'name' => $project->developer->user->first_name,
-                            'email' => $project->developer->user->email,
-                            'role' => optional($project->developer->user->role)->name,
-                        ] :null,
-                        'created_by' => $project->developer->createdBy ? [
-                            'id' => $project->developer->createdBy->id,
-                            'name' => $project->developer->createdBy->first_name,
-                            'email' => $project->developer->createdBy->email,
-                            'role' => optional($project->developer->createdBy->role)->name,
+                    return [
+                        'id' => $project->id,
+                        'project_unique_id' => $project->project_unique_id,
+                        'name' => $project->name,
+                        'description' => $project->description,
+                        'live_status' => $project->live_status,
+                        'status_reason' => $project->status_reason,
+                        'project_status' => $project->project_status,
+                        'featured_image' => $featuredImage, // ✅ Added featured_image
+                        'user_id' => $project->user_id,
+                        'user' => $project->user_id ? [
+                            'id' => $project->user->id,
+                            'name' => $project->user->first_name,
+                            'email' => $project->user->email,
+                            'role' => optional($project->user->role)->name,
                         ] : null,
-                        'updated_by' => $project->developer->updatedBy ? [
-                            'id' => $project->developer->updatedBy->id,
-                            'name' => $project->developer->updatedBy->first_name,
-                            'email' => $project->developer->updatedBy->email,
-                            'role' => optional($project->developer->updatedBy->role)->name,
+                        'created_by' => $createdByData, // ✅ Fixed from $project->created_by
+                        'updated_by' => $updatedByData, // ✅ Fixed from $project->updated_by
+                        'listed_by' => optional(optional($project->user)->role)->name,
+                        'purpose_id' => $project->purpose_id,
+                        'purpose_id_name' => optional($project->purpose)->name,
+                        'property_id' => $project->property_id,
+                        'property_id_name' => optional($project->property)->name,
+                        'property_status' => $propertyStatuses, // ✅ Fixed: removed extra space
+                        'property_type' => $propertyTypes, // ✅ Fixed: removed extra space
+                        'total_view' => $project->analytics()->count(),
+                        'date' => $project->created_at ? date('d m Y', strtotime($project->created_at)) : null,
+                        'time' => $project->created_at ? date('h:i A', strtotime($project->created_at)) : null,
+                        'timestamp' => $project->created_at ? date('d m Y h:i A', strtotime($project->created_at)) : null,
+                        'keyword' => $project->importKeywords,
+                        'address' => $project->address,
+                        'country' => $project->country,
+                        'state' => $project->state,
+                        'city' => $project->city,
+                        'area_locality' => $project->area_locality,
+                        'colony' => $project->colony,
+                        'street_address' => $project->street_address,
+                        'pin_code' => $project->pin_code,
+                        'complete_status' => $project->complete_status,
+                        'completed_at' => $project->completed_at,
+                        'custom_field_values' => $formattedCustomFieldValues,
+                        'developer_id' => $project->developer_id,
+                        'developer' => $project->developer ? [
+                            'id' => $project->developer->id,
+                            'developer_unique_id' => $project->developer->developer_unique_id,
+                            'name' => $project->developer->name,
+                            'description' => $project->developer->description,
+                            'purpose_id' => $project->developer->purpose_id,
+                            'purpose_id_name' => optional($project->developer->purpose)->name,
+                            'property_id' => $project->developer->property_id,
+                            'property_id_name' => optional($project->developer->property)->name,
+                            'property_status_id' => $project->developer->property_status_id,
+                            'property_status_id_name' => optional($project->developer->propertystatus)->name,
+                            'property_type_id' => $project->developer->property_type_id,
+                            'property_type_id_name' => optional($project->developer->propertyType)->name,
+                            'country_id' => $project->developer->country_id,
+                            'country_name' => optional($project->developer->country)->name,
+                            'state_id' => $project->developer->state_id,
+                            'state_name' => optional($project->developer->state)->name,
+                            'city_id' => $project->developer->city_id,
+                            'city_name' => optional($project->developer->city)->name,
+                            'address' => $project->developer->address,
+                            'area_locality' => $project->developer->area_locality,
+                            'colony' => $project->developer->colony,
+                            'street_address' => $project->developer->street_address,
+                            'pin_code' => $project->developer->pin_code,
+                            'featured_image' => $project->developer->featured_image
+                                ? url($project->developer->featured_image)
+                                : null,
+                            'live_status' => $project->developer->live_status,
+                            'temporary_status' => $project->developer->temporary_status,
+                            'status_reason' => $project->developer->status_reason,
+                            'user_id' => $project->developer->user_id,
+                            'user' => $project->developer->user_id ? [
+                                'id' => $project->developer->user->id,
+                                'name' => $project->developer->user->first_name,
+                                'email' => $project->developer->user->email,
+                                'role' => optional($project->developer->user->role)->name,
+                            ] : null,
+                            'created_by' => $project->developer->createdBy ? [
+                                'id' => $project->developer->createdBy->id,
+                                'name' => $project->developer->createdBy->first_name,
+                                'email' => $project->developer->createdBy->email,
+                                'role' => optional($project->developer->createdBy->role)->name,
+                            ] : null,
+                            'updated_by' => $project->developer->updatedBy ? [
+                                'id' => $project->developer->updatedBy->id,
+                                'name' => $project->developer->updatedBy->first_name,
+                                'email' => $project->developer->updatedBy->email,
+                                'role' => optional($project->developer->updatedBy->role)->name,
+                            ] : null,
+                            'keyword' => $project->developer->importKeywords ?? [],
                         ] : null,
-                        'keyword' => $project->developer->importKeywords ?? [],
-
-                    ] : null,
-                ];
+                    ];
             });
 
-            return response()->json([
+        return response()->json([
                 'message' => 'Ongoing projects retrieved successfully.',
                 'data' => $projectsData,
                 'meta' => [
@@ -3628,7 +3644,7 @@ class ProjectlistingController extends Controller
             }
             // Purpose counts
 
-            $projectsData = $projects->map(function ($project) use ($baseURL) {
+           $projectsData = $projects->map(function ($project) use ($baseURL) {
                 $formattedCustomFieldValues = $project->customFieldValues->map(function ($customFieldValue) use ($baseURL, $project) {
                     $customField = $customFieldValue->customField;
                     $customFieldOption = $customFieldValue->customFieldOption ?? null;
@@ -3678,7 +3694,7 @@ class ProjectlistingController extends Controller
 
                         case 'repeater':
                             $nestedRows = DB::table('custom_field_repeater_values')
-                                ->where('custom_field_repeater_id', $customField->id)
+                                ->where('custom_field_repeater_id', $customFieldValue->custom_field_id) // ✅ Changed from $customField->id to $customFieldValue->custom_field_id
                                 ->where('project_listing_id', $project->id)
                                 ->get()
                                 ->groupBy('unique_id');
@@ -3732,19 +3748,16 @@ class ProjectlistingController extends Controller
                                             : [];
                                     }
 
-                                    // 💡 Get template info for nested field
-                                    $subField = DB::table('custom_fields')->where('id', $row->custom_field_id)->first();
-                                    $template = $subField && $subField->template_id
-                                        ? DB::table('custom_field_unique_codes')->where('id', $subField->template_id)->first()
-                                        : null;
+                                    // ✅ Get sub-field details from custom_field_repeaters table
+                                    $subField = DB::table('custom_field_repeaters')->where('id', $row->custom_field_id)->first();
 
                                     $groupData[] = [
                                         'sub_field_id' => $row->custom_field_id,
+                                        'field_label' => $subField->field_label ?? null,
+                                        'placeholder' => $subField->field_placeholder ?? null,
                                         'field_type' => $nestedType,
                                         'field_value' => $nestedValue,
                                         'options' => $nestedOptions,
-                                        'template_id' => $subField->template_id ?? null,
-                                        'template' => $template,
                                     ];
                                 }
 
@@ -3762,8 +3775,8 @@ class ProjectlistingController extends Controller
                     $fieldArray = [
                         'custom_field_id' => optional($customField)->id,
                         'field_type' => $fieldType,
-                        'field_value' => $fieldValueFormatted,
                         'field_name' => optional($customField)->field_label,
+                        'field_value' => $fieldValueFormatted,
                         'placeholder' => optional($customField)->field_placeholder,
                         'template_id' => $templateId,
                         'template' => $templateData,
@@ -3777,132 +3790,149 @@ class ProjectlistingController extends Controller
                     return $fieldArray;
                 });
 
-                 //  Decode property_type_id safely
+              // Decode property_type_id safely
+               $propertyTypeIds = is_array($project->property_type_id)
+                        ? array_map('intval', $project->property_type_id)
+                        : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                            ? array_map('intval', $decoded)
+                            : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
 
-                $propertyTypeIds = is_array($project->property_type_id)
-                    ? array_map('intval', $project->property_type_id)
-                    : ((is_string($project->property_type_id) && ($decoded = json_decode($project->property_type_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($project->property_type_id)) ? [(int)$project->property_type_id] : []));
+                    //  Decode property_status_id safely
+                    $propertyStatusIds = is_array($project->property_status_id)
+                        ? array_map('intval', $project->property_status_id)
+                        : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
+                            ? array_map('intval', $decoded)
+                            : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
 
-                //  Decode property_status_id safely
-                $propertyStatusIds = is_array($project->property_status_id)
-                    ? array_map('intval', $project->property_status_id)
-                    : ((is_string($project->property_status_id) && ($decoded = json_decode($project->property_status_id, true)) && json_last_error() === JSON_ERROR_NONE)
-                        ? array_map('intval', $decoded)
-                        : ((is_numeric($project->property_status_id)) ? [(int)$project->property_status_id] : []));
+                    //  Fetch id + name together
+                    $propertyTypes = !empty($propertyTypeIds)
+                        ? PropertyType::whereIn('id', $propertyTypeIds)
+                            ->get(['id as property_type_id', 'name as property_type_name'])
+                            ->toArray()
+                        : [];
 
-                //  Fetch id + name together
-                $propertyTypes = !empty($propertyTypeIds)
-                    ? PropertyType::whereIn('id', $propertyTypeIds)
-                        ->get(['id as property_type_id', 'name as property_type_name'])
-                        ->toArray()
-                    : [];
+                    $propertyStatuses = !empty($propertyStatusIds)
+                        ? Status::whereIn('id', $propertyStatusIds)
+                            ->get(['id as property_status_id', 'name as property_status_name'])
+                            ->toArray()
+                        : [];
 
-                $propertyStatuses = !empty($propertyStatusIds)
-                    ? Status::whereIn('id', $propertyStatusIds)
-                        ->get(['id as property_status_id', 'name as property_status_name'])
-                        ->toArray()
-                    : [];
+                    // ✅ Get createdBy and updatedBy data
+                    $createdByData = $project->createdBy ? [
+                        'id' => $project->createdBy->id,
+                        'name' => $project->createdBy->first_name,
+                        'email' => $project->createdBy->email,
+                        'role' => optional($project->createdBy->role)->name,
+                    ] : null;
 
+                    $updatedByData = $project->updatedBy ? [
+                        'id' => $project->updatedBy->id,
+                        'name' => $project->updatedBy->first_name,
+                        'email' => $project->updatedBy->email,
+                        'role' => optional($project->updatedBy->role)->name,
+                    ] : null;
 
+                    // ✅ Format featured_image URL
+                    $featuredImage = !empty($project->featured_image) 
+                        ? (filter_var($project->featured_image, FILTER_VALIDATE_URL) 
+                            ? $project->featured_image 
+                            : url($project->featured_image))
+                        : null;
 
-                return [
-                    'id' => $project->id,
-                    'project_unique_id' => $project->project_unique_id,
-                    'name' => $project->name,
-                    'description' => $project->description,
-                    'live_status' => $project->live_status,
-                    'status_reason' => $project->status_reason,
-                    'project_status' => $project->project_status,
-
-                    'user_id' => $project->user_id,
-                    'user' => $project->user_id ? [
-                        'id' => $project->user->id,
-                        'name' => $project->user->first_name,
-                        'email' => $project->user->email,
-                        'role' => optional($project->user->role)->name,
-                    ] :null,
-                    'created_by' => $project->created_by,
-                    'updated_by' => $project->updated_by,
-                    'listed_by' => optional(optional($project->user)->role)->name,
-                    'purpose_id' => $project->purpose_id,
-                    'purpose_id_name' => optional($project->purpose)->name,
-                    'property_id' => $project->property_id,
-                    'property_id_name' => optional($project->property)->name,
-                   
-                    'property_status '=> $propertyStatuses, 
-                    'property_type '=> $propertyTypes,
-                    'total_view' => $project->analytics()->count(),
-                    'date' => date('d m Y', strtotime($project->created_at)),
-                    'time' => date('h:i A', strtotime($project->created_at)),
-                    'timestamp' => date('d m Y h:i A', strtotime($project->created_at)),
-                    'keyword' => $project->importKeywords,
-                    'address' => $project->address,
-                    'country' => $project->country,
-                    'state' => $project->state,
-                    'city' => $project->city,
-                    'area_locality' => $project->area_locality,
-                    'colony' => $project->colony,
-                    'street_address' => $project->street_address,
-                    'pin_code' => $project->pin_code,
-                    'complete_status' => $project->complete_status,
-                    'completed_at' => $project->completed_at,
-                    'custom_field_values' => $formattedCustomFieldValues,
-                    'developer_id' => $project->developer_id,
-                     'developer' => $project->developer ? [
-                        'id' => $project->developer->id,
-                        'developer_unique_id' => $project->developer->developer_unique_id,
-                        'name' => $project->developer->name,
-                        'description' => $project->developer->description,
-                        'purpose_id' => $project->developer->purpose_id,
-                        'purpose_id_name' => optional($project->developer->purpose)->name,
-                        'property_id' => $project->developer->property_id,
-                        'property_id_name' => optional($project->developer->property)->name,
-                        'property_status_id' => $project->developer->property_status_id,
-                        'property_status_id_name' => optional($project->developer->propertystatus)->name,
-                        'property_type_id' => $project->developer->property_type_id,
-                        'property_type_id_name' => optional($project->developer->propertyType)->name,
-                        'country_id' => $project->developer->country_id,
-                        'country_name' => optional($project->developer->country)->name,
-                        'state_id' => $project->developer->state_id,
-                        'state_name' => optional($project->developer->state)->name,
-                        'city_id' => $project->developer->city_id,
-                        'city_name' => optional($project->developer->city)->name,
-                        'address' => $project->developer->address,
-                        'area_locality' => $project->developer->area_locality,
-                        'colony' => $project->developer->colony,
-                        'street_address' => $project->developer->street_address,
-                        'pin_code' => $project->developer->pin_code,
-                        'featured_image' => $project->developer->featured_image
-                            ? url($project->developer->featured_image)
-                            : null,
-                        'live_status' => $project->developer->live_status,
-                        'temporary_status' => $project->developer->temporary_status,
-                        'status_reason' => $project->developer->status_reason,
-                        'user_id' => $project->developer->user_id,
-                        'user' => $project->developer->user_id ? [
-                            'id' => $project->developer->user->id,
-                            'name' => $project->developer->user->first_name,
-                            'email' => $project->developer->user->email,
-                            'role' => optional($project->developer->user->role)->name,
-                        ] :null,
-                        'created_by' => $project->developer->createdBy ? [
-                            'id' => $project->developer->createdBy->id,
-                            'name' => $project->developer->createdBy->first_name,
-                            'email' => $project->developer->createdBy->email,
-                            'role' => optional($project->developer->createdBy->role)->name,
+                    return [
+                        'id' => $project->id,
+                        'project_unique_id' => $project->project_unique_id,
+                        'name' => $project->name,
+                        'description' => $project->description,
+                        'live_status' => $project->live_status,
+                        'status_reason' => $project->status_reason,
+                        'project_status' => $project->project_status,
+                        'featured_image' => $featuredImage, // ✅ Added featured_image
+                        'user_id' => $project->user_id,
+                        'user' => $project->user_id ? [
+                            'id' => $project->user->id,
+                            'name' => $project->user->first_name,
+                            'email' => $project->user->email,
+                            'role' => optional($project->user->role)->name,
                         ] : null,
-                        'updated_by' => $project->developer->updatedBy ? [
-                            'id' => $project->developer->updatedBy->id,
-                            'name' => $project->developer->updatedBy->first_name,
-                            'email' => $project->developer->updatedBy->email,
-                            'role' => optional($project->developer->updatedBy->role)->name,
+                        'created_by' => $createdByData, // ✅ Fixed from $project->created_by
+                        'updated_by' => $updatedByData, // ✅ Fixed from $project->updated_by
+                        'listed_by' => optional(optional($project->user)->role)->name,
+                        'purpose_id' => $project->purpose_id,
+                        'purpose_id_name' => optional($project->purpose)->name,
+                        'property_id' => $project->property_id,
+                        'property_id_name' => optional($project->property)->name,
+                        'property_status' => $propertyStatuses, // ✅ Fixed: removed extra space
+                        'property_type' => $propertyTypes, // ✅ Fixed: removed extra space
+                        'total_view' => $project->analytics()->count(),
+                        'date' => $project->created_at ? date('d m Y', strtotime($project->created_at)) : null,
+                        'time' => $project->created_at ? date('h:i A', strtotime($project->created_at)) : null,
+                        'timestamp' => $project->created_at ? date('d m Y h:i A', strtotime($project->created_at)) : null,
+                        'keyword' => $project->importKeywords,
+                        'address' => $project->address,
+                        'country' => $project->country,
+                        'state' => $project->state,
+                        'city' => $project->city,
+                        'area_locality' => $project->area_locality,
+                        'colony' => $project->colony,
+                        'street_address' => $project->street_address,
+                        'pin_code' => $project->pin_code,
+                        'complete_status' => $project->complete_status,
+                        'completed_at' => $project->completed_at,
+                        'custom_field_values' => $formattedCustomFieldValues,
+                        'developer_id' => $project->developer_id,
+                        'developer' => $project->developer ? [
+                            'id' => $project->developer->id,
+                            'developer_unique_id' => $project->developer->developer_unique_id,
+                            'name' => $project->developer->name,
+                            'description' => $project->developer->description,
+                            'purpose_id' => $project->developer->purpose_id,
+                            'purpose_id_name' => optional($project->developer->purpose)->name,
+                            'property_id' => $project->developer->property_id,
+                            'property_id_name' => optional($project->developer->property)->name,
+                            'property_status_id' => $project->developer->property_status_id,
+                            'property_status_id_name' => optional($project->developer->propertystatus)->name,
+                            'property_type_id' => $project->developer->property_type_id,
+                            'property_type_id_name' => optional($project->developer->propertyType)->name,
+                            'country_id' => $project->developer->country_id,
+                            'country_name' => optional($project->developer->country)->name,
+                            'state_id' => $project->developer->state_id,
+                            'state_name' => optional($project->developer->state)->name,
+                            'city_id' => $project->developer->city_id,
+                            'city_name' => optional($project->developer->city)->name,
+                            'address' => $project->developer->address,
+                            'area_locality' => $project->developer->area_locality,
+                            'colony' => $project->developer->colony,
+                            'street_address' => $project->developer->street_address,
+                            'pin_code' => $project->developer->pin_code,
+                            'featured_image' => $project->developer->featured_image
+                                ? url($project->developer->featured_image)
+                                : null,
+                            'live_status' => $project->developer->live_status,
+                            'temporary_status' => $project->developer->temporary_status,
+                            'status_reason' => $project->developer->status_reason,
+                            'user_id' => $project->developer->user_id,
+                            'user' => $project->developer->user_id ? [
+                                'id' => $project->developer->user->id,
+                                'name' => $project->developer->user->first_name,
+                                'email' => $project->developer->user->email,
+                                'role' => optional($project->developer->user->role)->name,
+                            ] : null,
+                            'created_by' => $project->developer->createdBy ? [
+                                'id' => $project->developer->createdBy->id,
+                                'name' => $project->developer->createdBy->first_name,
+                                'email' => $project->developer->createdBy->email,
+                                'role' => optional($project->developer->createdBy->role)->name,
+                            ] : null,
+                            'updated_by' => $project->developer->updatedBy ? [
+                                'id' => $project->developer->updatedBy->id,
+                                'name' => $project->developer->updatedBy->first_name,
+                                'email' => $project->developer->updatedBy->email,
+                                'role' => optional($project->developer->updatedBy->role)->name,
+                            ] : null,
+                            'keyword' => $project->developer->importKeywords ?? [],
                         ] : null,
-                        'keyword' => $project->developer->importKeywords ?? [],
-
-                    ] : null,
-                ];
+                    ];
             });
 
             return response()->json([
