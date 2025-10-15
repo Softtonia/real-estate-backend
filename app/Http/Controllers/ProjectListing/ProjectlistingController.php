@@ -2405,7 +2405,7 @@ class ProjectlistingController extends Controller
                             ->get()
                             ->groupBy('unique_id');
 
-                        $repeaterData = [];
+                        $developerRepeaterData = [];
 
                         foreach ($nestedRows as $groupId => $rows) {
                             $groupData = [];
@@ -2472,7 +2472,7 @@ class ProjectlistingController extends Controller
                                 ];
                             }
 
-                            $repeaterData[] = $groupData;
+                            $developerRepeaterData[] = $groupData;
                         }
 
                         return [
@@ -2480,7 +2480,7 @@ class ProjectlistingController extends Controller
                             'field_label' => $customField->field_label ?? 'Unknown Field',
                             'placeholder' => $customField->field_placeholder,
                             'field_type' => $fieldType,
-                            'field_value' => $repeaterData,
+                            'field_value' => $developerRepeaterData,
                             'options' => [],
                             'template_id' => $customField->template_id ?? null,
                             'template' => $template,
@@ -2597,7 +2597,7 @@ class ProjectlistingController extends Controller
                         ->where('complete_status', false)
                         ->count(),
 
-                     'repeater_fields' => $developerRepeaterFields,
+                     'developer_repeater_fields' => $developerRepeaterFields,
 
                 ] : null,
 
