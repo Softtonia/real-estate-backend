@@ -2401,7 +2401,7 @@ class ProjectlistingController extends Controller
                     if ($fieldType === 'repeater') {
                         $nestedRows = DB::table('custom_field_repeater_values')
                             ->where('custom_field_repeater_id', $customFieldValue->custom_field_id)
-                            ->where('developer_id', $projects->developer->id) // 🔥 Important: developer_id instead of project_listing_id
+                            ->where('developer_listing_id', $projects->developer->id) // 🔥 Important: developer_id instead of project_listing_id
                             ->get()
                             ->groupBy('unique_id');
 
