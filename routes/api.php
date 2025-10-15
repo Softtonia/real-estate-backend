@@ -280,6 +280,7 @@ Route::get('/check-ip', function (Request $request) {
 
 
         Route::get('get-project-by-user-id-filter-by-purpose/{userId}',[ProjectlistingController::class,'getProjectsByUserId']);
+        # 15 Oct 2025
          Route::get('get-related-projects-id/{projectId}',[ProjectlistingController::class,'getRelatedProjectsByProjectId']);
 
         // ======Developer Listing============

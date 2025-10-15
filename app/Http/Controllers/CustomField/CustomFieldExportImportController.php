@@ -63,6 +63,7 @@ public function importFromCsv(Request $request)
                     'media_size' => $row[10] ?: null,
                     'media_format' => $row[11] ?: null,
                     'model_fields' => $row[14] ?: null,
+                    'checkbox_type' => $row[15] ?: null,
                 ]
             );
 
@@ -195,6 +196,7 @@ public function exportToCsv()
                     "options" => json_encode($options, JSON_UNESCAPED_UNICODE),
                     "repeater" => json_encode($repeaters, JSON_UNESCAPED_UNICODE),
                     "modelFields" => $field->model_fields,
+                    "checkbox_type" => $field->checkbox_type,
                 ];
             }
         }
