@@ -83,6 +83,7 @@ use App\Http\Controllers\Connections\UserAssociationController;
 use App\Http\Controllers\Auth\Kyc\KycController;
 
 use App\Http\Controllers\Keyword\KeywordController;
+use App\Http\Controllers\BusinessEnquiry\BusinessEnquiryController;
 
 
 
@@ -283,6 +284,8 @@ Route::get('/check-ip', function (Request $request) {
         # 16 Oct 2025
          Route::get('get-near-by-projects/{projectId}',[ProjectlistingController::class,'getNearByProject'])->middleware(['throttle:60,1']);
          Route::get('get-other-projects/{projectId}',[ProjectlistingController::class,'getOtherProject'])->middleware(['throttle:60,1']);
+
+          Route::get('get-current-property-by-company-project',[ProjectlistingController::class,'getCurrentPropertyByCompanyProject'])->middleware(['throttle:60,1']);
 
         // ======Developer Listing============
         Route::middleware(['throttle:60,1','allow.admin_developer'])->post('add-developer-listing', [DeveloperlistingController::class, 'store']);
@@ -951,7 +954,11 @@ Route::get('/check-ip', function (Request $request) {
     Route::middleware(['throttle:60,1','admin.token'])->post('admin/ip-logs-update-status-by-ip', [IpLogController::class, 'updateStatusByIp']);
 
 
-    
+    Route::middleware(['throttle:60,1','admin.token'])->get('/business-enquiries', [BusinessEnquiryController::class, 'index']);
+    Route::post('/business-enquiries', [BusinessEnquiryController::class, 'store'])->middleware(['throttle:60,1']);
+    Route::middleware(['throttle:60,1','admin.token'])->get('/business-enquiries/{id}', [BusinessEnquiryController::class, 'show']);
+    Route::middleware(['throttle:60,1','admin.token'])->delete('/business-enquiries/{id}', [BusinessEnquiryController::class, 'destroy']);
+    Route::middleware(['throttle:60,1','admin.token'])->post('/business-enquiries/bulk-delete', [BusinessEnquiryController::class, 'bulkDelete']);
 
 
 

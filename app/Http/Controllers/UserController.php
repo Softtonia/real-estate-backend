@@ -1208,7 +1208,7 @@ class UserController extends Controller
                 // KYC fields
                 'kyc' => 'nullable|in:0,1,2',
                 'aadhaar_number' => [
-                    'required',
+                    'nullable',
                     'digits:12',
                     Rule::unique('user_details', 'aadhaar_number')
                 ],
