@@ -800,8 +800,7 @@ Route::get('/check-ip', function (Request $request) {
         // Otp Route
         Route::middleware(['throttle:60,1','api.token'])->post('/verify-email-otp', [OtpController::class, 'emailVerifyOtp']);
         Route::middleware(['throttle:60,1','api.token'])->get('/resend-email-otp', [OtpController::class, 'resendOtp']);
-        Route::post('send-otp', [OtpController::class, 'sendOtp'])->middleware(['throttle:60,1']);
-        Route::post('verify-otp', [OtpController::class, 'verifyOtp'])->middleware(['throttle:60,1']);
+        
 
 
 
@@ -845,7 +844,7 @@ Route::get('/check-ip', function (Request $request) {
         Route::middleware(['throttle:60,1','admin.token'])->post('import-template-id-listings', [CustomFieldController::class, 'importCustomFieldUniqueCode']);
         Route::middleware(['throttle:60,1','admin.token'])->get('template-id-listings-search', [CustomFieldController::class, 'searchCustomFieldUniqueCode']);
         Route::middleware(['throttle:60,1','admin.token'])->get('template-id-listings-filter', [CustomFieldController::class, 'filterCustomFieldUniqueCodeByType']);
-            Route::middleware(['throttle:60,1','admin.token'])->get('template-id-listings-by-type', [CustomFieldController::class, 'customFieldUniqueCodeByType']);
+        Route::middleware(['throttle:60,1','admin.token'])->get('template-id-listings-by-type', [CustomFieldController::class, 'customFieldUniqueCodeByType']);
         Route::middleware(['throttle:60,1','admin.token'])->post('add-template-id-listings', [CustomFieldController::class, 'storeCustomFieldUniqueCode']);
         Route::get('/get-template-id-listings-by-id', [CustomFieldController::class, 'showCustomFieldUniqueCodeById'])->middleware(['throttle:60,1']);
         Route::middleware(['throttle:60,1','admin.token'])->post('update-template-id-listings', [CustomFieldController::class, 'updateCustomFieldUniqueCode']);

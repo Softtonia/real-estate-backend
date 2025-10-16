@@ -3,6 +3,10 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Validator;
 
 class EmailOtpController extends Controller
 {
@@ -16,16 +20,16 @@ class EmailOtpController extends Controller
         $email = $request->input('email');
 
         // Check if the email exists in the users table
-        $user = \App\Models\User::where('email', $email)->first();
+        $user = User::where('email', $email)->first();
 
         if (!$user) {
             return response()->json([
                 'message' => 'Email not found in users table.',
-            ], 404);
+            ], 200);
         }
 
         // Generate a 6-digit OTP
-        $otp = rand(100000, 999999);
+        $otp = rand(1000, 9999);
 
         // Calculate OTP expiry time (e.g., 10 minutes from now)
         $expiryTime = now()->addMinutes(10);
@@ -40,12 +44,9 @@ class EmailOtpController extends Controller
         ]);
 
         // Fetch mail settings from the database
-        // $settings = \DB::table('mail_configs')->first();
-
+        
         $settings = \DB::table('mail_configs')->where('status', 1)->first();
 
-        // Debugging: Inspect the settings data structure
-        // dd($settings);
 
         // If the mail settings are found, configure the mail settings dynamically
         if ($settings) {
@@ -67,7 +68,7 @@ class EmailOtpController extends Controller
 
         // Send the OTP via email (passing both OTP and email to the constructor)
         try {
-            \Mail::to($email)->send(new \App\Mail\OTPMail($otp, $email)); // Now sending both OTP and email
+            Mail::to($email)->send(new \App\Mail\OTPMail($otp, $email)); // Now sending both OTP and email
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to send OTP email.',
@@ -103,12 +104,12 @@ class EmailOtpController extends Controller
             $newPassword = $request->input('new_password');
 
             // Check if the email exists in the users table
-            $user = \App\Models\User::where('email', $email)->first();
+            $user = User::where('email', $email)->first();
 
             if (!$user) {
                 return response()->json([
                     'message' => 'Email not found in users table.',
-                ], 404);
+                ], 200);
             }
 
             // Verify the OTP from the otps table and check if it's expired
