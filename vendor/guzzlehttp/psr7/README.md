@@ -24,8 +24,10 @@ composer require guzzlehttp/psr7
 
 | Version | Status              | PHP Version  |
 |---------|---------------------|--------------|
-| 1.x     | Security fixes only | >=5.4,<8.1   |
-| 2.x     | Latest              | >=7.2.5,<8.4 |
+| 1.x     | EOL (2024-06-30)    | >=5.4,<8.2   |
+| 2.x     | Latest              | >=7.2.5,<8.6 |
+
+See [UPGRADING.md](UPGRADING.md) for notes on upgrading from 1.x to 2.0.
 
 
 ## AppendStream
@@ -62,7 +64,7 @@ preferred size of the buffer.
 use GuzzleHttp\Psr7;
 
 // When more than 1024 bytes are in the buffer, it will begin returning
-// false to writes. This is an indication that writers should slow down.
+// 0 to writes. This is an indication that writers should slow down.
 $buffer = new Psr7\BufferStream(1024);
 ```
 
@@ -436,7 +438,7 @@ will be parsed into `['foo[a]' => '1', 'foo[b]' => '2'])`.
 
 ## `GuzzleHttp\Psr7\Query::build`
 
-`public static function build(array $params, int|false $encoding = PHP_QUERY_RFC3986): string`
+`public static function build(array $params, int|false $encoding = PHP_QUERY_RFC3986, bool $treatBoolsAsInts = true): string`
 
 Build a query string from an array of key value pairs.
 
@@ -498,9 +500,16 @@ a message.
 
 ## `GuzzleHttp\Psr7\Utils::readLine`
 
-`public static function readLine(StreamInterface $stream, int $maxLength = null): string`
+`public static function readLine(StreamInterface $stream, ?int $maxLength = null): string`
 
 Read a line from the stream up to the maximum allowed buffer length.
+
+
+## `GuzzleHttp\Psr7\Utils::redactUserInfo`
+
+`public static function redactUserInfo(UriInterface $uri): UriInterface`
+
+Redact the password in the user info part of a URI.
 
 
 ## `GuzzleHttp\Psr7\Utils::streamFor`
@@ -597,36 +606,6 @@ Determines the mimetype of a file by looking at its extension.
 Maps a file extensions to a mimetype.
 
 
-## Upgrading from Function API
-
-The static API was first introduced in 1.7.0, in order to mitigate problems with functions conflicting between global and local copies of the package. The function API was removed in 2.0.0. A migration table has been provided here for your convenience:
-
-| Original Function | Replacement Method |
-|----------------|----------------|
-| `str` | `Message::toString` |
-| `uri_for` | `Utils::uriFor` |
-| `stream_for` | `Utils::streamFor` |
-| `parse_header` | `Header::parse` |
-| `normalize_header` | `Header::normalize` |
-| `modify_request` | `Utils::modifyRequest` |
-| `rewind_body` | `Message::rewindBody` |
-| `try_fopen` | `Utils::tryFopen` |
-| `copy_to_string` | `Utils::copyToString` |
-| `copy_to_stream` | `Utils::copyToStream` |
-| `hash` | `Utils::hash` |
-| `readline` | `Utils::readLine` |
-| `parse_request` | `Message::parseRequest` |
-| `parse_response` | `Message::parseResponse` |
-| `parse_query` | `Query::parse` |
-| `build_query` | `Query::build` |
-| `mimetype_from_filename` | `MimeType::fromFilename` |
-| `mimetype_from_extension` | `MimeType::fromExtension` |
-| `_parse_message` | `Message::parseMessage` |
-| `_parse_request_uri` | `Message::parseRequestUri` |
-| `get_message_body_summary` | `Message::bodySummary` |
-| `_caseless_remove` | `Utils::caselessRemove` |
-
-
 # Additional URI Methods
 
 Aside from the standard `Psr\Http\Message\UriInterface` implementation in form of the `GuzzleHttp\Psr7\Uri` class,
@@ -674,7 +653,7 @@ termed a relative-path reference.
 
 ### `GuzzleHttp\Psr7\Uri::isSameDocumentReference`
 
-`public static function isSameDocumentReference(UriInterface $uri, UriInterface $base = null): bool`
+`public static function isSameDocumentReference(UriInterface $uri, ?UriInterface $base = null): bool`
 
 Whether the URI is a same-document reference. A same-document reference refers to a URI that is, aside from its
 fragment component, identical to the base URI. When no base URI is given, only an empty URI reference

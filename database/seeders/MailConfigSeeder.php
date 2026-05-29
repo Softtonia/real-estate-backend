@@ -16,12 +16,12 @@ class MailConfigSeeder extends Seeder
     {
         DB::table('mail_configs')->insert([
             'mailer' => 'smtp',
-            'host' => 'mail.urbanrealities.com',
+            'host' => 'mail.holiplaces.com',
             'port' => 465,
-            'username' => 'developer@urbanrealities.com',
+            'username' => 'developer@holiplaces.com',
             'password' => 'BGlnjr48(mON',
             'encryption' => 'ssl',
-            'from_address' => 'developer@urbanrealities.com',
+            'from_address' => 'developer@holiplaces.com',
             'from_name' => 'Urban Realities',
             'status' => 1, // Set to 1 for active status
             'created_at' => now(),

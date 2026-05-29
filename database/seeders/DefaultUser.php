@@ -20,7 +20,7 @@ class DefaultUser extends Seeder
     {
         DB::beginTransaction();
 
-        try {
+        try {   
             // ✅ Only non-admin roles
             $rolesConfig = [
                 'owner' => [

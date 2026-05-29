@@ -102,7 +102,7 @@ class AuthController extends Controller
         $user->kyc = 0; // Set default KYC status to Pending
         $user->first_name = $request->first_name;
         $user->last_name = $request->last_name;
-        
+
 
         $user->save();
 
@@ -169,7 +169,7 @@ class AuthController extends Controller
     {
         // Validate request inputs
         $validator = Validator::make($request->all(), [
-            'email' => 'required', // Can be email or mobile number
+            'email' => 'required',
             'password' => 'required|string|min:8',
         ]);
 
@@ -180,11 +180,25 @@ class AuthController extends Controller
         $identifier = $request->input('email');
         $password = $request->input('password');
 
-        // Determine if the identifier is an email or phone number
+        // Check whether user entered email or phone
         $fieldType = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
 
-        // Retrieve the user by email or phone
-        $user = User::where($fieldType, $identifier)->first();
+        // Fetch only required user fields and role
+        $user = User::with('role:id,name')
+            ->select([
+                'id',
+                'first_name',
+                'last_name',
+                'email',
+                'phone',
+                'password',
+                'role_id',
+                'isapproved',
+                'kyc',
+                'api_token',
+            ])
+            ->where($fieldType, $identifier)
+            ->first();
 
         if (!$user) {
             return response()->json([
@@ -193,65 +207,59 @@ class AuthController extends Controller
             ], 404);
         }
 
-        // Retrieve the user's role
-        $role = $user->role ? $user->role->name : null;
+        // Check password without running Auth::attempt again
+        if (!Hash::check($password, $user->password)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid credentials'
+            ], 401);
+        }
 
-        //  Restrict login for admin users
-        if ($role === 'admin') {
+        $roleName = optional($user->role)->name;
+
+        // Restrict admin login from normal user login API
+        if ($roleName === 'admin') {
             return response()->json([
                 'status' => false,
                 'message' => 'Admins are not allowed to log in here.'
             ], 403);
         }
 
-        //  Check if user is approved or deactivated
-        if ($user->isapproved == 2) {
+        // Check user account status
+        if ((int) $user->isapproved === 2) {
             return response()->json([
                 'status' => false,
                 'message' => 'Your account is deactivated. Please contact the administrator.',
             ], 403);
         }
 
-        if ($user->isapproved !== 1) {
+        if ((int) $user->isapproved !== 1) {
             return response()->json([
                 'status' => false,
                 'message' => 'Your account is not yet approved. Please wait for approval.',
             ], 403);
         }
 
+        // Generate new token
+        $token = Str::random(80);
 
-        // Define roles that require KYC verification
-        $rolesRequiringKYC = ['agent', 'company', 'consultancy', 'developer'];
+        $user->forceFill([
+            'api_token' => $token,
+            'token_created_at' => now(),
+        ])->save();
 
-
-        // Attempt to authenticate the user
-        if (Auth::attempt([$fieldType => $identifier, 'password' => $password])) {
-            // Generate a new API token
-            $token = Str::random(80);
-
-            // Update the user's API token in the database
-            $user->update(['api_token' => $token]);
-
-            // Return a successful login response
-            return response()->json([
-                'status' => true,
-                'message' => 'Login successful',
-                'token' => $token,
-                'user_id' => $user->id,
-                'role' => $user->role->name,
-
-            ], 200);
-        } else {
-            // Return an error response for invalid credentials
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid credentials'
-            ], 401);
-        }
+        return response()->json([
+            'status' => true,
+            'message' => 'Login successful',
+            'token' => $token,
+            'user_id' => $user->id,
+            'role' => $roleName,
+            'kyc' => $user->kyc,
+        ], 200);
     }
 
 
-     // for user logout
+    // for user logout
 
 
     public function logout(Request $request)
@@ -276,7 +284,6 @@ class AuthController extends Controller
                 'is_login' => false,
                 'message' => 'Logged out successfully.'
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Something went wrong.',

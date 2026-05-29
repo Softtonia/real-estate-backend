@@ -19,8 +19,13 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
-
+    'allowed_origins' => [
+        'http://127.0.0.1:8000',
+        'https://admin.holiplaces.com',
+        'https://holiplaces.com',
+        'https://www.holiplaces.com',
+        'http://api.holiplaces.com',
+    ],
     'allowed_origins_patterns' => [],
 
     'allowed_headers' => ['*'],

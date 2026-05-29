@@ -203,6 +203,10 @@ class IgnitionConfig implements Arrayable
                     'label' => 'VS Codium',
                     'url' => 'vscodium://file/%path:%line',
                 ],
+                'cursor' => [
+                    'label' => 'Cursor',
+                    'url' => 'cursor://file/%path:%line',
+                ],
                 'atom' => [
                     'label' => 'Atom',
                     'url' => 'atom://core/open/file?filename=%path&line=%line',
@@ -214,6 +218,14 @@ class IgnitionConfig implements Arrayable
                 'netbeans' => [
                     'label' => 'NetBeans',
                     'url' => 'netbeans://open/?f=%path:%line',
+                ],
+                'zed' => [
+                    'label' => 'Zed',
+                    'url' => 'zed://file/%path:%line',
+                ],
+                'windsurf' => [
+                    'label' => 'Windsurf',
+                    'url' => 'windsurf://file/%path:%line',
                 ],
                 'xdebug' => [
                     'label' => 'Xdebug',

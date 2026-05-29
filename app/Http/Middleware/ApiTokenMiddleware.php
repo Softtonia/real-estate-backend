@@ -3,7 +3,6 @@
 namespace App\Http\Middleware;
 
 use Closure;
-use DB;
 use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -19,26 +18,40 @@ class ApiTokenMiddleware
 
         // Retrieve and validate token format
         $authorizationHeader = $request->header('Authorization');
+
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
 
-        // Extract the token
+        // Extract token
         $requestToken = substr($authorizationHeader, 7);
+
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
 
-        // Fetch the user by token
-        $user = User::where('api_token', $requestToken)->first();
+        // Fetch only required user fields
+        $user = User::select([
+                'id',
+                'first_name',
+                'last_name',
+                'email',
+                'phone',
+                'role_id',
+                'isapproved',
+                'kyc',
+                'api_token',
+            ])
+            ->where('api_token', $requestToken)
+            ->first();
 
-        // If user not found, return unauthorized response
         if (!$user) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
 
-        // Manually authenticate the user
+        // Set authenticated user for controller usage
         Auth::setUser($user);
 
         return $next($request);
-    }}
+    }
+}

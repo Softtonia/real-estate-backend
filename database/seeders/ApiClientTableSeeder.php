@@ -17,11 +17,11 @@ class ApiClientTableSeeder extends Seeder
         // $clients = [
         //     [
         //         'client_name'     => 'Admin Panel',
-        //         'client_id'       => 'RHTYTHHQWA614EL',
-        //         'client_secret'   => 'JQRCQYYKGT66RQY',
+        //         'client_id'       => 'OPUVVNR3XNCXPDL',
+        //         'client_secret'   => '6CNWWJNWAQFO95D',
         //         'app_type'        => 'admin',
         //         'status'         => '1',
-        //         'allowed_domain'  => '["https://www.urbanrealities.com","https://urbanrealities.com","http://127.0.0.1:8000","https://admin.urbanrealities.com","http://admin.urbanrealities.com","http://localhost:5173","http://localhost:3000","https://api.urbanrealities.com/public"]',
+        //         'allowed_domain'  => '["https://www.holiplaces.com","https://holiplaces.com","http://127.0.0.1:8000","https://admin.holiplaces.com","http://admin.holiplaces.com","http://localhost:5173","http://localhost:3000","https://api.holiplaces.com"]',
         //     ],
 
 
@@ -35,8 +35,8 @@ class ApiClientTableSeeder extends Seeder
                 'app_type'        => 'admin',
                 'status'          => '1',
                 'allowed_domain'  => json_encode([
-                    "https://admin.urbanrealities.com",
-                    "http://admin.urbanrealities.com",
+                    "https://admin.holiplaces.com",
+                    "http://admin.holiplaces.com",
                 ]),
             ],
             [
@@ -66,8 +66,8 @@ class ApiClientTableSeeder extends Seeder
                 'app_type'        => 'business',
                 'status'          => '1',
                 'allowed_domain'  => json_encode([
-                    "https://business.urbanrealities.com",
-                "http://business.urbanrealities.com"
+                    "https://business.holiplaces.com",
+                "http://business.holiplaces.com"
                 ]),
 
             ],
@@ -95,15 +95,15 @@ class ApiClientTableSeeder extends Seeder
 
             ],
             [
-                'client_name'     => 'Urbanrealities.com',
+                'client_name'     => 'holiplaces.com',
                 'client_id'       => 'KWTWGGSBIZGD7GZ',
                 'client_secret'   => 'DLERJBYZ6QZCW0U',
                 'app_type'        => 'website',
                 'status'          => '1',
                 'allowed_domain'  => json_encode([
-                    "https://www.urbanrealities.com",
-                    "https://urbanrealities.com",
-                    "http://urbanrealities.com"
+                    "https://www.holiplaces.com",
+                    "https://holiplaces.com",
+                    "http://holiplaces.com"
                 ]),
                 'nextjs_internal_key' =>"PMCVGOEQZQQUNZODZTNKXAQC10QYLW04HAF316DEDXD7YWD5VR",
             ],

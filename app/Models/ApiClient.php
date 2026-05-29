@@ -25,4 +25,8 @@ class ApiClient extends Model
         return $query->where('status', '1');
     }
 
+
+    public function domains(){
+        return $this->hasMany(ApiClientDomain::class);
+    }
 }

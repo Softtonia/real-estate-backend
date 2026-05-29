@@ -3,6 +3,7 @@
 namespace Spatie\Permission\Contracts;
 
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 
 /**
  * @property int|string $id
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string|null $guard_name
  *
  * @mixin \Spatie\Permission\Models\Permission
+ *
+ * @phpstan-require-extends \Spatie\Permission\Models\Permission
  */
 interface Permission
 {
@@ -22,7 +25,7 @@ interface Permission
      * Find a permission by its name.
      *
      *
-     * @throws \Spatie\Permission\Exceptions\PermissionDoesNotExist
+     * @throws PermissionDoesNotExist
      */
     public static function findByName(string $name, ?string $guardName): self;
 
@@ -30,7 +33,7 @@ interface Permission
      * Find a permission by its id.
      *
      *
-     * @throws \Spatie\Permission\Exceptions\PermissionDoesNotExist
+     * @throws PermissionDoesNotExist
      */
     public static function findById(int|string $id, ?string $guardName): self;
 

@@ -45,6 +45,7 @@ use Illuminate\Support\Facades\Response;
 use App\Exports\SubscribedEmailsExport;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rule;
+
 class UserController extends Controller
 {
 
@@ -373,12 +374,25 @@ class UserController extends Controller
         try {
             $perPage = $request->input('per_page', 20);
 
-            $users = User::where('role_id', '!=', 1)
-                ->with('role')
+            $users = User::select([
+                'id',
+                'first_name',
+                'last_name',
+                'user_name',
+                'email',
+                'phone',
+                'role_id',
+                'unique_id',
+                'isapproved',
+                'kyc',
+            ])
+                ->where('role_id', '!=', 1)
+                ->with('role:id,name')
                 ->paginate($perPage);
 
             $userList = $users->getCollection()->map(function ($user) {
                 $roleName = $user->role ? $user->role->name : null;
+
                 return [
                     'id' => $user->id,
                     'first_name' => $user->first_name,
@@ -393,7 +407,7 @@ class UserController extends Controller
                 ];
             });
 
-            // Build pagination links
+            // Build pagination links same as old code
             $baseUrl = $request->url();
             $queryParams = $request->query();
             $queryParams['per_page'] = $users->perPage();
@@ -425,10 +439,12 @@ class UserController extends Controller
     public function getdetailsbyuserid(Request $request)
     {
         try {
-
             $userId = $request->id;
 
-            // Fetch user details if not an admin
+            if (!$userId) {
+                return response()->json(['error' => 'User id is required.'], 400);
+            }
+
             $userData = DB::table('users')
                 ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
                 ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
@@ -478,7 +494,6 @@ class UserController extends Controller
                     'user_details.colony as business_colony',
                     'user_details.street_address as business_street_address',
                     'user_details.pin_code as business_pin_code',
-                    // 'user_details.about_us as business_about_us',
                     'user_details.aadhaar_number',
                     'user_details.aadhaar_front',
                     'user_details.aadhaar_back',
@@ -491,12 +506,9 @@ class UserController extends Controller
                     'user_details.no_of_employees',
                     'user_details.about_us',
                     'users.created_at',
-                    'users.updated_at',
-
+                    'users.updated_at'
                 )
                 ->first();
-
-            // Debugging: Log the retrieved user data
 
             if (!$userData) {
                 \Log::error('User not found', ['id' => $userId]);
@@ -527,7 +539,7 @@ class UserController extends Controller
                 'street_address' => $userData->street_address ?? 'N/A',
                 'pin_code' => $userData->pin_code ?? 'N/A',
                 'about' => $userData->about,
-                //
+
                 'bussiness_name' => $userData->bussiness_name,
                 'bussiness_address' => $userData->bussiness_address,
                 'bussiness_email' => $userData->bussiness_email,
@@ -555,7 +567,6 @@ class UserController extends Controller
                 'created_at' => $userData->created_at,
                 'updated_at' => $userData->updated_at
             ], 200);
-
         } catch (\Throwable $th) {
             \Log::error('Error fetching user details:', ['error' => $th->getMessage()]);
             return response()->json(['error' => 'Internal Server Error.'], 500);
@@ -644,7 +655,6 @@ class UserController extends Controller
                 'created_at' => $userData->created_at,
                 'updated_at' => $userData->updated_at
             ], 200);
-
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
@@ -696,9 +706,9 @@ class UserController extends Controller
                     'digits:12',
                     Rule::unique('user_details', 'aadhaar_number')->ignore($request->id, 'user_id'),
                 ],
-                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
-                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
-                
+                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
+                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
+
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
                 'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
@@ -738,7 +748,7 @@ class UserController extends Controller
                     'business_street_address' => 'nullable|string',
                     'business_pin_code' => 'required|numeric|min:6',
                     'about_me' => 'nullable|string',
-                    'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10','max:5120'],
+                    'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10', 'max:5120'],
                 ]);
             } catch (ValidationException $e) {
                 return response()->json(['error' => $e->errors()], 400);
@@ -768,9 +778,9 @@ class UserController extends Controller
         $user->pin_code = $request->pin_code;
         $user->about = $request->about;
 
-       if ($authUser->role->name == 'admin'){
-         $user->kyc = $request->kyc ?? $user->kyc;
-       }
+        if ($authUser->role->name == 'admin') {
+            $user->kyc = $request->kyc ?? $user->kyc;
+        }
 
         if ($request->filled('password')) {
             $user->password = Hash::make($request->password);
@@ -809,48 +819,47 @@ class UserController extends Controller
             }
 
 
-                if ($authUser->role->name == 'admin'){
+            if ($authUser->role->name == 'admin') {
 
-                    $userDetail['aadhaar_number'] = $request->aadhaar_number;
-                    if($user->role->name == 'owner'){
-                        if ($request->hasFile('aadhaar_front')) {
-                            $file = $request->file('aadhaar_front');
-                            $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
-                            $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
-                            $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
-                        }
-
-                        if ($request->hasFile('aadhaar_back')) {
-                            $file = $request->file('aadhaar_back');
-                            $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
-                            $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
-                            $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
-                        }
-
-                    } else {
-
-                        if ($request->hasFile('aadhaar_front')) {
-                            $file = $request->file('aadhaar_front');
-                            $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
-                            $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
-                            $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
-                        }
-
-                        if ($request->hasFile('aadhaar_back')) {
-                            $file = $request->file('aadhaar_back');
-                            $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
-                            $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
-                            $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
-                        }
-
-                        if ($request->hasFile('business_proof')) {
-                            $file = $request->file('business_proof');
-                            $fileName = time() . '_proof_' . str_replace(' ', '_', $file->getClientOriginalName());
-                            $file->move(public_path('uploads/kyc/businessProof'), $fileName);
-                            $userDetail['business_proof'] = 'uploads/kyc/businessProof/' . $fileName;
-                        }
+                $userDetail['aadhaar_number'] = $request->aadhaar_number;
+                if ($user->role->name == 'owner') {
+                    if ($request->hasFile('aadhaar_front')) {
+                        $file = $request->file('aadhaar_front');
+                        $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
+                        $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
+                        $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
                     }
-                }               
+
+                    if ($request->hasFile('aadhaar_back')) {
+                        $file = $request->file('aadhaar_back');
+                        $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
+                        $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
+                        $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
+                    }
+                } else {
+
+                    if ($request->hasFile('aadhaar_front')) {
+                        $file = $request->file('aadhaar_front');
+                        $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
+                        $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
+                        $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
+                    }
+
+                    if ($request->hasFile('aadhaar_back')) {
+                        $file = $request->file('aadhaar_back');
+                        $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
+                        $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
+                        $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
+                    }
+
+                    if ($request->hasFile('business_proof')) {
+                        $file = $request->file('business_proof');
+                        $fileName = time() . '_proof_' . str_replace(' ', '_', $file->getClientOriginalName());
+                        $file->move(public_path('uploads/kyc/businessProof'), $fileName);
+                        $userDetail['business_proof'] = 'uploads/kyc/businessProof/' . $fileName;
+                    }
+                }
+            }
 
             UserDetail::where('user_id', $user->id)->update($userDetail);
 
@@ -886,13 +895,10 @@ class UserController extends Controller
     public function updateuserstatus(Request $request)
     {
         try {
-
-
-            // Validate the incoming request data
             $validator = Validator::make($request->all(), [
                 'user_id' => 'required|exists:users,id',
-                'isapproved' => 'required|integer|in:1,2', // Ensure it's one of the allowed values
-                'reject_reason' => 'required_if:isapproved,4|string|min:3', // Required if isapproved is 4
+                'isapproved' => 'required|integer|in:1,2',
+                'reject_reason' => 'required_if:isapproved,4|string|min:3',
             ], [
                 'reject_reason.required_if' => 'Reject reason is required when status is rejected.',
             ]);
@@ -901,27 +907,24 @@ class UserController extends Controller
                 return response()->json(['errors' => $validator->errors()], 422);
             }
 
-            // Find the user by ID
-            $user = User::find($request->input('user_id'));
+            $user = User::select([
+                'id',
+                'role_id',
+                'isapproved',
+            ])
+                ->find($request->input('user_id'));
 
             if (!$user) {
                 return response()->json(['error' => 'User not found.'], 404);
             }
 
-            // Prevent updating admin status
             if ($user->id == 1 || $user->role_id == 1) {
                 return response()->json(['message' => 'You cannot update admin.'], 422);
             }
 
-            // Update the isapproved status in the users table
             $user->isapproved = $request->input('isapproved');
-
-            // Save reject_reason if status is rejected
-           
-
             $user->save();
 
-            // Prepare response message
             $message = ($user->isapproved == 1) ? 'User status updated to approved.' : (($user->isapproved == 4) ? 'User status updated to rejected.' : 'User status updated.');
             $loginMessage = ($user->isapproved == 1) ? 'User can now login.' : 'User cannot login.';
 
@@ -1006,41 +1009,26 @@ class UserController extends Controller
     }
 
 
-
-
-
-
-
-
-
     public function allAgentListingByAdmin(Request $request)
     {
         try {
-            // Fetch users with the role name 'agent' and eager load related data
             $users = User::whereHas('role', function ($query) {
                 $query->where('name', 'agent');
             })
                 ->with('role')
                 ->with([
                     'userDetails' => function ($query) {
-                        $query->with(['country', 'state', 'city']); // Load country, state, and city relationships
+                        $query->with(['country', 'state', 'city']);
                     }
                 ])
                 ->get();
 
-            // Extract the necessary information from each user
             $userList = $users->map(function ($user) {
                 $roleName = $user->role ? $user->role->name : null;
                 $userDetails = $user->userDetails ?? null;
 
-                // Get country, state, and city names
-                $countryName = $userDetails && $userDetails->country ? $userDetails->country->name : null;
-                $stateName = $userDetails && $userDetails->state ? $userDetails->state->name : null;
-                $cityName = $userDetails && $userDetails->city ? $userDetails->city->name : null;
-
-                // Generate profile photo URL
                 $profilePhotoUrl = $userDetails && $userDetails->profile_photo
-                    ? url($userDetails->profile_photo) // Generate the full URL to the profile photo
+                    ? url($userDetails->profile_photo)
                     : null;
 
                 return [
@@ -1056,10 +1044,9 @@ class UserController extends Controller
                     'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
                     'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
                     'business_phone' => $userDetails ? $userDetails->business_phone : null,
-                    'profile_photo' => $profilePhotoUrl, // Include the full URL to the profile photo
+                    'profile_photo' => $profilePhotoUrl,
                     'address' => $userDetails ? $userDetails->address : null,
 
-                    // Include country, state, and city details
                     'country_id' => $userDetails && $userDetails->country ? $userDetails->country->id : null,
                     'country_name' => $userDetails && $userDetails->country ? $userDetails->country->name : null,
                     'state_id' => $userDetails && $userDetails->state ? $userDetails->state->id : null,
@@ -1073,10 +1060,8 @@ class UserController extends Controller
                 ];
             });
 
-            // Return the user list as JSON response
             return response()->json($userList, 200);
         } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
@@ -1090,7 +1075,6 @@ class UserController extends Controller
                 ->with('userDetails')
                 ->get();
 
-            // Extract the necessary information from each user
             $userList = $users->map(function ($user) {
                 $roleName = $user->role ? $user->role->name : null;
                 $userDetails = $user->userDetails ?? null;
@@ -1121,10 +1105,8 @@ class UserController extends Controller
                 ];
             });
 
-            // Return the user list as JSON response
             return response()->json($userList, 200);
         } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
@@ -1139,13 +1121,11 @@ class UserController extends Controller
                 return response()->json(['error' => 'User not authenticated'], 401);
             }
 
-            // Fetch consultancies that accepted the request
             $consultancies = \App\Models\JoinRequest::with('user.userDetails', 'user.role')
                 ->where('type', 'company-consultancy')
                 ->where('status', 2)
                 ->get();
 
-            // Format the response
             $consultancyList = $consultancies->map(function ($joinRequest) {
                 $user = $joinRequest->user;
                 $userDetails = $user?->userDetails;
@@ -1212,9 +1192,9 @@ class UserController extends Controller
                     'digits:12',
                     Rule::unique('user_details', 'aadhaar_number')
                 ],
-                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
-                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
-                'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10','max:5120'],
+                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
+                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
+                'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10', 'max:5120'],
 
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot and underscore are allowed in username.',
@@ -1369,7 +1349,6 @@ class UserController extends Controller
 
             DB::commit();
             return response()->json(['status' => true, 'message' => 'User created successfully.'], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
             \Log::error($e->getMessage());
@@ -1500,8 +1479,6 @@ class UserController extends Controller
     //  for delete user
     public function deleteUser(Request $request)
     {
-
-
         try {
             $request->validate([
                 'id' => 'required|exists:users,id',
@@ -1512,10 +1489,20 @@ class UserController extends Controller
 
         $id = $request->id;
 
-        User::where('id', $id)->delete();
-        UserDetail::where('user_id', $id)->delete();
+        DB::beginTransaction();
 
-        return response()->json(['status' => true, 'message' => 'User deleted successfully.'], 201);
+        try {
+            User::where('id', $id)->delete();
+            UserDetail::where('user_id', $id)->delete();
+
+            DB::commit();
+
+            return response()->json(['status' => true, 'message' => 'User deleted successfully.'], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json(['error' => 'Failed to delete user. ' . $e->getMessage()], 500);
+        }
     }
 
 
@@ -1639,8 +1626,6 @@ class UserController extends Controller
             DB::commit();
 
             return response()->json(['status' => true, 'message' => 'Agent created successfully.'], 201);
-
-
         } catch (\Exception $e) {
             DB::rollBack();
             \Log::error($e->getMessage());
@@ -1653,35 +1638,35 @@ class UserController extends Controller
     public function getAgentListing(Request $request)
     {
         try {
-
             if ($request->header('api-token') == '') {
                 return response()->json(['error' => 'Please enter api token first.'], 422);
             }
 
             $requestToken = $request->header('api-token');
 
+            $userData = User::select([
+                'id',
+                'role_id',
+                'api_token',
+            ])
+                ->where('api_token', $requestToken)
+                ->first();
 
-            $userId = null;
-
-            $userData = User::where('api_token', $requestToken)->first();
-
-            $userId = $userData->id;
-
-            // Validate that the user exists in the database
             if (!$userData) {
                 return response()->json(['error' => 'User not found'], 404);
             }
 
+            $userId = $userData->id;
 
             $users = User::where('created_by', $userId)
                 ->with('role')
                 ->with('userDetails')
                 ->get();
 
-            // Extract the necessary information from each user
             $userList = $users->map(function ($user) {
                 $roleName = $user->role ? $user->role->name : null;
                 $userDetails = $user->userDetails ?? null;
+
                 return [
                     'id' => $user->id,
                     'fullname' => $user->fullname,
@@ -1712,15 +1697,10 @@ class UserController extends Controller
                     'property_id' => $userDetails ? explode(',', $userDetails->property_id) : null,
                     'property_type_id' => $userDetails ? explode(',', $userDetails->property_type_id) : null,
                 ];
-
-
             });
 
-
-            // Return the user list as JSON response
             return response()->json($userList, 200);
         } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
@@ -2209,13 +2189,11 @@ class UserController extends Controller
     public function allTopAgentListing(Request $request)
     {
         try {
-
             $users = User::where('role_id', 3)
                 ->with('role')
                 ->with('userDetails')
                 ->get();
 
-            // Extract the necessary information from each user
             $userList = $users->map(function ($user) {
                 $roleName = $user->role ? $user->role->name : null;
                 $userDetails = $user->userDetails ?? null;
@@ -2246,11 +2224,8 @@ class UserController extends Controller
                 ];
             });
 
-
-            // Return the user list as JSON response
             return response()->json($userList, 200);
         } catch (\Throwable $th) {
-            // Handle any exceptions and return an error response
             return response()->json(['error' => $th->getMessage()], 500);
         }
     }
@@ -2540,48 +2515,51 @@ class UserController extends Controller
     public function searchUser(Request $request)
     {
         $search = $request->search;
-        $searchByRelated = $request->search_by_related; // Pass a specific role name if needed
+        $searchByRelated = $request->search_by_related;
 
-        $users = User::join('roles', 'roles.id', '=', 'users.role_id') // Join users with roles
-            ->where(function ($query) use ($search, $searchByRelated) {
-                // Check if specific role-based filtering is requested
-                if ($searchByRelated) {
-                    $query->where('roles.name', 'LIKE', '%' . $searchByRelated . '%'); // Filter by specific role
-                }
-
-                // General search across multiple fields
-                $query->where(function ($q) use ($search) {
-                    $q->where('users.unique_id', 'LIKE', '%' . $search . '%')
-                        ->orWhere('users.email', 'LIKE', '%' . $search . '%')
-                        ->orWhere('users.phone', 'LIKE', '%' . $search . '%')
-                        ->orWhere('roles.name', 'LIKE', '%' . $search . '%'); // Search by role name
-                });
-            })
-            ->select('users.*', 'roles.name as role_name')
-            ->get();
+        $query = User::join('roles', 'roles.id', '=', 'users.role_id');
 
         if ($request->search_by_related == 0) {
-            $users = User::join('roles', 'roles.id', '=', 'users.role_id')
-                ->where('roles.name', '!=', 'admin')
-                ->where(function ($query) use ($search, $searchByRelated) {
-                    // Check if specific role-based filtering is requested
-                    if ($searchByRelated) {
-                        $query->where('roles.name', 'LIKE', '%' . $searchByRelated . '%'); // Filter by specific role
-                    }
-
-                    // General search across multiple fields
-                    $query->where(function ($q) use ($search) {
-                        $q->where('users.unique_id', 'LIKE', '%' . $search . '%')
-                            ->orWhere('users.email', 'LIKE', '%' . $search . '%')
-                            ->orWhere('users.phone', 'LIKE', '%' . $search . '%')
-                            ->orWhere('roles.name', 'LIKE', '%' . $search . '%'); // Search by role name
-                    });
-                })
-                ->select('users.*', 'roles.name as role_name')
-                ->get();
+            $query->where('roles.name', '!=', 'admin');
         }
 
+        $query->where(function ($query) use ($search, $searchByRelated) {
 
+            if ($searchByRelated) {
+                $query->where('roles.name', 'LIKE', '%' . $searchByRelated . '%');
+            }
+
+            $query->where(function ($q) use ($search) {
+                $q->where('users.unique_id', 'LIKE', '%' . $search . '%')
+                    ->orWhere('users.email', 'LIKE', '%' . $search . '%')
+                    ->orWhere('users.phone', 'LIKE', '%' . $search . '%')
+                    ->orWhere('roles.name', 'LIKE', '%' . $search . '%');
+            });
+        });
+
+        $users = $query
+            ->select(
+                'users.id',
+                'users.first_name',
+                'users.last_name',
+                'users.user_name',
+                'users.email',
+                'users.phone',
+                'users.google_id',
+                'users.role_id',
+                'users.unique_id',
+                'users.isapproved',
+                'users.reject_reason',
+                'users.kyc',
+                'users.is_otp_verified',
+                'users.created_by',
+                'users.email_otp_expires_at',
+                'users.token_created_at',
+                'users.created_at',
+                'users.updated_at',
+                'roles.name as role_name'
+            )
+            ->get();
 
         return response()->json([
             'status' => true,
@@ -2595,30 +2573,30 @@ class UserController extends Controller
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
 
-        // Retrieve the Authorization header
         $authorizationHeader = $request->header('Authorization');
 
-        // Check if the header starts with "Bearer "
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
 
-        // Extract the token by removing the "Bearer " prefix
         $requestToken = substr($authorizationHeader, 7);
 
-        // Check if the token is empty after removing "Bearer "
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
 
-        // Verify the token dynamically (e.g., check in the database)
-        $user = User::where('api_token', $requestToken)->first();
+        $user = User::select([
+            'id',
+            'role_id',
+            'api_token',
+        ])
+            ->where('api_token', $requestToken)
+            ->first();
 
         if (!$user) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
 
-        // Validate the incoming request
         try {
             $request->validate([
                 'ids' => 'required|array',
@@ -2629,11 +2607,10 @@ class UserController extends Controller
         }
 
         try {
-            $ids = $request->input('ids'); // Get the list of IDs from the request
+            $ids = $request->input('ids');
 
             DB::beginTransaction();
 
-            // Delete users and their associated details in bulk
             User::whereIn('id', $ids)->delete();
             UserDetail::whereIn('user_id', $ids)->delete();
 
@@ -2645,7 +2622,9 @@ class UserController extends Controller
             ], 200);
         } catch (\Exception $e) {
             DB::rollBack();
+
             \Log::error($e->getMessage());
+
             return response()->json([
                 'error' => 'Failed to delete users. ' . $e->getMessage(),
             ], 500);
@@ -2659,29 +2638,33 @@ class UserController extends Controller
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
 
-        // Retrieve the Authorization header
         $authorizationHeader = $request->header('Authorization');
 
-        // Check if the header starts with "Bearer "
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
 
-        // Extract the token by removing the "Bearer " prefix
         $requestToken = substr($authorizationHeader, 7);
 
-        // Check if the token is empty after removing "Bearer "
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
 
-        // Verify the token dynamically (check in the database)
-        $user = User::where('api_token', $requestToken)->first();
+        $user = User::select([
+            'id',
+            'role_id',
+            'isapproved',
+            'kyc',
+            'api_token',
+        ])
+            ->where('api_token', $requestToken)
+            ->first();
 
         if (!$user) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
-        $roleName = $request->query('role'); // Role name from query parameter
+
+        $roleName = $request->query('role');
 
         if (!$roleName) {
             return response()->json([
@@ -2690,8 +2673,9 @@ class UserController extends Controller
             ], 400);
         }
 
-        // Fetch the role ID dynamically
-        $role = Role::where('name', $roleName)->first();
+        $role = Role::select(['id', 'name'])
+            ->where('name', $roleName)
+            ->first();
 
         if (!$role) {
             return response()->json([
@@ -2700,7 +2684,6 @@ class UserController extends Controller
             ], 404);
         }
 
-        // Fetch users based on the role ID
         $users = User::where('role_id', $role->id)->get();
 
         return response()->json([
@@ -2717,33 +2700,34 @@ class UserController extends Controller
             return response()->json(['error' => 'Please provide an API token.'], 422);
         }
 
-        // Retrieve the Authorization header
         $authorizationHeader = $request->header('Authorization');
 
-        // Check if the header starts with "Bearer "
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
             return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
         }
 
-        // Extract the token by removing the "Bearer " prefix
         $requestToken = substr($authorizationHeader, 7);
 
-        // Check if the token is empty after removing "Bearer "
         if (empty($requestToken)) {
             return response()->json(['error' => 'Token is missing.'], 422);
         }
 
-        // Verify the token dynamically (check in the database)
-        $user = User::where('api_token', $requestToken)->first();
+        $user = User::select([
+            'id',
+            'role_id',
+            'isapproved',
+            'kyc',
+            'api_token',
+        ])
+            ->where('api_token', $requestToken)
+            ->first();
 
         if (!$user) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
         }
 
-        // Get the status value from the query parameter
         $statusValue = $request->query('isapproved');
 
-        // Validate the status value
         if ($statusValue === null || !in_array($statusValue, ['1', '0'], true)) {
             return response()->json([
                 'status' => false,
@@ -2751,7 +2735,6 @@ class UserController extends Controller
             ], 400);
         }
 
-        // Fetch users based on the `isapproved` status
         $users = User::where('isapproved', $statusValue)->get();
 
         return response()->json([
@@ -2761,12 +2744,12 @@ class UserController extends Controller
     }
 
 
-
     public function getConsultancyAgents(Request $request, $id)
     {
         try {
             // Fetch the role
-            $role = Role::find($id);
+            $role = Role::select(['id', 'name'])
+                ->find($id);
 
             // Check if the role exists and is 'consultancy'
             if (!$role) {
@@ -2820,7 +2803,6 @@ class UserController extends Controller
                     'regex:/[@$!%*#?&]/',
                 ],
             ]);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json(['error' => $e->errors()], 400);
         }
@@ -2935,18 +2917,34 @@ class UserController extends Controller
 
     public function getDataUserDetailsByRole(Request $request)
     {
-        $AuthUser = auth('sanctum')->user() ?? User::where('api_token', $request->bearerToken())->first();
+        $AuthUser = auth('sanctum')->user();
+
+        if (!$AuthUser && $request->bearerToken()) {
+            $AuthUser = User::select([
+                'id',
+                'email',
+                'phone',
+                'role_id',
+                'isapproved',
+                'kyc',
+                'api_token',
+            ])
+                ->where('api_token', $request->bearerToken())
+                ->first();
+        }
 
         try {
-            $roleId = $request->role_id; // Optional filter
-            $perPage = $request->per_page ?? 10; // Default 10 records per page
+            $roleId = $request->role_id;
+            $perPage = $request->per_page ?? 10;
 
-            $query = DB::table('users')->where('users.isapproved', '=', 1)
+            $query = DB::table('users')
+                ->where('users.isapproved', '=', 1)
                 ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
                 ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
                 ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
                 ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
                 ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+                ->where('roles.name', '!=', 'admin')
                 ->select(
                     'users.id',
                     'users.first_name',
@@ -2973,31 +2971,24 @@ class UserController extends Controller
                     'user_details.about_us',
                     'users.created_at',
                     'users.updated_at'
-                )
-                ->where('roles.name', '!=', 'admin'); // Exclude Admin role
+                );
 
-            // Filter by role if provided
             if (!empty($roleId)) {
                 $query->where('users.role_id', $roleId);
             }
 
-            // Paginate results
             $paginatedData = $query->paginate($perPage);
 
-            // Format each user record
             $paginatedData->getCollection()->transform(function ($user) use ($AuthUser) {
-
                 $email = $user->email;
                 $phone = $user->phone;
 
-                // Masking only if NOT Authenticated User
                 if (!$AuthUser) {
                     if (!empty($email)) {
-                        // Example: te***@gmail.com
                         $email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $email);
                     }
+
                     if (!empty($phone)) {
-                        // Example: 957****274
                         $phone = substr($phone, 0, 3) . '****' . substr($phone, -3);
                     }
                 }
@@ -3033,7 +3024,6 @@ class UserController extends Controller
                 'message' => 'User details retrieved successfully',
                 'users' => $paginatedData
             ], 200);
-
         } catch (\Throwable $th) {
             \Log::error('Error fetching user list by role:', ['error' => $th->getMessage()]);
             return response()->json(['error' => 'Internal Server Error.'], 500);
@@ -3044,10 +3034,24 @@ class UserController extends Controller
 
     public function getDataUserDetailsById(Request $request)
     {
-        $AuthUser = auth('sanctum')->user() ?? User::where('api_token', $request->bearerToken())->first();
+        $AuthUser = auth('sanctum')->user();
+
+        if (!$AuthUser && $request->bearerToken()) {
+            $AuthUser = User::select([
+                'id',
+                'email',
+                'phone',
+                'role_id',
+                'isapproved',
+                'kyc',
+                'api_token',
+            ])
+                ->where('api_token', $request->bearerToken())
+                ->first();
+        }
 
         try {
-            $Id = $request->id; // Required filter
+            $Id = $request->id;
 
             $query = DB::table('users')
                 ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
@@ -3061,7 +3065,6 @@ class UserController extends Controller
                 ->leftJoin('purposes', 'user_details.purpose_id', '=', 'purposes.id')
                 ->leftJoin('properties', 'user_details.property_id', '=', 'properties.id')
                 ->leftJoin('property_types', 'user_details.property_type_id', '=', 'property_types.id')
-
                 ->select(
                     'users.id',
                     'users.first_name',
@@ -3115,7 +3118,7 @@ class UserController extends Controller
                     'users.created_at',
                     'users.updated_at'
                 )
-                ->where('roles.name', '!=', 'admin') // Exclude Admin role
+                ->where('roles.name', '!=', 'admin')
                 ->where('users.isapproved', '=', 1)
                 ->where('users.id', $Id);
 
@@ -3128,7 +3131,6 @@ class UserController extends Controller
                 ], 200);
             }
 
-            // Masking (only if NOT Authenticated User)
             $email = $user->email;
             $phone = $user->phone;
             $bisiness_email = $user->bussiness_email;
@@ -3139,15 +3141,19 @@ class UserController extends Controller
                 if (!empty($email)) {
                     $email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $email);
                 }
+
                 if (!empty($phone)) {
                     $phone = substr($phone, 0, 3) . '****' . substr($phone, -3);
                 }
+
                 if (!empty($bisiness_email)) {
                     $bisiness_email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $bisiness_email);
                 }
+
                 if (!empty($bisiness_phone)) {
                     $bisiness_phone = substr($bisiness_phone, 0, 3) . '****' . substr($bisiness_phone, -3);
                 }
+
                 if (!empty($alternate_number)) {
                     $alternate_number = substr($alternate_number, 0, 3) . '****' . substr($alternate_number, -3);
                 }
@@ -3204,7 +3210,6 @@ class UserController extends Controller
                 'message' => 'User details retrieved successfully',
                 'user' => $userData
             ], 200);
-
         } catch (\Throwable $th) {
             \Log::error('Error fetching user details by id:', ['error' => $th->getMessage()]);
             return response()->json(['error' => 'Internal Server Error.'], 500);
@@ -3321,13 +3326,4 @@ class UserController extends Controller
             return response()->json(['error' => 'Failed to update profile. ' . $e->getMessage()], 500);
         }
     }
-
-
-    
-
-
-
-
-
-
 }

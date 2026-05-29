@@ -20,6 +20,8 @@ use App\Observers\AmenitiesCategoryObserver;
 use App\Models\MailConfig;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -42,7 +44,7 @@ class AppServiceProvider extends ServiceProvider
         PropertyType::observe(PropertyTypeObserver::class);
         Status::observe(StatusObserver::class);
         AmenitiesCategory::observe(AmenitiesCategoryObserver::class);
-
+        require_once app_path('Helpers/domain_helper.php');
         if (Schema::hasTable('mail_configs')) {
             $mailConfig = MailConfig::first();
 
@@ -56,8 +58,15 @@ class AppServiceProvider extends ServiceProvider
                 Config::set('mail.from.address', $mailConfig->from_address);
                 Config::set('mail.from.name', $mailConfig->from_name);
             }
-
         }
-
+        DB::listen(function ($query) {
+            if ($query->time > 500) {
+                Log::channel('daily')->warning('Slow Query Detected', [
+                    'sql' => $query->sql,
+                    'bindings' => $query->bindings,
+                    'time_ms' => $query->time,
+                ]);
+            }
+        });
     }
 }
