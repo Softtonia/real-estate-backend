@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 class ApiTokenMiddleware
 {
@@ -30,8 +31,12 @@ class ApiTokenMiddleware
             return response()->json(['error' => 'Token is missing.'], 422);
         }
 
-        // Fetch only required user fields
-        $user = User::select([
+        // Cache key based on token
+        $cacheKey = 'api_token_user:' . $requestToken;
+
+        // Try to get from cache
+        $user = Cache::remember($cacheKey, 60, function () use ($requestToken) {
+            return User::select([
                 'id',
                 'first_name',
                 'last_name',
@@ -42,8 +47,9 @@ class ApiTokenMiddleware
                 'kyc',
                 'api_token',
             ])
-            ->where('api_token', $requestToken)
-            ->first();
+                ->where('api_token', $requestToken)
+                ->first();
+        });
 
         if (!$user) {
             return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);

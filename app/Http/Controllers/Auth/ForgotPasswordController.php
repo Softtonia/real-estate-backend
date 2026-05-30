@@ -4,20 +4,20 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\PasswordReset;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail; // Use the correct namespace for Mail
-use Illuminate\Support\Facades\URL;  // Add this line to use the URL facade
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str; // Add this line to use the Str facade
-use Carbon\Carbon;
 use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+use Carbon\Carbon;
+use App\Jobs\SendPasswordResetEmail;
 
 class ForgotPasswordController extends Controller
 {
-
-    // Forgot Password (Send Reset Link)
+    /**
+     * Send password reset link
+     */
     public function forgetPassword(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -32,7 +32,10 @@ class ForgotPasswordController extends Controller
             ], 422);
         }
 
-        $user = User::where('email', $request->email)->first();
+        $email = $request->input('email');
+
+        // Fetch user once
+        $user = User::where('email', $email)->first();
         if (!$user) {
             return response()->json([
                 'status' => false,
@@ -40,8 +43,11 @@ class ForgotPasswordController extends Controller
             ], 200);
         }
 
-        //  Mail Config from DB
-        $mailConfig = DB::table('mail_configs')->where('status', 1)->first();
+        // Cache mail config for 5 minutes
+        $mailConfig = Cache::remember('mail_config', 300, function () {
+            return \DB::table('mail_configs')->where('status', 1)->first();
+        });
+
         if (!$mailConfig) {
             return response()->json([
                 'status' => false,
@@ -49,48 +55,35 @@ class ForgotPasswordController extends Controller
             ], 500);
         }
 
-        config([
-            'mail.mailers.smtp.transport' => $mailConfig->mailer,
-            'mail.mailers.smtp.host' => $mailConfig->host,
-            'mail.mailers.smtp.port' => $mailConfig->port,
-            'mail.mailers.smtp.username' => $mailConfig->username,
-            'mail.mailers.smtp.password' => $mailConfig->password,
-            'mail.mailers.smtp.encryption' => $mailConfig->encryption,
-            'mail.from.address' => $mailConfig->from_address,
-            'mail.from.name' => $mailConfig->from_name,
-        ]);
-
-        //  Generate token
+        // Generate token
         $token = Str::random(40);
 
-        //  Save token
+        // Save or update token
         PasswordReset::updateOrCreate(
-            ['email' => $request->email],
+            ['email' => $email],
             [
                 'token' => $token,
                 'created_at' => Carbon::now(),
             ]
         );
 
-        $resetUrl = url('/api/reset-password-form?token=' . $token);
+        $resetUrl = url("/api/reset-password-form?token={$token}");
 
-        $data = [
+        $mailData = [
             'url' => $resetUrl,
-            'email' => $request->email,
+            'email' => $email,
             'title' => 'Password Reset',
             'body' => 'Click here to reset your password',
+            'from_address' => $mailConfig->from_address,
+            'from_name' => $mailConfig->from_name,
         ];
 
         try {
-            Mail::send('forgetPasswordMail', ['data' => $data], function ($message) use ($data, $mailConfig) {
-                $message->to($data['email'])
-                    ->from($mailConfig->from_address, $mailConfig->from_name)
-                    ->subject($data['title']);
-            });
+            SendPasswordResetEmail::dispatch($mailData)->onQueue('emails');
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
-                'message' => 'Failed to send email',
+                'message' => 'Failed to dispatch email job',
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -98,16 +91,18 @@ class ForgotPasswordController extends Controller
         return response()->json([
             'status' => true,
             'message' => 'Password reset link sent to your email',
-            'reset_token' => $token, // frontend use kar sakta hai direct API ke liye
+            'reset_token' => $token,
             'reset_url' => $resetUrl,
         ], 200);
     }
 
-    //  Reset Password
+    /**
+     * Reset password using token
+     */
     public function resetPassword(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'token' => 'required',
+            'token' => 'required|string',
             'password' => 'required|string|min:8|confirmed',
         ]);
 
@@ -119,7 +114,12 @@ class ForgotPasswordController extends Controller
             ], 422);
         }
 
-        $passwordReset = PasswordReset::where('token', $request->token)->first();
+        $token = $request->input('token');
+
+        // Validate token and check expiry (1 hour)
+        $passwordReset = PasswordReset::where('token', $token)
+            ->where('created_at', '>=', Carbon::now()->subHour())
+            ->first();
 
         if (!$passwordReset) {
             return response()->json([
@@ -128,12 +128,13 @@ class ForgotPasswordController extends Controller
             ], 400);
         }
 
+        // Fetch user once
         $user = User::where('email', $passwordReset->email)->first();
         if (!$user) {
             return response()->json([
                 'status' => false,
                 'message' => 'User not found',
-            ], 200);
+            ], 404);
         }
 
         $user->update([
@@ -148,10 +149,16 @@ class ForgotPasswordController extends Controller
         ], 200);
     }
 
-    // Check if token is valid (Instead of returning Blade view)
+    /**
+     * Validate reset token without changing password
+     */
     public function validateResetToken(Request $request)
     {
-        $resetData = PasswordReset::where('token', $request->token)->first();
+        $token = $request->input('token');
+
+        $resetData = PasswordReset::where('token', $token)
+            ->where('created_at', '>=', Carbon::now()->subHour())
+            ->first();
 
         if (!$resetData) {
             return response()->json([

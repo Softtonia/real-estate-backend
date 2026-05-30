@@ -4,34 +4,75 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\User;
-use Hash;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+use App\Models\PasswordReset;
+use Carbon\Carbon;
+
 class ResetPasswordController extends Controller
 {
+    /**
+     * Show reset password form (for API, can be skipped if frontend handles it)
+     */
     public function showResetForm($token)
     {
-        return view('auth.passwords.reset')->with(['token' => $token]);
+        return response()->json([
+            'status' => true,
+            'token' => $token,
+        ]);
     }
 
+    /**
+     * Reset user password
+     */
     public function reset(Request $request)
     {
-        // Validate the request data
-        $request->validate([
+        // Validate input
+        $validator = Validator::make($request->all(), [
             'email' => 'required|email',
-            'password' => 'required|confirmed|min:8',
+            'password' => 'required|string|min:8|confirmed',
+            'token' => 'required|string',
         ]);
 
-        // Find the user by email
-        $user = User::where('email', $request->email)->first();
-
-        // Check if the user exists
-        if (!$user) {
-            return response()->json(['error' => 'User not found'], 404);
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
         }
 
-        // Update the user's password
+        // Verify token
+        $passwordReset = PasswordReset::where('email', $request->email)
+                                      ->where('token', $request->token)
+                                      ->first();
+
+        if (!$passwordReset) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid or expired token',
+            ], 400);
+        }
+
+        // Find user
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'User not found',
+            ], 404);
+        }
+
+        // Update password
         $user->password = Hash::make($request->password);
         $user->save();
 
-        return response()->json(['success' => 'Password updated successfully']);
+        // Delete token
+        $passwordReset->delete();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Password reset successfully',
+        ]);
     }
 }

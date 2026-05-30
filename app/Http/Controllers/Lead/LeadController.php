@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
+use App\Jobs\SendLeadOtpEmailJob;
 
 class LeadController extends Controller
 {
@@ -32,48 +34,48 @@ class LeadController extends Controller
             ], 422);
         }
 
-        $otp = rand(100000, 999999); // 6 digit OTP
+        $phone = $request->phone;
+        $email = $request->email;
+        $otp = rand(100000, 999999);
+        $now = now();
 
         DB::table('lead_otps')->updateOrInsert(
-            ['phone' => $request->phone],
+            ['phone' => $phone],
             [
                 'otp' => $otp,
-                'email' => $request->email,
-                'expires_at' => now()->addMinutes(5),
-                'created_at' => now(),
-                'updated_at' => now(),
+                'email' => $email,
+                'expires_at' => $now->copy()->addMinutes(5),
+                'created_at' => $now,
+                'updated_at' => $now,
             ]
         );
 
-
-        $settings = DB::table('mail_configs')->where('status', 1)->first();
-        if ($settings) {
-            config([
-                'mail.mailers.smtp.host' => $settings->host,
-                'mail.mailers.smtp.port' => $settings->port,
-                'mail.mailers.smtp.username' => $settings->username,
-                'mail.mailers.smtp.password' => $settings->password,
-                'mail.mailers.smtp.encryption' => $settings->encryption,
-                'mail.from.address' => $settings->from_address,
-                'mail.from.name' => $settings->from_name,
-            ]);
-        }
-
-
-        if ($request->email) {
+        if ($email) {
             try {
+                $settings = Cache::store('redis')->remember('active_mail_config', 300, function () {
+                    return DB::table('mail_configs')->where('status', 1)->first();
+                });
+
+                if ($settings) {
+                    config([
+                        'mail.mailers.smtp.host' => $settings->host,
+                        'mail.mailers.smtp.port' => $settings->port,
+                        'mail.mailers.smtp.username' => $settings->username,
+                        'mail.mailers.smtp.password' => $settings->password,
+                        'mail.mailers.smtp.encryption' => $settings->encryption,
+                        'mail.from.address' => $settings->from_address,
+                        'mail.from.name' => $settings->from_name,
+                    ]);
+                }
+
                 $emailData = [
                     'otp' => $otp,
-                    'phone' => $request->phone,
+                    'phone' => $phone,
                     'expiry' => '5 minutes',
                     'fullName' => $request->name ?? 'User'
                 ];
 
-                Mail::send('emails.otp', $emailData, function ($message) use ($request) {
-                    $message->to($request->email)
-                        ->subject('Your Mobile OTP Verification Code');
-                });
-
+                SendLeadOtpEmailJob::dispatch($emailData, $email);
             } catch (\Exception $e) {
                 return response()->json([
                     'status' => false,
@@ -87,16 +89,15 @@ class LeadController extends Controller
             'success' => true,
             'message' => 'OTP sent successfully',
             'data' => [
-                'phone' => $request->phone,
-                'email_sent' => !empty($request->email)
+                'phone' => $phone,
+                'email_sent' => !empty($email)
             ]
         ]);
     }
-
     public function index()
     {
         // Fetch all leads with relationships
-        $leads = Lead::with(['leadType','property', 'project', 'developer','property.property'])->get();
+        $leads = Lead::with(['leadType', 'property', 'project', 'developer', 'property.property'])->get();
 
         // Collect all user_ids from all leads (already array because of casts)
         $allUserIds = $leads->pluck('user_ids')
@@ -318,7 +319,6 @@ class LeadController extends Controller
                 'message' => 'Lead created successfully (Admin)',
                 'data' => $lead,
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -334,13 +334,14 @@ class LeadController extends Controller
     /**
      * Display the specified resource by ID.
      */
-  
+
 
 
     public function show($id)
     {
         // Lead with relations
-        $lead = Lead::with(['leadType',
+        $lead = Lead::with([
+            'leadType',
             'property.country',
             'property.state',
             'property.city',
@@ -1145,10 +1146,4 @@ class LeadController extends Controller
             'data' => $leads,
         ]);
     }
-
-
-
-
-
-
 }

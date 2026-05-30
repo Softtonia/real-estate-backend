@@ -45,11 +45,22 @@ use Illuminate\Support\Facades\Response;
 use App\Exports\SubscribedEmailsExport;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Cache;
 
 class UserController extends Controller
 {
 
+    private function clearUserCaches($userId = null)
+    {
+        Cache::store('redis')->forget('user_status_list');
+        Cache::store('redis')->forget('all_agent_listing_admin');
+        Cache::store('redis')->forget('all_consultancy_listing');
 
+        if ($userId) {
+            Cache::store('redis')->forget("user_details_admin_{$userId}");
+            Cache::store('redis')->forget("user_details_website_{$userId}");
+        }
+    }
     // Function to append base URL to gallery images
     private function appendBaseURL($gallery, $baseURL)
     {
@@ -372,63 +383,70 @@ class UserController extends Controller
     public function alluserlist(Request $request)
     {
         try {
-            $perPage = $request->input('per_page', 20);
+            $perPage = (int) $request->input('per_page', 20);
+            $page = (int) $request->input('page', 1);
 
-            $users = User::select([
-                'id',
-                'first_name',
-                'last_name',
-                'user_name',
-                'email',
-                'phone',
-                'role_id',
-                'unique_id',
-                'isapproved',
-                'kyc',
-            ])
-                ->where('role_id', '!=', 1)
-                ->with('role:id,name')
-                ->paginate($perPage);
+            $cacheKey = "users_all_list_page_{$page}_per_page_{$perPage}";
 
-            $userList = $users->getCollection()->map(function ($user) {
-                $roleName = $user->role ? $user->role->name : null;
+            $response = Cache::store('redis')->remember($cacheKey, 60, function () use ($request, $perPage) {
+
+                $users = User::select([
+                    'id',
+                    'first_name',
+                    'last_name',
+                    'user_name',
+                    'email',
+                    'phone',
+                    'role_id',
+                    'unique_id',
+                    'isapproved',
+                    'kyc',
+                ])
+                    ->where('role_id', '!=', 1)
+                    ->with('role:id,name')
+                    ->paginate($perPage);
+
+                $userList = $users->getCollection()->map(function ($user) {
+                    $roleName = $user->role ? $user->role->name : null;
+
+                    return [
+                        'id' => $user->id,
+                        'first_name' => $user->first_name,
+                        'last_name' => $user->last_name,
+                        'user_name' => $user->user_name,
+                        'email' => $user->email,
+                        'phone' => $user->phone,
+                        'role_name' => $roleName,
+                        'unique_id' => $user->unique_id,
+                        'isapproved' => $user->isapproved,
+                        'kyc' => $user->kyc,
+                    ];
+                });
+
+                $baseUrl = $request->url();
+                $queryParams = $request->query();
+                $queryParams['per_page'] = $users->perPage();
+
+                $firstPageUrl = $baseUrl . '?' . http_build_query(array_merge($queryParams, ['page' => 1]));
+                $lastPageUrl = $baseUrl . '?' . http_build_query(array_merge($queryParams, ['page' => $users->lastPage()]));
 
                 return [
-                    'id' => $user->id,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'user_name' => $user->user_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role_name' => $roleName,
-                    'unique_id' => $user->unique_id,
-                    'isapproved' => $user->isapproved,
-                    'kyc' => $user->kyc,
+                    'message' => 'All Users List',
+                    'data' => $userList,
+                    'current_page' => $users->currentPage(),
+                    'last_page' => $users->lastPage(),
+                    'per_page' => $users->perPage(),
+                    'total' => $users->total(),
+                    'links' => [
+                        'first' => $firstPageUrl,
+                        'last' => $lastPageUrl,
+                        'next' => $users->nextPageUrl(),
+                        'prev' => $users->previousPageUrl(),
+                    ],
                 ];
             });
 
-            // Build pagination links same as old code
-            $baseUrl = $request->url();
-            $queryParams = $request->query();
-            $queryParams['per_page'] = $users->perPage();
-
-            $firstPageUrl = $baseUrl . '?' . http_build_query(array_merge($queryParams, ['page' => 1]));
-            $lastPageUrl = $baseUrl . '?' . http_build_query(array_merge($queryParams, ['page' => $users->lastPage()]));
-
-            return response()->json([
-                'message' => 'All Users List',
-                'data' => $userList,
-                'current_page' => $users->currentPage(),
-                'last_page' => $users->lastPage(),
-                'per_page' => $users->perPage(),
-                'total' => $users->total(),
-                'links' => [
-                    'first' => $firstPageUrl,
-                    'last' => $lastPageUrl,
-                    'next' => $users->nextPageUrl(),
-                    'prev' => $users->previousPageUrl(),
-                ],
-            ], 200);
+            return response()->json($response, 200);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
@@ -445,128 +463,139 @@ class UserController extends Controller
                 return response()->json(['error' => 'User id is required.'], 400);
             }
 
-            $userData = DB::table('users')
-                ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
-                ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
-                ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
-                ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
-                ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
-                ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
-                ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
-                ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
-                ->where('users.id', $userId)
-                ->select(
-                    'users.id',
-                    'users.first_name',
-                    'users.last_name',
-                    'users.user_name',
-                    'users.email',
-                    'users.phone',
-                    'users.role_id',
-                    DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
-                    'users.unique_id',
-                    'users.isapproved',
-                    'users.kyc',
-                    'users.is_otp_verified',
-                    'users.country_id',
-                    'users.state_id',
-                    'users.city_id',
-                    'user_countries.name as country',
-                    'user_states.name as state',
-                    'user_cities.name as city',
-                    'users.area_locality',
-                    'users.colony',
-                    'users.street_address',
-                    'users.pin_code',
-                    'users.about',
+            $cacheKey = "user_details_admin_{$userId}";
 
-                    'user_details.bussiness_name',
-                    'user_details.bussiness_address',
-                    'user_details.bussiness_email',
-                    'user_details.business_phone',
-                    'user_details.country_id as business_country_id',
-                    'user_details.state_id as business_state_id',
-                    'user_details.city_id as business_city_id',
-                    'countries.name as business_country',
-                    'states.name as business_state',
-                    'cities.name as business_city',
-                    'user_details.area_locality as business_area_locality',
-                    'user_details.colony as business_colony',
-                    'user_details.street_address as business_street_address',
-                    'user_details.pin_code as business_pin_code',
-                    'user_details.aadhaar_number',
-                    'user_details.aadhaar_front',
-                    'user_details.aadhaar_back',
-                    'user_details.business_proof',
+            $response = Cache::store('redis')->remember($cacheKey, 300, function () use ($userId) {
 
-                    'user_details.address',
-                    'user_details.profile_photo',
-                    'user_details.license_number',
-                    'user_details.alternate_number',
-                    'user_details.no_of_employees',
-                    'user_details.about_us',
-                    'users.created_at',
-                    'users.updated_at'
-                )
-                ->first();
+                $userData = DB::table('users')
+                    ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
+                    ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
+                    ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
+                    ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
+                    ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+                    ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
+                    ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
+                    ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
+                    ->where('users.id', $userId)
+                    ->select(
+                        'users.id',
+                        'users.first_name',
+                        'users.last_name',
+                        'users.user_name',
+                        'users.email',
+                        'users.phone',
+                        'users.role_id',
+                        DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
+                        'users.unique_id',
+                        'users.isapproved',
+                        'users.kyc',
+                        'users.is_otp_verified',
+                        'users.country_id',
+                        'users.state_id',
+                        'users.city_id',
+                        'user_countries.name as country',
+                        'user_states.name as state',
+                        'user_cities.name as city',
+                        'users.area_locality',
+                        'users.colony',
+                        'users.street_address',
+                        'users.pin_code',
+                        'users.about',
 
-            if (!$userData) {
+                        'user_details.bussiness_name',
+                        'user_details.bussiness_address',
+                        'user_details.bussiness_email',
+                        'user_details.business_phone',
+                        'user_details.country_id as business_country_id',
+                        'user_details.state_id as business_state_id',
+                        'user_details.city_id as business_city_id',
+                        'countries.name as business_country',
+                        'states.name as business_state',
+                        'cities.name as business_city',
+                        'user_details.area_locality as business_area_locality',
+                        'user_details.colony as business_colony',
+                        'user_details.street_address as business_street_address',
+                        'user_details.pin_code as business_pin_code',
+                        'user_details.aadhaar_number',
+                        'user_details.aadhaar_front',
+                        'user_details.aadhaar_back',
+                        'user_details.business_proof',
+
+                        'user_details.address',
+                        'user_details.profile_photo',
+                        'user_details.license_number',
+                        'user_details.alternate_number',
+                        'user_details.no_of_employees',
+                        'user_details.about_us',
+                        'users.created_at',
+                        'users.updated_at'
+                    )
+                    ->first();
+
+                if (!$userData) {
+                    return null;
+                }
+
+                return [
+                    'id' => $userData->id,
+                    'first_name' => $userData->first_name,
+                    'last_name' => $userData->last_name,
+                    'user_name' => $userData->user_name,
+                    'email' => $userData->email,
+                    'phone' => $userData->phone,
+                    'role_id' => $userData->role_id,
+                    'role_name' => $userData->role_name,
+                    'unique_id' => $userData->unique_id,
+                    'isapproved' => $userData->isapproved,
+                    'kyc' => $userData->kyc,
+                    'is_otp_verified' => $userData->is_otp_verified,
+                    'country_id' => $userData->country_id ?? 'N/A',
+                    'state_id' => $userData->state_id ?? 'N/A',
+                    'city_id' => $userData->city_id ?? 'N/A',
+                    'country' => $userData->country ?? 'N/A',
+                    'state' => $userData->state ?? 'N/A',
+                    'city' => $userData->city ?? 'N/A',
+                    'area_locality' => $userData->area_locality ?? 'N/A',
+                    'colony' => $userData->colony ?? 'N/A',
+                    'street_address' => $userData->street_address ?? 'N/A',
+                    'pin_code' => $userData->pin_code ?? 'N/A',
+                    'about' => $userData->about,
+
+                    'bussiness_name' => $userData->bussiness_name,
+                    'bussiness_address' => $userData->bussiness_address,
+                    'bussiness_email' => $userData->bussiness_email,
+                    'business_phone' => $userData->business_phone,
+                    'business_country_id' => $userData->business_country_id ?? 'N/A',
+                    'business_state_id' => $userData->business_state_id ?? 'N/A',
+                    'business_city_id' => $userData->business_city_id ?? 'N/A',
+                    'business_country' => $userData->business_country ?? 'N/A',
+                    'business_state' => $userData->business_state ?? 'N/A',
+                    'business_city' => $userData->business_city ?? 'N/A',
+                    'business_area_locality' => $userData->business_area_locality ?? 'N/A',
+                    'business_colony' => $userData->business_colony ?? 'N/A',
+                    'business_street_address' => $userData->business_street_address ?? 'N/A',
+                    'business_pin_code' => $userData->business_pin_code ?? 'N/A',
+                    'address' => $userData->address,
+                    'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
+                    'aadhaar_number' => $userData->aadhaar_number,
+                    'aadhaar_front' => $userData->aadhaar_front ? url($userData->aadhaar_front) : null,
+                    'aadhaar_back' => $userData->aadhaar_back ? url($userData->aadhaar_back) : null,
+                    'business_proof' => $userData->business_proof ? url($userData->business_proof) : null,
+                    'license_number' => $userData->license_number,
+                    'alternate_number' => $userData->alternate_number,
+                    'no_of_employees' => $userData->no_of_employees,
+                    'about_us' => $userData->about_us,
+                    'created_at' => $userData->created_at,
+                    'updated_at' => $userData->updated_at
+                ];
+            });
+
+            if (!$response) {
                 \Log::error('User not found', ['id' => $userId]);
                 return response()->json(['error' => 'No data found for this user.'], 404);
             }
 
-            return response()->json([
-                'id' => $userData->id,
-                'first_name' => $userData->first_name,
-                'last_name' => $userData->last_name,
-                'user_name' => $userData->user_name,
-                'email' => $userData->email,
-                'phone' => $userData->phone,
-                'role_id' => $userData->role_id,
-                'role_name' => $userData->role_name,
-                'unique_id' => $userData->unique_id,
-                'isapproved' => $userData->isapproved,
-                'kyc' => $userData->kyc,
-                'is_otp_verified' => $userData->is_otp_verified,
-                'country_id' => $userData->country_id ?? 'N/A',
-                'state_id' => $userData->state_id ?? 'N/A',
-                'city_id' => $userData->city_id ?? 'N/A',
-                'country' => $userData->country ?? 'N/A',
-                'state' => $userData->state ?? 'N/A',
-                'city' => $userData->city ?? 'N/A',
-                'area_locality' => $userData->area_locality ?? 'N/A',
-                'colony' => $userData->colony ?? 'N/A',
-                'street_address' => $userData->street_address ?? 'N/A',
-                'pin_code' => $userData->pin_code ?? 'N/A',
-                'about' => $userData->about,
-
-                'bussiness_name' => $userData->bussiness_name,
-                'bussiness_address' => $userData->bussiness_address,
-                'bussiness_email' => $userData->bussiness_email,
-                'business_phone' => $userData->business_phone,
-                'business_country_id' => $userData->business_country_id ?? 'N/A',
-                'business_state_id' => $userData->business_state_id ?? 'N/A',
-                'business_city_id' => $userData->business_city_id ?? 'N/A',
-                'business_country' => $userData->business_country ?? 'N/A',
-                'business_state' => $userData->business_state ?? 'N/A',
-                'business_city' => $userData->business_city ?? 'N/A',
-                'business_area_locality' => $userData->business_area_locality ?? 'N/A',
-                'business_colony' => $userData->business_colony ?? 'N/A',
-                'business_street_address' => $userData->business_street_address ?? 'N/A',
-                'business_pin_code' => $userData->business_pin_code ?? 'N/A',
-                'address' => $userData->address,
-                'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
-                'aadhaar_number' => $userData->aadhaar_number,
-                'aadhaar_front' => $userData->aadhaar_front ? url($userData->aadhaar_front) : null,
-                'aadhaar_back' => $userData->aadhaar_back ? url($userData->aadhaar_back) : null,
-                'business_proof' => $userData->business_proof ? url($userData->business_proof) : null,
-                'license_number' => $userData->license_number,
-                'alternate_number' => $userData->alternate_number,
-                'no_of_employees' => $userData->no_of_employees,
-                'about_us' => $userData->about_us,
-                'created_at' => $userData->created_at,
-                'updated_at' => $userData->updated_at
-            ], 200);
+            return response()->json($response, 200);
         } catch (\Throwable $th) {
             \Log::error('Error fetching user details:', ['error' => $th->getMessage()]);
             return response()->json(['error' => 'Internal Server Error.'], 500);
@@ -577,84 +606,93 @@ class UserController extends Controller
     public function getdetailsbyuseridForWebsite(Request $request)
     {
         try {
+            $userId = $request->input('id');
 
+            if (!$userId) {
+                return response()->json(['error' => 'User id is required.'], 400);
+            }
 
-            // Get user ID from the request
-            $userId = $request->input('id'); // Get the `id` from the query string (e.g., ?id=201)
+            $cacheKey = "user_details_website_{$userId}";
 
-            // Ensure the user exists
-            $userData = DB::table('users')
-                ->join('user_details', 'users.id', '=', 'user_details.user_id')
-                ->join('roles', 'users.role_id', '=', 'roles.id')
-                ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
-                ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
-                ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
-                ->where('users.id', $userId)
-                ->select(
-                    'users.id',
-                    'users.first_name',
-                    'users.last_name',
-                    'users.email',
-                    'users.phone',
-                    'users.role_id',
-                    'users.unique_id',
-                    'users.isapproved',
-                    'roles.name as role_name',
-                    'user_details.bussiness_name',
-                    'user_details.bussiness_address',
-                    'user_details.bussiness_email',
-                    'user_details.business_phone',
-                    'countries.name as country',
-                    'states.name as state',
-                    'cities.name as city',
-                    'user_details.address',
-                    'user_details.pin_code',
-                    'user_details.profile_photo',
-                    'user_details.license_number',
-                    'user_details.alternate_number',
-                    'user_details.no_of_employees',
-                    'user_details.about_us',
-                    'users.created_at',
-                    'users.updated_at',
-                    'user_details.country_id',
-                    'user_details.state_id',
-                    'user_details.city_id'
-                )
-                ->first();
+            $response = Cache::store('redis')->remember($cacheKey, 300, function () use ($userId) {
 
-            // If no user found for the requested ID
-            if (!$userData) {
+                $userData = DB::table('users')
+                    ->join('user_details', 'users.id', '=', 'user_details.user_id')
+                    ->join('roles', 'users.role_id', '=', 'roles.id')
+                    ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
+                    ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
+                    ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+                    ->where('users.id', $userId)
+                    ->select(
+                        'users.id',
+                        'users.first_name',
+                        'users.last_name',
+                        'users.email',
+                        'users.phone',
+                        'users.role_id',
+                        'users.unique_id',
+                        'users.isapproved',
+                        'roles.name as role_name',
+                        'user_details.bussiness_name',
+                        'user_details.bussiness_address',
+                        'user_details.bussiness_email',
+                        'user_details.business_phone',
+                        'countries.name as country',
+                        'states.name as state',
+                        'cities.name as city',
+                        'user_details.address',
+                        'user_details.pin_code',
+                        'user_details.profile_photo',
+                        'user_details.license_number',
+                        'user_details.alternate_number',
+                        'user_details.no_of_employees',
+                        'user_details.about_us',
+                        'users.created_at',
+                        'users.updated_at',
+                        'user_details.country_id',
+                        'user_details.state_id',
+                        'user_details.city_id'
+                    )
+                    ->first();
+
+                if (!$userData) {
+                    return null;
+                }
+
+                return [
+                    'id' => $userData->id,
+                    'first_name' => $userData->first_name,
+                    'last_name' => $userData->last_name,
+                    'email' => $userData->email,
+                    'phone' => $userData->phone,
+                    'role_id' => $userData->role_id,
+                    'role_name' => $userData->role_name,
+                    'unique_id' => $userData->unique_id,
+                    'isapproved' => $userData->isapproved,
+                    'bussiness_name' => $userData->bussiness_name,
+                    'bussiness_address' => $userData->bussiness_address,
+                    'bussiness_email' => $userData->bussiness_email,
+                    'business_phone' => $userData->business_phone,
+                    'country_id' => $userData->country_id ?? 'N/A',
+                    'state_id' => $userData->state_id ?? 'N/A',
+                    'city_id' => $userData->city_id ?? 'N/A',
+                    'address' => $userData->address,
+                    'pin_code' => $userData->pin_code,
+                    'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
+                    'license_number' => $userData->license_number,
+                    'alternate_number' => $userData->alternate_number,
+                    'no_of_employees' => $userData->no_of_employees,
+                    'about_us' => $userData->about_us,
+                    'created_at' => $userData->created_at,
+                    'updated_at' => $userData->updated_at
+                ];
+            });
+
+            if (!$response) {
                 return response()->json(['error' => 'No data found for this user.'], 404);
             }
 
-            // Return the user data with the correct `id`
-            return response()->json([
-                'id' => $userData->id,  // Return the requested `id`
-                'first_name' => $userData->first_name,
-                'last_name' => $userData->last_name,
-                'email' => $userData->email,
-                'phone' => $userData->phone,
-                'role_id' => $userData->role_id,
-                'role_name' => $userData->role_name,
-                'unique_id' => $userData->unique_id,
-                'isapproved' => $userData->isapproved,
-                'bussiness_name' => $userData->bussiness_name,
-                'bussiness_address' => $userData->bussiness_address,
-                'bussiness_email' => $userData->bussiness_email,
-                'business_phone' => $userData->business_phone,
-                'country_id' => $userData->country_id ?? 'N/A', // Handle missing country_id
-                'state_id' => $userData->state_id ?? 'N/A', // Handle missing state_id
-                'city_id' => $userData->city_id ?? 'N/A', // Handle missing city_id
-                'address' => $userData->address,
-                'pin_code' => $userData->pin_code,
-                'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null, // Convert to full URL
-                'license_number' => $userData->license_number,
-                'alternate_number' => $userData->alternate_number,
-                'no_of_employees' => $userData->no_of_employees,
-                'about_us' => $userData->about_us,
-                'created_at' => $userData->created_at,
-                'updated_at' => $userData->updated_at
-            ], 200);
+            return response()->json($response, 200);
         } catch (\Throwable $th) {
             return response()->json(['error' => $th->getMessage()], 500);
         }
@@ -940,27 +978,31 @@ class UserController extends Controller
 
     function getUserStatusList()
     {
-        $column = DB::select("
-        SHOW FULL COLUMNS
-        FROM users
-        WHERE Field = 'isapproved'
-    ");
+        return Cache::store('redis')->remember('user_status_list', 86400, function () {
+            $column = DB::select("
+            SHOW FULL COLUMNS
+            FROM users
+            WHERE Field = 'isapproved'
+        ");
 
-        if (!empty($column)) {
-            $comment = $column[0]->Comment; // e.g. "Active=1, Deactive=2, UnderReview=3, Reject=4"
+            if (!empty($column)) {
+                $comment = $column[0]->Comment; // e.g. "Active=1, Deactive=2, UnderReview=3, Reject=4"
 
-            // comment ko parse karke array banate hain
-            $statuses = [];
-            $pairs = explode(',', $comment);
-            foreach ($pairs as $pair) {
-                [$label, $value] = array_map('trim', explode('=', $pair));
-                $statuses[(int) $value] = $label;
+                $statuses = [];
+                $pairs = explode(',', $comment);
+
+                foreach ($pairs as $pair) {
+                    if (str_contains($pair, '=')) {
+                        [$label, $value] = array_map('trim', explode('=', $pair));
+                        $statuses[(int) $value] = $label;
+                    }
+                }
+
+                return $statuses;
             }
 
-            return $statuses;
-        }
-
-        return [];
+            return [];
+        });
     }
 
 
@@ -979,7 +1021,11 @@ class UserController extends Controller
         try {
             $lastSegment = $request->id;
 
-            $user = User::where('api_token', $lastSegment)->first();
+            $cacheKey = 'user_by_token_' . md5($lastSegment);
+
+            $user = Cache::store('redis')->remember($cacheKey, now()->addMinutes(1), function () use ($lastSegment) {
+                return User::where('api_token', $lastSegment)->first();
+            });
 
             // If user not found
             if (!$user) {
@@ -1012,52 +1058,56 @@ class UserController extends Controller
     public function allAgentListingByAdmin(Request $request)
     {
         try {
-            $users = User::whereHas('role', function ($query) {
-                $query->where('name', 'agent');
-            })
-                ->with('role')
-                ->with([
-                    'userDetails' => function ($query) {
-                        $query->with(['country', 'state', 'city']);
-                    }
-                ])
-                ->get();
+            $cacheKey = 'all_agent_listing_admin';
 
-            $userList = $users->map(function ($user) {
-                $roleName = $user->role ? $user->role->name : null;
-                $userDetails = $user->userDetails ?? null;
+            $userList = Cache::store('redis')->remember($cacheKey, 120, function () {
+                $users = User::whereHas('role', function ($query) {
+                    $query->where('name', 'agent');
+                })
+                    ->with('role')
+                    ->with([
+                        'userDetails' => function ($query) {
+                            $query->with(['country', 'state', 'city']);
+                        }
+                    ])
+                    ->get();
 
-                $profilePhotoUrl = $userDetails && $userDetails->profile_photo
-                    ? url($userDetails->profile_photo)
-                    : null;
+                return $users->map(function ($user) {
+                    $roleName = $user->role ? $user->role->name : null;
+                    $userDetails = $user->userDetails ?? null;
 
-                return [
-                    'id' => $user->id,
-                    'fullname' => $user->first_name . ' ' . $user->last_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role_name' => $roleName,
-                    'role_id' => $user->role_id,
-                    'unique_id' => $user->unique_id,
-                    'isapproved' => $user->isapproved,
-                    'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
-                    'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
-                    'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
-                    'business_phone' => $userDetails ? $userDetails->business_phone : null,
-                    'profile_photo' => $profilePhotoUrl,
-                    'address' => $userDetails ? $userDetails->address : null,
+                    $profilePhotoUrl = $userDetails && $userDetails->profile_photo
+                        ? url($userDetails->profile_photo)
+                        : null;
 
-                    'country_id' => $userDetails && $userDetails->country ? $userDetails->country->id : null,
-                    'country_name' => $userDetails && $userDetails->country ? $userDetails->country->name : null,
-                    'state_id' => $userDetails && $userDetails->state ? $userDetails->state->id : null,
-                    'state_name' => $userDetails && $userDetails->state ? $userDetails->state->name : null,
-                    'city_id' => $userDetails && $userDetails->city ? $userDetails->city->id : null,
-                    'city_name' => $userDetails && $userDetails->city ? $userDetails->city->name : null,
+                    return [
+                        'id' => $user->id,
+                        'fullname' => $user->first_name . ' ' . $user->last_name,
+                        'email' => $user->email,
+                        'phone' => $user->phone,
+                        'role_name' => $roleName,
+                        'role_id' => $user->role_id,
+                        'unique_id' => $user->unique_id,
+                        'isapproved' => $user->isapproved,
+                        'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
+                        'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
+                        'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
+                        'business_phone' => $userDetails ? $userDetails->business_phone : null,
+                        'profile_photo' => $profilePhotoUrl,
+                        'address' => $userDetails ? $userDetails->address : null,
 
-                    'pin_code' => $userDetails ? $userDetails->pin_code : null,
-                    'license_number' => $userDetails ? $userDetails->license_number : null,
-                    'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
-                ];
+                        'country_id' => $userDetails && $userDetails->country ? $userDetails->country->id : null,
+                        'country_name' => $userDetails && $userDetails->country ? $userDetails->country->name : null,
+                        'state_id' => $userDetails && $userDetails->state ? $userDetails->state->id : null,
+                        'state_name' => $userDetails && $userDetails->state ? $userDetails->state->name : null,
+                        'city_id' => $userDetails && $userDetails->city ? $userDetails->city->id : null,
+                        'city_name' => $userDetails && $userDetails->city ? $userDetails->city->name : null,
+
+                        'pin_code' => $userDetails ? $userDetails->pin_code : null,
+                        'license_number' => $userDetails ? $userDetails->license_number : null,
+                        'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
+                    ];
+                });
             });
 
             return response()->json($userList, 200);
@@ -1070,39 +1120,43 @@ class UserController extends Controller
     public function allConsultancyListing(Request $request)
     {
         try {
-            $users = User::where('role_id', 5)
-                ->with('role')
-                ->with('userDetails')
-                ->get();
+            $cacheKey = 'all_consultancy_listing';
 
-            $userList = $users->map(function ($user) {
-                $roleName = $user->role ? $user->role->name : null;
-                $userDetails = $user->userDetails ?? null;
+            $userList = Cache::store('redis')->remember($cacheKey, 120, function () {
+                $users = User::where('role_id', 5)
+                    ->with('role')
+                    ->with('userDetails')
+                    ->get();
 
-                return [
-                    'id' => $user->id,
-                    'fullname' => $user->fullname,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'role_name' => $roleName,
-                    'role_id' => $user->role_id,
-                    'uid' => $user->uid,
-                    'unique_id' => $user->unique_id,
-                    'isapproved' => $user->isapproved,
-                    'kyc' => $user->kyc,
-                    'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
-                    'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
-                    'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
-                    'business_phone' => $userDetails ? $userDetails->business_phone : null,
-                    'profile_photo' => $userDetails ? $userDetails->profile_photo : null,
-                    'address' => $userDetails ? $userDetails->address : null,
-                    'country' => $userDetails ? $userDetails->country : null,
-                    'state' => $userDetails ? $userDetails->state : null,
-                    'city' => $userDetails ? $userDetails->city : null,
-                    'pin_code' => $userDetails ? $userDetails->pin_code : null,
-                    'license_number' => $userDetails ? $userDetails->license_number : null,
-                    'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
-                ];
+                return $users->map(function ($user) {
+                    $roleName = $user->role ? $user->role->name : null;
+                    $userDetails = $user->userDetails ?? null;
+
+                    return [
+                        'id' => $user->id,
+                        'fullname' => $user->fullname,
+                        'email' => $user->email,
+                        'phone' => $user->phone,
+                        'role_name' => $roleName,
+                        'role_id' => $user->role_id,
+                        'uid' => $user->uid,
+                        'unique_id' => $user->unique_id,
+                        'isapproved' => $user->isapproved,
+                        'kyc' => $user->kyc,
+                        'bussiness_name' => $userDetails ? $userDetails->bussiness_name : null,
+                        'bussiness_address' => $userDetails ? $userDetails->bussiness_address : null,
+                        'bussiness_email' => $userDetails ? $userDetails->bussiness_email : null,
+                        'business_phone' => $userDetails ? $userDetails->business_phone : null,
+                        'profile_photo' => $userDetails ? $userDetails->profile_photo : null,
+                        'address' => $userDetails ? $userDetails->address : null,
+                        'country' => $userDetails ? $userDetails->country : null,
+                        'state' => $userDetails ? $userDetails->state : null,
+                        'city' => $userDetails ? $userDetails->city : null,
+                        'pin_code' => $userDetails ? $userDetails->pin_code : null,
+                        'license_number' => $userDetails ? $userDetails->license_number : null,
+                        'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
+                    ];
+                });
             });
 
             return response()->json($userList, 200);
