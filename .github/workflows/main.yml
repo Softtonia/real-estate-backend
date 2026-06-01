@@ -1,0 +1,54 @@
+name: Deploy Dev
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev Server
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Upload Files to Dev Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          port: ${{ secrets.DEV_PORT }}
+          source: "."
+          target: ${{ secrets.DEV_PATH }}
+          overwrite: true
+          rm: false
+          exclude: |
+            .git
+            .github
+            node_modules
+            .env
+            storage/logs/*
+            storage/framework/cache/*
+            storage/framework/sessions/*
+            storage/framework/views/*
+
+      - name: Run Laravel Commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          port: ${{ secrets.DEV_PORT }}
+          script_stop: true
+          script: |
+            cd ${{ secrets.DEV_PATH }}
+
+            chown -R ftpuser:www-data ${{ secrets.DEV_PATH }}
+            chmod -R 775 ${{ secrets.DEV_PATH }}/storage
+            chmod -R 775 ${{ secrets.DEV_PATH }}/bootstrap/cache
+
+            echo "Dev deployment completed successfully"
