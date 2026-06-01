@@ -22,9 +22,9 @@ jobs:
           extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, zip, bcmath, gd, curl, redis
           tools: composer:v2
 
-      - name: Install Composer Dependencies
+      - name: Install Composer Dependencies Without Scripts And Optimized Autoload
         run: |
-          composer install --no-interaction --prefer-dist --optimize-autoloader
+          composer install --no-dev --no-interaction --prefer-dist --no-scripts
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -103,7 +103,8 @@ jobs:
             tar -xzf /tmp/release.tar.gz -C "$RELEASE_PATH"
 
             if [ ! -f "$BASE_PATH/shared/.env" ]; then
-              touch "$BASE_PATH/shared/.env"
+              echo "ERROR: shared .env missing at $BASE_PATH/shared/.env"
+              exit 1
             fi
 
             rm -f "$RELEASE_PATH/.env"
@@ -114,29 +115,48 @@ jobs:
 
             cd "$RELEASE_PATH"
 
-            # Database setup abhi nahi hai, isliye migration commented hai.
-            # DB ready hone ke baad is line ko uncomment karna.
+            echo "Checking Laravel files"
+            test -f artisan
+            test -f composer.json
+            test -d vendor
+
+            echo "Clearing Laravel cache"
+            $PHP_BIN artisan optimize:clear || true
+
+            echo "Running package discovery on server"
+            $PHP_BIN artisan package:discover --ansi
+
+            echo "Migration is commented for now"
             # $PHP_BIN artisan migrate --force
 
-            $PHP_BIN artisan optimize:clear
+            echo "Caching Laravel config, routes and views"
             $PHP_BIN artisan config:cache
             $PHP_BIN artisan route:cache
             $PHP_BIN artisan view:cache
 
+            echo "Creating storage link"
             $PHP_BIN artisan storage:link || true
 
+            echo "Fixing permissions"
             chown -R ftpuser:www-data "$RELEASE_PATH"
             chown -R ftpuser:www-data "$BASE_PATH/shared"
-            chmod -R 775 "$BASE_PATH/shared/storage"
-            chmod -R 775 "$RELEASE_PATH/bootstrap/cache"
 
+            chmod -R 775 "$BASE_PATH/shared/storage"
+
+            if [ -d "$RELEASE_PATH/bootstrap/cache" ]; then
+              chmod -R 775 "$RELEASE_PATH/bootstrap/cache"
+            fi
+
+            echo "Switching current symlink"
             ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
             mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
 
             cd "$BASE_PATH/current"
 
+            echo "Restarting queue workers"
             $PHP_BIN artisan queue:restart || true
 
+            echo "Keeping last 5 releases only"
             ls -dt "$BASE_PATH"/releases/* | tail -n +6 | xargs -r rm -rf
 
             rm -f /tmp/release.tar.gz
