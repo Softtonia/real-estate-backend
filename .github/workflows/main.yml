@@ -22,7 +22,7 @@ jobs:
           extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, zip, bcmath, gd, curl, redis
           tools: composer:v2
 
-      - name: Install Composer Dependencies Without Scripts And Optimized Autoload
+      - name: Install Composer Dependencies Without Artisan Scripts
         run: |
           composer install --no-dev --no-interaction --prefer-dist --no-scripts
 
@@ -48,16 +48,22 @@ jobs:
           RELEASE_NAME="$(date +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
           echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
 
+          rm -f release.tar.gz
+          rm -f /tmp/release.tar.gz
+
           tar \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='node_modules' \
             --exclude='.env' \
+            --exclude='release.tar.gz' \
             --exclude='storage/logs/*' \
             --exclude='storage/framework/cache/*' \
             --exclude='storage/framework/sessions/*' \
             --exclude='storage/framework/views/*' \
-            -czf release.tar.gz .
+            -czf /tmp/release.tar.gz .
+
+          mv /tmp/release.tar.gz release.tar.gz
 
       - name: Upload Release Archive
         uses: appleboy/scp-action@v0.1.7
@@ -100,6 +106,11 @@ jobs:
             mkdir -p "$BASE_PATH/shared/storage/logs"
             mkdir -p "$RELEASE_PATH"
 
+            if [ ! -f "/tmp/release.tar.gz" ]; then
+              echo "ERROR: release archive not found at /tmp/release.tar.gz"
+              exit 1
+            fi
+
             tar -xzf /tmp/release.tar.gz -C "$RELEASE_PATH"
 
             if [ ! -f "$BASE_PATH/shared/.env" ]; then
@@ -120,10 +131,19 @@ jobs:
             test -f composer.json
             test -d vendor
 
+            echo "Fixing permissions before artisan commands"
+            chown -R ftpuser:www-data "$RELEASE_PATH"
+            chown -R ftpuser:www-data "$BASE_PATH/shared"
+            chmod -R 775 "$BASE_PATH/shared/storage"
+
+            if [ -d "$RELEASE_PATH/bootstrap/cache" ]; then
+              chmod -R 775 "$RELEASE_PATH/bootstrap/cache"
+            fi
+
             echo "Clearing Laravel cache"
             $PHP_BIN artisan optimize:clear || true
 
-            echo "Running package discovery on server"
+            echo "Running package discovery on server after .env link"
             $PHP_BIN artisan package:discover --ansi
 
             echo "Migration is commented for now"
@@ -136,16 +156,6 @@ jobs:
 
             echo "Creating storage link"
             $PHP_BIN artisan storage:link || true
-
-            echo "Fixing permissions"
-            chown -R ftpuser:www-data "$RELEASE_PATH"
-            chown -R ftpuser:www-data "$BASE_PATH/shared"
-
-            chmod -R 775 "$BASE_PATH/shared/storage"
-
-            if [ -d "$RELEASE_PATH/bootstrap/cache" ]; then
-              chmod -R 775 "$RELEASE_PATH/bootstrap/cache"
-            fi
 
             echo "Switching current symlink"
             ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
