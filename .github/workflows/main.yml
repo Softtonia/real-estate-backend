@@ -31,10 +31,6 @@ jobs:
             .github
             node_modules
             .env
-            storage/logs/*
-            storage/framework/cache/*
-            storage/framework/sessions/*
-            storage/framework/views/*
 
       - name: Run Laravel Commands
         uses: appleboy/ssh-action@v1.0.3
