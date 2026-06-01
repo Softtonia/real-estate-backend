@@ -1,98 +1,190 @@
-Run appleboy/ssh-action@v1.0.3
-/usr/bin/docker run --name edf206501c5bd26b93400289ee36ebaf13ced6_09e88d --label edf206 --workdir /github/workspace --rm -e "COMPOSER_PROCESS_TIMEOUT" -e "COMPOSER_NO_INTERACTION" -e "COMPOSER_NO_AUDIT" -e "RELEASE_NAME" -e "INPUT_HOST" -e "INPUT_USERNAME" -e "INPUT_KEY" -e "INPUT_PORT" -e "INPUT_SCRIPT_STOP" -e "INPUT_SCRIPT" -e "INPUT_PASSPHRASE" -e "INPUT_PASSWORD" -e "INPUT_SYNC" -e "INPUT_USE_INSECURE_CIPHER" -e "INPUT_CIPHER" -e "INPUT_TIMEOUT" -e "INPUT_COMMAND_TIMEOUT" -e "INPUT_KEY_PATH" -e "INPUT_FINGERPRINT" -e "INPUT_PROXY_HOST" -e "INPUT_PROXY_PORT" -e "INPUT_PROXY_USERNAME" -e "INPUT_PROXY_PASSWORD" -e "INPUT_PROXY_PASSPHRASE" -e "INPUT_PROXY_TIMEOUT" -e "INPUT_PROXY_KEY" -e "INPUT_PROXY_KEY_PATH" -e "INPUT_PROXY_FINGERPRINT" -e "INPUT_PROXY_CIPHER" -e "INPUT_PROXY_USE_INSECURE_CIPHER" -e "INPUT_ENVS" -e "INPUT_ENVS_FORMAT" -e "INPUT_DEBUG" -e "INPUT_ALLENVS" -e "INPUT_REQUEST_PTY" -e "HOME" -e "GITHUB_JOB" -e "GITHUB_REF" -e "GITHUB_SHA" -e "GITHUB_REPOSITORY" -e "GITHUB_REPOSITORY_OWNER" -e "GITHUB_REPOSITORY_OWNER_ID" -e "GITHUB_RUN_ID" -e "GITHUB_RUN_NUMBER" -e "GITHUB_RETENTION_DAYS" -e "GITHUB_RUN_ATTEMPT" -e "GITHUB_ACTOR_ID" -e "GITHUB_ACTOR" -e "GITHUB_WORKFLOW" -e "GITHUB_HEAD_REF" -e "GITHUB_BASE_REF" -e "GITHUB_EVENT_NAME" -e "GITHUB_SERVER_URL" -e "GITHUB_API_URL" -e "GITHUB_GRAPHQL_URL" -e "GITHUB_REF_NAME" -e "GITHUB_REF_PROTECTED" -e "GITHUB_REF_TYPE" -e "GITHUB_WORKFLOW_REF" -e "GITHUB_WORKFLOW_SHA" -e "GITHUB_REPOSITORY_ID" -e "GITHUB_TRIGGERING_ACTOR" -e "GITHUB_WORKSPACE" -e "GITHUB_ACTION" -e "GITHUB_EVENT_PATH" -e "GITHUB_ACTION_REPOSITORY" -e "GITHUB_ACTION_REF" -e "GITHUB_PATH" -e "GITHUB_ENV" -e "GITHUB_STEP_SUMMARY" -e "GITHUB_STATE" -e "GITHUB_OUTPUT" -e "RUNNER_OS" -e "RUNNER_ARCH" -e "RUNNER_NAME" -e "RUNNER_ENVIRONMENT" -e "RUNNER_TOOL_CACHE" -e "RUNNER_TEMP" -e "RUNNER_WORKSPACE" -e "ACTIONS_RUNTIME_URL" -e "ACTIONS_RUNTIME_TOKEN" -e "ACTIONS_CACHE_URL" -e "ACTIONS_RESULTS_URL" -e "ACTIONS_ORCHESTRATION_ID" -e GITHUB_ACTIONS=true -e CI=true -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work/_temp":"/github/runner_temp" -v "/home/runner/work/_temp/_github_home":"/github/home" -v "/home/runner/work/_temp/_github_workflow":"/github/workflow" -v "/home/runner/work/_temp/_runner_file_commands":"/github/file_commands" -v "/home/runner/work/real-estate-backend/real-estate-backend":"/github/workspace" edf206:501c5bd26b93400289ee36ebaf13ced6
-======CMD======
-BASE_PATH="***"
-RELEASE_NAME="20260601133710-867cf06"
-RELEASE_PATH="$BASE_PATH/releases/$RELEASE_NAME"
+name: Deploy Dev
 
-PHP_BIN="php8.2"
+on:
+  push:
+    branches:
+      - dev
 
-if ! command -v php8.2 >/dev/null 2>&1; then
-  PHP_BIN="php"
-fi
+jobs:
+  deploy-dev:
+    name: Deploy to Dev Server
+    runs-on: ubuntu-latest
+    environment: dev
 
-echo "Base path: $BASE_PATH"
-echo "Release path: $RELEASE_PATH"
-echo "Using PHP: $PHP_BIN"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-mkdir -p "$BASE_PATH/releases"
-mkdir -p "$BASE_PATH/shared/storage/app"
-mkdir -p "$BASE_PATH/shared/storage/framework/cache"
-mkdir -p "$BASE_PATH/shared/storage/framework/sessions"
-mkdir -p "$BASE_PATH/shared/storage/framework/views"
-mkdir -p "$BASE_PATH/shared/storage/logs"
-mkdir -p "$RELEASE_PATH"
+      - name: Setup PHP on GitHub Runner
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, zip, bcmath, gd, curl, redis
+          tools: composer:v2
 
-if [ ! -f "/tmp/release.tar.gz" ]; then
-  echo "ERROR: release archive not found at /tmp/release.tar.gz"
-  exit 1
-fi
+      - name: Install Composer Dependencies
+        run: |
+          composer install --no-dev --no-interaction --prefer-dist --no-scripts
 
-tar -xzf /tmp/release.tar.gz -C "$RELEASE_PATH"
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-if [ ! -f "$BASE_PATH/shared/.env" ]; then
-  echo "ERROR: shared .env missing at $BASE_PATH/shared/.env"
-  exit 1
-fi
+      - name: Build Frontend Assets
+        run: |
+          if [ -f package.json ]; then
+            if [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
 
-rm -f "$RELEASE_PATH/.env"
-ln -sfn "$BASE_PATH/shared/.env" "$RELEASE_PATH/.env"
+            npm run build
+          fi
 
-rm -rf "$RELEASE_PATH/storage"
-ln -sfn "$BASE_PATH/shared/storage" "$RELEASE_PATH/storage"
+      - name: Create Release Archive
+        run: |
+          RELEASE_NAME="$(date +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
 
-cd "$RELEASE_PATH"
+          rm -f release.tar.gz
+          rm -f /tmp/release.tar.gz
 
-echo "Checking Laravel files"
-test -f artisan
-test -f composer.json
-test -d vendor
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            --exclude='release.tar.gz' \
+            --exclude='storage/logs/*' \
+            --exclude='storage/framework/cache/*' \
+            --exclude='storage/framework/sessions/*' \
+            --exclude='storage/framework/views/*' \
+            -czf /tmp/release.tar.gz .
 
-echo "Fixing permissions before artisan commands"
-chown -R ftpuser:www-data "$RELEASE_PATH"
-chown -R ftpuser:www-data "$BASE_PATH/shared"
-chmod -R 775 "$BASE_PATH/shared/storage"
+          mv /tmp/release.tar.gz release.tar.gz
 
-if [ -d "$RELEASE_PATH/bootstrap/cache" ]; then
-  chmod -R 775 "$RELEASE_PATH/bootstrap/cache"
-fi
+      - name: Upload Release Archive
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          port: ${{ secrets.DEV_PORT }}
+          source: "release.tar.gz"
+          target: "/tmp"
 
-echo "Clearing Laravel cache"
-$PHP_BIN artisan optimize:clear || true
+      - name: Activate New Release
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          port: ${{ secrets.DEV_PORT }}
+          script_stop: true
+          script: |
+            BASE_PATH="${{ secrets.DEV_BASE_PATH }}"
+            RELEASE_NAME="${{ env.RELEASE_NAME }}"
+            RELEASE_PATH="$BASE_PATH/releases/$RELEASE_NAME"
 
-echo "Running package discovery on server after .env link"
-$PHP_BIN artisan package:discover --ansi
+            PHP_BIN="php8.2"
 
-echo "Migration is commented for now"
-# $PHP_BIN artisan migrate --force
+            if ! command -v php8.2 >/dev/null 2>&1; then
+              PHP_BIN="php"
+            fi
 
-echo "Caching Laravel config, routes and views"
-$PHP_BIN artisan config:cache
-$PHP_BIN artisan route:cache
-$PHP_BIN artisan view:cache
+            echo "Base path: $BASE_PATH"
+            echo "Release path: $RELEASE_PATH"
+            echo "Using PHP: $PHP_BIN"
 
-echo "Creating storage link"
-$PHP_BIN artisan storage:link || true
+            mkdir -p "$BASE_PATH/releases"
+            mkdir -p "$BASE_PATH/shared/storage/app/public"
+            mkdir -p "$BASE_PATH/shared/storage/framework/cache"
+            mkdir -p "$BASE_PATH/shared/storage/framework/sessions"
+            mkdir -p "$BASE_PATH/shared/storage/framework/views"
+            mkdir -p "$BASE_PATH/shared/storage/logs"
+            mkdir -p "$RELEASE_PATH"
 
-echo "Switching current symlink"
-ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
-mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
+            if [ ! -f "/tmp/release.tar.gz" ]; then
+              echo "ERROR: release.tar.gz not found in /tmp"
+              exit 1
+            fi
 
-cd "$BASE_PATH/current"
+            tar -xzf /tmp/release.tar.gz -C "$RELEASE_PATH"
 
-echo "Restarting queue workers"
-$PHP_BIN artisan queue:restart || true
+            if [ ! -f "$BASE_PATH/shared/.env" ]; then
+              if [ -f "$BASE_PATH/.env" ]; then
+                cp "$BASE_PATH/.env" "$BASE_PATH/shared/.env"
+              else
+                echo "ERROR: shared .env missing at $BASE_PATH/shared/.env"
+                exit 1
+              fi
+            fi
 
-echo "Keeping last 5 releases only"
-ls -dt "$BASE_PATH"/releases/* | tail -n +6 | xargs -r rm -rf
+            if [ -d "$BASE_PATH/storage" ] && [ ! -f "$BASE_PATH/shared/.storage_copied" ]; then
+              cp -a "$BASE_PATH/storage/." "$BASE_PATH/shared/storage/" || true
+              touch "$BASE_PATH/shared/.storage_copied"
+            fi
 
-rm -f /tmp/release.tar.gz
+            rm -f "$RELEASE_PATH/.env"
+            ln -sfn "$BASE_PATH/shared/.env" "$RELEASE_PATH/.env"
 
-echo "Dev deployment completed successfully"
+            rm -rf "$RELEASE_PATH/storage"
+            ln -sfn "$BASE_PATH/shared/storage" "$RELEASE_PATH/storage"
 
-======END======
-out: Base path: ***
-out: Release path: ***/releases/20260601133710-867cf06
-out: Using PHP: php8.2
-out: ERROR: shared .env missing at ***/shared/.env
-2026/06/01 13:38:12 Process exited with status 1
+            mkdir -p "$RELEASE_PATH/public"
+
+            rm -rf "$RELEASE_PATH/public/storage"
+            ln -sfn "$BASE_PATH/shared/storage/app/public" "$RELEASE_PATH/public/storage"
+
+            cd "$RELEASE_PATH"
+
+            echo "Checking Laravel files"
+            test -f artisan
+            test -f composer.json
+            test -d vendor
+            test -d public
+
+            echo "Fixing permissions before artisan commands"
+            chown -R ftpuser:www-data "$RELEASE_PATH"
+            chown -R ftpuser:www-data "$BASE_PATH/shared"
+            chmod -R 775 "$BASE_PATH/shared/storage"
+
+            if [ -d "$RELEASE_PATH/bootstrap/cache" ]; then
+              chmod -R 775 "$RELEASE_PATH/bootstrap/cache"
+            fi
+
+            echo "Clearing Laravel cache"
+            $PHP_BIN artisan optimize:clear || true
+
+            echo "Running package discovery"
+            $PHP_BIN artisan package:discover --ansi
+
+            echo "Migration is commented for now"
+            # $PHP_BIN artisan migrate --force
+
+            echo "Caching Laravel config"
+            $PHP_BIN artisan config:cache
+
+            echo "Caching Laravel routes"
+            $PHP_BIN artisan route:cache
+
+            echo "Caching Laravel views"
+            $PHP_BIN artisan view:cache
+
+            echo "Switching current symlink"
+            ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
+            mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
+
+            cd "$BASE_PATH/current"
+
+            echo "Restarting queue workers"
+            $PHP_BIN artisan queue:restart || true
+
+            echo "Keeping last 5 releases only"
+            ls -dt "$BASE_PATH"/releases/* | tail -n +6 | xargs -r rm -rf
+
+            rm -f /tmp/release.tar.gz
+
+            echo "Dev deployment completed successfully"
