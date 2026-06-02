@@ -386,144 +386,144 @@ class CustomFieldController extends Controller
 
 
     // public function store(Request $request)
-// {
-//     // dd($request->all());  // This will dump the entire request data
+    // {
+    //     // dd($request->all());  // This will dump the entire request data
 
     //     try {
-//         // Validate the request data
-//         $validatedData = $request->validate([
-//             'group_name' => 'required|unique:group_name,group_name|string',
-//             'fields.*.field_label' => 'required|string|max:255',
-//             'fields.*.checkbox_type' => 'string',
-//             'fields.*.field_name_slug' => 'required|string|max:255|unique:custom_fields,field_name_slug',
-//             'fields.*.field_placeholder' => 'nullable|string|max:255',
-//             'fields.*.field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
-//             'fields.*.required' => 'required|string|in:yes,no',
-//             'fields.*.post_type' => 'required|string|max:255',
-//             'fields.*.media_limit' => 'nullable|integer',
-//             'fields.*.media_size' => 'nullable|string',
-//             'fields.*.media_format' => 'nullable|array',
-//             'fields.*.options' => 'nullable|array',
-//             'fields.*.modelFields' => 'nullable|array',  // Validate modelFields if it's provided
-//             'fields.*.modelFields.*.model' => 'nullable|string',
-//             'fields.*.modelFields.*.condition' => 'nullable|array',
-//             'fields.*.options.*.label' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
-//             'fields.*.options.*.value' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
-//         ]);
+    //         // Validate the request data
+    //         $validatedData = $request->validate([
+    //             'group_name' => 'required|unique:group_name,group_name|string',
+    //             'fields.*.field_label' => 'required|string|max:255',
+    //             'fields.*.checkbox_type' => 'string',
+    //             'fields.*.field_name_slug' => 'required|string|max:255|unique:custom_fields,field_name_slug',
+    //             'fields.*.field_placeholder' => 'nullable|string|max:255',
+    //             'fields.*.field_type' => 'required|string|in:text,texteditor,textarea,checkbox,radio,select,repeater,media,file',
+    //             'fields.*.required' => 'required|string|in:yes,no',
+    //             'fields.*.post_type' => 'required|string|max:255',
+    //             'fields.*.media_limit' => 'nullable|integer',
+    //             'fields.*.media_size' => 'nullable|string',
+    //             'fields.*.media_format' => 'nullable|array',
+    //             'fields.*.options' => 'nullable|array',
+    //             'fields.*.modelFields' => 'nullable|array',  // Validate modelFields if it's provided
+    //             'fields.*.modelFields.*.model' => 'nullable|string',
+    //             'fields.*.modelFields.*.condition' => 'nullable|array',
+    //             'fields.*.options.*.label' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
+    //             'fields.*.options.*.value' => 'required_if:fields.*.field_type,in:select,checkbox|string|max:255',
+    //         ]);
 
     //         // Begin transaction to ensure data integrity
-//         DB::beginTransaction();
+    //         DB::beginTransaction();
 
     //         // Insert into Groupname table
-//         $groupData = Groupname::create([
-//             'group_name' => $validatedData['group_name'],
-//         ]);
+    //         $groupData = Groupname::create([
+    //             'group_name' => $validatedData['group_name'],
+    //         ]);
 
     //         $customFields = [];
-//         $modelFields = []; // Initialize the modelFields array
+    //         $modelFields = []; // Initialize the modelFields array
 
     //         foreach ($validatedData['fields'] as $fieldData) {
-//             // Process media_format array to store as comma-separated string
-//             $mediaFormat = isset($fieldData['media_format']) ? implode(',', $fieldData['media_format']) : null;
+    //             // Process media_format array to store as comma-separated string
+    //             $mediaFormat = isset($fieldData['media_format']) ? implode(',', $fieldData['media_format']) : null;
 
     //             // Create model fields array
-//             $modelFieldsData = [];
+    //             $modelFieldsData = [];
 
     //             if (isset($fieldData['modelFields']) && is_array($fieldData['modelFields'])) {
-//                 foreach ($fieldData['modelFields'] as $modelField) {
-//                     $modelFieldsData[] = [
-//                         'model' => $modelField['model'],
-//                         'condition' => $modelField['condition'],
-//                     ];
-//                 }
-//             } else {
-//                 // Optionally log or handle the case where modelFields is missing
-//                 $modelFieldsData = []; // Default to empty if not provided
-//             }
+    //                 foreach ($fieldData['modelFields'] as $modelField) {
+    //                     $modelFieldsData[] = [
+    //                         'model' => $modelField['model'],
+    //                         'condition' => $modelField['condition'],
+    //                     ];
+    //                 }
+    //             } else {
+    //                 // Optionally log or handle the case where modelFields is missing
+    //                 $modelFieldsData = []; // Default to empty if not provided
+    //             }
 
     //             // dd($modelFieldsData);  // Check what's inside
 
 
 
     //             // Insert the custom field into the custom_fields table, with model_fields as JSON
-//             $field = CustomField::create([
-//                 'group_id' => $groupData->id,
-//                 'field_label' => $fieldData['field_label'],
-//                 'field_name_slug' => $fieldData['field_name_slug'],
-//                 'field_placeholder' => $fieldData['field_placeholder'] ?? null,
-//                 'field_type' => $fieldData['field_type'],
-//                 'required' => $fieldData['required'],
-//                 'checkbox_type' => $fieldData['checkbox_type'] ?? null,
-//                 'post_type' => $fieldData['post_type'],
-//                 'media_limit' => $fieldData['media_limit'] ?? null,
-//                 'media_size' => $fieldData['media_size'] ?? null,
-//                 'media_format' => $mediaFormat,
-//                 'model_fields' => json_encode($modelFieldsData), // Store model fields as JSON
-//             ]);
+    //             $field = CustomField::create([
+    //                 'group_id' => $groupData->id,
+    //                 'field_label' => $fieldData['field_label'],
+    //                 'field_name_slug' => $fieldData['field_name_slug'],
+    //                 'field_placeholder' => $fieldData['field_placeholder'] ?? null,
+    //                 'field_type' => $fieldData['field_type'],
+    //                 'required' => $fieldData['required'],
+    //                 'checkbox_type' => $fieldData['checkbox_type'] ?? null,
+    //                 'post_type' => $fieldData['post_type'],
+    //                 'media_limit' => $fieldData['media_limit'] ?? null,
+    //                 'media_size' => $fieldData['media_size'] ?? null,
+    //                 'media_format' => $mediaFormat,
+    //                 'model_fields' => json_encode($modelFieldsData), // Store model fields as JSON
+    //             ]);
 
     //             // Insert options for select and checkbox types if needed
-//             if (in_array($fieldData['field_type'], ['select', 'checkbox', 'radio']) && isset($fieldData['options'])) {
-//                 foreach ($fieldData['options'] as $option) {
-//                     CustomFieldOption::create([
-//                         'custom_field_id' => $field->id,
-//                         'type' => $fieldData['field_type'],
-//                         'name' => $option['label'],
-//                         'value' => $option['value'],
-//                     ]);
-//                 }
-//             }
+    //             if (in_array($fieldData['field_type'], ['select', 'checkbox', 'radio']) && isset($fieldData['options'])) {
+    //                 foreach ($fieldData['options'] as $option) {
+    //                     CustomFieldOption::create([
+    //                         'custom_field_id' => $field->id,
+    //                         'type' => $fieldData['field_type'],
+    //                         'name' => $option['label'],
+    //                         'value' => $option['value'],
+    //                     ]);
+    //                 }
+    //             }
 
     //             // Handle repeater field type separately
-//             if ($fieldData['field_type'] === 'repeater' && isset($fieldData['repeater'])) {
-//                 foreach ($fieldData['repeater'] as $repeaterItem) {
-//                     $fieldMediaFormat = isset($repeaterItem['fieldMediaFormat']) ? implode(',', $repeaterItem['fieldMediaFormat']) : null;
+    //             if ($fieldData['field_type'] === 'repeater' && isset($fieldData['repeater'])) {
+    //                 foreach ($fieldData['repeater'] as $repeaterItem) {
+    //                     $fieldMediaFormat = isset($repeaterItem['fieldMediaFormat']) ? implode(',', $repeaterItem['fieldMediaFormat']) : null;
 
     //                     $repeaterField = CustomFieldRepeater::create([
-//                         'group_id' => $groupData->id,
-//                         'custom_field_id' => $field->id,
-//                         'field_name' => $repeaterItem['fieldName'],
-//                         'field_type' => $repeaterItem['fieldType'],
-//                         'field_placeholder' => $repeaterItem['fieldPlaceholder'] ?? null,
-//                         'media_format' => $fieldMediaFormat,
-//                         'media_limit' => $repeaterItem['fieldMediaLimit'] ?? null,
-//                         'media_size' => $repeaterItem['fieldMediaSize'] ?? null,
-//                     ]);
+    //                         'group_id' => $groupData->id,
+    //                         'custom_field_id' => $field->id,
+    //                         'field_name' => $repeaterItem['fieldName'],
+    //                         'field_type' => $repeaterItem['fieldType'],
+    //                         'field_placeholder' => $repeaterItem['fieldPlaceholder'] ?? null,
+    //                         'media_format' => $fieldMediaFormat,
+    //                         'media_limit' => $repeaterItem['fieldMediaLimit'] ?? null,
+    //                         'media_size' => $repeaterItem['fieldMediaSize'] ?? null,
+    //                     ]);
 
     //                     // Insert options into custom_field_repeater_options if needed
-//                     if (isset($repeaterItem['fieldOptions'])) {
-//                         foreach ($repeaterItem['fieldOptions'] as $option) {
-//                             CustomFieldRepeaterOption::create([
-//                                 'custom_field_repeater_id' => $repeaterField->id,
-//                                 'type' => $repeaterItem['fieldType'],
-//                                 'name' => $option['name'],
-//                                 'value' => $option['value'],
-//                             ]);
-//                         }
-//                     }
-//                 }
-//             }
+    //                     if (isset($repeaterItem['fieldOptions'])) {
+    //                         foreach ($repeaterItem['fieldOptions'] as $option) {
+    //                             CustomFieldRepeaterOption::create([
+    //                                 'custom_field_repeater_id' => $repeaterField->id,
+    //                                 'type' => $repeaterItem['fieldType'],
+    //                                 'name' => $option['name'],
+    //                                 'value' => $option['value'],
+    //                             ]);
+    //                         }
+    //                     }
+    //                 }
+    //             }
 
     //             $customFields[] = $field->toArray();
-//         }
+    //         }
 
     //         // Commit transaction
-//         DB::commit();
+    //         DB::commit();
 
     //         // Return the newly created custom fields as JSON response
-//         return response()->json([
-//             'message' => 'Added successfully',
-//             'fields' => $customFields,
-//         ], 201);
-//     } catch (\Illuminate\Validation\ValidationException $e) {
-//         // Rollback the transaction on validation exception
-//         DB::rollBack();
-//         return response()->json(['error' => $e->errors()], 422);
-//     } catch (\Exception $e) {
-//         // Rollback the transaction on generic exception
-//         DB::rollBack();
-//         return response()->json(['error' => $e->getMessage()], 500);
-//     }
-// }
+    //         return response()->json([
+    //             'message' => 'Added successfully',
+    //             'fields' => $customFields,
+    //         ], 201);
+    //     } catch (\Illuminate\Validation\ValidationException $e) {
+    //         // Rollback the transaction on validation exception
+    //         DB::rollBack();
+    //         return response()->json(['error' => $e->errors()], 422);
+    //     } catch (\Exception $e) {
+    //         // Rollback the transaction on generic exception
+    //         DB::rollBack();
+    //         return response()->json(['error' => $e->getMessage()], 500);
+    //     }
+    // }
 
     public function store(Request $request)
     {
@@ -682,8 +682,6 @@ class CustomFieldController extends Controller
                 }
 
                 $customFields[] = $field->toArray();
-
-
             }
 
             // Commit transaction
@@ -1184,7 +1182,6 @@ class CustomFieldController extends Controller
             }
 
             return response()->json($customFields, 200);
-
         } catch (Exception $e) {
             Log::error('Error: ' . $e->getMessage());
             return response()->json(['error' => 'Something went wrong. ' . $e->getMessage()], 500);
@@ -1793,7 +1790,6 @@ class CustomFieldController extends Controller
 
             DB::commit();
             return response()->json(['message' => 'Custom field updated successfully'], 200);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
             return response()->json(['message' => 'Validation failed', 'errors' => $e->errors()], 422);
@@ -1990,7 +1986,6 @@ class CustomFieldController extends Controller
 
             // Return the result as JSON response
             return response()->json($customFields, 200);
-
         } catch (\Exception $e) {
             // Log and return error
             Log::error('customFieldListingByType error: ' . $e->getMessage());
@@ -2031,7 +2026,6 @@ class CustomFieldController extends Controller
             } else {
                 return response()->json(['success' => 'No data found'], 200);
             }
-
         } catch (\Exception $e) {
             // Log and return generic error response
             Log::error('Error: ' . $e->getMessage());
@@ -2077,7 +2071,6 @@ class CustomFieldController extends Controller
             } else {
                 return response()->json(['success' => 'No data found'], 200);
             }
-
         } catch (\Exception $e) {
             // Log and return generic error response
             Log::error('Error: ' . $e->getMessage());
@@ -2164,7 +2157,6 @@ class CustomFieldController extends Controller
             return $payload
                 ? response()->json(['data' => $payload], 200)
                 : response()->json(['success' => 'No data found'], 200);
-
         } catch (\Throwable $e) {
             \Log::error('customFieldListing error: ' . $e->getMessage());
             return response()->json(
@@ -2501,7 +2493,6 @@ class CustomFieldController extends Controller
             } else {
                 return response()->json(['success' => 'No data found'], 200);
             }
-
         } catch (\Exception $e) {
             // Log and return generic error response
             Log::error('Error: ' . $e->getMessage());
@@ -2565,7 +2556,6 @@ class CustomFieldController extends Controller
             } else {
                 return response()->json(['success' => 'No data found'], 200);
             }
-
         } catch (\Exception $e) {
             Log::error('Error: ' . $e->getMessage());
             return response()->json(['error' => 'Something went wrong.' . $e->getMessage()], 500);
@@ -2641,7 +2631,7 @@ class CustomFieldController extends Controller
             }
 
             // Determine post type
-            $post_type = match($request->post_type) {
+            $post_type = match ($request->post_type) {
                 'project_list' => 'project_list',
                 'developer_list' => 'developer_list',
                 default => 'property_list',
@@ -2781,7 +2771,6 @@ class CustomFieldController extends Controller
                 'message' => 'Data fetched successfully',
                 'data' => $data,
             ], 200);
-
         } catch (Exception $e) {
             Log::error('Error fetching CustomFieldUniqueCode by ID: ' . $e->getMessage());
 
@@ -3000,70 +2989,134 @@ class CustomFieldController extends Controller
     // }
 
     public function importCustomFieldUniqueCode(Request $request)
-{
-    $request->validate([
-        'file' => 'required|file|mimes:csv,txt|max:2048',
-    ]);
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
 
-    $file = $request->file('file');
-    $handle = fopen($file->getRealPath(), 'r');
+        $file = $request->file('file');
+        $handle = fopen($file->getRealPath(), 'r');
 
-    $header = fgetcsv($handle, 1000, ','); // Read header row
-
-    $created = 0;
-    $updated = 0;
-    $skipped = 0;
-
-    while (($row = fgetcsv($handle, 1000, ',')) !== false) {
-        $data = array_combine($header, $row);
-
-        // Skip rows missing required fields
-        if (empty($data['name']) || empty($data['post_type'])) {
-            continue;
+        if (!$handle) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to open CSV file.',
+            ], 500);
         }
 
-        $slug = Str::slug($data['slug'] ?? $data['name']);
-        $templateName = $data['name']; // Use name as the "template" for skipping
+        $header = fgetcsv($handle, 0, ',');
 
-        // Check if template name already exists → skip
-        $templateExists = CustomFieldUniqueCode::where('name', $templateName)->exists();
-        if ($templateExists) {
-            $skipped++;
-            continue;
+        if (!$header) {
+            fclose($handle);
+            return response()->json([
+                'status' => false,
+                'message' => 'CSV file is empty or invalid.',
+            ], 422);
         }
 
-        // Check if record exists by ID (optional)
-        $record = !empty($data['id']) ? CustomFieldUniqueCode::find($data['id']) : null;
+        // Remove BOM and trim header values
+        $header = array_map(function ($value) {
+            return trim(str_replace("\xEF\xBB\xBF", '', $value));
+        }, $header);
 
-        if ($record) {
-            // Update existing record
-            $record->update([
-                'name' => $data['name'],
-                'slug' => $slug,
-                'post_type' => $data['post_type'],
-                'status' => $data['status'] ?? 1,
-            ]);
-            $updated++;
-        } else {
-            // Insert new record
-            CustomFieldUniqueCode::create([
-                'id' => $data['id'] ?? null,
-                'name' => $data['name'],
-                'slug' => $slug,
-                'post_type' => $data['post_type'],
-                'status' => $data['status'] ?? 1,
-            ]);
-            $created++;
+        $requiredHeaders = ['name', 'post_type'];
+
+        foreach ($requiredHeaders as $requiredHeader) {
+            if (!in_array($requiredHeader, $header)) {
+                fclose($handle);
+                return response()->json([
+                    'status' => false,
+                    'message' => "Missing required column: {$requiredHeader}",
+                ], 422);
+            }
         }
+
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+        $rowNumber = 1;
+
+        while (($row = fgetcsv($handle, 0, ',')) !== false) {
+            $rowNumber++;
+
+            // Skip empty rows
+            if (count(array_filter($row)) === 0) {
+                $skipped++;
+                continue;
+            }
+
+            // Fix column count mismatch
+            if (count($row) < count($header)) {
+                $row = array_pad($row, count($header), null);
+            }
+
+            if (count($row) > count($header)) {
+                $row = array_slice($row, 0, count($header));
+            }
+
+            $data = array_combine($header, $row);
+
+            if (!$data) {
+                $skipped++;
+                continue;
+            }
+
+            $name = trim($data['name'] ?? '');
+            $postType = trim($data['post_type'] ?? '');
+
+            if ($name === '' || $postType === '') {
+                $skipped++;
+                continue;
+            }
+
+            $slug = !empty($data['slug'])
+                ? Str::slug($data['slug'])
+                : Str::slug($name);
+
+            $status = isset($data['status']) && $data['status'] !== ''
+                ? $data['status']
+                : 1;
+
+            $record = null;
+
+            if (!empty($data['id'])) {
+                $record = CustomFieldUniqueCode::find($data['id']);
+            }
+
+            if (!$record) {
+                $record = CustomFieldUniqueCode::where('slug', $slug)
+                    ->where('post_type', $postType)
+                    ->first();
+            }
+
+            if ($record) {
+                $record->update([
+                    'name' => $name,
+                    'slug' => $slug,
+                    'post_type' => $postType,
+                    'status' => $status,
+                ]);
+
+                $updated++;
+            } else {
+                CustomFieldUniqueCode::create([
+                    'name' => $name,
+                    'slug' => $slug,
+                    'post_type' => $postType,
+                    'status' => $status,
+                ]);
+
+                $created++;
+            }
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'status' => true,
+            'message' => "Import completed. {$updated} updated, {$created} created, {$skipped} skipped.",
+        ]);
     }
-
-    fclose($handle);
-
-    return response()->json([
-        'status' => true,
-        'message' => "Import completed. {$updated} updated, {$created} created, {$skipped} skipped.",
-    ]);
-}
 
 
 
@@ -3081,9 +3134,9 @@ class CustomFieldController extends Controller
         $results = CustomFieldUniqueCode::where('status', 1)
             ->where(function ($q) use ($term) {
                 $q->where('name', 'like', "%{$term}%")
-                ->orWhere('slug', 'like', "%{$term}%");
+                    ->orWhere('slug', 'like', "%{$term}%");
             })
-            ->paginate($perPage); 
+            ->paginate($perPage);
 
         if ($results->isEmpty()) {
             return response()->json(['message' => 'No records found'], 200);
@@ -3101,12 +3154,12 @@ class CustomFieldController extends Controller
         return response()->json([
             'data' => $data,
             'pagination' => [
-            'current_page' => $results->currentPage(),
-            'last_page' => $results->lastPage(),
-            'per_page' => $results->perPage(),
-            'total' => $results->total(),
-            'next_page_url' => $results->nextPageUrl(),
-            'prev_page_url' => $results->previousPageUrl(),
+                'current_page' => $results->currentPage(),
+                'last_page' => $results->lastPage(),
+                'per_page' => $results->perPage(),
+                'total' => $results->total(),
+                'next_page_url' => $results->nextPageUrl(),
+                'prev_page_url' => $results->previousPageUrl(),
             ]
         ], 200);
     }
@@ -3171,12 +3224,12 @@ class CustomFieldController extends Controller
         return response()->json([
             'data' => $data,
             'pagination' => [
-            'current_page' => $results->currentPage(),
-            'last_page' => $results->lastPage(),
-            'per_page' => $results->perPage(),
-            'total' => $results->total(),
-            'next_page_url' => $results->nextPageUrl(),
-            'prev_page_url' => $results->previousPageUrl(),
+                'current_page' => $results->currentPage(),
+                'last_page' => $results->lastPage(),
+                'per_page' => $results->perPage(),
+                'total' => $results->total(),
+                'next_page_url' => $results->nextPageUrl(),
+                'prev_page_url' => $results->previousPageUrl(),
             ]
         ], 200);
     }
@@ -3496,91 +3549,90 @@ class CustomFieldController extends Controller
     // }
 
     public function searchAndFilter(Request $request)
-{
-    try {
-        $dropdownValue = $request->input('dropdown_value');
-        $searchQuery = $request->input('search');
-        $modelConditions = $request->input('model_conditions'); // Array of {model, condition}
-        $fieldType = $request->input('field_type');
-        $sortField = $request->input('sort_field');
-        $sortOrder = $request->input('sort_order');
-        $perPage = $request->input('per_page', 10);
+    {
+        try {
+            $dropdownValue = $request->input('dropdown_value');
+            $searchQuery = $request->input('search');
+            $modelConditions = $request->input('model_conditions'); // Array of {model, condition}
+            $fieldType = $request->input('field_type');
+            $sortField = $request->input('sort_field');
+            $sortOrder = $request->input('sort_order');
+            $perPage = $request->input('per_page', 10);
 
-        $query = CustomField::query()
-            ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
-            ->select('custom_fields.*', 'group_name.group_name');
+            $query = CustomField::query()
+                ->join('group_name', 'custom_fields.group_id', '=', 'group_name.id')
+                ->select('custom_fields.*', 'group_name.group_name');
 
-        // ✅ Group filter
-        if ($dropdownValue) {
-            $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
-            if ($groupId) {
-                $query->where('group_id', $groupId);
+            // ✅ Group filter
+            if ($dropdownValue) {
+                $groupId = DB::table('group_name')->where('group_name', $dropdownValue)->value('id');
+                if ($groupId) {
+                    $query->where('group_id', $groupId);
+                }
             }
-        }
 
-        // ✅ Filter by model_conditions array
-        if (!empty($modelConditions) && is_array($modelConditions)) {
-            $query->where(function($q) use ($modelConditions) {
-                foreach ($modelConditions as $item) {
-                    $model = $item['model'] ?? null;
-                    $conditions = $item['condition'] ?? [];
-                    if ($model && !empty($conditions)) {
-                        foreach ($conditions as $cond) {
-                            $q->orWhereRaw(
-                                "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
+            // ✅ Filter by model_conditions array
+            if (!empty($modelConditions) && is_array($modelConditions)) {
+                $query->where(function ($q) use ($modelConditions) {
+                    foreach ($modelConditions as $item) {
+                        $model = $item['model'] ?? null;
+                        $conditions = $item['condition'] ?? [];
+                        if ($model && !empty($conditions)) {
+                            foreach ($conditions as $cond) {
+                                $q->orWhereRaw(
+                                    "JSON_SEARCH(model_fields, 'one', ?, NULL, '$[*].model') IS NOT NULL
                                  AND JSON_CONTAINS(JSON_EXTRACT(model_fields, '$[*].condition'), JSON_ARRAY(?))",
-                                [$model, $cond]
-                            );
+                                    [$model, $cond]
+                                );
+                            }
                         }
                     }
-                }
-            });
-        }
-
-        // ✅ Field type filter
-        if ($fieldType) {
-            $query->where('field_type', $fieldType);
-        }
-
-        // ✅ Search filter
-        if ($searchQuery) {
-            $query->where(function ($q) use ($searchQuery) {
-                $q->where('field_label', 'LIKE', "%{$searchQuery}%")
-                    ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
-                    ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
-                    ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
-            });
-        }
-
-        // ✅ Sorting
-        if ($sortField && in_array($sortField, ['field_label', 'field_type', 'group_name'])) {
-            if ($sortField === 'group_name') {
-                $query->orderBy('group_name.group_name', $sortOrder ?? 'asc');
-            } else {
-                $query->orderBy($sortField, $sortOrder ?? 'asc');
+                });
             }
+
+            // ✅ Field type filter
+            if ($fieldType) {
+                $query->where('field_type', $fieldType);
+            }
+
+            // ✅ Search filter
+            if ($searchQuery) {
+                $query->where(function ($q) use ($searchQuery) {
+                    $q->where('field_label', 'LIKE', "%{$searchQuery}%")
+                        ->orWhere('field_name_slug', 'LIKE', "%{$searchQuery}%")
+                        ->orWhere('field_type', 'LIKE', "%{$searchQuery}%")
+                        ->orWhere('group_name.group_name', 'LIKE', "%{$searchQuery}%");
+                });
+            }
+
+            // ✅ Sorting
+            if ($sortField && in_array($sortField, ['field_label', 'field_type', 'group_name'])) {
+                if ($sortField === 'group_name') {
+                    $query->orderBy('group_name.group_name', $sortOrder ?? 'asc');
+                } else {
+                    $query->orderBy($sortField, $sortOrder ?? 'asc');
+                }
+            }
+
+            // ✅ Paginate
+            $results = $query->paginate($perPage);
+
+            return response()->json([
+                'message' => 'Filtered results retrieved successfully',
+                'data' => $results->items(),
+                'pagination' => [
+                    'current_page' => $results->currentPage(),
+                    'last_page' => $results->lastPage(),
+                    'per_page' => $results->perPage(),
+                    'total' => $results->total(),
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // ✅ Paginate
-        $results = $query->paginate($perPage);
-
-        return response()->json([
-            'message' => 'Filtered results retrieved successfully',
-            'data' => $results->items(),
-            'pagination' => [
-                'current_page' => $results->currentPage(),
-                'last_page' => $results->lastPage(),
-                'per_page' => $results->perPage(),
-                'total' => $results->total(),
-            ],
-        ], 200);
-
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => $e->getMessage(),
-        ], 500);
     }
-}
 
 
 
@@ -3681,7 +3733,7 @@ class CustomFieldController extends Controller
 
                 $data[] = [
                     'label' => $name,
-                     'slug' => $slugMap[$name] ?? Str::snake($name), 
+                    'slug' => $slugMap[$name] ?? Str::snake($name),
                     'options' => $options,
 
                 ];
@@ -3734,7 +3786,6 @@ class CustomFieldController extends Controller
             $customField->delete();
 
             return response()->json(['message' => 'CustomField and related data deleted successfully.'], 200);
-
         } catch (ValidationException $e) {
             return response()->json(['error' => $e->errors()], 422);
         } catch (Exception $e) {
@@ -3776,7 +3827,6 @@ class CustomFieldController extends Controller
                 'message' => 'CustomFields and related data deleted successfully.',
                 'deleted_ids' => $existingIds
             ], 200);
-
         } catch (ValidationException $e) {
             return response()->json(['error' => $e->errors()], 422);
         } catch (Exception $e) {
@@ -3784,8 +3834,4 @@ class CustomFieldController extends Controller
             return response()->json(['error' => 'Something went wrong during bulk delete.'], 500);
         }
     }
-
-
-
-
 }
