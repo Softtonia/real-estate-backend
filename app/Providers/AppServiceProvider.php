@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -44,21 +45,30 @@ class AppServiceProvider extends ServiceProvider
         PropertyType::observe(PropertyTypeObserver::class);
         Status::observe(StatusObserver::class);
         AmenitiesCategory::observe(AmenitiesCategoryObserver::class);
-        require_once app_path('Helpers/domain_helper.php');
-        if (Schema::hasTable('mail_configs')) {
-            $mailConfig = MailConfig::first();
 
-            if ($mailConfig) {
-                Config::set('mail.mailer', $mailConfig->mailer);
-                Config::set('mail.host', $mailConfig->host);
-                Config::set('mail.port', $mailConfig->port);
-                Config::set('mail.username', $mailConfig->username);
-                Config::set('mail.password', $mailConfig->password);
-                Config::set('mail.encryption', $mailConfig->encryption);
-                Config::set('mail.from.address', $mailConfig->from_address);
-                Config::set('mail.from.name', $mailConfig->from_name);
+        try {
+            if (Schema::hasTable('mail_configs')) {
+                $mailConfig = MailConfig::first();
+
+                if ($mailConfig) {
+                    Config::set('mail.mailer', $mailConfig->mailer);
+                    Config::set('mail.host', $mailConfig->host);
+                    Config::set('mail.port', $mailConfig->port);
+                    Config::set('mail.username', $mailConfig->username);
+                    Config::set('mail.password', $mailConfig->password);
+                    Config::set('mail.encryption', $mailConfig->encryption);
+                    Config::set('mail.from.address', $mailConfig->from_address);
+                    Config::set('mail.from.name', $mailConfig->from_name);
+                }
+            }
+        } catch (Throwable $e) {
+            if (! app()->runningInConsole()) {
+                Log::warning('Mail config could not be loaded from database.', [
+                    'message' => $e->getMessage(),
+                ]);
             }
         }
+
         DB::listen(function ($query) {
             if ($query->time > 500) {
                 Log::channel('daily')->warning('Slow Query Detected', [
