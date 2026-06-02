@@ -173,6 +173,12 @@ jobs:
             echo "Caching Laravel views"
             $PHP_BIN artisan view:cache
 
+            echo "$RELEASE_NAME" > "$RELEASE_PATH/public/deploy-version.txt"
+
+            echo "Switching current symlink"
+            ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
+            mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
+            
             echo "Switching current symlink"
             ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
             mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
