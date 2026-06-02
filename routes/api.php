@@ -84,9 +84,8 @@ use App\Http\Controllers\Auth\Kyc\KycController;
 
 use App\Http\Controllers\Keyword\KeywordController;
 use App\Http\Controllers\BusinessEnquiry\BusinessEnquiryController;
-
-
-
+use App\Http\Controllers\Template\DisplayConditionController;
+use App\Http\Controllers\Template\TemplateController;
 
 /*
 |--------------------------------------------------------------------------
@@ -961,3 +960,25 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/business-enquiries/b
 
 Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle'])->middleware(['throttle:60,1']);
 Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback'])->middleware(['throttle:60,1']);
+
+
+
+Route::prefix('admin')
+    ->middleware(['throttle:60,1', 'admin.token'])
+    ->group(function () {
+        Route::post('template-create', [TemplateController::class, 'store']);
+        Route::post('template-update/{id}', [TemplateController::class, 'update']);
+        Route::delete('template-delete/{id}', [TemplateController::class, 'destroy']);
+
+        Route::post('display-condition-create', [DisplayConditionController::class, 'store']);
+        Route::post('display-condition-update/{id}', [DisplayConditionController::class, 'update']);
+        Route::delete('display-condition-delete/{id}', [DisplayConditionController::class, 'destroy']);
+    });
+
+Route::middleware(['throttle:60,1', 'api.token'])->group(function () {
+    Route::get('template-list', [TemplateController::class, 'index']);
+    Route::get('template-detail/{id}', [TemplateController::class, 'show']);
+
+    Route::get('display-condition-list', [DisplayConditionController::class, 'index']);
+    Route::get('display-condition-detail/{id}', [DisplayConditionController::class, 'show']);
+});
