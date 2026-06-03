@@ -162,7 +162,7 @@ jobs:
             $PHP_BIN artisan package:discover --ansi
 
             echo "Migration is commented for now"
-            # $PHP_BIN artisan migrate --force
+            $PHP_BIN artisan migrate
 
             echo "Caching Laravel config"
             $PHP_BIN artisan config:cache
