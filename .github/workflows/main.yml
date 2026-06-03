@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup PHP on GitHub Runner
         uses: shivammathur/setup-php@v2
@@ -29,7 +29,7 @@ jobs:
           composer install --no-interaction --prefer-dist --no-scripts
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
