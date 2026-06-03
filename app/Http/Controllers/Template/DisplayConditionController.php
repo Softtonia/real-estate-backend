@@ -199,6 +199,97 @@ class DisplayConditionController extends Controller
         ]);
     }
 
+    public function bulkUpdate(Request $request)
+    {
+        $request->validate([
+            'template_id' => [
+                'required',
+                'exists:templates,id',
+            ],
+
+            'conditions' => [
+                'required',
+                'array',
+                'min:1',
+            ],
+
+            'conditions.*.id' => [
+                'required',
+                'exists:display_conditions,id',
+            ],
+
+            'conditions.*.show_type' => [
+                'required',
+                Rule::in(['include', 'exclude']),
+            ],
+
+            'conditions.*.post_type' => [
+                'required',
+                Rule::in([
+                    'property-listing',
+                    'project-listing',
+                    'developer-listing',
+                ]),
+            ],
+
+            'conditions.*.condition_type' => [
+                'required',
+                Rule::in([
+                    'all',
+                    'purpose',
+                    'property',
+                    'property-type',
+                    'property-status',
+                ]),
+            ],
+
+            'conditions.*.value' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ]);
+
+        $updatedConditions = [];
+
+        foreach ($request->conditions as $condition) {
+            if ($condition['condition_type'] !== 'all' && empty($condition['value'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Value is required when condition type is not all.',
+                ], 422);
+            }
+
+            $displayCondition = DisplayCondition::where('id', $condition['id'])
+                ->where('template_id', $request->template_id)
+                ->first();
+
+            if (!$displayCondition) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Display condition not found for ID: ' . $condition['id'],
+                ], 404);
+            }
+
+            $displayCondition->update([
+                'show_type' => $condition['show_type'],
+                'post_type' => $condition['post_type'],
+                'condition_type' => $condition['condition_type'],
+                'value' => $condition['condition_type'] === 'all'
+                    ? null
+                    : $condition['value'],
+            ]);
+
+            $updatedConditions[] = $displayCondition;
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Display conditions updated successfully.',
+            'data' => $updatedConditions,
+        ]);
+    }
+
     public function destroy($id)
     {
         $displayCondition = DisplayCondition::find($id);
