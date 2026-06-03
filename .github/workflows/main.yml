@@ -4,7 +4,9 @@ on:
   push:
     branches:
       - dev
-
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  
 jobs:
   deploy-dev:
     name: Deploy to Dev Server
@@ -179,6 +181,7 @@ jobs:
               --single-transaction \
               --quick \
               --lock-tables=false \
+              --no-tablespaces \
               -h "$DB_HOST" \
               -u "$DB_USER" \
               -p"$DB_PASS" \
