@@ -84,8 +84,13 @@ use App\Http\Controllers\Auth\Kyc\KycController;
 
 use App\Http\Controllers\Keyword\KeywordController;
 use App\Http\Controllers\BusinessEnquiry\BusinessEnquiryController;
-use App\Http\Controllers\Template\DisplayConditionController;
+
 use App\Http\Controllers\Template\TemplateController;
+use App\Http\Controllers\Template\TemplateBuilderController;
+use App\Http\Controllers\Template\TemplateDisplayConditionController;
+use App\Http\Controllers\Template\TemplateComponentController;
+use App\Http\Controllers\Template\TemplateApiController;
+use App\Http\Controllers\Template\TemplateDynamicFieldController;
 
 /*
 |--------------------------------------------------------------------------
@@ -963,21 +968,38 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 
 
 
-Route::prefix('admin')
-    ->middleware(['throttle:60,1', 'admin.token'])
-    ->group(function () {
-        Route::post('template-create', [TemplateController::class, 'store']);
-        Route::post('template-update/{id}', [TemplateController::class, 'update']);
-        Route::delete('template-delete/{id}', [TemplateController::class, 'destroy']);
+// ================= Admin CRM Template Builder APIs =================
 
-        Route::post('display-condition-create', [DisplayConditionController::class, 'store']);
-        Route::post('display-condition-update/{id}', [DisplayConditionController::class, 'update']);
-        Route::delete('display-condition-delete/{id}', [DisplayConditionController::class, 'destroy']);
-        Route::post('display-condition-bulk-update', [DisplayConditionController::class, 'bulkUpdate']);
-        
-        Route::get('template-list', [TemplateController::class, 'index']);
-        Route::get('template-detail/{id}', [TemplateController::class, 'show']);
+// Route::middleware(['validate.api.client'])->group(function () {
 
-        Route::get('display-condition-list', [DisplayConditionController::class, 'index']);
-        Route::get('display-condition-detail/{id}', [DisplayConditionController::class, 'show']);
+    Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
+
+        // Templates
+        Route::get('templates-list', [TemplateController::class, 'index']);
+        Route::post('templates-create', [TemplateController::class, 'create']);
+        Route::get('templates-show/{id}', [TemplateController::class, 'show']);
+        Route::post('templates-update/{id}', [TemplateController::class, 'update']);
+        Route::post('templates-update-status/{id}', [TemplateController::class, 'updateStatus']);
+        Route::delete('templates-delete/{id}', [TemplateController::class, 'destroy']);
+
+        // Template Display Conditions
+        Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index']);
+        Route::post('template-conditions-create', [TemplateDisplayConditionController::class, 'create']);
+        Route::post('template-conditions-update', [TemplateDisplayConditionController::class, 'update']);
+        Route::delete('template-conditions-delete/{id}', [TemplateDisplayConditionController::class, 'destroy']);
+
+        // Template Builder Layout
+        Route::get('template-builder-show/{template_id}', [TemplateBuilderController::class, 'show']);
+        Route::post('template-builder-save/{template_id}', [TemplateBuilderController::class, 'save']);
+
+        // Builder Draggable Components
+        Route::get('template-components-list', [TemplateComponentController::class, 'index']);
+        Route::post('template-components-create', [TemplateComponentController::class, 'create']);
+        Route::post('template-components-update/{id}', [TemplateComponentController::class, 'update']);
+        Route::delete('template-components-delete/{id}', [TemplateComponentController::class, 'destroy']);
+
+        Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
     });
+
+    Route::middleware(['throttle:60,1'])->post('template-resolve', [TemplateApiController::class, 'resolve']);
+// });

@@ -10,18 +10,20 @@ class Template extends Model
     use HasFactory;
 
     protected $fillable = [
-        'name',
+        'template_name',
         'slug',
         'created_by',
+        'status',
+        'priority',
     ];
 
-    public function displayConditions()
+    public function conditions()
     {
-        return $this->hasMany(DisplayCondition::class, 'template_id');
+        return $this->hasMany(TemplateDisplayCondition::class);
     }
 
-    public function creator()
+    public function layout()
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->hasOne(TemplateLayout::class);
     }
 }

@@ -6,25 +6,24 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Run the migrations.
+     */
     public function up(): void
     {
         Schema::create('templates', function (Blueprint $table) {
             $table->id();
-
-            $table->string('name');
+            $table->string('template_name');
             $table->string('slug')->unique();
-
-            $table->unsignedBigInteger('created_by')->nullable();
-
+            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->enum('status', ['active', 'draft'])->default('draft');
             $table->timestamps();
-
-            $table->foreign('created_by')
-                ->references('id')
-                ->on('users')
-                ->nullOnDelete();
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::dropIfExists('templates');
