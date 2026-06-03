@@ -161,8 +161,42 @@ jobs:
             echo "Running package discovery"
             $PHP_BIN artisan package:discover --ansi
 
-            echo "Migration is commented for now"
-            $PHP_BIN artisan migrate
+            echo "Backing up database before migration"
+            
+            DB_NAME=$($PHP_BIN -r "
+            require '$RELEASE_PATH/vendor/autoload.php';
+            \$app = require '$RELEASE_PATH/bootstrap/app.php';
+            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            echo config('database.connections.mysql.database');
+            ")
+            
+            DB_USER=$($PHP_BIN -r "
+            require '$RELEASE_PATH/vendor/autoload.php';
+            \$app = require '$RELEASE_PATH/bootstrap/app.php';
+            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            echo config('database.connections.mysql.username');
+            ")
+            
+            DB_PASS=$($PHP_BIN -r "
+            require '$RELEASE_PATH/vendor/autoload.php';
+            \$app = require '$RELEASE_PATH/bootstrap/app.php';
+            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            echo config('database.connections.mysql.password');
+            ")
+            
+            DB_HOST=$($PHP_BIN -r "
+            require '$RELEASE_PATH/vendor/autoload.php';
+            \$app = require '$RELEASE_PATH/bootstrap/app.php';
+            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            echo config('database.connections.mysql.host');
+            ")
+            
+            mkdir -p "$BASE_PATH/shared/backups"
+            
+            mysqldump -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$BASE_PATH/shared/backups/db-backup-before-migrate-$RELEASE_NAME.sql"
+            
+            echo "Running Laravel migrations safely"
+            $PHP_BIN artisan migrate --force
 
             echo "Caching Laravel config"
             $PHP_BIN artisan config:cache
