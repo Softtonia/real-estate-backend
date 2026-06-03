@@ -163,37 +163,26 @@ jobs:
 
             echo "Backing up database before migration"
             
-            DB_NAME=$($PHP_BIN -r "
-            require '$RELEASE_PATH/vendor/autoload.php';
-            \$app = require '$RELEASE_PATH/bootstrap/app.php';
-            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-            echo config('database.connections.mysql.database');
-            ")
+            export RELEASE_PATH
             
-            DB_USER=$($PHP_BIN -r "
-            require '$RELEASE_PATH/vendor/autoload.php';
-            \$app = require '$RELEASE_PATH/bootstrap/app.php';
-            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-            echo config('database.connections.mysql.username');
-            ")
+            DB_NAME=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.database");')
             
-            DB_PASS=$($PHP_BIN -r "
-            require '$RELEASE_PATH/vendor/autoload.php';
-            \$app = require '$RELEASE_PATH/bootstrap/app.php';
-            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-            echo config('database.connections.mysql.password');
-            ")
+            DB_USER=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.username");')
             
-            DB_HOST=$($PHP_BIN -r "
-            require '$RELEASE_PATH/vendor/autoload.php';
-            \$app = require '$RELEASE_PATH/bootstrap/app.php';
-            \$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-            echo config('database.connections.mysql.host');
-            ")
+            DB_PASS=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.password");')
+            
+            DB_HOST=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.host");')
             
             mkdir -p "$BASE_PATH/shared/backups"
             
-            mysqldump -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$BASE_PATH/shared/backups/db-backup-before-migrate-$RELEASE_NAME.sql"
+            mysqldump \
+              --single-transaction \
+              --quick \
+              --lock-tables=false \
+              -h "$DB_HOST" \
+              -u "$DB_USER" \
+              -p"$DB_PASS" \
+              "$DB_NAME" > "$BASE_PATH/shared/backups/db-backup-before-migrate-$RELEASE_NAME.sql"
             
             echo "Running Laravel migrations safely"
             $PHP_BIN artisan migrate --force
