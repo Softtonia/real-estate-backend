@@ -33,7 +33,7 @@ class AdminController extends Controller
         // Initialize an empty array to store user data
         $userData = [];
 
-        // Iterate over each user and extract necessary properties
+        // Iterate over eachuser and extract necessary properties
         foreach ($users as $user) {
             $userData[] = [
                 'id' => $user->id,

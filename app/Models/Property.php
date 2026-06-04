@@ -11,6 +11,7 @@ class Property extends Model
     protected $table='properties';
     protected $fillable=['name','slug','display_properties_order','property_image','updated_at'];
 
+
     public function propertytype()
     {
         return $this->hasMany(PropertyType::class);
