@@ -20,7 +20,7 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'http://127.0.0.1:8000',
+        'http://localhost:5173/',
         'http://localhost:5173',
         'https://admin.holiplaces.com',
         'https://holiplaces.com',

@@ -84,13 +84,12 @@ use App\Http\Controllers\Auth\Kyc\KycController;
 
 use App\Http\Controllers\Keyword\KeywordController;
 use App\Http\Controllers\BusinessEnquiry\BusinessEnquiryController;
-use App\Http\Controllers\Listing\DynamicListingController;
+
 use App\Http\Controllers\Template\TemplateController;
 use App\Http\Controllers\Template\TemplateBuilderController;
 use App\Http\Controllers\Template\TemplateDisplayConditionController;
 use App\Http\Controllers\Template\TemplateComponentController;
 use App\Http\Controllers\Template\TemplateApiController;
-use App\Http\Controllers\Template\TemplateDynamicFieldController;
 
 /*
 |--------------------------------------------------------------------------
@@ -966,8 +965,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/business-enquiries/b
 Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle'])->middleware(['throttle:60,1']);
 Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback'])->middleware(['throttle:60,1']);
 
-Route::get('display-listings', [DynamicListingController::class, 'index'])
-    ->middleware(['throttle:60,1', 'api.token']);
+
 
 // ================= Admin CRM Template Builder APIs =================
 
