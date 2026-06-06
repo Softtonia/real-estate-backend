@@ -3,6 +3,9 @@
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreCustomWidgetRequest;
+use App\Http\Requests\UpdateCustomWidgetRequest;
+use App\Http\Requests\SaveWidgetConfigurationRequest;
 use App\Models\CustomWidget;
 use App\Models\WidgetConfiguration;
 use Illuminate\Http\Request;
@@ -13,8 +16,10 @@ class CustomWidgetController extends Controller
 {
     public function index(Request $request)
     {
-        $query = CustomWidget::with(['createdBy:id,email', 'configurations'])
-            ->latest();
+        $query = CustomWidget::with([
+            'createdBy:id,first_name,last_name,email',
+            'configurations'
+        ])->latest();
 
         if ($request->filled('search')) {
             $query->where('widget_name', 'like', '%' . $request->search . '%');
@@ -31,7 +36,7 @@ class CustomWidgetController extends Controller
             $query->where('post_type', $request->post_type);
         }
 
-        $perPage = $request->get('per_page', 20);
+        $perPage = (int) $request->get('per_page', 20);
 
         $widgets = $query->paginate($perPage);
 
@@ -42,30 +47,18 @@ class CustomWidgetController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(StoreCustomWidgetRequest $request)
     {
-        $payload = $this->getPayload($request);
-
-        $validator = Validator::make($payload, [
-            'widget_name' => 'required|string|max:255',
-            'post_type' => 'required|in:basic,property-listing,project-listing,developer-listing',
-            'configurations' => 'nullable|array',
-            'configurations.*.field_key' => 'required_with:configurations|string|max:255',
-            'configurations.*.field_value' => 'nullable',
-        ]);
-
-        if ($validator->fails()) {
-            return $this->validationErrorResponse($validator);
-        }
+        $payload = $request->validated();
 
         DB::beginTransaction();
 
         try {
             $widget = CustomWidget::create([
                 'widget_name' => $payload['widget_name'],
-                'slug' => CustomWidget::generateUniqueSlug($payload['widget_name']),
+                'slug' => $payload['slug'] ?? CustomWidget::generateUniqueSlug($payload['widget_name']),
                 'post_type' => $payload['post_type'],
-                'created_by' => auth()->id(),
+                'created_by' => $this->getAuthenticatedUserId(),
             ]);
 
             $this->syncConfigurations($widget, $payload['configurations'] ?? []);
@@ -75,7 +68,10 @@ class CustomWidgetController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Custom widget created successfully.',
-                'data' => $widget->load(['createdBy:id,email', 'configurations']),
+                'data' => $widget->load([
+                    'createdBy:id,first_name,last_name,email',
+                    'configurations'
+                ]),
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -90,7 +86,10 @@ class CustomWidgetController extends Controller
 
     public function show($id)
     {
-        $widget = CustomWidget::with(['createdBy:id,email', 'configurations'])->find($id);
+        $widget = CustomWidget::with([
+            'createdBy:id,first_name,last_name,email',
+            'configurations'
+        ])->find($id);
 
         if (!$widget) {
             return response()->json([
@@ -106,7 +105,7 @@ class CustomWidgetController extends Controller
         ]);
     }
 
-    public function update(Request $request, $id)
+    public function update(UpdateCustomWidgetRequest $request, $id)
     {
         $widget = CustomWidget::find($id);
 
@@ -117,19 +116,14 @@ class CustomWidgetController extends Controller
             ], 404);
         }
 
-        $payload = $this->getPayload($request);
-
-        $validator = Validator::make($payload, [
-            'widget_name' => 'required|string|max:255',
-            'post_type' => 'required|in:basic,property-listing,project-listing,developer-listing',
-            'configurations' => 'nullable|array',
-            'configurations.*.field_key' => 'required_with:configurations|string|max:255',
-            'configurations.*.field_value' => 'nullable',
-        ]);
-
-        if ($validator->fails()) {
-            return $this->validationErrorResponse($validator);
+        if (!$this->canModifyWidget($widget)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'You are not allowed to update this widget.',
+            ], 403);
         }
+
+        $payload = $request->validated();
 
         DB::beginTransaction();
 
@@ -139,8 +133,13 @@ class CustomWidgetController extends Controller
                 'post_type' => $payload['post_type'],
             ];
 
-            if ($widget->widget_name !== $payload['widget_name']) {
-                $updateData['slug'] = CustomWidget::generateUniqueSlug($payload['widget_name'], $widget->id);
+            if (!empty($payload['slug'])) {
+                $updateData['slug'] = $payload['slug'];
+            } elseif ($widget->widget_name !== $payload['widget_name']) {
+                $updateData['slug'] = CustomWidget::generateUniqueSlug(
+                    $payload['widget_name'],
+                    $widget->id
+                );
             }
 
             $widget->update($updateData);
@@ -154,7 +153,10 @@ class CustomWidgetController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Custom widget updated successfully.',
-                'data' => $widget->fresh(['createdBy:id,email', 'configurations']),
+                'data' => $widget->fresh([
+                    'createdBy:id,first_name,last_name,email',
+                    'configurations'
+                ]),
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -178,9 +180,14 @@ class CustomWidgetController extends Controller
             ], 404);
         }
 
-        $forceDelete = $request->boolean('force_delete');
+        if (!$this->canModifyWidget($widget)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'You are not allowed to delete this widget.',
+            ], 403);
+        }
 
-        if ($forceDelete) {
+        if ($request->boolean('force_delete')) {
             $widget->forceDelete();
 
             return response()->json([
@@ -196,6 +203,110 @@ class CustomWidgetController extends Controller
             'message' => 'Custom widget deleted successfully.',
         ]);
     }
+
+    public function fields($post_type)
+    {
+        $post_type = strtolower(trim($post_type));
+
+        $fields = match ($post_type) {
+            CustomWidget::POST_TYPE_PROPERTY_LISTING => [
+                'title',
+                'excerpt',
+                'featured_image',
+                'gallery',
+                'property_id',
+                'amenities',
+                'owner_name',
+                'owner_phone',
+            ],
+
+            CustomWidget::POST_TYPE_PROJECT_LISTING => [
+                'project_name',
+                'project_gallery',
+                'project_location',
+                'project_description',
+            ],
+
+            CustomWidget::POST_TYPE_DEVELOPER_LISTING => [
+                'developer_name',
+                'developer_logo',
+                'developer_projects',
+                'developer_description',
+            ],
+
+            CustomWidget::POST_TYPE_BASIC => [
+                'text',
+                'image',
+                'button',
+                'html',
+            ],
+
+            default => null,
+        };
+
+        if ($fields === null) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid post type selected.',
+            ], 422);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Available fields fetched successfully.',
+            'data' => [
+                'post_type' => $post_type,
+                'fields' => $fields,
+            ],
+        ]);
+    }
+
+    public function saveConfiguration(SaveWidgetConfigurationRequest $request)
+    {
+        $payload = $request->validated();
+
+        $widget = CustomWidget::find($payload['widget_id']);
+
+        if (!$widget) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Custom widget not found.',
+            ], 404);
+        }
+
+        if (!$this->canModifyWidget($widget)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'You are not allowed to update this widget configuration.',
+            ], 403);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $this->syncConfigurations($widget, $payload['configurations']);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Widget configuration saved successfully.',
+                'data' => $widget->fresh([
+                    'createdBy:id,first_name,last_name,email',
+                    'configurations'
+                ]),
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to save widget configuration.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function widgetsByPostType(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -234,11 +345,16 @@ class CustomWidgetController extends Controller
             'data' => $widgets,
         ]);
     }
+
     private function syncConfigurations(CustomWidget $widget, array $configurations): void
     {
         $widget->configurations()->delete();
 
         foreach ($configurations as $configuration) {
+            if (empty($configuration['field_key'])) {
+                continue;
+            }
+
             WidgetConfiguration::create([
                 'widget_id' => $widget->id,
                 'field_key' => $configuration['field_key'],
@@ -274,23 +390,56 @@ class CustomWidgetController extends Controller
         return $value;
     }
 
-    private function getPayload(Request $request): array
+    private function canModifyWidget(CustomWidget $widget): bool
     {
-        $payload = $request->json()->all();
-
-        if (empty($payload)) {
-            $payload = $request->all();
+        /*
+         * Your routes are protected by admin.token.
+         * If this API reaches controller, admin token is already validated.
+         * This prevents false 403 when auth()->user() is null due to custom token middleware.
+         */
+        if ($this->routeHasMiddleware('admin.token')) {
+            return true;
         }
 
-        if (empty($payload) && $request->getContent()) {
-            $decoded = json_decode($request->getContent(), true);
+        $user = auth()->user();
 
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $payload = $decoded;
-            }
+        if (!$user) {
+            return false;
         }
 
-        return is_array($payload) ? $payload : [];
+        if (isset($user->role) && strtolower((string) $user->role) === 'admin') {
+            return true;
+        }
+
+        if (method_exists($user, 'hasRole') && $user->hasRole('admin')) {
+            return true;
+        }
+
+        return (int) $widget->created_by === (int) $user->id;
+    }
+
+    private function routeHasMiddleware(string $middleware): bool
+    {
+        $route = request()->route();
+
+        if (!$route) {
+            return false;
+        }
+
+        return in_array($middleware, $route->middleware(), true);
+    }
+
+    private function getAuthenticatedUserId()
+    {
+        if (auth()->id()) {
+            return auth()->id();
+        }
+
+        if (request()->user()) {
+            return request()->user()->id;
+        }
+
+        return null;
     }
 
     private function validationErrorResponse($validator)

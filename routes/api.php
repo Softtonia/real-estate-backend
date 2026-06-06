@@ -998,15 +998,15 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
     Route::delete('template-components-delete/{id}', [TemplateComponentController::class, 'destroy']);
 
     // Custom Widgets
+    Route::get('custom-widgets/fields/{post_type}', [CustomWidgetController::class, 'fields']);
+    Route::post('custom-widgets/configuration/save', [CustomWidgetController::class, 'saveConfiguration']);
+    Route::get('custom-widgets-by-post-type', [CustomWidgetController::class, 'widgetsByPostType']);
+
     Route::get('custom-widgets', [CustomWidgetController::class, 'index']);
     Route::post('custom-widgets', [CustomWidgetController::class, 'store']);
     Route::get('custom-widgets/{id}', [CustomWidgetController::class, 'show']);
     Route::put('custom-widgets/{id}', [CustomWidgetController::class, 'update']);
     Route::delete('custom-widgets/{id}', [CustomWidgetController::class, 'destroy']);
-
-    // Builder specific API
-    Route::get('custom-widgets-by-post-type', [CustomWidgetController::class, 'widgetsByPostType']);
-    Route::post('custom-widgets/{id}/status', [CustomWidgetController::class, 'updateStatus']);
 });
 
 Route::middleware(['throttle:60,1'])->post('template-resolve', [TemplateApiController::class, 'resolve']);
