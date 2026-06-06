@@ -9,12 +9,10 @@ class TemplateDisplayCondition extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'template_id',
-        'show_type',
-        'post_type',
-        'condition_type',
-        'condition_value',
+    protected $guarded = [];
+
+    protected $casts = [
+        'condition_value' => 'array',
     ];
 
     public function template()
