@@ -84,7 +84,7 @@ use App\Http\Controllers\Auth\Kyc\KycController;
 
 use App\Http\Controllers\Keyword\KeywordController;
 use App\Http\Controllers\BusinessEnquiry\BusinessEnquiryController;
-
+use App\Http\Controllers\Template\CustomWidgetController;
 use App\Http\Controllers\Template\TemplateController;
 use App\Http\Controllers\Template\TemplateBuilderController;
 use App\Http\Controllers\Template\TemplateDisplayConditionController;
@@ -971,34 +971,43 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 
 // Route::middleware(['validate.api.client'])->group(function () {
 
-    Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
+Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
 
-        // Templates
-        Route::get('templates-list', [TemplateController::class, 'index']);
-        Route::post('templates-create', [TemplateController::class, 'create']);
-        Route::get('templates-show/{id}', [TemplateController::class, 'show']);
-        Route::post('templates-update/{id}', [TemplateController::class, 'update']);
-        Route::post('templates-update-status/{id}', [TemplateController::class, 'updateStatus']);
-        Route::delete('templates-delete/{id}', [TemplateController::class, 'destroy']);
+    // Templates
+    Route::get('templates-list', [TemplateController::class, 'index']);
+    Route::post('templates-create', [TemplateController::class, 'create']);
+    Route::get('templates-show/{id}', [TemplateController::class, 'show']);
+    Route::post('templates-update/{id}', [TemplateController::class, 'update']);
+    Route::post('templates-update-status/{id}', [TemplateController::class, 'updateStatus']);
+    Route::delete('templates-delete/{id}', [TemplateController::class, 'destroy']);
 
-        // Template Display Conditions
-        Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index']);
-        Route::post('template-conditions-create', [TemplateDisplayConditionController::class, 'create']);
-        Route::post('template-conditions-update', [TemplateDisplayConditionController::class, 'update']);
-        Route::delete('template-conditions-delete/{id}', [TemplateDisplayConditionController::class, 'destroy']);
+    // Template Display Conditions
+    Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index']);
+    Route::post('template-conditions-create', [TemplateDisplayConditionController::class, 'create']);
+    Route::post('template-conditions-update', [TemplateDisplayConditionController::class, 'update']);
+    Route::delete('template-conditions-delete/{id}', [TemplateDisplayConditionController::class, 'destroy']);
 
-        // Template Builder Layout
-        Route::get('template-builder-show/{template_id}', [TemplateBuilderController::class, 'show']);
-        Route::post('template-builder-save/{template_id}', [TemplateBuilderController::class, 'save']);
+    // Template Builder Layout
+    Route::get('template-builder-show/{template_id}', [TemplateBuilderController::class, 'show']);
+    Route::post('template-builder-save/{template_id}', [TemplateBuilderController::class, 'save']);
 
-        // Builder Draggable Components
-        Route::get('template-components-list', [TemplateComponentController::class, 'index']);
-        Route::post('template-components-create', [TemplateComponentController::class, 'create']);
-        Route::post('template-components-update/{id}', [TemplateComponentController::class, 'update']);
-        Route::delete('template-components-delete/{id}', [TemplateComponentController::class, 'destroy']);
+    // Builder Draggable Components
+    Route::get('template-components-list', [TemplateComponentController::class, 'index']);
+    Route::post('template-components-create', [TemplateComponentController::class, 'create']);
+    Route::post('template-components-update/{id}', [TemplateComponentController::class, 'update']);
+    Route::delete('template-components-delete/{id}', [TemplateComponentController::class, 'destroy']);
 
-        Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
-    });
+    // Custom Widgets
+    Route::get('custom-widgets', [CustomWidgetController::class, 'index']);
+    Route::post('custom-widgets', [CustomWidgetController::class, 'store']);
+    Route::get('custom-widgets/{id}', [CustomWidgetController::class, 'show']);
+    Route::put('custom-widgets/{id}', [CustomWidgetController::class, 'update']);
+    Route::delete('custom-widgets/{id}', [CustomWidgetController::class, 'destroy']);
 
-    Route::middleware(['throttle:60,1'])->post('template-resolve', [TemplateApiController::class, 'resolve']);
+    // Builder specific API
+    Route::get('custom-widgets-by-post-type', [CustomWidgetController::class, 'widgetsByPostType']);
+    Route::post('custom-widgets/{id}/status', [CustomWidgetController::class, 'updateStatus']);
+});
+
+Route::middleware(['throttle:60,1'])->post('template-resolve', [TemplateApiController::class, 'resolve']);
 // });
