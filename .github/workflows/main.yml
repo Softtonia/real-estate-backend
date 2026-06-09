@@ -190,6 +190,9 @@ jobs:
             echo "Running Laravel migrations safely"
             $PHP_BIN artisan migrate --force
 
+            echo "Running Laravel seeders safely"
+            $PHP_BIN artisan db:seed --force
+            
             echo "Caching Laravel config"
             $PHP_BIN artisan config:cache
 
