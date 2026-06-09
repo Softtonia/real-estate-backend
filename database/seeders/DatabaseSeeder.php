@@ -36,17 +36,19 @@ class DatabaseSeeder extends Seeder
         $this->call(TicketStatusTableSeeder::class);
         $this->call(HelpCategorySeeder::class);
         $this->call(HelpSubcategorySeeder::class);
-         $this->call(HelpChildcategorySeeder::class);
-         $this->call([ApiClientTableSeeder::class]);
-         $this->call(SiteSettingsSeeder::class);
+        $this->call(HelpChildcategorySeeder::class);
+        $this->call([ApiClientTableSeeder::class]);
+        $this->call(SiteSettingsSeeder::class);
         //  $this->call(GroupNameSeeder::class);
         //  $this->call(TemplateSeeder::class);
         //  $this->call(CustomFieldsSeeder::class);
-         $this->call(ClientReviewsSeeder::class);
-         $this->call(LocationSeeder::class);
-         $this->call(LeadTypesSeeder::class);
-         $this->call(DefaultUser::class);
+        $this->call(ClientReviewsSeeder::class);
+        $this->call(LocationSeeder::class);
+        $this->call(LeadTypesSeeder::class);
+        $this->call(DefaultUser::class);
 
-
+        $this->call([
+            DefaultPostTypeSeeder::class,
+        ]);
     }
 }
