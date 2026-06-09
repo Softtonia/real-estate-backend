@@ -146,4 +146,8 @@ class CustomField extends Model
     {
         return in_array($this->field_type, ['media', 'file']);
     }
+        public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
 }
