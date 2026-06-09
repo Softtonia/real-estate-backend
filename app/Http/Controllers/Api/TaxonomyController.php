@@ -41,12 +41,22 @@ class TaxonomyController extends Controller
             $perPage = (int) $request->get('per_page', 15);
             $perPage = $perPage > 100 ? 100 : $perPage;
 
+            $taxonomies = $query->paginate($perPage);
+
+            $taxonomies->getCollection()->transform(function ($taxonomy) {
+                $formatted = $this->formatTaxonomy($taxonomy);
+
+                $formatted['terms_count'] = $taxonomy->terms_count ?? 0;
+                $formatted['custom_fields_count'] = $taxonomy->custom_fields_count ?? 0;
+
+                return $formatted;
+            });
+
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomies fetched successfully.',
-                'data' => $query->paginate($perPage),
+                'data' => $taxonomies,
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -81,7 +91,7 @@ class TaxonomyController extends Controller
                     'message' => 'Taxonomy slug already exists.',
                     'errors' => [
                         'slug' => [
-                            'The generated slug "' . $slug . '" already exists. Please use a different taxonomy name.',
+                            '' . $slug . ' already exists. Please use a different taxonomy name.',
                         ],
                     ],
                 ], 422);
@@ -105,13 +115,13 @@ class TaxonomyController extends Controller
             DB::commit();
 
             $taxonomy->load('creator');
+            $taxonomy->load('creator');
 
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy created successfully.',
-                'data' => $taxonomy,
+                'data' => $this->formatTaxonomy($taxonomy),
             ], 201);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
 
@@ -120,7 +130,6 @@ class TaxonomyController extends Controller
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -145,9 +154,8 @@ class TaxonomyController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy fetched successfully.',
-                'data' => $taxonomy,
+                'data' => $this->formatTaxonomy($taxonomy),
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -227,9 +235,8 @@ class TaxonomyController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy updated successfully.',
-                'data' => $taxonomy->fresh()->load('creator'),
+                'data' => $this->formatTaxonomy($taxonomy->fresh()->load('creator')),
             ], 200);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
 
@@ -238,7 +245,6 @@ class TaxonomyController extends Controller
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -266,7 +272,6 @@ class TaxonomyController extends Controller
                 'status' => true,
                 'message' => 'Taxonomy deleted successfully.',
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -302,14 +307,12 @@ class TaxonomyController extends Controller
                 'message' => 'Selected taxonomies deleted successfully.',
                 'deleted_count' => $deleted,
             ], 200);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -333,7 +336,6 @@ class TaxonomyController extends Controller
                 'message' => 'Taxonomy terms fetched successfully.',
                 'data' => $terms,
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -357,7 +359,6 @@ class TaxonomyController extends Controller
                 'message' => 'Taxonomy fields fetched successfully.',
                 'data' => $fields,
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -376,5 +377,90 @@ class TaxonomyController extends Controller
         }
 
         return $maxSortOrder + 1;
+    }
+    private function formatTaxonomy($taxonomy): array
+    {
+        $creator = $taxonomy->creator;
+
+        return [
+            'id' => $taxonomy->id,
+            'name' => $taxonomy->name,
+            'slug' => $taxonomy->slug,
+            'description' => $taxonomy->description,
+            'is_default' => (bool) $taxonomy->is_default,
+            'hierarchical' => (bool) $taxonomy->hierarchical,
+            'status' => (bool) $taxonomy->status,
+            'sort_order' => $taxonomy->sort_order,
+
+            'created_by' => $taxonomy->created_by,
+            'created_by_user' => $creator ? [
+                'id' => $creator->id,
+                'name' => $this->getUserFullName($creator),
+                'email' => $creator->email ?? null,
+                'role' => $this->getUserRoleName($creator),
+            ] : null,
+
+            'created_at' => $taxonomy->created_at,
+            'updated_at' => $taxonomy->updated_at,
+            'deleted_at' => $taxonomy->deleted_at ?? null,
+        ];
+    }
+
+    private function getUserFullName($user): ?string
+    {
+        $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+
+        if (!empty($fullName)) {
+            return $fullName;
+        }
+
+        return $user->name ?? $user->user_name ?? $user->email ?? null;
+    }
+
+    private function getUserRoleName($user): ?string
+    {
+        if (method_exists($user, 'roles')) {
+            try {
+                $roleName = $user->roles()->pluck('name')->first();
+
+                if (!empty($roleName)) {
+                    return $roleName;
+                }
+            } catch (\Exception $e) {
+                // Continue fallback
+            }
+        }
+
+        if (isset($user->role) && is_object($user->role)) {
+            return $user->role->name ?? null;
+        }
+
+        if (isset($user->role) && is_array($user->role)) {
+            return $user->role['name'] ?? null;
+        }
+
+        if (isset($user->role) && is_string($user->role)) {
+            $decodedRole = json_decode($user->role, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decodedRole)) {
+                return $decodedRole['name'] ?? null;
+            }
+
+            return $user->role;
+        }
+
+        if (isset($user->role_id)) {
+            try {
+                $role = \Illuminate\Support\Facades\DB::table('roles')
+                    ->where('id', $user->role_id)
+                    ->first();
+
+                return $role->name ?? null;
+            } catch (\Exception $e) {
+                return null;
+            }
+        }
+
+        return null;
     }
 }

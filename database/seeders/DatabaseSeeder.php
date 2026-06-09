@@ -21,35 +21,32 @@ class DatabaseSeeder extends Seeder
         $this->call(RoleSeeder::class);
         $this->call(AdminSeeder::class);
         $this->call(MailConfigSeeder::class);
-        // $this->call(PurposeSeeder::class);
-        // $this->call(PropertySeeder::class);
-        // $this->call(PropertyTypeSeeder::class);
-        // $this->call(ModelsTableSeeder::class);
-        // $this->call(StatusSeeder::class);
-        // $this->call(MediaSeeder::class);
-        // $this->call(AmenitiesCategoriesSeeder::class);
-        // $this->call(AmenitySeeder::class);
-        // $this->call(ImportKeywordsSeeder::class);
-
+        $this->call(PurposeSeeder::class);
+        $this->call(PropertySeeder::class);
+        $this->call(PropertyTypeSeeder::class);
+        $this->call(ModelsTableSeeder::class);
+        $this->call(StatusSeeder::class);
+        $this->call(MediaSeeder::class);
+        $this->call(AmenitiesCategoriesSeeder::class);
+        $this->call(AmenitySeeder::class);
+        $this->call(ImportKeywordsSeeder::class);
         $this->call(TicketDepartmentsSeeder::class);
         $this->call(TicketTypesTableSeeder::class);
         $this->call(TicketPrioritiesTableSeeder::class);
         $this->call(TicketStatusTableSeeder::class);
         $this->call(HelpCategorySeeder::class);
         $this->call(HelpSubcategorySeeder::class);
-        $this->call(HelpChildcategorySeeder::class);
-        $this->call([ApiClientTableSeeder::class]);
-        $this->call(SiteSettingsSeeder::class);
+         $this->call(HelpChildcategorySeeder::class);
+         $this->call([ApiClientTableSeeder::class]);
+         $this->call(SiteSettingsSeeder::class);
         //  $this->call(GroupNameSeeder::class);
         //  $this->call(TemplateSeeder::class);
         //  $this->call(CustomFieldsSeeder::class);
-        $this->call(ClientReviewsSeeder::class);
-        // $this->call(LocationSeeder::class);
-        // $this->call(LeadTypesSeeder::class);
-        $this->call(DefaultUser::class);
+         $this->call(ClientReviewsSeeder::class);
+         $this->call(LocationSeeder::class);
+         $this->call(LeadTypesSeeder::class);
+         $this->call(DefaultUser::class);
+        $this->call(DefaultPostTypeSeeder::class);
 
-        $this->call([
-            DefaultPostTypeSeeder::class,
-        ]);
     }
 }

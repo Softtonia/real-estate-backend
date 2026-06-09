@@ -1023,14 +1023,20 @@ Route::middleware(['throttle:60,1'])->post('template-resolve', [TemplateApiContr
 Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
 
     // Post Types
-    Route::get('post-types/{postType}/fields', [PostTypeController::class, 'fields']);
+    Route::get('post-types/trash', [PostTypeController::class, 'trash']);
     Route::post('post-types/bulk-delete', [PostTypeController::class, 'bulkDelete']);
+    Route::post('post-types/bulk-restore', [PostTypeController::class, 'bulkRestore']);
+    Route::delete('post-types/bulk-force-delete', [PostTypeController::class, 'bulkForceDelete']);
+    Route::post('post-types/{id}/restore', [PostTypeController::class, 'restore']);
+    Route::delete('post-types/{id}/force-delete', [PostTypeController::class, 'forceDelete']);
+    Route::get('post-types/{id}/fields', [PostTypeController::class, 'fields']);
+
+    Route::get('post-types/{postType}/fields', [PostTypeController::class, 'fields']);
     Route::get('post-types', [PostTypeController::class, 'index']);
     Route::post('post-types', [PostTypeController::class, 'store']);
     Route::get('post-types/{postType}', [PostTypeController::class, 'show']);
     Route::put('post-types/{postType}', [PostTypeController::class, 'update']);
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
-
 
     // Dynamic Posts
     Route::get('dynamic-posts/by-type/{slug}', [DynamicPostController::class, 'byPostType']);

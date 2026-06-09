@@ -17,7 +17,7 @@ class TaxonomyTermController extends Controller
     {
         try {
             $query = TaxonomyTerm::query()
-                ->with(['taxonomy', 'parent', 'creator'])
+                ->with(['taxonomy', 'parent'])
                 ->withCount('posts')
                 ->when($request->filled('taxonomy_id'), function ($q) use ($request) {
                     $q->where('taxonomy_id', $request->taxonomy_id);
@@ -86,7 +86,7 @@ class TaxonomyTermController extends Controller
                     'message' => 'Taxonomy term slug already exists.',
                     'errors' => [
                         'slug' => [
-                            'The generated slug "' . $slug . '" already exists in this taxonomy.',
+                            '' . $slug . ' already exists in this taxonomy.',
                         ],
                     ],
                 ], 422);
@@ -104,7 +104,6 @@ class TaxonomyTermController extends Controller
                     'description' => $validated['description'] ?? null,
                     'sort_order' => $validated['sort_order'] ?? 0,
                     'status' => $validated['status'] ?? true,
-                    'created_by' => Auth::id(),
                 ]);
 
                 $this->saveCustomFieldValues($term->id, 'taxonomy_term', $customFields);
@@ -115,7 +114,7 @@ class TaxonomyTermController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy term created successfully.',
-                'data' => $term->load(['taxonomy', 'parent', 'creator', 'meta.customField']),
+                'data' => $term->load(['taxonomy', 'parent', 'meta.customField']),
             ], 201);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -141,7 +140,6 @@ class TaxonomyTermController extends Controller
                 'taxonomy',
                 'parent',
                 'children',
-                'creator',
                 'meta.customField',
                 'posts',
             ]);
@@ -234,7 +232,7 @@ class TaxonomyTermController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy term updated successfully.',
-                'data' => $taxonomyTerm->fresh()->load(['taxonomy', 'parent', 'creator', 'meta.customField']),
+                'data' => $taxonomyTerm->fresh()->load(['taxonomy', 'parent', 'meta.customField']),
             ], 200);
 
         } catch (\Illuminate\Validation\ValidationException $e) {

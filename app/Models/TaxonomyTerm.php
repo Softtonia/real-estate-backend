@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class TaxonomyTerm extends Model
@@ -98,5 +97,9 @@ class TaxonomyTerm extends Model
     public function scopeByTaxonomy($query, $taxonomyId)
     {
         return $query->where('taxonomy_id', $taxonomyId);
+    }
+        public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }
