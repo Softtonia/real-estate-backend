@@ -2,39 +2,52 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
-use Carbon\Carbon;
-
 
 class PurposeSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
         $purposes = [
             [
                 'name' => 'Sell',
-                'slug' => Str::slug('Sell'),
-                'purpose_display_order' => '1',
+                'slug' => 'sell',
+                'purpose_display_order' => 1,
                 'icon' => null,
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
             ],
             [
                 'name' => 'Rent',
-                'slug' => Str::slug('Rent'),
-                'purpose_display_order' => '2',
+                'slug' => 'rent',
+                'purpose_display_order' => 2,
                 'icon' => null,
-                'created_at' => Carbon::now(),
-                'updated_at' => Carbon::now(),
             ],
         ];
 
-        DB::table('purposes')->insert($purposes);
+        foreach ($purposes as $purpose) {
+            $exists = DB::table('purposes')
+                ->where('slug', $purpose['slug'])
+                ->exists();
+
+            if ($exists) {
+                DB::table('purposes')
+                    ->where('slug', $purpose['slug'])
+                    ->update([
+                        'name' => $purpose['name'],
+                        'icon' => $purpose['icon'],
+                        'purpose_display_order' => $purpose['purpose_display_order'],
+                        'updated_at' => now(),
+                    ]);
+            } else {
+                DB::table('purposes')->insert([
+                    'name' => $purpose['name'],
+                    'slug' => $purpose['slug'],
+                    'icon' => $purpose['icon'],
+                    'purpose_display_order' => $purpose['purpose_display_order'],
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+        }
     }
 }

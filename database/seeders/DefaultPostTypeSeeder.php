@@ -11,36 +11,6 @@ class DefaultPostTypeSeeder extends Seeder
     {
         $postTypes = [
             [
-                'name' => 'Users',
-                'slug' => 'users',
-                'description' => 'Default system post type for users.',
-                'is_default' => true,
-                'status' => true,
-                'supports' => [
-                    'title',
-                    'custom_fields',
-                ],
-                'created_by' => null,
-                'sort_order' => 1,
-            ],
-            [
-                'name' => 'Blogs',
-                'slug' => 'blogs',
-                'description' => 'Default post type for blog posts.',
-                'is_default' => true,
-                'status' => true,
-                'supports' => [
-                    'title',
-                    'content',
-                    'excerpt',
-                    'featured_image',
-                    'custom_fields',
-                    'taxonomies',
-                ],
-                'created_by' => null,
-                'sort_order' => 2,
-            ],
-            [
                 'name' => 'FAQs',
                 'slug' => 'faqs',
                 'description' => 'Default post type for frequently asked questions.',
