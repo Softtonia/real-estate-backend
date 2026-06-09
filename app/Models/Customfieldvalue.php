@@ -2,39 +2,97 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Customfieldvalue extends Model
+class CustomFieldValue extends Model
 {
-    use HasFactory;
-    protected $guarded=[];
-    protected $table='custom_field_value';
-    
-    
-    // Define the relationship with the Propertylist model
-    public function propertyListing()
-    {
-        return $this->belongsTo(Propertylist::class, 'properties_listing_id');
-    }
+    protected $fillable = [
+        'entity_type',
+        'entity_id',
+        'custom_field_id',
+        'custom_field_option_id',
+        'value_text',
+        'value_string',
+        'value_number',
+        'value_date',
+        'value_datetime',
+        'value_json',
+    ];
 
-    // Define the relationship with the CustomField model (assuming you have one)
+    protected $casts = [
+        'value_number' => 'decimal:2',
+        'value_date' => 'date',
+        'value_datetime' => 'datetime',
+        'value_json' => 'array',
+    ];
+
     public function customField()
     {
         return $this->belongsTo(CustomField::class, 'custom_field_id');
     }
 
-    // Define the relationship with the CustomFieldOption model (assuming you have one)
+    public function option()
+    {
+        return $this->belongsTo(CustomFieldOption::class, 'custom_field_option_id');
+    }
+
     public function customFieldOption()
     {
-        return $this->belongsTo(CustomFieldOption::class, 'custom_field_options_id');
+        return $this->belongsTo(CustomFieldOption::class, 'custom_field_option_id');
     }
 
-    // A custom field value belongs to a developer listing
-    public function developerListing()
+    public function post()
     {
-        return $this->belongsTo(DeveloperListing::class, 'developer_listing_id');
+        return $this->belongsTo(DynamicPost::class, 'entity_id')
+            ->where('entity_type', 'post');
     }
 
+    public function taxonomyTerm()
+    {
+        return $this->belongsTo(TaxonomyTerm::class, 'entity_id')
+            ->where('entity_type', 'taxonomy_term');
+    }
 
+    public function scopeForPost($query, $postId)
+    {
+        return $query->where('entity_type', 'post')
+            ->where('entity_id', $postId);
+    }
+
+    public function scopeForTaxonomyTerm($query, $termId)
+    {
+        return $query->where('entity_type', 'taxonomy_term')
+            ->where('entity_id', $termId);
+    }
+
+    public function scopeForUser($query, $userId)
+    {
+        return $query->where('entity_type', 'user')
+            ->where('entity_id', $userId);
+    }
+
+    public function getValueAttribute()
+    {
+        if (!is_null($this->value_json)) {
+            return $this->value_json;
+        }
+
+        if (!is_null($this->value_datetime)) {
+            return $this->value_datetime;
+        }
+
+        if (!is_null($this->value_date)) {
+            return $this->value_date;
+        }
+
+        if (!is_null($this->value_number)) {
+            return $this->value_number;
+        }
+
+        if (!is_null($this->value_string)) {
+            return $this->value_string;
+        }
+
+        return $this->value_text;
+    }
 }

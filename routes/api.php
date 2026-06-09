@@ -91,6 +91,13 @@ use App\Http\Controllers\Template\TemplateDisplayConditionController;
 use App\Http\Controllers\Template\TemplateComponentController;
 use App\Http\Controllers\Template\TemplateApiController;
 
+use App\Http\Controllers\Api\PostTypeController;
+use App\Http\Controllers\Api\DynamicPostController;
+use App\Http\Controllers\Api\TaxonomyController;
+use App\Http\Controllers\Api\TaxonomyTermController;
+use App\Http\Controllers\Api\DynamicCustomFieldController;
+
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -1011,3 +1018,65 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
 
 Route::middleware(['throttle:60,1'])->post('template-resolve', [TemplateApiController::class, 'resolve']);
 // });
+// ================= Dynamic Post Type + Taxonomy APIs =================
+
+Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
+
+    // Post Types
+    Route::get('post-types/{postType}/fields', [PostTypeController::class, 'fields']);
+    Route::post('post-types/bulk-delete', [PostTypeController::class, 'bulkDelete']);
+    Route::get('post-types', [PostTypeController::class, 'index']);
+    Route::post('post-types', [PostTypeController::class, 'store']);
+    Route::get('post-types/{postType}', [PostTypeController::class, 'show']);
+    Route::put('post-types/{postType}', [PostTypeController::class, 'update']);
+    Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
+
+
+    // Dynamic Posts
+    Route::get('dynamic-posts/by-type/{slug}', [DynamicPostController::class, 'byPostType']);
+    Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
+    Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
+    Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
+    Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show']);
+    Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update']);
+    Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
+
+
+    // Taxonomies
+    Route::get('taxonomies/{taxonomy}/terms', [TaxonomyController::class, 'terms']);
+    Route::get('taxonomies/{taxonomy}/fields', [TaxonomyController::class, 'fields']);
+    Route::post('taxonomies/bulk-delete', [TaxonomyController::class, 'bulkDelete']);
+    Route::get('taxonomies', [TaxonomyController::class, 'index']);
+    Route::post('taxonomies', [TaxonomyController::class, 'store']);
+    Route::get('taxonomies/{taxonomy}', [TaxonomyController::class, 'show']);
+    Route::put('taxonomies/{taxonomy}', [TaxonomyController::class, 'update']);
+    Route::delete('taxonomies/{taxonomy}', [TaxonomyController::class, 'destroy']);
+
+
+    // Taxonomy Terms
+    Route::post('taxonomy-terms/bulk-delete', [TaxonomyTermController::class, 'bulkDelete']);
+    Route::get('taxonomy-terms', [TaxonomyTermController::class, 'index']);
+    Route::post('taxonomy-terms', [TaxonomyTermController::class, 'store']);
+    Route::get('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'show']);
+    Route::put('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'update']);
+    Route::delete('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'destroy']);
+
+
+    // Dynamic Custom Fields
+    Route::post('custom-fields/bulk-delete', [DynamicCustomFieldController::class, 'bulkDelete']);
+    Route::get('custom-fields', [DynamicCustomFieldController::class, 'index']);
+    Route::post('custom-fields', [DynamicCustomFieldController::class, 'store']);
+    Route::get('custom-fields/{customField}', [DynamicCustomFieldController::class, 'show']);
+    Route::put('custom-fields/{customField}', [DynamicCustomFieldController::class, 'update']);
+    Route::delete('custom-fields/{customField}', [DynamicCustomFieldController::class, 'destroy']);
+
+
+    // Post Taxonomy Terms
+    Route::post('post-taxonomy-terms/sync', [PostTaxonomyTermController::class, 'sync']);
+    Route::post('post-taxonomy-terms/bulk-delete', [PostTaxonomyTermController::class, 'bulkDelete']);
+    Route::get('post-taxonomy-terms', [PostTaxonomyTermController::class, 'index']);
+    Route::post('post-taxonomy-terms', [PostTaxonomyTermController::class, 'store']);
+    Route::get('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'show']);
+    Route::put('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'update']);
+    Route::delete('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'destroy']);
+});

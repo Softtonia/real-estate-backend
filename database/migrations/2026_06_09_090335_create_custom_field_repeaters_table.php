@@ -1,0 +1,65 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('custom_field_repeaters', function (Blueprint $table) {
+            $table->id();
+
+            $table->unsignedBigInteger('group_id')->nullable();
+
+            $table->foreignId('custom_field_id')
+                ->constrained('custom_fields')
+                ->cascadeOnDelete();
+
+            $table->string('field_label', 255);
+            $table->string('field_name_slug', 255);
+            $table->string('field_placeholder', 255)->nullable();
+
+            $table->enum('field_type', [
+                'text',
+                'texteditor',
+                'textarea',
+                'number',
+                'email',
+                'url',
+                'date',
+                'datetime',
+                'boolean',
+                'checkbox',
+                'radio',
+                'select',
+                'media',
+                'file'
+            ]);
+
+            $table->integer('media_limit')->nullable();
+            $table->string('media_size', 100)->nullable();
+            $table->string('media_format', 255)->nullable();
+
+            $table->unsignedInteger('sort_order')->default(0);
+            $table->boolean('status')->default(true);
+
+            $table->timestamps();
+
+            $table->unique(
+                ['custom_field_id', 'field_name_slug'],
+                'uq_repeater_field_slug'
+            );
+
+            $table->index(['custom_field_id', 'status'], 'idx_repeaters_field_status');
+            $table->index(['group_id', 'status'], 'idx_repeaters_group_status');
+            $table->index(['sort_order', 'status'], 'idx_repeaters_sort_order_status');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('custom_field_repeaters');
+    }
+};
