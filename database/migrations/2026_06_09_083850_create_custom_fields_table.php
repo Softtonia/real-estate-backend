@@ -70,6 +70,8 @@ return new class extends Migration
             $table->unsignedInteger('sort_order')->default(0);
             $table->boolean('status')->default(true);
 
+            $table->unsignedBigInteger('created_by')->nullable();
+
             $table->timestamps();
 
             $table->unique(
@@ -81,15 +83,18 @@ return new class extends Migration
                 ['entity_type', 'taxonomy_id', 'field_name_slug'],
                 'uq_custom_field_taxonomy_slug'
             );
+
             $table->foreign('created_by')
                 ->references('id')
                 ->on('users')
                 ->nullOnDelete();
+
             $table->index(['entity_type', 'post_type_id', 'status'], 'idx_custom_fields_post_type_status');
             $table->index(['entity_type', 'taxonomy_id', 'status'], 'idx_custom_fields_taxonomy_status');
             $table->index(['group_id', 'status'], 'idx_custom_fields_group_status');
             $table->index(['sort_order', 'status'], 'idx_custom_fields_sort_order_status');
             $table->index('template_id', 'idx_custom_fields_template_id');
+            $table->index('created_by', 'idx_custom_fields_created_by');
         });
     }
 

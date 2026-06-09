@@ -39,10 +39,7 @@ return new class extends Migration
                 ->references('id')
                 ->on('taxonomy_terms')
                 ->nullOnDelete();
-            $table->foreign('created_by')
-                ->references('id')
-                ->on('users')
-                ->nullOnDelete();
+            
             $table->index(['taxonomy_id', 'status']);
             $table->index(['taxonomy_id', 'parent_id']);
             $table->index(['sort_order', 'status']);
