@@ -24,12 +24,13 @@ class DatabaseSeeder extends Seeder
         // $this->call(PurposeSeeder::class);
         // $this->call(PropertySeeder::class);
         // $this->call(PropertyTypeSeeder::class);
-        $this->call(ModelsTableSeeder::class);
-        $this->call(StatusSeeder::class);
-        $this->call(MediaSeeder::class);
-        $this->call(AmenitiesCategoriesSeeder::class);
-        $this->call(AmenitySeeder::class);
-        $this->call(ImportKeywordsSeeder::class);
+        // $this->call(ModelsTableSeeder::class);
+        // $this->call(StatusSeeder::class);
+        // $this->call(MediaSeeder::class);
+        // $this->call(AmenitiesCategoriesSeeder::class);
+        // $this->call(AmenitySeeder::class);
+        // $this->call(ImportKeywordsSeeder::class);
+        
         $this->call(TicketDepartmentsSeeder::class);
         $this->call(TicketTypesTableSeeder::class);
         $this->call(TicketPrioritiesTableSeeder::class);
