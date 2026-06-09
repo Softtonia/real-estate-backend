@@ -30,7 +30,7 @@ class DatabaseSeeder extends Seeder
         // $this->call(AmenitiesCategoriesSeeder::class);
         // $this->call(AmenitySeeder::class);
         // $this->call(ImportKeywordsSeeder::class);
-        
+
         $this->call(TicketDepartmentsSeeder::class);
         $this->call(TicketTypesTableSeeder::class);
         $this->call(TicketPrioritiesTableSeeder::class);
@@ -44,8 +44,8 @@ class DatabaseSeeder extends Seeder
         //  $this->call(TemplateSeeder::class);
         //  $this->call(CustomFieldsSeeder::class);
         $this->call(ClientReviewsSeeder::class);
-        $this->call(LocationSeeder::class);
-        $this->call(LeadTypesSeeder::class);
+        // $this->call(LocationSeeder::class);
+        // $this->call(LeadTypesSeeder::class);
         $this->call(DefaultUser::class);
 
         $this->call([
