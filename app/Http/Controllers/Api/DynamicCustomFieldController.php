@@ -8,6 +8,7 @@ use App\Models\CustomFieldOption;
 use App\Models\CustomFieldRepeater;
 use App\Models\CustomFieldRepeaterOption;
 use App\Models\CustomFieldCondition;
+use App\Models\PostType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -50,7 +51,6 @@ class DynamicCustomFieldController extends Controller
                 'message' => 'Custom fields fetched successfully.',
                 'data' => $query->paginate($perPage),
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -91,14 +91,12 @@ class DynamicCustomFieldController extends Controller
                 'message' => 'Custom field created successfully.',
                 'data' => $field->load(['creator', 'options', 'repeaters.options', 'conditions.taxonomy', 'conditions.taxonomyTerm']),
             ], 201);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -126,7 +124,6 @@ class DynamicCustomFieldController extends Controller
                 'message' => 'Custom field fetched successfully.',
                 'data' => $customField,
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -166,14 +163,12 @@ class DynamicCustomFieldController extends Controller
                 'message' => 'Custom field updated successfully.',
                 'data' => $customField->fresh()->load(['creator', 'options', 'repeaters.options', 'conditions.taxonomy', 'conditions.taxonomyTerm']),
             ], 200);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -192,7 +187,6 @@ class DynamicCustomFieldController extends Controller
                 'status' => true,
                 'message' => 'Custom field deleted successfully.',
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
@@ -221,7 +215,6 @@ class DynamicCustomFieldController extends Controller
                 'message' => 'Selected custom fields deleted successfully.',
                 'deleted_count' => $deleted,
             ], 200);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
 
@@ -230,7 +223,6 @@ class DynamicCustomFieldController extends Controller
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -405,6 +397,62 @@ class DynamicCustomFieldController extends Controller
                 'taxonomy_term_id' => $condition['taxonomy_term_id'],
                 'operator' => $condition['operator'] ?? 'include',
             ]);
+        }
+    }
+    public function fieldsByPostType($postType)
+    {
+        try {
+            $postTypeData = PostType::where('id', $postType)
+                ->orWhere('slug', $postType)
+                ->orWhere('name', $postType)
+                ->first();
+
+            if (!$postTypeData) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Post type not found.',
+                ], 404);
+            }
+
+            $fields = \App\Models\CustomField::where('entity_type', 'post')
+                ->where('post_type_id', $postTypeData->id)
+                ->where('status', true)
+                ->with([
+                    'options' => function ($q) {
+                        $q->where('status', true)
+                            ->orderBy('sort_order', 'asc');
+                    },
+                    'repeaters' => function ($q) {
+                        $q->where('status', true)
+                            ->orderBy('sort_order', 'asc');
+                    },
+                    'repeaters.options' => function ($q) {
+                        $q->where('status', true)
+                            ->orderBy('sort_order', 'asc');
+                    },
+                    'conditions.taxonomy',
+                    'conditions.taxonomyTerm',
+                ])
+                ->orderBy('sort_order', 'asc')
+                ->orderBy('id', 'asc')
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Custom fields fetched by post type successfully.',
+                'post_type' => [
+                    'id' => $postTypeData->id,
+                    'name' => $postTypeData->name,
+                    'slug' => $postTypeData->slug,
+                ],
+                'data' => $fields,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch custom fields by post type.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 }

@@ -8,8 +8,6 @@ use Illuminate\Support\Str;
 
 class CustomFieldRepeater extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
         'group_id',
         'custom_field_id',

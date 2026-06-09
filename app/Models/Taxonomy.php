@@ -8,8 +8,6 @@ use Illuminate\Support\Str;
 
 class Taxonomy extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
         'name',
         'slug',

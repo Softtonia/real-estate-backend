@@ -352,4 +352,5 @@ class PostTaxonomyTermController extends Controller
             ], 500);
         }
     }
+    
 }

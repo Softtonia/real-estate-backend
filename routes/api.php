@@ -96,7 +96,7 @@ use App\Http\Controllers\Api\DynamicPostController;
 use App\Http\Controllers\Api\TaxonomyController;
 use App\Http\Controllers\Api\TaxonomyTermController;
 use App\Http\Controllers\Api\DynamicCustomFieldController;
-
+use App\Http\Controllers\Api\PostTaxonomyTermController;
 
 /*
 |--------------------------------------------------------------------------
@@ -1069,7 +1069,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
     Route::get('custom-fields/{customField}', [DynamicCustomFieldController::class, 'show']);
     Route::put('custom-fields/{customField}', [DynamicCustomFieldController::class, 'update']);
     Route::delete('custom-fields/{customField}', [DynamicCustomFieldController::class, 'destroy']);
-
+    Route::get('custom-fields/post-type/{postType}', [DynamicCustomFieldController::class, 'fieldsByPostType']);
 
     // Post Taxonomy Terms
     Route::post('post-taxonomy-terms/sync', [PostTaxonomyTermController::class, 'sync']);

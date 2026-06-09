@@ -8,8 +8,6 @@ use Illuminate\Support\Str;
 
 class CustomField extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
         'group_id',
         'entity_type',
