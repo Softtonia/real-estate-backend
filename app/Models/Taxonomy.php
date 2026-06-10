@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 
 class Taxonomy extends Model
 {
+
     protected $fillable = [
         'name',
         'slug',
@@ -16,12 +17,16 @@ class Taxonomy extends Model
         'hierarchical',
         'status',
         'created_by',
+        'sort_order',
+        'menu_order',
     ];
 
     protected $casts = [
         'is_default' => 'boolean',
         'hierarchical' => 'boolean',
         'status' => 'boolean',
+        'sort_order' => 'integer',
+        'menu_order' => 'integer',
     ];
 
     protected static function booted(): void
@@ -89,6 +94,7 @@ class Taxonomy extends Model
     {
         return $query->where('is_default', false);
     }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');

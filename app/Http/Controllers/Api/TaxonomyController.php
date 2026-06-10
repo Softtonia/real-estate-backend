@@ -18,7 +18,7 @@ class TaxonomyController extends Controller
                 ->with('creator')
                 ->withCount(['terms', 'customFields'])
                 ->when($request->filled('search'), function ($q) use ($request) {
-                    $search = $request->search;
+                    $search = $request->input('search');
 
                     $q->where(function ($subQuery) use ($search) {
                         $subQuery->where('name', 'like', "%{$search}%")
@@ -27,13 +27,13 @@ class TaxonomyController extends Controller
                     });
                 })
                 ->when($request->filled('is_default'), function ($q) use ($request) {
-                    $q->where('is_default', filter_var($request->is_default, FILTER_VALIDATE_BOOLEAN));
+                    $q->where('is_default', filter_var($request->input('is_default'), FILTER_VALIDATE_BOOLEAN));
                 })
                 ->when($request->filled('hierarchical'), function ($q) use ($request) {
-                    $q->where('hierarchical', filter_var($request->hierarchical, FILTER_VALIDATE_BOOLEAN));
+                    $q->where('hierarchical', filter_var($request->input('hierarchical'), FILTER_VALIDATE_BOOLEAN));
                 })
                 ->when($request->filled('status'), function ($q) use ($request) {
-                    $q->where('status', filter_var($request->status, FILTER_VALIDATE_BOOLEAN));
+                    $q->where('status', filter_var($request->input('status'), FILTER_VALIDATE_BOOLEAN));
                 })
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc');
@@ -68,53 +68,61 @@ class TaxonomyController extends Controller
 
     public function store(Request $request)
     {
+        DB::beginTransaction();
+
         try {
-            $request->validate([
+            $validated = $request->validate([
                 'name' => ['required', 'string', 'max:150'],
                 'description' => ['nullable', 'string'],
                 'is_default' => ['nullable', 'boolean'],
                 'hierarchical' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
+                'menu_order' => ['nullable', 'integer', 'min:6'],
             ], [
                 'name.required' => 'Taxonomy name is required.',
                 'name.max' => 'Taxonomy name cannot be greater than 150 characters.',
+                'menu_order.min' => 'Menu order 1 to 5 is reserved for system administrator.',
             ]);
 
-            $slug = Str::slug($request->name);
+            $slug = Str::slug($validated['name']);
 
             $slugExists = Taxonomy::where('slug', $slug)->exists();
 
             if ($slugExists) {
+                DB::rollBack();
+
                 return response()->json([
                     'status' => false,
                     'message' => 'Taxonomy slug already exists.',
                     'errors' => [
                         'slug' => [
-                            '' . $slug . ' already exists. Please use a different taxonomy name.',
+                            $slug . ' already exists. Please use a different taxonomy name.',
                         ],
                     ],
                 ], 422);
             }
 
-            DB::beginTransaction();
-
             $taxonomy = Taxonomy::create([
-                'name' => $request->name,
+                'name' => $validated['name'],
                 'slug' => $slug,
-                'description' => $request->description,
-                'is_default' => $request->boolean('is_default', false),
-                'hierarchical' => $request->boolean('hierarchical', false),
-                'status' => $request->boolean('status', true),
+                'description' => $validated['description'] ?? null,
+                'is_default' => $validated['is_default'] ?? false,
+                'hierarchical' => $validated['hierarchical'] ?? false,
+                'status' => $validated['status'] ?? true,
                 'created_by' => Auth::id(),
-                'sort_order' => $request->filled('sort_order')
-                    ? (int) $request->sort_order
+
+                'sort_order' => array_key_exists('sort_order', $validated) && $validated['sort_order'] !== null
+                    ? (int) $validated['sort_order']
                     : $this->getNextSortOrder(),
+
+                'menu_order' => array_key_exists('menu_order', $validated) && $validated['menu_order'] !== null
+                    ? (int) $validated['menu_order']
+                    : $this->getNextAvailableMenuOrder(),
             ]);
 
             DB::commit();
 
-            $taxonomy->load('creator');
             $taxonomy->load('creator');
 
             return response()->json([
@@ -167,65 +175,78 @@ class TaxonomyController extends Controller
 
     public function update(Request $request, Taxonomy $taxonomy)
     {
+        DB::beginTransaction();
+
         try {
             if ($request->has('slug')) {
-                $requestedSlug = Str::slug($request->slug);
+                $requestedSlug = Str::slug($request->input('slug'));
                 $oldSlug = $taxonomy->slug;
+
                 $nameBasedSlug = $request->filled('name')
-                    ? Str::slug($request->name)
+                    ? Str::slug($request->input('name'))
                     : $oldSlug;
 
                 if ($requestedSlug !== $oldSlug && $requestedSlug !== $nameBasedSlug) {
+                    DB::rollBack();
+
                     return response()->json([
                         'status' => false,
                         'message' => 'Validation failed.',
                         'errors' => [
                             'slug' => [
-                                'Slug cannot be changed after creation.'
-                            ]
+                                'Slug cannot be changed after creation.',
+                            ],
                         ],
                     ], 422);
                 }
             }
 
-            $request->validate([
+            $validated = $request->validate([
                 'name' => ['sometimes', 'required', 'string', 'max:150'],
                 'description' => ['nullable', 'string'],
                 'is_default' => ['nullable', 'boolean'],
                 'hierarchical' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
+                'menu_order' => ['nullable', 'integer', 'min:6'],
             ], [
                 'name.required' => 'Taxonomy name is required.',
                 'name.max' => 'Taxonomy name cannot be greater than 150 characters.',
+                'menu_order.min' => 'Menu order 1 to 5 is reserved for system administrator.',
             ]);
-
-            DB::beginTransaction();
 
             $updateData = [];
 
-            if ($request->has('name')) {
-                $updateData['name'] = $request->name;
+            if (array_key_exists('name', $validated)) {
+                $updateData['name'] = $validated['name'];
             }
 
-            if ($request->has('description')) {
-                $updateData['description'] = $request->description;
+            if (array_key_exists('description', $validated)) {
+                $updateData['description'] = $validated['description'];
             }
 
-            if ($request->has('is_default')) {
-                $updateData['is_default'] = $request->boolean('is_default');
+            if (array_key_exists('is_default', $validated)) {
+                $updateData['is_default'] = (bool) $validated['is_default'];
             }
 
-            if ($request->has('hierarchical')) {
-                $updateData['hierarchical'] = $request->boolean('hierarchical');
+            if (array_key_exists('hierarchical', $validated)) {
+                $updateData['hierarchical'] = (bool) $validated['hierarchical'];
             }
 
-            if ($request->has('status')) {
-                $updateData['status'] = $request->boolean('status');
+            if (array_key_exists('status', $validated)) {
+                $updateData['status'] = (bool) $validated['status'];
             }
 
-            if ($request->has('sort_order')) {
-                $updateData['sort_order'] = (int) $request->sort_order;
+            if (array_key_exists('sort_order', $validated)) {
+                $updateData['sort_order'] = $validated['sort_order'] !== null
+                    ? (int) $validated['sort_order']
+                    : $this->getNextSortOrder();
+            }
+
+            if (array_key_exists('menu_order', $validated)) {
+                $updateData['menu_order'] = $validated['menu_order'] !== null
+                    ? (int) $validated['menu_order']
+                    : $this->getNextAvailableMenuOrder();
             }
 
             $taxonomy->update($updateData);
@@ -284,12 +305,12 @@ class TaxonomyController extends Controller
     public function bulkDelete(Request $request)
     {
         try {
-            $request->validate([
+            $validated = $request->validate([
                 'ids' => ['required', 'array', 'min:1'],
                 'ids.*' => ['required', 'integer', 'exists:taxonomies,id'],
             ]);
 
-            $defaultCount = Taxonomy::whereIn('id', $request->ids)
+            $defaultCount = Taxonomy::whereIn('id', $validated['ids'])
                 ->where('is_default', true)
                 ->count();
 
@@ -300,7 +321,7 @@ class TaxonomyController extends Controller
                 ], 403);
             }
 
-            $deleted = Taxonomy::whereIn('id', $request->ids)->delete();
+            $deleted = Taxonomy::whereIn('id', $validated['ids'])->delete();
 
             return response()->json([
                 'status' => true,
@@ -368,16 +389,46 @@ class TaxonomyController extends Controller
         }
     }
 
+    /**
+     * Auto assign next sort order.
+     * No 1-5 reserved logic here.
+     * User can manually change sort_order also.
+     */
     private function getNextSortOrder(): int
     {
         $maxSortOrder = Taxonomy::max('sort_order');
 
-        if (!$maxSortOrder || $maxSortOrder < 5) {
-            return 6;
+        return $maxSortOrder ? ((int) $maxSortOrder + 1) : 1;
+    }
+
+    /**
+     * Menu order 1 to 5 is reserved for system/admin default taxonomies.
+     * Custom menu order starts from 6.
+     * If 6, 7, 10 exist, then it assigns 8 first, then 9, then 11.
+     */
+    private function getNextAvailableMenuOrder(): int
+    {
+        $usedOrders = Taxonomy::query()
+            ->whereNotNull('menu_order')
+            ->where('menu_order', '>=', 6)
+            ->orderBy('menu_order', 'asc')
+            ->pluck('menu_order')
+            ->map(fn ($order) => (int) $order)
+            ->toArray();
+
+        $nextOrder = 6;
+
+        foreach ($usedOrders as $order) {
+            if ($order === $nextOrder) {
+                $nextOrder++;
+            } elseif ($order > $nextOrder) {
+                break;
+            }
         }
 
-        return $maxSortOrder + 1;
+        return $nextOrder;
     }
+
     private function formatTaxonomy($taxonomy): array
     {
         $creator = $taxonomy->creator;
@@ -391,6 +442,7 @@ class TaxonomyController extends Controller
             'hierarchical' => (bool) $taxonomy->hierarchical,
             'status' => (bool) $taxonomy->status,
             'sort_order' => $taxonomy->sort_order,
+            'menu_order' => $taxonomy->menu_order,
 
             'created_by' => $taxonomy->created_by,
             'created_by_user' => $creator ? [
@@ -402,7 +454,6 @@ class TaxonomyController extends Controller
 
             'created_at' => $taxonomy->created_at,
             'updated_at' => $taxonomy->updated_at,
-            'deleted_at' => $taxonomy->deleted_at ?? null,
         ];
     }
 
@@ -451,7 +502,7 @@ class TaxonomyController extends Controller
 
         if (isset($user->role_id)) {
             try {
-                $role = \Illuminate\Support\Facades\DB::table('roles')
+                $role = DB::table('roles')
                     ->where('id', $user->role_id)
                     ->first();
 

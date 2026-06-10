@@ -19,6 +19,7 @@ class PostType extends Model
         'supports',
         'created_by',
         'sort_order',
+        'menu_order',
     ];
 
     protected $casts = [

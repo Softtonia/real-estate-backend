@@ -27,7 +27,12 @@ return new class extends Migration
 
             $table->unsignedBigInteger('created_by')->nullable();
 
-            $table->unsignedInteger('sort_order')->default(0);
+            $table->unsignedInteger('sort_order')
+                ->default(0);
+
+            $table->unsignedInteger('menu_order')
+                ->nullable()
+                ->comment('1-5 reserved for system/admin default post types');
 
             $table->softDeletes();
             $table->timestamps();
@@ -40,6 +45,7 @@ return new class extends Migration
             $table->index(['slug', 'status']);
             $table->index(['is_default', 'status']);
             $table->index(['sort_order', 'status']);
+            $table->index(['menu_order', 'status']);
             $table->index('created_by');
             $table->index('deleted_at');
         });
