@@ -15,6 +15,7 @@ class TaxonomyTerm extends Model
         'description',
         'sort_order',
         'status',
+        'created_by',
     ];
 
     protected $casts = [
@@ -49,7 +50,9 @@ class TaxonomyTerm extends Model
 
     public function children()
     {
-        return $this->hasMany(TaxonomyTerm::class, 'parent_id');
+        return $this->hasMany(TaxonomyTerm::class, 'parent_id')
+            ->orderBy('sort_order', 'asc')
+            ->orderBy('id', 'asc');
     }
 
     public function posts()
@@ -59,7 +62,9 @@ class TaxonomyTerm extends Model
             'post_taxonomy_terms',
             'taxonomy_term_id',
             'dynamic_post_id'
-        )->withPivot('taxonomy_id')->withTimestamps();
+        )
+            ->withPivot('taxonomy_id')
+            ->withTimestamps();
     }
 
     public function postTaxonomyTerms()
@@ -75,13 +80,17 @@ class TaxonomyTerm extends Model
 
     public function customFieldValues()
     {
-        return $this->hasMany(CustomFieldValue::class, 'entity_id')
-            ->where('entity_type', 'taxonomy_term');
+        return $this->meta();
     }
 
     public function conditions()
     {
         return $this->hasMany(CustomFieldCondition::class, 'taxonomy_term_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function scopeActive($query)
@@ -97,9 +106,5 @@ class TaxonomyTerm extends Model
     public function scopeByTaxonomy($query, $taxonomyId)
     {
         return $query->where('taxonomy_id', $taxonomyId);
-    }
-        public function creator()
-    {
-        return $this->belongsTo(User::class, 'created_by');
     }
 }

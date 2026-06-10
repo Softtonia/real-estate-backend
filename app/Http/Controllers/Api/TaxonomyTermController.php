@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\TaxonomyTerm;
 use App\Models\CustomFieldValue;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -18,13 +17,22 @@ class TaxonomyTermController extends Controller
         try {
             $query = TaxonomyTerm::query()
                 ->with(['taxonomy', 'parent'])
-                ->withCount('posts')
+
+                // Safer than withCount('posts') if DynamicPost soft delete issue exists
+                ->withCount('postTaxonomyTerms as posts_count')
+
                 ->when($request->filled('taxonomy_id'), function ($q) use ($request) {
                     $q->where('taxonomy_id', $request->taxonomy_id);
                 })
-                ->when($request->filled('parent_id'), function ($q) use ($request) {
-                    $q->where('parent_id', $request->parent_id);
+
+                ->when($request->has('parent_id'), function ($q) use ($request) {
+                    if ($request->parent_id === null || $request->parent_id === 'null') {
+                        $q->whereNull('parent_id');
+                    } else {
+                        $q->where('parent_id', $request->parent_id);
+                    }
                 })
+
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $search = $request->search;
 
@@ -34,9 +42,11 @@ class TaxonomyTermController extends Controller
                             ->orWhere('description', 'like', "%{$search}%");
                     });
                 })
+
                 ->when($request->filled('status'), function ($q) use ($request) {
                     $q->where('status', filter_var($request->status, FILTER_VALIDATE_BOOLEAN));
                 })
+
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc');
 
@@ -62,19 +72,31 @@ class TaxonomyTermController extends Controller
     {
         try {
             $validated = $request->validate([
-                'taxonomy_id' => ['required', 'exists:taxonomies,id'],
-                'parent_id' => ['nullable', 'exists:taxonomy_terms,id'],
+                'taxonomy_id' => ['required', 'integer', 'exists:taxonomies,id'],
+                'parent_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
                 'name' => ['required', 'string', 'max:150'],
+                'slug' => ['nullable', 'string', 'max:150'],
                 'description' => ['nullable', 'string'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'status' => ['nullable', 'boolean'],
                 'custom_fields' => ['nullable', 'array'],
+                'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
+                'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
+                'custom_fields.*.value_text' => ['nullable'],
+                'custom_fields.*.value_string' => ['nullable'],
+                'custom_fields.*.value_number' => ['nullable', 'numeric'],
+                'custom_fields.*.value_date' => ['nullable', 'date'],
+                'custom_fields.*.value_datetime' => ['nullable', 'date'],
+                'custom_fields.*.value_json' => ['nullable'],
             ], [
                 'taxonomy_id.required' => 'Taxonomy is required.',
+                'taxonomy_id.exists' => 'Selected taxonomy does not exist.',
                 'name.required' => 'Taxonomy term name is required.',
             ]);
 
-            $slug = Str::slug($validated['name']);
+            $slug = !empty($validated['slug'])
+                ? Str::slug($validated['slug'])
+                : Str::slug($validated['name']);
 
             $slugExists = TaxonomyTerm::where('taxonomy_id', $validated['taxonomy_id'])
                 ->where('slug', $slug)
@@ -86,7 +108,7 @@ class TaxonomyTermController extends Controller
                     'message' => 'Taxonomy term slug already exists.',
                     'errors' => [
                         'slug' => [
-                            '' . $slug . ' already exists in this taxonomy.',
+                            $slug . ' already exists in this taxonomy.',
                         ],
                     ],
                 ], 422);
@@ -94,7 +116,6 @@ class TaxonomyTermController extends Controller
 
             $term = DB::transaction(function () use ($validated, $slug) {
                 $customFields = $validated['custom_fields'] ?? [];
-                unset($validated['custom_fields']);
 
                 $term = TaxonomyTerm::create([
                     'taxonomy_id' => $validated['taxonomy_id'],
@@ -106,7 +127,9 @@ class TaxonomyTermController extends Controller
                     'status' => $validated['status'] ?? true,
                 ]);
 
-                $this->saveCustomFieldValues($term->id, 'taxonomy_term', $customFields);
+                if (!empty($customFields)) {
+                    $this->saveCustomFieldValues($term->id, 'taxonomy_term', $customFields);
+                }
 
                 return $term;
             });
@@ -114,7 +137,7 @@ class TaxonomyTermController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy term created successfully.',
-                'data' => $term->load(['taxonomy', 'parent', 'meta.customField']),
+                'data' => $term->fresh()->load(['taxonomy', 'parent', 'meta.customField']),
             ], 201);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -141,7 +164,7 @@ class TaxonomyTermController extends Controller
                 'parent',
                 'children',
                 'meta.customField',
-                'posts',
+                'postTaxonomyTerms',
             ]);
 
             return response()->json([
@@ -162,39 +185,27 @@ class TaxonomyTermController extends Controller
     public function update(Request $request, TaxonomyTerm $taxonomyTerm)
     {
         try {
-            if ($request->has('slug')) {
-                $requestedSlug = Str::slug($request->slug);
-                $oldSlug = $taxonomyTerm->slug;
-                $nameBasedSlug = $request->filled('name')
-                    ? Str::slug($request->name)
-                    : $oldSlug;
-
-                if ($requestedSlug !== $oldSlug && $requestedSlug !== $nameBasedSlug) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'Validation failed.',
-                        'errors' => [
-                            'slug' => [
-                                'Slug cannot be changed after creation.'
-                            ]
-                        ],
-                    ], 422);
-                }
-            }
-
             $validated = $request->validate([
-                'taxonomy_id' => ['sometimes', 'required', 'exists:taxonomies,id'],
-                'parent_id' => ['nullable', 'exists:taxonomy_terms,id'],
+                'taxonomy_id' => ['sometimes', 'required', 'integer', 'exists:taxonomies,id'],
+                'parent_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
                 'name' => ['sometimes', 'required', 'string', 'max:150'],
+                'slug' => ['nullable', 'string', 'max:150'],
                 'description' => ['nullable', 'string'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'status' => ['nullable', 'boolean'],
                 'custom_fields' => ['nullable', 'array'],
+                'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
+                'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
+                'custom_fields.*.value_text' => ['nullable'],
+                'custom_fields.*.value_string' => ['nullable'],
+                'custom_fields.*.value_number' => ['nullable', 'numeric'],
+                'custom_fields.*.value_date' => ['nullable', 'date'],
+                'custom_fields.*.value_datetime' => ['nullable', 'date'],
+                'custom_fields.*.value_json' => ['nullable'],
             ]);
 
             DB::transaction(function () use ($taxonomyTerm, $validated) {
                 $customFields = $validated['custom_fields'] ?? [];
-                unset($validated['custom_fields']);
 
                 $updateData = [];
 
@@ -210,6 +221,10 @@ class TaxonomyTermController extends Controller
                     $updateData['name'] = $validated['name'];
                 }
 
+                if (array_key_exists('slug', $validated) && !empty($validated['slug'])) {
+                    $updateData['slug'] = Str::slug($validated['slug']);
+                }
+
                 if (array_key_exists('description', $validated)) {
                     $updateData['description'] = $validated['description'];
                 }
@@ -222,7 +237,9 @@ class TaxonomyTermController extends Controller
                     $updateData['status'] = $validated['status'];
                 }
 
-                $taxonomyTerm->update($updateData);
+                if (!empty($updateData)) {
+                    $taxonomyTerm->update($updateData);
+                }
 
                 if (!empty($customFields)) {
                     $this->saveCustomFieldValues($taxonomyTerm->id, 'taxonomy_term', $customFields);
@@ -254,7 +271,13 @@ class TaxonomyTermController extends Controller
     public function destroy(TaxonomyTerm $taxonomyTerm)
     {
         try {
-            $taxonomyTerm->delete();
+            DB::transaction(function () use ($taxonomyTerm) {
+                CustomFieldValue::where('entity_type', 'taxonomy_term')
+                    ->where('entity_id', $taxonomyTerm->id)
+                    ->delete();
+
+                $taxonomyTerm->delete();
+            });
 
             return response()->json([
                 'status' => true,
@@ -278,12 +301,18 @@ class TaxonomyTermController extends Controller
                 'ids.*' => ['required', 'integer', 'exists:taxonomy_terms,id'],
             ]);
 
-            $deleted = TaxonomyTerm::whereIn('id', $request->ids)->delete();
+            DB::transaction(function () use ($request, &$deleted) {
+                CustomFieldValue::where('entity_type', 'taxonomy_term')
+                    ->whereIn('entity_id', $request->ids)
+                    ->delete();
+
+                $deleted = TaxonomyTerm::whereIn('id', $request->ids)->delete();
+            });
 
             return response()->json([
                 'status' => true,
                 'message' => 'Selected taxonomy terms deleted successfully.',
-                'deleted_count' => $deleted,
+                'deleted_count' => $deleted ?? 0,
             ], 200);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -309,6 +338,12 @@ class TaxonomyTermController extends Controller
                 continue;
             }
 
+            $valueJson = $field['value_json'] ?? null;
+
+            if (is_array($valueJson)) {
+                $valueJson = json_encode($valueJson);
+            }
+
             CustomFieldValue::updateOrCreate(
                 [
                     'entity_type' => $entityType,
@@ -322,7 +357,7 @@ class TaxonomyTermController extends Controller
                     'value_number' => $field['value_number'] ?? null,
                     'value_date' => $field['value_date'] ?? null,
                     'value_datetime' => $field['value_datetime'] ?? null,
-                    'value_json' => $field['value_json'] ?? null,
+                    'value_json' => $valueJson,
                 ]
             );
         }
