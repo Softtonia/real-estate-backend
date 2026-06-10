@@ -7,18 +7,15 @@ use App\Models\PostType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class PostTypeController extends Controller
 {
-    /**
-     * List all post types.
-     */
     public function index(Request $request)
     {
         try {
             $query = PostType::query()
-                ->with('creator')
+                ->with(['creator', 'taxonomies'])
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $search = $request->search;
 
@@ -34,8 +31,7 @@ class PostTypeController extends Controller
                 ->when($request->filled('is_default'), function ($q) use ($request) {
                     $q->where('is_default', filter_var($request->is_default, FILTER_VALIDATE_BOOLEAN));
                 })
-                ->orderBy('sort_order', 'asc')
-                ->orderBy('id', 'asc');
+                ->ordered();
 
             $perPage = (int) $request->get('per_page', 10);
             $perPage = $perPage > 100 ? 100 : $perPage;
@@ -60,68 +56,56 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Store new post type.
-     */
     public function store(Request $request)
     {
         DB::beginTransaction();
 
         try {
             $validated = $request->validate([
-                'name' => [
-                    'required',
+                'name' => ['required', 'string', 'max:150'],
+                'slug' => [
+                    'nullable',
                     'string',
                     'max:150',
+                    'regex:/^[a-z0-9_-]+$/',
                 ],
-                'description' => [
-                    'nullable',
-                    'string',
-                ],
-                'is_default' => [
-                    'nullable',
-                    'boolean',
-                ],
-                'status' => [
-                    'nullable',
-                    'boolean',
-                ],
-                'supports' => [
-                    'nullable',
-                    'array',
-                ],
-                'sort_order' => [
-                    'nullable',
-                    'integer',
-                    'min:0',
-                ],
-                'menu_order' => [
-                    'nullable',
-                    'integer',
-                    'min:6',
-                ],
+                'description' => ['nullable', 'string'],
+                'is_default' => ['nullable', 'boolean'],
+                'status' => ['nullable', 'boolean'],
+                'supports' => ['nullable', 'array'],
+                'sort_order' => ['nullable', 'integer', 'min:0'],
+                'menu_order' => ['nullable', 'integer', 'min:6'],
+                'taxonomies' => ['nullable', 'array'],
+                'taxonomies.*' => ['integer', 'exists:taxonomies,id'],
             ], [
                 'name.required' => 'Post type name is required.',
                 'name.max' => 'Post type name cannot be greater than 150 characters.',
+                'slug.regex' => 'Slug may only contain lowercase letters, numbers, underscores and dashes.',
                 'supports.array' => 'Supports must be a valid array.',
                 'menu_order.min' => 'Menu order 1 to 5 is reserved for system administrator.',
+                'taxonomies.array' => 'Taxonomies must be a valid array.',
+                'taxonomies.*.exists' => 'Selected taxonomy does not exist.',
             ]);
 
-            $slug = Str::slug($validated['name']);
+            $slugSource = !empty($validated['slug'])
+                ? $validated['slug']
+                : $validated['name'];
 
-            $slugExists = PostType::withTrashed()
-                ->where('slug', $slug)
-                ->exists();
+            $slug = PostType::generateUniqueSlug($slugSource);
 
-            if ($slugExists) {
+            $menuOrder = array_key_exists('menu_order', $validated) && $validated['menu_order'] !== null
+                ? (int) $validated['menu_order']
+                : $this->getNextAvailableMenuOrder();
+
+            if (PostType::menuOrderExists($menuOrder)) {
                 DB::rollBack();
 
                 return response()->json([
                     'status' => false,
-                    'message' => 'Post type slug already exists.',
+                    'message' => 'Menu order already exists.',
                     'errors' => [
-                        'slug' => [
-                            '' . $slug . ' already exists. Please use a different post type name.',
+                        'menu_order' => [
+                            'Menu order ' . $menuOrder . ' is already assigned to another post type.',
                         ],
                     ],
                 ], 422);
@@ -133,26 +117,31 @@ class PostTypeController extends Controller
                 'description' => $validated['description'] ?? null,
                 'is_default' => $validated['is_default'] ?? false,
                 'status' => $validated['status'] ?? true,
-                'supports' => $validated['supports'] ?? null,
+                'supports' => $validated['supports'] ?? [
+                    'title',
+                    'excerpt',
+                    'featured_image',
+                    'editor',
+                ],
                 'created_by' => Auth::id(),
-
                 'sort_order' => array_key_exists('sort_order', $validated) && $validated['sort_order'] !== null
                     ? (int) $validated['sort_order']
                     : $this->getNextSortOrder(),
-
-                'menu_order' => array_key_exists('menu_order', $validated) && $validated['menu_order'] !== null
-                    ? (int) $validated['menu_order']
-                    : $this->getNextAvailableMenuOrder(),
+                'menu_order' => $menuOrder,
             ]);
+
+            if (!empty($validated['taxonomies'])) {
+                $this->syncTaxonomies($postType, $validated['taxonomies']);
+            }
 
             DB::commit();
 
-            $postType->load('creator');
+            $postType->load(['creator', 'taxonomies']);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Post type created successfully.',
-                // 'data' => $this->formatPostType($postType),
+                'data' => $this->formatPostType($postType),
             ], 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
@@ -173,13 +162,10 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Show single post type.
-     */
     public function show($id)
     {
         try {
-            $postType = PostType::with('creator')->find($id);
+            $postType = PostType::with(['creator', 'taxonomies'])->find($id);
 
             if (!$postType) {
                 return response()->json([
@@ -202,9 +188,6 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Update post type.
-     */
     public function update(Request $request, $id)
     {
         DB::beginTransaction();
@@ -221,73 +204,44 @@ class PostTypeController extends Controller
                 ], 404);
             }
 
-            if ($request->has('slug')) {
-                $requestedSlug = Str::slug($request->input('slug'));
-                $oldSlug = $postType->slug;
-
-                $nameBasedSlug = $request->filled('name')
-                    ? Str::slug($request->input('name'))
-                    : $oldSlug;
-
-                if ($requestedSlug !== $oldSlug && $requestedSlug !== $nameBasedSlug) {
-                    DB::rollBack();
-
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'Validation failed.',
-                        'errors' => [
-                            'slug' => [
-                                'Slug cannot be changed after creation.',
-                            ],
-                        ],
-                    ], 422);
-                }
-            }
-
             $validated = $request->validate([
-                'name' => [
-                    'sometimes',
-                    'required',
+                'name' => ['sometimes', 'required', 'string', 'max:150'],
+                'slug' => [
+                    'nullable',
                     'string',
                     'max:150',
+                    'regex:/^[a-z0-9_-]+$/',
                 ],
-                'description' => [
-                    'nullable',
-                    'string',
-                ],
-                'is_default' => [
-                    'nullable',
-                    'boolean',
-                ],
-                'status' => [
-                    'nullable',
-                    'boolean',
-                ],
-                'supports' => [
-                    'nullable',
-                    'array',
-                ],
-                'sort_order' => [
-                    'nullable',
-                    'integer',
-                    'min:0',
-                ],
-                'menu_order' => [
-                    'nullable',
-                    'integer',
-                    'min:6',
-                ],
+                'description' => ['nullable', 'string'],
+                'is_default' => ['nullable', 'boolean'],
+                'status' => ['nullable', 'boolean'],
+                'supports' => ['nullable', 'array'],
+                'sort_order' => ['nullable', 'integer', 'min:0'],
+                'menu_order' => ['nullable', 'integer', 'min:6'],
+                'taxonomies' => ['nullable', 'array'],
+                'taxonomies.*' => ['integer', 'exists:taxonomies,id'],
             ], [
                 'name.required' => 'Post type name is required.',
                 'name.max' => 'Post type name cannot be greater than 150 characters.',
+                'slug.regex' => 'Slug may only contain lowercase letters, numbers, underscores and dashes.',
                 'supports.array' => 'Supports must be a valid array.',
                 'menu_order.min' => 'Menu order 1 to 5 is reserved for system administrator.',
+                'taxonomies.array' => 'Taxonomies must be a valid array.',
+                'taxonomies.*.exists' => 'Selected taxonomy does not exist.',
             ]);
 
             $updateData = [];
 
             if (array_key_exists('name', $validated)) {
                 $updateData['name'] = $validated['name'];
+
+                if (!$request->filled('slug')) {
+                    $updateData['slug'] = PostType::generateUniqueSlug($validated['name'], $postType->id);
+                }
+            }
+
+            if ($request->filled('slug')) {
+                $updateData['slug'] = PostType::generateUniqueSlug($validated['slug'], $postType->id);
             }
 
             if (array_key_exists('description', $validated)) {
@@ -313,21 +267,43 @@ class PostTypeController extends Controller
             }
 
             if (array_key_exists('menu_order', $validated)) {
-                $updateData['menu_order'] = $validated['menu_order'] !== null
+                $menuOrder = $validated['menu_order'] !== null
                     ? (int) $validated['menu_order']
-                    : $this->getNextAvailableMenuOrder();
+                    : $this->getNextAvailableMenuOrder($postType->id);
+
+                if (PostType::menuOrderExists($menuOrder, $postType->id)) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Menu order already exists.',
+                        'errors' => [
+                            'menu_order' => [
+                                'Menu order ' . $menuOrder . ' is already assigned to another post type.',
+                            ],
+                        ],
+                    ], 422);
+                }
+
+                $updateData['menu_order'] = $menuOrder;
             }
 
-            $postType->update($updateData);
+            if (!empty($updateData)) {
+                $postType->update($updateData);
+            }
+
+            if (array_key_exists('taxonomies', $validated)) {
+                $this->syncTaxonomies($postType, $validated['taxonomies'] ?? []);
+            }
 
             DB::commit();
 
-            $postType->refresh()->load('creator');
+            $postType->refresh()->load(['creator', 'taxonomies']);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Post type updated successfully.',
-                // 'data' => $this->formatPostType($postType),
+                'data' => $this->formatPostType($postType),
             ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
@@ -348,9 +324,6 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Soft delete post type.
-     */
     public function destroy($id)
     {
         try {
@@ -385,14 +358,11 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Trash listing.
-     */
     public function trash(Request $request)
     {
         try {
             $query = PostType::onlyTrashed()
-                ->with('creator')
+                ->with(['creator', 'taxonomies'])
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $search = $request->search;
 
@@ -426,9 +396,6 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Restore soft deleted post type.
-     */
     public function restore($id)
     {
         try {
@@ -441,8 +408,13 @@ class PostTypeController extends Controller
                 ], 404);
             }
 
+            if ($postType->menu_order && PostType::menuOrderExists((int) $postType->menu_order, $postType->id)) {
+                $postType->menu_order = $this->getNextAvailableMenuOrder($postType->id);
+                $postType->save();
+            }
+
             $postType->restore();
-            $postType->load('creator');
+            $postType->load(['creator', 'taxonomies']);
 
             return response()->json([
                 'status' => true,
@@ -458,9 +430,6 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Force delete post type.
-     */
     public function forceDelete($id)
     {
         try {
@@ -495,160 +464,10 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Bulk soft delete.
-     */
-    public function bulkDelete(Request $request)
-    {
-        try {
-            $validated = $request->validate([
-                'ids' => [
-                    'required',
-                    'array',
-                    'min:1',
-                ],
-                'ids.*' => [
-                    'required',
-                    'integer',
-                    'exists:post_types,id',
-                ],
-            ]);
-
-            $defaultCount = PostType::whereIn('id', $validated['ids'])
-                ->where('is_default', true)
-                ->count();
-
-            if ($defaultCount > 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Default post types cannot be deleted.',
-                ], 403);
-            }
-
-            PostType::whereIn('id', $validated['ids'])->delete();
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Selected post types deleted successfully.',
-            ], 200);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to delete selected post types.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Bulk restore.
-     */
-    public function bulkRestore(Request $request)
-    {
-        try {
-            $validated = $request->validate([
-                'ids' => [
-                    'required',
-                    'array',
-                    'min:1',
-                ],
-                'ids.*' => [
-                    'required',
-                    'integer',
-                ],
-            ]);
-
-            $restored = PostType::onlyTrashed()
-                ->whereIn('id', $validated['ids'])
-                ->restore();
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Selected post types restored successfully.',
-                'restored_count' => $restored,
-            ], 200);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to restore selected post types.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Bulk force delete.
-     */
-    public function bulkForceDelete(Request $request)
-    {
-        try {
-            $validated = $request->validate([
-                'ids' => [
-                    'required',
-                    'array',
-                    'min:1',
-                ],
-                'ids.*' => [
-                    'required',
-                    'integer',
-                ],
-            ]);
-
-            $defaultCount = PostType::onlyTrashed()
-                ->whereIn('id', $validated['ids'])
-                ->where('is_default', true)
-                ->count();
-
-            if ($defaultCount > 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Default post types cannot be permanently deleted.',
-                ], 403);
-            }
-
-            $deleted = PostType::onlyTrashed()
-                ->whereIn('id', $validated['ids'])
-                ->forceDelete();
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Selected post types permanently deleted successfully.',
-                'deleted_count' => $deleted,
-            ], 200);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to permanently delete selected post types.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Get fields/supports for a post type.
-     */
     public function fields($id)
     {
         try {
-            $postType = PostType::find($id);
+            $postType = PostType::with('activeCustomFields')->find($id);
 
             if (!$postType) {
                 return response()->json([
@@ -665,6 +484,7 @@ class PostTypeController extends Controller
                     'name' => $postType->name,
                     'slug' => $postType->slug,
                     'supports' => $postType->supports ?? [],
+                    'custom_fields' => $postType->activeCustomFields,
                 ],
             ], 200);
         } catch (\Exception $e) {
@@ -676,10 +496,51 @@ class PostTypeController extends Controller
         }
     }
 
-    /**
-     * Auto assign next sort order.
-     * User can manually change sort_order also.
-     */
+    public function taxonomies($id)
+    {
+        try {
+            $postType = PostType::with('activeTaxonomies')->find($id);
+
+            if (!$postType) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Post type not found.',
+                ], 404);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Post type taxonomies fetched successfully.',
+                'data' => [
+                    'id' => $postType->id,
+                    'name' => $postType->name,
+                    'slug' => $postType->slug,
+                    'taxonomies' => $postType->activeTaxonomies,
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch post type taxonomies.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function syncTaxonomies(PostType $postType, array $taxonomyIds): void
+    {
+        $syncData = [];
+
+        foreach (array_values($taxonomyIds) as $index => $taxonomyId) {
+            $syncData[$taxonomyId] = [
+                'sort_order' => $index + 1,
+                'status' => true,
+            ];
+        }
+
+        $postType->taxonomies()->sync($syncData);
+    }
+
     private function getNextSortOrder(): int
     {
         $maxSortOrder = PostType::withTrashed()->max('sort_order');
@@ -687,19 +548,17 @@ class PostTypeController extends Controller
         return $maxSortOrder ? ((int) $maxSortOrder + 1) : 1;
     }
 
-    /**
-     * Menu order 1 to 5 is reserved for system/admin default post types.
-     * Custom menu order starts from 6.
-     * If 6, 7, 10 exist, then it assigns 8 first, then 9, then 11.
-     */
-    private function getNextAvailableMenuOrder(): int
+    private function getNextAvailableMenuOrder(?int $ignoreId = null): int
     {
         $usedOrders = PostType::withTrashed()
             ->whereNotNull('menu_order')
             ->where('menu_order', '>=', 6)
+            ->when($ignoreId, function ($query) use ($ignoreId) {
+                $query->where('id', '!=', $ignoreId);
+            })
             ->orderBy('menu_order', 'asc')
             ->pluck('menu_order')
-            ->map(fn ($order) => (int) $order)
+            ->map(fn($order) => (int) $order)
             ->toArray();
 
         $nextOrder = 6;
@@ -715,9 +574,6 @@ class PostTypeController extends Controller
         return $nextOrder;
     }
 
-    /**
-     * Format post type response.
-     */
     private function formatPostType($postType): array
     {
         $creator = $postType->creator;
@@ -733,6 +589,19 @@ class PostTypeController extends Controller
             'sort_order' => $postType->sort_order,
             'menu_order' => $postType->menu_order,
 
+            'taxonomies' => $postType->relationLoaded('taxonomies')
+                ? $postType->taxonomies->map(function ($taxonomy) {
+                    return [
+                        'id' => $taxonomy->id,
+                        'name' => $taxonomy->name,
+                        'slug' => $taxonomy->slug,
+                        'hierarchical' => (bool) $taxonomy->hierarchical,
+                        'status' => (bool) $taxonomy->status,
+                        'sort_order' => $taxonomy->pivot->sort_order ?? null,
+                    ];
+                })->values()
+                : [],
+
             'created_by' => $postType->created_by,
             'created_by_user' => $creator ? [
                 'id' => $creator->id,
@@ -747,10 +616,6 @@ class PostTypeController extends Controller
         ];
     }
 
-    /**
-     * User full name helper.
-     * Your users table has first_name and last_name, not name.
-     */
     private function getUserFullName($user): ?string
     {
         $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
@@ -762,10 +627,6 @@ class PostTypeController extends Controller
         return $user->name ?? $user->email ?? null;
     }
 
-    /**
-     * User role helper.
-     * Returns only role name, not full JSON/object.
-     */
     private function getUserRoleName($user): ?string
     {
         if (method_exists($user, 'roles')) {
@@ -776,7 +637,7 @@ class PostTypeController extends Controller
                     return $roleName;
                 }
             } catch (\Exception $e) {
-                // Continue fallback
+                //
             }
         }
 
@@ -815,5 +676,36 @@ class PostTypeController extends Controller
         }
 
         return null;
+    }
+    public function menu(Request $request)
+    {
+        try {
+            $postTypes = PostType::query()
+                ->where('status', true)
+                ->orderBy('menu_order', 'asc')
+                ->get()
+                ->map(function ($postType) {
+                    return [
+                        'id' => $postType->id,
+                        'name' => $postType->name,
+                        'slug' => $postType->slug,
+                        'description' => $postType->description,
+                        'menu_order' => $postType->menu_order,
+                        'supports' => $postType->supports ?? [],
+                    ];
+                });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Post type menu fetched successfully.',
+                'data' => $postTypes,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch post type menu.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }

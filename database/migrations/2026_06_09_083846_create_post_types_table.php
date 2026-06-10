@@ -31,7 +31,7 @@ return new class extends Migration
                 ->default(0);
 
             $table->unsignedInteger('menu_order')
-                ->nullable()
+                ->unique('unique_post_types_menu_order')
                 ->comment('1-5 reserved for system/admin default post types');
 
             $table->softDeletes();
@@ -45,7 +45,10 @@ return new class extends Migration
             $table->index(['slug', 'status']);
             $table->index(['is_default', 'status']);
             $table->index(['sort_order', 'status']);
+
+            // ye optional hai, unique index already menu_order par hai
             $table->index(['menu_order', 'status']);
+
             $table->index('created_by');
             $table->index('deleted_at');
         });

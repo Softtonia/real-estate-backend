@@ -7,18 +7,129 @@ use App\Models\DynamicPost;
 use App\Models\PostType;
 use App\Models\CustomFieldValue;
 use App\Models\TaxonomyTerm;
+use Illuminate\Database\QueryException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class DynamicPostController extends Controller
 {
-    public function index(Request $request)
+    private array $postRelations = [
+        'postType',
+        'taxonomyTerms.taxonomy',
+        'meta.customField',
+    ];
+
+    private array $singlePostRelations = [
+        'postType',
+        'taxonomyTerms.taxonomy',
+        'meta.customField.options',
+    ];
+
+    private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
+    {
+        $response = array_merge([
+            'status' => true,
+            'message' => $message,
+        ], $extra);
+
+        if (!is_null($data)) {
+            $response['data'] = $data;
+        }
+
+        return response()->json($response, $statusCode);
+    }
+
+    private function errorResponse(string $message, int $statusCode = 500, mixed $error = null, array $extra = []): JsonResponse
+    {
+        $response = array_merge([
+            'status' => false,
+            'message' => $message,
+        ], $extra);
+
+        if (!is_null($error)) {
+            $response['error'] = $error;
+        }
+
+        return response()->json($response, $statusCode);
+    }
+
+    private function validationErrorResponse(ValidationException $e): JsonResponse
+    {
+        return $this->errorResponse('Validation failed.', 422, null, [
+            'errors' => $e->errors(),
+        ]);
+    }
+
+    private function databaseErrorResponse(QueryException $e, string $message): JsonResponse
+    {
+        return $this->errorResponse($message, 500, $e->getMessage(), [
+            'error_type' => 'database_error',
+        ]);
+    }
+
+    private function findDynamicPost(int|string $id): ?DynamicPost
+    {
+        return DynamicPost::where('id', $id)->first();
+    }
+
+    private function normalizeIds(array|string|null $ids): array
+    {
+        if (is_null($ids) || $ids === '') {
+            return [];
+        }
+
+        if (is_string($ids)) {
+            $ids = explode(',', $ids);
+        }
+
+        return collect($ids)
+            ->filter(fn ($id) => $id !== null && $id !== '')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    public function index(Request $request): JsonResponse
     {
         try {
+            $request->validate([
+                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+                'post_type_slug' => ['nullable', 'string', 'exists:post_types,slug'],
+                'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
+                'search' => ['nullable', 'string', 'max:255'],
+                'taxonomy_term_ids' => ['nullable'],
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            ]);
+
+            $termIds = $this->normalizeIds($request->taxonomy_term_ids);
+
+            if ($request->filled('taxonomy_term_ids')) {
+                if (empty($termIds)) {
+                    return $this->errorResponse('Invalid taxonomy term ids.', 422, 'Please provide valid taxonomy term ids.');
+                }
+
+                $existingTermIds = TaxonomyTerm::whereIn('id', $termIds)
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->toArray();
+
+                $missingTermIds = array_values(array_diff($termIds, $existingTermIds));
+
+                if (!empty($missingTermIds)) {
+                    return $this->errorResponse('Some taxonomy terms were not found.', 404, 'One or more taxonomy term ids do not exist.', [
+                        'missing_taxonomy_term_ids' => $missingTermIds,
+                    ]);
+                }
+            }
+
             $query = DynamicPost::query()
-                ->with(['postType', 'taxonomyTerms.taxonomy', 'meta.customField'])
+                ->with($this->postRelations)
                 ->when($request->filled('post_type_id'), function ($q) use ($request) {
                     $q->where('post_type_id', $request->post_type_id);
                 })
@@ -39,11 +150,7 @@ class DynamicPostController extends Controller
                             ->orWhere('excerpt', 'like', "%{$search}%");
                     });
                 })
-                ->when($request->filled('taxonomy_term_ids'), function ($q) use ($request) {
-                    $termIds = is_array($request->taxonomy_term_ids)
-                        ? $request->taxonomy_term_ids
-                        : explode(',', $request->taxonomy_term_ids);
-
+                ->when(!empty($termIds), function ($q) use ($termIds) {
                     $q->whereHas('taxonomyTerms', function ($termQuery) use ($termIds) {
                         $termQuery->whereIn('taxonomy_terms.id', $termIds);
                     });
@@ -51,40 +158,21 @@ class DynamicPostController extends Controller
                 ->latest();
 
             $perPage = (int) $request->get('per_page', 15);
-            $perPage = $perPage > 100 ? 100 : $perPage;
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Dynamic posts fetched successfully.',
-                'data' => $query->paginate($perPage),
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch dynamic posts.',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->successResponse('Dynamic posts fetched successfully.', $query->paginate($perPage));
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching dynamic posts.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch dynamic posts.', 500, $e->getMessage());
         }
     }
 
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         try {
-            $validated = $request->validate([
-                'post_type_id' => ['required', 'exists:post_types,id'],
-                'title' => ['required', 'string', 'max:255'],
-                'excerpt' => ['nullable', 'string'],
-                'content' => ['nullable', 'string'],
-                'featured_image_id' => ['nullable', 'integer'],
-                'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
-                'author_id' => ['nullable', 'integer'],
-                'parent_id' => ['nullable', 'exists:dynamic_posts,id'],
-                'published_at' => ['nullable', 'date'],
-                'taxonomy_term_ids' => ['nullable', 'array'],
-                'taxonomy_term_ids.*' => ['exists:taxonomy_terms,id'],
-                'custom_fields' => ['nullable', 'array'],
-            ]);
+            $validated = $this->validatePost($request);
 
             $slug = Str::slug($validated['title']);
 
@@ -93,15 +181,13 @@ class DynamicPostController extends Controller
                 ->exists();
 
             if ($slugExists) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Dynamic post slug already exists.',
+                return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
                     'errors' => [
                         'slug' => [
                             'The generated slug "' . $slug . '" already exists for this post type.',
                         ],
                     ],
-                ], 422);
+                ]);
             }
 
             $post = DB::transaction(function () use ($validated, $slug) {
@@ -121,212 +207,242 @@ class DynamicPostController extends Controller
                 return $post;
             });
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Dynamic post created successfully.',
-                'data' => $post->load(['postType', 'taxonomyTerms.taxonomy', 'meta.customField']),
-            ], 201);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to create dynamic post.',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->successResponse(
+                'Dynamic post created successfully.',
+                $post->load($this->postRelations),
+                201
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while creating dynamic post.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to create dynamic post.', 500, $e->getMessage());
         }
     }
 
-    public function show(DynamicPost $dynamicPost)
+    public function show(int|string $dynamicPost): JsonResponse
     {
         try {
-            $dynamicPost->load([
-                'postType',
-                'taxonomyTerms.taxonomy',
-                'meta.customField.options',
-            ]);
+            $post = $this->findDynamicPost($dynamicPost);
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Dynamic post fetched successfully.',
-                'data' => $dynamicPost,
-            ], 200);
+            if (!$post) {
+                return $this->errorResponse('Dynamic post not found.', 404, 'No dynamic post exists with this id.', [
+                    'id' => $dynamicPost,
+                ]);
+            }
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch dynamic post.',
-                'error' => $e->getMessage(),
-            ], 500);
+            $post->load($this->singlePostRelations);
+
+            return $this->successResponse('Dynamic post fetched successfully.', $post);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching dynamic post.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch dynamic post.', 500, $e->getMessage());
         }
     }
 
-    public function update(Request $request, DynamicPost $dynamicPost)
+    public function update(Request $request, int|string $dynamicPost): JsonResponse
     {
         try {
+            $post = $this->findDynamicPost($dynamicPost);
+
+            if (!$post) {
+                return $this->errorResponse('Dynamic post not found.', 404, 'No dynamic post exists with this id.', [
+                    'id' => $dynamicPost,
+                ]);
+            }
+
             if ($request->has('slug')) {
                 $requestedSlug = Str::slug($request->slug);
-                $oldSlug = $dynamicPost->slug;
+                $oldSlug = $post->slug;
                 $nameBasedSlug = $request->filled('title')
                     ? Str::slug($request->title)
                     : $oldSlug;
 
                 if ($requestedSlug !== $oldSlug && $requestedSlug !== $nameBasedSlug) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'Validation failed.',
+                    return $this->errorResponse('Validation failed.', 422, null, [
                         'errors' => [
                             'slug' => [
-                                'Slug cannot be changed after creation.'
-                            ]
+                                'Slug cannot be changed after creation.',
+                            ],
                         ],
-                    ], 422);
+                    ]);
                 }
             }
 
-            $validated = $request->validate([
-                'post_type_id' => ['sometimes', 'required', 'exists:post_types,id'],
-                'title' => ['sometimes', 'required', 'string', 'max:255'],
-                'excerpt' => ['nullable', 'string'],
-                'content' => ['nullable', 'string'],
-                'featured_image_id' => ['nullable', 'integer'],
-                'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
-                'author_id' => ['nullable', 'integer'],
-                'parent_id' => ['nullable', 'exists:dynamic_posts,id'],
-                'published_at' => ['nullable', 'date'],
-                'taxonomy_term_ids' => ['nullable', 'array'],
-                'taxonomy_term_ids.*' => ['exists:taxonomy_terms,id'],
-                'custom_fields' => ['nullable', 'array'],
-            ]);
+            $validated = $this->validatePost($request, true);
 
-            DB::transaction(function () use ($dynamicPost, $validated) {
+            if (isset($validated['title'])) {
+                $newSlug = Str::slug($validated['title']);
+                $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
+
+                $slugExists = DynamicPost::where('post_type_id', $postTypeId)
+                    ->where('slug', $newSlug)
+                    ->where('id', '!=', $post->id)
+                    ->exists();
+
+                if ($slugExists) {
+                    return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
+                        'errors' => [
+                            'title' => [
+                                'The generated slug "' . $newSlug . '" already exists for this post type.',
+                            ],
+                        ],
+                    ]);
+                }
+
+                $validated['slug'] = $newSlug;
+            }
+
+            DB::transaction(function () use ($post, $validated) {
                 $taxonomyTermIds = $validated['taxonomy_term_ids'] ?? null;
                 $customFields = $validated['custom_fields'] ?? null;
 
                 unset($validated['taxonomy_term_ids'], $validated['custom_fields']);
 
-                $dynamicPost->update($validated);
+                $post->update($validated);
 
                 if (is_array($taxonomyTermIds)) {
-                    $this->syncTaxonomyTerms($dynamicPost, $taxonomyTermIds);
+                    $this->syncTaxonomyTerms($post, $taxonomyTermIds);
                 }
 
                 if (is_array($customFields)) {
-                    $this->saveCustomFieldValues($dynamicPost->id, 'post', $customFields);
+                    $this->saveCustomFieldValues($post->id, 'post', $customFields);
                 }
             });
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Dynamic post updated successfully.',
-                'data' => $dynamicPost->fresh()->load(['postType', 'taxonomyTerms.taxonomy', 'meta.customField']),
-            ], 200);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to update dynamic post.',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->successResponse(
+                'Dynamic post updated successfully.',
+                $post->fresh()->load($this->postRelations)
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while updating dynamic post.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to update dynamic post.', 500, $e->getMessage());
         }
     }
 
-    public function destroy(DynamicPost $dynamicPost)
+    public function destroy(int|string $dynamicPost): JsonResponse
     {
         try {
-            $dynamicPost->delete();
+            $post = $this->findDynamicPost($dynamicPost);
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Dynamic post deleted successfully.',
-            ], 200);
+            if (!$post) {
+                return $this->errorResponse('Dynamic post not found.', 404, 'No dynamic post exists with this id.', [
+                    'id' => $dynamicPost,
+                ]);
+            }
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to delete dynamic post.',
-                'error' => $e->getMessage(),
-            ], 500);
+            $post->delete();
+
+            return $this->successResponse('Dynamic post deleted successfully.');
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while deleting dynamic post.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to delete dynamic post.', 500, $e->getMessage());
         }
     }
 
-    public function bulkDelete(Request $request)
+    public function bulkDelete(Request $request): JsonResponse
     {
         try {
             $request->validate([
                 'ids' => ['required', 'array', 'min:1'],
-                'ids.*' => ['required', 'integer', 'exists:dynamic_posts,id'],
+                'ids.*' => ['required', 'integer'],
             ]);
 
-            DB::beginTransaction();
+            $ids = array_values(array_unique($request->ids));
 
-            $deleted = DynamicPost::whereIn('id', $request->ids)->delete();
+            $existingIds = DynamicPost::whereIn('id', $ids)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->toArray();
 
-            DB::commit();
+            $missingIds = array_values(array_diff($ids, $existingIds));
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Selected dynamic posts deleted successfully.',
+            if (!empty($missingIds)) {
+                return $this->errorResponse('Some dynamic posts were not found.', 404, 'One or more ids do not exist.', [
+                    'missing_ids' => $missingIds,
+                ]);
+            }
+
+            $deleted = DB::transaction(function () use ($existingIds) {
+                return DynamicPost::whereIn('id', $existingIds)->delete();
+            });
+
+            return $this->successResponse('Selected dynamic posts deleted successfully.', null, 200, [
                 'deleted_count' => $deleted,
-            ], 200);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to delete selected dynamic posts.',
-                'error' => $e->getMessage(),
-            ], 500);
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while deleting selected dynamic posts.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to delete selected dynamic posts.', 500, $e->getMessage());
         }
     }
 
-    public function byPostType(string $slug, Request $request)
+    public function byPostType(string $slug, Request $request): JsonResponse
     {
         try {
-            $postType = PostType::where('slug', $slug)->firstOrFail();
+            $request->validate([
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            ]);
+
+            $postType = PostType::where('slug', $slug)->first();
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404, 'No post type exists with this slug.', [
+                    'slug' => $slug,
+                ]);
+            }
+
+            $perPage = (int) $request->get('per_page', 15);
 
             $posts = DynamicPost::where('post_type_id', $postType->id)
-                ->with(['taxonomyTerms.taxonomy', 'meta.customField'])
+                ->with($this->postRelations)
                 ->latest()
-                ->paginate($request->get('per_page', 15));
+                ->paginate($perPage);
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Dynamic posts fetched by post type successfully.',
+            return $this->successResponse('Dynamic posts fetched by post type successfully.', $posts, 200, [
                 'post_type' => $postType,
-                'data' => $posts,
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch dynamic posts by post type.',
-                'error' => $e->getMessage(),
-            ], 500);
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching dynamic posts by post type.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch dynamic posts by post type.', 500, $e->getMessage());
         }
+    }
+
+    private function validatePost(Request $request, bool $isUpdate = false): array
+    {
+        return $request->validate([
+            'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'required', 'exists:post_types,id'],
+            'title' => [$isUpdate ? 'sometimes' : 'required', 'required', 'string', 'max:255'],
+            'excerpt' => ['nullable', 'string'],
+            'content' => ['nullable', 'string'],
+            'featured_image_id' => ['nullable', 'integer'],
+            'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
+            'author_id' => ['nullable', 'integer'],
+            'parent_id' => ['nullable', 'exists:dynamic_posts,id'],
+            'published_at' => ['nullable', 'date'],
+            'taxonomy_term_ids' => ['nullable', 'array'],
+            'taxonomy_term_ids.*' => ['required_with:taxonomy_term_ids', 'integer', 'exists:taxonomy_terms,id'],
+            'custom_fields' => ['nullable', 'array'],
+            'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
+            'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
+            'custom_fields.*.value_text' => ['nullable', 'string'],
+            'custom_fields.*.value_string' => ['nullable', 'string'],
+            'custom_fields.*.value_number' => ['nullable', 'numeric'],
+            'custom_fields.*.value_date' => ['nullable', 'date'],
+            'custom_fields.*.value_datetime' => ['nullable', 'date'],
+            'custom_fields.*.value_json' => ['nullable'],
+        ]);
     }
 
     private function syncTaxonomyTerms(DynamicPost $post, array $taxonomyTermIds): void

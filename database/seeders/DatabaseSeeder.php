@@ -46,7 +46,7 @@ class DatabaseSeeder extends Seeder
          $this->call(LocationSeeder::class);
          $this->call(LeadTypesSeeder::class);
          $this->call(DefaultUser::class);
-        $this->call(DefaultPostTypeSeeder::class);
+        // $this->call(DefaultPostTypeSeeder::class);
 
     }
 }

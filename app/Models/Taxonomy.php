@@ -99,4 +99,10 @@ class Taxonomy extends Model
     {
         return $this->belongsTo(User::class, 'created_by');
     }
+    public function postTypes()
+    {
+        return $this->belongsToMany(PostType::class, 'post_type_taxonomies')
+            ->withPivot(['sort_order', 'status'])
+            ->withTimestamps();
+    }
 }

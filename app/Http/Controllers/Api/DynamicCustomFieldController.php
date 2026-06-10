@@ -9,19 +9,90 @@ use App\Models\CustomFieldRepeater;
 use App\Models\CustomFieldRepeaterOption;
 use App\Models\CustomFieldCondition;
 use App\Models\PostType;
+use Illuminate\Database\QueryException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class DynamicCustomFieldController extends Controller
 {
-    public function index(Request $request)
+    private array $fieldRelations = [
+        'creator',
+        'postType',
+        'taxonomy',
+        'options',
+        'repeaters.options',
+        'conditions.taxonomy',
+        'conditions.taxonomyTerm',
+    ];
+
+    private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
+    {
+        $response = array_merge([
+            'status' => true,
+            'message' => $message,
+        ], $extra);
+
+        if (!is_null($data)) {
+            $response['data'] = $data;
+        }
+
+        return response()->json($response, $statusCode);
+    }
+
+    private function errorResponse(string $message, int $statusCode = 500, mixed $error = null, array $extra = []): JsonResponse
+    {
+        $response = array_merge([
+            'status' => false,
+            'message' => $message,
+        ], $extra);
+
+        if (!is_null($error)) {
+            $response['error'] = $error;
+        }
+
+        return response()->json($response, $statusCode);
+    }
+
+    private function validationErrorResponse(ValidationException $e): JsonResponse
+    {
+        return $this->errorResponse('Validation failed.', 422, null, [
+            'errors' => $e->errors(),
+        ]);
+    }
+
+    private function databaseErrorResponse(QueryException $e, string $message): JsonResponse
+    {
+        return $this->errorResponse($message, 500, $e->getMessage(), [
+            'error_type' => 'database_error',
+        ]);
+    }
+
+    private function findCustomField(int|string $id): ?CustomField
+    {
+        return CustomField::where('id', $id)->first();
+    }
+
+    public function index(Request $request): JsonResponse
     {
         try {
+            $request->validate([
+                'entity_type' => ['nullable', Rule::in(['post', 'taxonomy'])],
+                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+                'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+                'group_id' => ['nullable', 'integer'],
+                'field_type' => ['nullable', 'string'],
+                'status' => ['nullable', 'boolean'],
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            ]);
+
             $query = CustomField::query()
-                ->with(['creator', 'postType', 'taxonomy', 'options', 'repeaters.options', 'conditions.taxonomy', 'conditions.taxonomyTerm'])
+                ->with($this->fieldRelations)
                 ->when($request->filled('entity_type'), function ($q) use ($request) {
                     $q->where('entity_type', $request->entity_type);
                 })
@@ -44,23 +115,18 @@ class DynamicCustomFieldController extends Controller
                 ->orderBy('id', 'asc');
 
             $perPage = (int) $request->get('per_page', 15);
-            $perPage = $perPage > 100 ? 100 : $perPage;
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Custom fields fetched successfully.',
-                'data' => $query->paginate($perPage),
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch custom fields.',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->successResponse('Custom fields fetched successfully.', $query->paginate($perPage));
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching custom fields.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch custom fields.', 500, $e->getMessage());
         }
     }
 
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         try {
             $validated = $this->validateField($request);
@@ -86,59 +152,55 @@ class DynamicCustomFieldController extends Controller
                 return $field;
             });
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Custom field created successfully.',
-                'data' => $field->load(['creator', 'options', 'repeaters.options', 'conditions.taxonomy', 'conditions.taxonomyTerm']),
-            ], 201);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to create custom field.',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->successResponse(
+                'Custom field created successfully.',
+                $field->load($this->fieldRelations),
+                201
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while creating custom field.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to create custom field.', 500, $e->getMessage());
         }
     }
 
-    public function show(CustomField $customField)
+    public function show(int|string $customField): JsonResponse
     {
         try {
-            $customField->load([
-                'creator',
-                'postType',
-                'taxonomy',
-                'options',
-                'repeaters.options',
-                'conditions.taxonomy',
-                'conditions.taxonomyTerm',
-            ]);
+            $field = $this->findCustomField($customField);
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Custom field fetched successfully.',
-                'data' => $customField,
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch custom field.',
-                'error' => $e->getMessage(),
-            ], 500);
+            if (!$field) {
+                return $this->errorResponse('Custom field not found.', 404, 'No custom field exists with this id.', [
+                    'id' => $customField,
+                ]);
+            }
+
+            $field->load($this->fieldRelations);
+
+            return $this->successResponse('Custom field fetched successfully.', $field);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching custom field.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch custom field.', 500, $e->getMessage());
         }
     }
 
-    public function update(Request $request, CustomField $customField)
+    public function update(Request $request, int|string $customField): JsonResponse
     {
         try {
-            $validated = $this->validateField($request, $customField->id);
+            $field = $this->findCustomField($customField);
 
-            DB::transaction(function () use ($customField, $validated) {
+            if (!$field) {
+                return $this->errorResponse('Custom field not found.', 404, 'No custom field exists with this id.', [
+                    'id' => $customField,
+                ]);
+            }
+
+            $validated = $this->validateField($request, $field->id);
+
+            DB::transaction(function () use ($field, $validated) {
                 $options = $validated['options'] ?? [];
                 $repeaters = $validated['repeaters'] ?? [];
                 $conditions = $validated['conditions'] ?? [];
@@ -147,90 +209,87 @@ class DynamicCustomFieldController extends Controller
 
                 $validated['field_name_slug'] = $validated['field_name_slug'] ?? Str::slug($validated['field_label'], '_');
 
-                $customField->update($validated);
+                $field->update($validated);
 
-                $customField->options()->delete();
-                $customField->repeaters()->delete();
-                $customField->conditions()->delete();
+                $field->options()->delete();
+                $field->repeaters()->delete();
+                $field->conditions()->delete();
 
-                $this->saveOptions($customField, $options);
-                $this->saveRepeaters($customField, $repeaters);
-                $this->saveConditions($customField, $conditions);
+                $this->saveOptions($field, $options);
+                $this->saveRepeaters($field, $repeaters);
+                $this->saveConditions($field, $conditions);
             });
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Custom field updated successfully.',
-                'data' => $customField->fresh()->load(['creator', 'options', 'repeaters.options', 'conditions.taxonomy', 'conditions.taxonomyTerm']),
-            ], 200);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to update custom field.',
-                'error' => $e->getMessage(),
-            ], 500);
+            return $this->successResponse(
+                'Custom field updated successfully.',
+                $field->fresh()->load($this->fieldRelations)
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while updating custom field.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to update custom field.', 500, $e->getMessage());
         }
     }
 
-    public function destroy(CustomField $customField)
+    public function destroy(int|string $customField): JsonResponse
     {
         try {
-            $customField->delete();
+            $field = $this->findCustomField($customField);
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Custom field deleted successfully.',
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to delete custom field.',
-                'error' => $e->getMessage(),
-            ], 500);
+            if (!$field) {
+                return $this->errorResponse('Custom field not found.', 404, 'No custom field exists with this id.', [
+                    'id' => $customField,
+                ]);
+            }
+
+            $field->delete();
+
+            return $this->successResponse('Custom field deleted successfully.');
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while deleting custom field.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to delete custom field.', 500, $e->getMessage());
         }
     }
 
-    public function bulkDelete(Request $request)
+    public function bulkDelete(Request $request): JsonResponse
     {
         try {
             $request->validate([
                 'ids' => ['required', 'array', 'min:1'],
-                'ids.*' => ['required', 'integer', 'exists:custom_fields,id'],
+                'ids.*' => ['required', 'integer'],
             ]);
 
-            DB::beginTransaction();
+            $ids = array_values(array_unique($request->ids));
 
-            $deleted = CustomField::whereIn('id', $request->ids)->delete();
+            $existingIds = CustomField::whereIn('id', $ids)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->toArray();
 
-            DB::commit();
+            $missingIds = array_values(array_diff($ids, $existingIds));
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Selected custom fields deleted successfully.',
+            if (!empty($missingIds)) {
+                return $this->errorResponse('Some custom fields were not found.', 404, 'One or more ids do not exist.', [
+                    'missing_ids' => $missingIds,
+                ]);
+            }
+
+            $deleted = DB::transaction(function () use ($existingIds) {
+                return CustomField::whereIn('id', $existingIds)->delete();
+            });
+
+            return $this->successResponse('Selected custom fields deleted successfully.', null, 200, [
                 'deleted_count' => $deleted,
-            ], 200);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to delete selected custom fields.',
-                'error' => $e->getMessage(),
-            ], 500);
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while deleting selected custom fields.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to delete selected custom fields.', 500, $e->getMessage());
         }
     }
 
@@ -364,6 +423,7 @@ class DynamicCustomFieldController extends Controller
     {
         foreach ($repeaters as $index => $repeaterData) {
             $repeaterOptions = $repeaterData['options'] ?? [];
+
             unset($repeaterData['options']);
 
             $repeaterData['custom_field_id'] = $field->id;
@@ -399,22 +459,32 @@ class DynamicCustomFieldController extends Controller
             ]);
         }
     }
-    public function fieldsByPostType($postType)
+
+    public function fieldsByPostType(int|string $postType): JsonResponse
     {
         try {
-            $postTypeData = PostType::where('id', $postType)
-                ->orWhere('slug', $postType)
-                ->orWhere('name', $postType)
+            if (blank($postType)) {
+                return $this->errorResponse('Post type is required.', 422, 'Please provide post type id, slug, or name.');
+            }
+
+            $postTypeData = PostType::query()
+                ->where(function ($q) use ($postType) {
+                    if (is_numeric($postType)) {
+                        $q->where('id', $postType);
+                    }
+
+                    $q->orWhere('slug', $postType)
+                        ->orWhere('name', $postType);
+                })
                 ->first();
 
             if (!$postTypeData) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Post type not found.',
-                ], 404);
+                return $this->errorResponse('Post type not found.', 404, 'No post type exists with this id, slug, or name.', [
+                    'post_type' => $postType,
+                ]);
             }
 
-            $fields = \App\Models\CustomField::where('entity_type', 'post')
+            $fields = CustomField::where('entity_type', 'post')
                 ->where('post_type_id', $postTypeData->id)
                 ->where('status', true)
                 ->with([
@@ -437,22 +507,17 @@ class DynamicCustomFieldController extends Controller
                 ->orderBy('id', 'asc')
                 ->get();
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Custom fields fetched by post type successfully.',
+            return $this->successResponse('Custom fields fetched by post type successfully.', $fields, 200, [
                 'post_type' => [
                     'id' => $postTypeData->id,
                     'name' => $postTypeData->name,
                     'slug' => $postTypeData->slug,
                 ],
-                'data' => $fields,
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch custom fields by post type.',
-                'error' => $e->getMessage(),
-            ], 500);
+            ]);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching custom fields by post type.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch custom fields by post type.', 500, $e->getMessage());
         }
     }
 }

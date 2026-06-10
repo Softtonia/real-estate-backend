@@ -1030,6 +1030,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
     Route::post('post-types/{id}/restore', [PostTypeController::class, 'restore']);
     Route::delete('post-types/{id}/force-delete', [PostTypeController::class, 'forceDelete']);
     Route::get('post-types/{id}/fields', [PostTypeController::class, 'fields']);
+    Route::get('post-types-menu', [PostTypeController::class, 'menu']);
 
     Route::get('post-types/{postType}/fields', [PostTypeController::class, 'fields']);
     Route::get('post-types', [PostTypeController::class, 'index']);

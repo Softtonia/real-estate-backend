@@ -27,21 +27,59 @@ class PostType extends Model
         'status' => 'boolean',
         'supports' => 'array',
         'sort_order' => 'integer',
+        'menu_order' => 'integer',
+        'deleted_at' => 'datetime',
     ];
 
     protected static function booted(): void
     {
         static::creating(function ($postType) {
             if (empty($postType->slug)) {
-                $postType->slug = Str::slug($postType->name);
+                $postType->slug = self::generateUniqueSlug($postType->name);
             }
         });
 
         static::updating(function ($postType) {
             if (empty($postType->slug)) {
-                $postType->slug = Str::slug($postType->name);
+                $postType->slug = self::generateUniqueSlug($postType->name, $postType->id);
             }
         });
+    }
+
+    public static function generateUniqueSlug(string $name, ?int $ignoreId = null): string
+    {
+        $baseSlug = Str::slug($name);
+
+        if (!$baseSlug) {
+            $baseSlug = 'post-type';
+        }
+
+        $slug = $baseSlug;
+        $counter = 1;
+
+        while (
+            self::withTrashed()
+                ->where('slug', $slug)
+                ->when($ignoreId, function ($query) use ($ignoreId) {
+                    $query->where('id', '!=', $ignoreId);
+                })
+                ->exists()
+        ) {
+            $slug = $baseSlug . '-' . $counter;
+            $counter++;
+        }
+
+        return $slug;
+    }
+
+    public static function menuOrderExists(int $menuOrder, ?int $ignoreId = null): bool
+    {
+        return self::withTrashed()
+            ->where('menu_order', $menuOrder)
+            ->when($ignoreId, function ($query) use ($ignoreId) {
+                $query->where('id', '!=', $ignoreId);
+            })
+            ->exists();
     }
 
     public function dynamicPosts()
@@ -66,6 +104,23 @@ class PostType extends Model
             ->where('entity_type', 'post')
             ->where('status', true)
             ->orderBy('sort_order');
+    }
+
+    public function taxonomies()
+    {
+        return $this->belongsToMany(Taxonomy::class, 'post_type_taxonomies')
+            ->withPivot(['sort_order', 'status'])
+            ->withTimestamps();
+    }
+
+    public function activeTaxonomies()
+    {
+        return $this->belongsToMany(Taxonomy::class, 'post_type_taxonomies')
+            ->withPivot(['sort_order', 'status'])
+            ->wherePivot('status', true)
+            ->where('taxonomies.status', true)
+            ->orderBy('post_type_taxonomies.sort_order', 'asc')
+            ->withTimestamps();
     }
 
     public function creator()
@@ -95,7 +150,10 @@ class PostType extends Model
 
     public function scopeOrdered($query)
     {
-        return $query->orderBy('sort_order')->orderBy('id', 'desc');
+        return $query
+            ->orderByRaw('CASE WHEN menu_order IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('menu_order', 'asc')
+            ->orderBy('sort_order', 'asc')
+            ->orderBy('id', 'desc');
     }
-
 }
