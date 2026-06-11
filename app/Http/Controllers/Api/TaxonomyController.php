@@ -369,7 +369,7 @@ class TaxonomyController extends Controller
     public function fields(Taxonomy $taxonomy)
     {
         try {
-            $fields = $taxonomy->activeCustomFields()
+            $fields = $taxonomy->activeCustomFieldGroups()->with(['fields.options', 'fields.repeaters.options'])
                 ->with(['options', 'repeaters.options'])
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
