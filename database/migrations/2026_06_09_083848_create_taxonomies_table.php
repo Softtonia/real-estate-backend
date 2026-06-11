@@ -38,7 +38,7 @@ return new class extends Migration
                 ->comment('1-5 reserved for system/admin default taxonomies');
 
             $table->timestamps();
-
+            $table->softDeletes();
             $table->foreign('created_by')
                 ->references('id')
                 ->on('users')

@@ -15,13 +15,11 @@ return new class extends Migration {
             $table->unsignedBigInteger('post_type_id')->nullable();
             $table->unsignedBigInteger('taxonomy_id')->nullable();
             $table->json('taxonomy_term_ids')->nullable();
-            $table->unsignedInteger('sort_order')->default(0);
-            $table->boolean('status')->default(true);
 
             $table->timestamps();
 
             // Use shorter index name
-            $table->index(['custom_field_group_id', 'status'], 'cfglr_group_status_idx');
+            $table->index(['custom_field_group_id'], 'cfglr_group_status_idx');
         });
     }
 

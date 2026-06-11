@@ -13,20 +13,13 @@ return new class extends Migration
 
             $table->string('group_name', 200);
             $table->string('group_slug', 200)->unique();
-
-            $table->unsignedInteger('sort_order')->default(0);
-            $table->boolean('status')->default(true);
-
             $table->unsignedBigInteger('created_by')->nullable();
-
             $table->timestamps();
-
             $table->foreign('created_by')
                 ->references('id')
                 ->on('users')
                 ->nullOnDelete();
 
-            $table->index(['status', 'sort_order'], 'idx_cfg_status_sort');
             $table->index('created_by', 'idx_cfg_created_by');
         });
     }

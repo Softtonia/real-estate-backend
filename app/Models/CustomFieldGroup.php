@@ -10,14 +10,11 @@ class CustomFieldGroup extends Model
     protected $fillable = [
         'group_name',
         'group_slug',
-        'sort_order',
-        'status',
         'created_by',
     ];
 
     protected $casts = [
-        'sort_order' => 'integer',
-        'status' => 'boolean',
+        'created_by' => 'integer',
     ];
 
     protected static function booted(): void
@@ -68,15 +65,13 @@ class CustomFieldGroup extends Model
 
     public function locationRules()
     {
-        return $this->hasMany(CustomFieldGroupLocationRule::class, 'custom_field_group_id')
-            ->orderBy('sort_order');
+        return $this->hasMany(CustomFieldGroupLocationRule::class, 'custom_field_group_id');
     }
 
     public function activeLocationRules()
     {
         return $this->hasMany(CustomFieldGroupLocationRule::class, 'custom_field_group_id')
-            ->where('status', true)
-            ->orderBy('sort_order');
+            ->where('status', true);
     }
 
     public function creator()
@@ -84,8 +79,4 @@ class CustomFieldGroup extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function scopeActive($query)
-    {
-        return $query->where('status', true);
-    }
 }

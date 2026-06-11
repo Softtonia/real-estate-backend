@@ -12,13 +12,10 @@ class CustomFieldGroupLocationRule extends Model {
         'post_type_id',
         'taxonomy_id',
         'taxonomy_term_ids',
-        'sort_order',
-        'status'
     ];
 
     protected $casts = [
         'taxonomy_term_ids' => 'array',
-        'status' => 'boolean',
     ];
 
     public function postType() {

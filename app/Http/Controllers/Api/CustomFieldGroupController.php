@@ -36,7 +36,6 @@ class CustomFieldGroupController extends Controller
         try {
             $request->validate([
                 'search' => ['nullable', 'string', 'max:255'],
-                'status' => ['nullable', 'boolean'],
                 'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
                 'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
@@ -51,9 +50,6 @@ class CustomFieldGroupController extends Controller
                         $subQuery->where('group_name', 'like', "%{$search}%")
                             ->orWhere('group_slug', 'like', "%{$search}%");
                     });
-                })
-                ->when($request->filled('status'), function ($q) use ($request) {
-                    $q->where('status', filter_var($request->status, FILTER_VALIDATE_BOOLEAN));
                 })
                 ->when($request->filled('post_type_id'), function ($q) use ($request) {
                     $q->whereHas('locationRules', function ($ruleQuery) use ($request) {
@@ -73,7 +69,6 @@ class CustomFieldGroupController extends Controller
                             });
                     });
                 })
-                ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'desc');
 
             $perPage = (int) $request->get('per_page', 15);
@@ -113,8 +108,6 @@ class CustomFieldGroupController extends Controller
                     'group_slug' => !empty($validated['group_slug'])
                         ? CustomFieldGroup::generateUniqueSlug($validated['group_slug'])
                         : CustomFieldGroup::generateUniqueSlug($validated['group_name']),
-                    'sort_order' => $validated['sort_order'] ?? 0,
-                    'status' => $validated['status'] ?? true,
                     'created_by' => Auth::id(),
                 ]);
 
@@ -188,8 +181,6 @@ class CustomFieldGroupController extends Controller
                 $group->update([
                     'group_name' => $validated['group_name'],
                     'group_slug' => $slug,
-                    'sort_order' => $validated['sort_order'] ?? $group->sort_order,
-                    'status' => $validated['status'] ?? $group->status,
                 ]);
 
                 // Delete old rules and fields
@@ -274,16 +265,13 @@ class CustomFieldGroupController extends Controller
             if (!$postTypeData) return $this->errorResponse('Post type not found.', 404);
 
             $groups = CustomFieldGroup::with($this->groupRelations)
-                ->where('status', true)
                 ->whereHas('locationRules', function ($q) use ($postTypeData) {
-                    $q->where('status', true)
-                        ->where('show_if', 'post_type')
+                    $q->where('show_if', 'post_type')
                         ->where(function ($sub) use ($postTypeData) {
                             $sub->where('match_type', 'all')
                                 ->orWhere('post_type_id', $postTypeData->id);
                         });
                 })
-                ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get()
                 ->map(fn($group) => $this->formatGroup($group));
@@ -320,10 +308,8 @@ class CustomFieldGroupController extends Controller
             $selectedTermIds = collect($request->taxonomy_term_ids ?? [])->map(fn($id) => (int)$id)->toArray();
 
             $groups = CustomFieldGroup::with($this->groupRelations)
-                ->where('status', true)
                 ->whereHas('locationRules', function ($q) use ($taxonomyData, $selectedTermIds) {
-                    $q->where('status', true)
-                        ->where('show_if', 'taxonomy')
+                    $q->where('show_if', 'taxonomy')
                         ->where(function ($sub) use ($taxonomyData, $selectedTermIds) {
                             $sub->where('match_type', 'all')
                                 ->orWhere(function ($specific) use ($taxonomyData, $selectedTermIds) {
@@ -339,7 +325,6 @@ class CustomFieldGroupController extends Controller
                                 });
                         });
                 })
-                ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get()
                 ->map(fn($group) => $this->formatGroup($group));
@@ -361,8 +346,6 @@ class CustomFieldGroupController extends Controller
         return $request->validate([
             'group_name' => ['required', 'string', 'max:200'],
             'group_slug' => ['nullable', 'string', 'max:200'],
-            'sort_order' => ['nullable', 'integer', 'min:0'],
-            'status' => ['nullable', 'boolean'],
 
             'location_rules' => ['required', 'array', 'min:1'],
             'location_rules.*.show_if' => ['required', Rule::in(['post_type', 'taxonomy'])],
@@ -371,8 +354,6 @@ class CustomFieldGroupController extends Controller
             'location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
             'location_rules.*.taxonomy_term_ids' => ['nullable', 'array'],
             'location_rules.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
-            'location_rules.*.sort_order' => ['nullable', 'integer', 'min:0'],
-            'location_rules.*.status' => ['nullable', 'boolean'],
 
             'fields' => ['required', 'array', 'min:1'],
             'fields.*.field_label' => ['required', 'string', 'max:255'],
@@ -433,8 +414,6 @@ class CustomFieldGroupController extends Controller
                 'taxonomy_term_ids' => $rule['show_if'] === 'taxonomy'
                     ? ($rule['taxonomy_term_ids'] ?? null)
                     : null,
-                'sort_order' => $rule['sort_order'] ?? $index,
-                'status' => $rule['status'] ?? true,
             ]);
         }
     }
@@ -528,12 +507,10 @@ class CustomFieldGroupController extends Controller
             'id' => $group->id,
             'group_name' => $group->group_name,
             'group_slug' => $group->group_slug,
-            'sort_order' => $group->sort_order,
-            'status' => (bool) $group->status,
             'creator' => $group->creator ? [
                 'id' => $group->creator->id,
                 'full_name' => trim(($group->creator->first_name ?? '') . ' ' . ($group->creator->last_name ?? '')),
-                'role' => $group->creator->role ?? null,
+                'role' => $this->getUserRoleName($group->creator),
             ] : null,
             'location_rules' => $group->relationLoaded('locationRules')
                 ? $group->locationRules->map(fn($rule) => [
@@ -543,11 +520,31 @@ class CustomFieldGroupController extends Controller
                     'post_type_id' => $rule->post_type_id,
                     'taxonomy_id' => $rule->taxonomy_id,
                     'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
-                    'sort_order' => $rule->sort_order,
-                    'status' => (bool)$rule->status,
                 ])->values()
                 : [],
-            'fields' => $group->relationLoaded('fields') ? $group->fields->toArray() : [],
+            'fields' => $group->relationLoaded('fields')
+                ? $group->fields->map(fn($field) => [
+                    'id' => $field->id,
+                    'custom_field_group_id' => $field->custom_field_group_id,
+                    'field_label' => $field->field_label,
+                    'field_name_slug' => $field->field_name_slug,
+                    'field_placeholder' => $field->field_placeholder,
+                    'field_type' => $field->field_type,
+                    'required' => $field->required,
+                    'checkbox_type' => $field->checkbox_type,
+                    'default_value' => $field->default_value,
+                    'validation_rules' => $field->validation_rules,
+                    'conditional_rules' => $field->conditional_rules,
+                    'media_limit' => $field->media_limit,
+                    'media_size' => $field->media_size,
+                    'media_format' => $field->media_format,
+                    'created_by' => $field->created_by,
+                    'created_at' => $field->created_at,
+                    'updated_at' => $field->updated_at,
+                    'options' => $field->relationLoaded('options') ? $field->options->toArray() : [],
+                    'repeaters' => $field->relationLoaded('repeaters') ? $field->repeaters->toArray() : [],
+                ])->values()
+                : [],
             'created_at' => $group->created_at,
             'updated_at' => $group->updated_at,
         ];
