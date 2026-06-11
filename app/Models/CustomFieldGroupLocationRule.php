@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
-class CustomFieldGroupLocationRule extends Model
-{
+class CustomFieldGroupLocationRule extends Model {
+    use SoftDeletes;
+
     protected $fillable = [
         'custom_field_group_id',
         'show_if',
@@ -14,27 +16,23 @@ class CustomFieldGroupLocationRule extends Model
         'taxonomy_id',
         'taxonomy_term_ids',
         'sort_order',
-        'status',
+        'status'
     ];
 
     protected $casts = [
         'taxonomy_term_ids' => 'array',
-        'sort_order' => 'integer',
         'status' => 'boolean',
     ];
 
-    public function group()
-    {
-        return $this->belongsTo(CustomFieldGroup::class, 'custom_field_group_id');
-    }
-
-    public function postType()
-    {
+    public function postType() {
         return $this->belongsTo(PostType::class, 'post_type_id');
     }
 
-    public function taxonomy()
-    {
+    public function taxonomy() {
         return $this->belongsTo(Taxonomy::class, 'taxonomy_id');
+    }
+
+    public function group() {
+        return $this->belongsTo(CustomFieldGroup::class, 'custom_field_group_id');
     }
 }

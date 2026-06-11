@@ -118,7 +118,10 @@ class CustomFieldGroupController extends Controller
                     'created_by' => Auth::id(),
                 ]);
 
+                // ✅ Save location rules
                 $this->saveLocationRules($group, $locationRules);
+
+                // Save custom fields
                 $this->saveFields($group, $fields);
 
                 return $group;
@@ -131,11 +134,7 @@ class CustomFieldGroupController extends Controller
                 $this->formatGroup($group),
                 201
             );
-        } catch (ValidationException $e) {
-            return $this->validationErrorResponse($e);
-        } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while creating custom field group.');
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             return $this->errorResponse('Unable to create custom field group.', 500, $e->getMessage());
         }
     }
@@ -168,9 +167,7 @@ class CustomFieldGroupController extends Controller
             $group = CustomFieldGroup::find($id);
 
             if (!$group) {
-                return $this->errorResponse('Custom field group not found.', 404, 'No custom field group exists with this id.', [
-                    'id' => $id,
-                ]);
+                return $this->errorResponse('Custom field group not found.', 404);
             }
 
             $validated = $this->validateGroup($request, $group->id);
@@ -182,7 +179,6 @@ class CustomFieldGroupController extends Controller
                 unset($validated['location_rules'], $validated['fields']);
 
                 $slug = $group->group_slug;
-
                 if (!empty($validated['group_slug'])) {
                     $slug = CustomFieldGroup::generateUniqueSlug($validated['group_slug'], $group->id);
                 } elseif ($validated['group_name'] !== $group->group_name) {
@@ -196,10 +192,14 @@ class CustomFieldGroupController extends Controller
                     'status' => $validated['status'] ?? $group->status,
                 ]);
 
+                // Delete old rules and fields
                 $group->locationRules()->delete();
                 $group->fields()->delete();
 
+                // Save updated location rules
                 $this->saveLocationRules($group, $locationRules);
+
+                // Save updated fields
                 $this->saveFields($group, $fields);
             });
 
@@ -209,11 +209,7 @@ class CustomFieldGroupController extends Controller
                 'Custom field group updated successfully.',
                 $this->formatGroup($group)
             );
-        } catch (ValidationException $e) {
-            return $this->validationErrorResponse($e);
-        } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while updating custom field group.');
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             return $this->errorResponse('Unable to update custom field group.', 500, $e->getMessage());
         }
     }
@@ -270,23 +266,14 @@ class CustomFieldGroupController extends Controller
         try {
             $postTypeData = PostType::query()
                 ->where(function ($q) use ($postType) {
-                    if (is_numeric($postType)) {
-                        $q->where('id', $postType);
-                    }
-
-                    $q->orWhere('slug', $postType)
-                        ->orWhere('name', $postType);
+                    if (is_numeric($postType)) $q->where('id', $postType);
+                    $q->orWhere('slug', $postType)->orWhere('name', $postType);
                 })
                 ->first();
 
-            if (!$postTypeData) {
-                return $this->errorResponse('Post type not found.', 404, 'No post type exists with this id, slug, or name.', [
-                    'post_type' => $postType,
-                ]);
-            }
+            if (!$postTypeData) return $this->errorResponse('Post type not found.', 404);
 
-            $groups = CustomFieldGroup::query()
-                ->with($this->groupRelations)
+            $groups = CustomFieldGroup::with($this->groupRelations)
                 ->where('status', true)
                 ->whereHas('locationRules', function ($q) use ($postTypeData) {
                     $q->where('status', true)
@@ -299,9 +286,7 @@ class CustomFieldGroupController extends Controller
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get()
-                ->map(function ($group) {
-                    return $this->formatGroup($group);
-                });
+                ->map(fn($group) => $this->formatGroup($group));
 
             return $this->successResponse('Custom field groups fetched by post type successfully.', $groups, 200, [
                 'post_type' => [
@@ -310,9 +295,7 @@ class CustomFieldGroupController extends Controller
                     'slug' => $postTypeData->slug,
                 ],
             ]);
-        } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while fetching custom field groups by post type.');
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             return $this->errorResponse('Unable to fetch custom field groups by post type.', 500, $e->getMessage());
         }
     }
@@ -327,27 +310,16 @@ class CustomFieldGroupController extends Controller
 
             $taxonomyData = Taxonomy::query()
                 ->where(function ($q) use ($taxonomy) {
-                    if (is_numeric($taxonomy)) {
-                        $q->where('id', $taxonomy);
-                    }
-
-                    $q->orWhere('slug', $taxonomy)
-                        ->orWhere('name', $taxonomy);
+                    if (is_numeric($taxonomy)) $q->where('id', $taxonomy);
+                    $q->orWhere('slug', $taxonomy)->orWhere('name', $taxonomy);
                 })
                 ->first();
 
-            if (!$taxonomyData) {
-                return $this->errorResponse('Taxonomy not found.', 404, 'No taxonomy exists with this id, slug, or name.', [
-                    'taxonomy' => $taxonomy,
-                ]);
-            }
+            if (!$taxonomyData) return $this->errorResponse('Taxonomy not found.', 404);
 
-            $selectedTermIds = collect($request->taxonomy_term_ids ?? [])
-                ->map(fn ($id) => (int) $id)
-                ->toArray();
+            $selectedTermIds = collect($request->taxonomy_term_ids ?? [])->map(fn($id) => (int)$id)->toArray();
 
-            $groups = CustomFieldGroup::query()
-                ->with($this->groupRelations)
+            $groups = CustomFieldGroup::with($this->groupRelations)
                 ->where('status', true)
                 ->whereHas('locationRules', function ($q) use ($taxonomyData, $selectedTermIds) {
                     $q->where('status', true)
@@ -356,13 +328,11 @@ class CustomFieldGroupController extends Controller
                             $sub->where('match_type', 'all')
                                 ->orWhere(function ($specific) use ($taxonomyData, $selectedTermIds) {
                                     $specific->where('taxonomy_id', $taxonomyData->id);
-
-                                    if (!empty($selectedTermIds)) {
+                                    if ($selectedTermIds) {
                                         $specific->where(function ($termQuery) use ($selectedTermIds) {
                                             foreach ($selectedTermIds as $termId) {
                                                 $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
                                             }
-
                                             $termQuery->orWhereNull('taxonomy_term_ids');
                                         });
                                     }
@@ -372,9 +342,7 @@ class CustomFieldGroupController extends Controller
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get()
-                ->map(function ($group) {
-                    return $this->formatGroup($group);
-                });
+                ->map(fn($group) => $this->formatGroup($group));
 
             return $this->successResponse('Custom field groups fetched by taxonomy successfully.', $groups, 200, [
                 'taxonomy' => [
@@ -383,11 +351,7 @@ class CustomFieldGroupController extends Controller
                     'slug' => $taxonomyData->slug,
                 ],
             ]);
-        } catch (ValidationException $e) {
-            return $this->validationErrorResponse($e);
-        } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while fetching custom field groups by taxonomy.');
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             return $this->errorResponse('Unable to fetch custom field groups by taxonomy.', 500, $e->getMessage());
         }
     }
@@ -456,20 +420,17 @@ class CustomFieldGroupController extends Controller
     private function saveLocationRules(CustomFieldGroup $group, array $locationRules): void
     {
         foreach ($locationRules as $index => $rule) {
-            $showIf = $rule['show_if'];
-            $matchType = $rule['match_type'] ?? 'specific';
-
             CustomFieldGroupLocationRule::create([
                 'custom_field_group_id' => $group->id,
-                'show_if' => $showIf,
-                'match_type' => $matchType,
-                'post_type_id' => $showIf === 'post_type' && $matchType === 'specific'
+                'show_if' => $rule['show_if'],
+                'match_type' => $rule['match_type'] ?? 'specific',
+                'post_type_id' => $rule['show_if'] === 'post_type' && $rule['match_type'] === 'specific'
                     ? ($rule['post_type_id'] ?? null)
                     : null,
-                'taxonomy_id' => $showIf === 'taxonomy' && $matchType === 'specific'
+                'taxonomy_id' => $rule['show_if'] === 'taxonomy' && $rule['match_type'] === 'specific'
                     ? ($rule['taxonomy_id'] ?? null)
                     : null,
-                'taxonomy_term_ids' => $showIf === 'taxonomy'
+                'taxonomy_term_ids' => $rule['show_if'] === 'taxonomy'
                     ? ($rule['taxonomy_term_ids'] ?? null)
                     : null,
                 'sort_order' => $rule['sort_order'] ?? $index,
@@ -569,103 +530,24 @@ class CustomFieldGroupController extends Controller
             'group_slug' => $group->group_slug,
             'sort_order' => $group->sort_order,
             'status' => (bool) $group->status,
-
-            'creator' => $this->formatCreator($group->creator),
-
+            'creator' => $group->creator ? [
+                'id' => $group->creator->id,
+                'full_name' => trim(($group->creator->first_name ?? '') . ' ' . ($group->creator->last_name ?? '')),
+                'role' => $group->creator->role ?? null,
+            ] : null,
             'location_rules' => $group->relationLoaded('locationRules')
-                ? $group->locationRules->map(function ($rule) {
-                    return [
-                        'id' => $rule->id,
-                        'show_if' => $rule->show_if,
-                        'match_type' => $rule->match_type,
-                        'post_type_id' => $rule->post_type_id,
-                        'taxonomy_id' => $rule->taxonomy_id,
-                        'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
-                        'sort_order' => $rule->sort_order,
-                        'status' => (bool) $rule->status,
-                        'post_type' => $rule->relationLoaded('postType') && $rule->postType ? [
-                            'id' => $rule->postType->id,
-                            'name' => $rule->postType->name,
-                            'slug' => $rule->postType->slug,
-                        ] : null,
-                        'taxonomy' => $rule->relationLoaded('taxonomy') && $rule->taxonomy ? [
-                            'id' => $rule->taxonomy->id,
-                            'name' => $rule->taxonomy->name,
-                            'slug' => $rule->taxonomy->slug,
-                        ] : null,
-                    ];
-                })->values()
+                ? $group->locationRules->map(fn($rule) => [
+                    'id' => $rule->id,
+                    'show_if' => $rule->show_if,
+                    'match_type' => $rule->match_type,
+                    'post_type_id' => $rule->post_type_id,
+                    'taxonomy_id' => $rule->taxonomy_id,
+                    'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
+                    'sort_order' => $rule->sort_order,
+                    'status' => (bool)$rule->status,
+                ])->values()
                 : [],
-
-            'fields' => $group->relationLoaded('fields')
-                ? $group->fields->map(function ($field) {
-                    return [
-                        'id' => $field->id,
-                        'custom_field_group_id' => $field->custom_field_group_id,
-                        'field_label' => $field->field_label,
-                        'field_name_slug' => $field->field_name_slug,
-                        'field_placeholder' => $field->field_placeholder,
-                        'field_type' => $field->field_type,
-                        'required' => $field->required,
-                        'checkbox_type' => $field->checkbox_type,
-                        'default_value' => $field->default_value,
-                        'validation_rules' => $field->validation_rules ?? [],
-                        'conditional_rules' => $field->conditional_rules ?? [],
-                        'media_limit' => $field->media_limit,
-                        'media_size' => $field->media_size,
-                        'media_format' => $field->media_format,
-                        'sort_order' => $field->sort_order,
-                        'status' => (bool) $field->status,
-
-                        'options' => $field->relationLoaded('options')
-                            ? $field->options->map(function ($option) {
-                                return [
-                                    'id' => $option->id,
-                                    'custom_field_id' => $option->custom_field_id,
-                                    'type' => $option->type,
-                                    'name' => $option->name,
-                                    'value' => $option->value,
-                                    'sort_order' => $option->sort_order,
-                                    'status' => (bool) $option->status,
-                                ];
-                            })->values()
-                            : [],
-
-                        'repeaters' => $field->relationLoaded('repeaters')
-                            ? $field->repeaters->map(function ($repeater) {
-                                return [
-                                    'id' => $repeater->id,
-                                    'custom_field_id' => $repeater->custom_field_id,
-                                    'field_label' => $repeater->field_label,
-                                    'field_name_slug' => $repeater->field_name_slug,
-                                    'field_placeholder' => $repeater->field_placeholder,
-                                    'field_type' => $repeater->field_type,
-                                    'media_limit' => $repeater->media_limit,
-                                    'media_size' => $repeater->media_size,
-                                    'media_format' => $repeater->media_format,
-                                    'sort_order' => $repeater->sort_order,
-                                    'status' => (bool) $repeater->status,
-
-                                    'options' => $repeater->relationLoaded('options')
-                                        ? $repeater->options->map(function ($option) {
-                                            return [
-                                                'id' => $option->id,
-                                                'custom_field_repeater_id' => $option->custom_field_repeater_id,
-                                                'type' => $option->type,
-                                                'name' => $option->name,
-                                                'value' => $option->value,
-                                                'sort_order' => $option->sort_order,
-                                                'status' => (bool) $option->status,
-                                            ];
-                                        })->values()
-                                        : [],
-                                ];
-                            })->values()
-                            : [],
-                    ];
-                })->values()
-                : [],
-
+            'fields' => $group->relationLoaded('fields') ? $group->fields->toArray() : [],
             'created_at' => $group->created_at,
             'updated_at' => $group->updated_at,
         ];

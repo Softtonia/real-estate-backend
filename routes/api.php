@@ -976,10 +976,7 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 
 
 // ================= Admin CRM Template Builder APIs =================
-
-// Route::middleware(['validate.api.client'])->group(function () {
-
-Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
+Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
 
     // Templates
     Route::get('templates-list', [TemplateController::class, 'index']);
@@ -1015,14 +1012,9 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
     Route::get('custom-widgets/{id}', [CustomWidgetController::class, 'show']);
     Route::put('custom-widgets/{id}', [CustomWidgetController::class, 'update']);
     Route::delete('custom-widgets/{id}', [CustomWidgetController::class, 'destroy']);
-});
+    Route::post('template-resolve', [TemplateApiController::class, 'resolve']);
 
-Route::middleware(['throttle:60,1'])->post('template-resolve', [TemplateApiController::class, 'resolve']);
-// });
-// ================= Dynamic Post Type + Taxonomy APIs =================
-
-Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
-
+    // ================= Dynamic Post Type + Taxonomy APIs =================
     // Post Types
     Route::get('post-types/trash', [PostTypeController::class, 'trash']);
     Route::post('post-types/bulk-delete', [PostTypeController::class, 'bulkDelete']);
