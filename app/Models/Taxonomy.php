@@ -105,4 +105,8 @@ class Taxonomy extends Model
     {
         return $query->where('is_default', false);
     }
+        public function scopeTrash($query)
+    {
+        return $query->where('deleted_at', '<>', null);
+    }
 }

@@ -22,8 +22,8 @@ class TaxonomyController extends Controller
                     $search = $request->input('search');
                     $q->where(function ($subQuery) use ($search) {
                         $subQuery->where('name', 'like', "%{$search}%")
-                                 ->orWhere('slug', 'like', "%{$search}%")
-                                 ->orWhere('description', 'like', "%{$search}%");
+                            ->orWhere('slug', 'like', "%{$search}%")
+                            ->orWhere('description', 'like', "%{$search}%");
                     });
                 })
                 ->when($request->filled('is_default'), function ($q) use ($request) {
@@ -157,7 +157,7 @@ class TaxonomyController extends Controller
             ]);
 
             $updateData = [];
-            foreach (['name','description','is_default','hierarchical','status','sort_order','menu_order'] as $field) {
+            foreach (['name', 'description', 'is_default', 'hierarchical', 'status', 'sort_order', 'menu_order'] as $field) {
                 if (array_key_exists($field, $validated)) {
                     $updateData[$field] = $validated[$field] ?? ($field === 'sort_order' ? $this->getNextSortOrder() : $this->getNextAvailableMenuOrder());
                 }
@@ -193,41 +193,24 @@ class TaxonomyController extends Controller
         }
     }
 
-    // Bulk delete
-    public function bulkDelete(Request $request)
-    {
-        try {
-            $validated = $request->validate(['ids' => ['required','array','min:1'],'ids.*' => ['required','integer','exists:taxonomies,id']]);
-            $defaultCount = Taxonomy::whereIn('id',$validated['ids'])->where('is_default',true)->count();
-            if($defaultCount>0){
-                return response()->json(['status'=>false,'message'=>'Default taxonomies cannot be deleted.'],403);
-            }
-            $deleted = Taxonomy::whereIn('id',$validated['ids'])->delete();
-            return response()->json(['status'=>true,'message'=>'Selected taxonomies deleted successfully.','deleted_count'=>$deleted],200);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json(['status'=>false,'message'=>'Validation failed.','errors'=>$e->errors()],422);
-        } catch (\Exception $e) {
-            return response()->json(['status'=>false,'message'=>'Unable to delete selected taxonomies.','error'=>$e->getMessage()],500);
-        }
-    }
 
     public function terms(Taxonomy $taxonomy)
     {
         try {
-            $terms = $taxonomy->terms()->orderBy('sort_order','asc')->get();
-            return response()->json(['status'=>true,'message'=>'Taxonomy terms fetched successfully.','data'=>$terms],200);
+            $terms = $taxonomy->terms()->orderBy('sort_order', 'asc')->get();
+            return response()->json(['status' => true, 'message' => 'Taxonomy terms fetched successfully.', 'data' => $terms], 200);
         } catch (\Exception $e) {
-            return response()->json(['status'=>false,'message'=>'Unable to fetch taxonomy terms.','error'=>$e->getMessage()],500);
+            return response()->json(['status' => false, 'message' => 'Unable to fetch taxonomy terms.', 'error' => $e->getMessage()], 500);
         }
     }
 
     public function fields(Taxonomy $taxonomy)
     {
         try {
-            $fields = $taxonomy->customFieldGroups()->with(['fields.options','fields.repeaters.options'])->get();
-            return response()->json(['status'=>true,'message'=>'Taxonomy fields fetched successfully.','data'=>$fields],200);
+            $fields = $taxonomy->customFieldGroups()->with(['fields.options', 'fields.repeaters.options'])->get();
+            return response()->json(['status' => true, 'message' => 'Taxonomy fields fetched successfully.', 'data' => $fields], 200);
         } catch (\Exception $e) {
-            return response()->json(['status'=>false,'message'=>'Unable to fetch taxonomy fields.','error'=>$e->getMessage()],500);
+            return response()->json(['status' => false, 'message' => 'Unable to fetch taxonomy fields.', 'error' => $e->getMessage()], 500);
         }
     }
 
@@ -238,10 +221,14 @@ class TaxonomyController extends Controller
 
     private function getNextAvailableMenuOrder(): int
     {
-        $usedOrders = Taxonomy::whereNotNull('menu_order')->where('menu_order','>=',6)->orderBy('menu_order','asc')->pluck('menu_order')->map(fn($v)=>(int)$v)->toArray();
-        $nextOrder=6;
-        foreach($usedOrders as $order){
-            if($order==$nextOrder){ $nextOrder++; } elseif($order>$nextOrder){ break; }
+        $usedOrders = Taxonomy::whereNotNull('menu_order')->where('menu_order', '>=', 6)->orderBy('menu_order', 'asc')->pluck('menu_order')->map(fn($v) => (int)$v)->toArray();
+        $nextOrder = 6;
+        foreach ($usedOrders as $order) {
+            if ($order == $nextOrder) {
+                $nextOrder++;
+            } elseif ($order > $nextOrder) {
+                break;
+            }
         }
         return $nextOrder;
     }
@@ -250,19 +237,120 @@ class TaxonomyController extends Controller
     {
         $creator = $taxonomy->creator;
         return [
-            'id'=>$taxonomy->id,
-            'name'=>$taxonomy->name,
-            'slug'=>$taxonomy->slug,
-            'description'=>$taxonomy->description,
-            'is_default'=>(bool)$taxonomy->is_default,
-            'hierarchical'=>(bool)$taxonomy->hierarchical,
-            'status'=>(bool)$taxonomy->status,
-            'sort_order'=>$taxonomy->sort_order,
-            'menu_order'=>$taxonomy->menu_order,
-            'created_by'=>$taxonomy->created_by,
-            'created_by_user'=>$creator?['id'=>$creator->id,'name'=>trim(($creator->first_name??'').' '.($creator->last_name??'')),'email'=>$creator->email??null]:null,
-            'created_at'=>$taxonomy->created_at,
-            'updated_at'=>$taxonomy->updated_at,
+            'id' => $taxonomy->id,
+            'name' => $taxonomy->name,
+            'slug' => $taxonomy->slug,
+            'description' => $taxonomy->description,
+            'is_default' => (bool)$taxonomy->is_default,
+            'hierarchical' => (bool)$taxonomy->hierarchical,
+            'status' => (bool)$taxonomy->status,
+            'sort_order' => $taxonomy->sort_order,
+            'menu_order' => $taxonomy->menu_order,
+            'created_by' => $taxonomy->created_by,
+            'created_by_user' => $creator ? ['id' => $creator->id, 'name' => trim(($creator->first_name ?? '') . ' ' . ($creator->last_name ?? '')), 'email' => $creator->email ?? null] : null,
+            'created_at' => $taxonomy->created_at,
+            'updated_at' => $taxonomy->updated_at,
         ];
+    }
+    // ---------------- Soft delete / trash / restore ----------------
+
+    public function trash(Request $request)
+    {
+        $query = Taxonomy::onlyTrashed()->with('creator')
+            ->when($request->filled('search'), fn($q) => $q->where('name', 'like', '%' . $request->search . '%')->orWhere('slug', 'like', '%' . $request->search . '%'))
+            ->orderBy('deleted_at', 'desc');
+
+        $perPage = min((int)$request->get('per_page', 15), 100);
+        $taxonomies = $query->paginate($perPage);
+        $taxonomies->getCollection()->transform(fn($t) => $this->formatTaxonomy($t));
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Trash taxonomies fetched successfully.',
+            'data' => $taxonomies
+        ], 200);
+    }
+
+    public function restore($id)
+    {
+        try {
+            $taxonomy = Taxonomy::onlyTrashed()->find($id);
+            if (!$taxonomy) return response()->json(['status' => false, 'message' => 'Taxonomy not found in trash.'], 404);
+
+            $taxonomy->restore();
+            $taxonomy->load('creator');
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Taxonomy restored successfully.',
+                'data' => $this->formatTaxonomy($taxonomy)
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['status' => false, 'message' => 'Unable to restore taxonomy.', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function forceDelete($id)
+    {
+        try {
+            $taxonomy = Taxonomy::onlyTrashed()->find($id);
+            if (!$taxonomy) return response()->json(['status' => false, 'message' => 'Taxonomy not found in trash.'], 404);
+            if ($taxonomy->is_default) return response()->json(['status' => false, 'message' => 'Default taxonomy cannot be permanently deleted.'], 403);
+
+            $taxonomy->forceDelete();
+            return response()->json(['status' => true, 'message' => 'Taxonomy permanently deleted successfully.'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['status' => false, 'message' => 'Unable to permanently delete taxonomy.', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function bulkDelete(Request $request)
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:taxonomies,id']
+        ]);
+
+        $deletedCount = Taxonomy::whereIn('id', $validated['ids'])->delete();
+        return response()->json([
+            'status' => true,
+            'message' => 'Selected taxonomies deleted successfully.',
+            'deleted_count' => $deletedCount
+        ], 200);
+    }
+
+    public function bulkForceDelete(Request $request)
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:taxonomies,id']
+        ]);
+
+        $forceDeleted = Taxonomy::onlyTrashed()->whereIn('id', $validated['ids'])
+            ->get()
+            ->each(function ($t) {
+                if (!$t->is_default) $t->forceDelete();
+            });
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Selected taxonomies permanently deleted successfully.',
+            'deleted_count' => $forceDeleted->count()
+        ], 200);
+    }
+
+    public function bulkRestore(Request $request)
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:taxonomies,id']
+        ]);
+
+        $restoredCount = Taxonomy::onlyTrashed()->whereIn('id', $validated['ids'])->restore();
+        return response()->json([
+            'status' => true,
+            'message' => 'Selected taxonomies restored successfully.',
+            'restored_count' => $restoredCount
+        ], 200);
     }
 }

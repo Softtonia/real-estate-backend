@@ -93,11 +93,13 @@ use App\Http\Controllers\Template\TemplateComponentController;
 use App\Http\Controllers\Template\TemplateApiController;
 
 use App\Http\Controllers\Api\PostTypeController;
-use App\Http\Controllers\Api\DynamicPostController;
+use App\Http\Controllers\Api\PostTypeExportImportController;
 use App\Http\Controllers\Api\TaxonomyController;
+use App\Http\Controllers\Api\TaxonomyExportImportController;
 use App\Http\Controllers\Api\TaxonomyTermController;
 use App\Http\Controllers\Api\DynamicCustomFieldController;
 use App\Http\Controllers\Api\PostTaxonomyTermController;
+use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -1025,6 +1027,10 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('post-types/{id}/fields', [PostTypeController::class, 'fields']);
     Route::get('post-types-menu', [PostTypeController::class, 'menu']);
 
+    // Post Types Import/Export
+    Route::get('post-types/export-csv', [PostTypeExportImportController::class, 'exportToCsv']);
+    Route::post('post-types/import-csv', [PostTypeExportImportController::class, 'importFromCsv']);
+
     Route::get('post-types/{postType}/fields', [PostTypeController::class, 'fields']);
     Route::get('post-types', [PostTypeController::class, 'index']);
     Route::post('post-types', [PostTypeController::class, 'store']);
@@ -1032,22 +1038,37 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::put('post-types/{postType}', [PostTypeController::class, 'update']);
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
     // Dynamic Posts
-    Route::get('dynamic-posts/by-type/{slug}', [DynamicPostController::class, 'byPostType']);
-    Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
-    Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
-    Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
-    Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show']);
-    Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update']);
-    Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
+    // Route::get('dynamic-posts/by-type/{slug}', [DynamicPostController::class, 'byPostType']);
+    // Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
+    // Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
+    // Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
+    // Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show']);
+    // Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update']);
+    // Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
+
     // Taxonomies
-    Route::get('taxonomies/{taxonomy}/terms', [TaxonomyController::class, 'terms']);
-    Route::get('taxonomies/{taxonomy}/fields', [TaxonomyController::class, 'fields']);
-    Route::post('taxonomies/bulk-delete', [TaxonomyController::class, 'bulkDelete']);
     Route::get('taxonomies', [TaxonomyController::class, 'index']);
     Route::post('taxonomies', [TaxonomyController::class, 'store']);
+    
+    // Taxonomies Import/Export
+    Route::get('taxonomies/export-csv', [TaxonomyExportImportController::class, 'exportToCsv']);
+    Route::post('taxonomies/import-csv', [TaxonomyExportImportController::class, 'importFromCsv']);
+    
+    // Trash and bulk routes MUST come before {taxonomy} routes to avoid conflicts
+    Route::get('taxonomies/trash', [TaxonomyController::class, 'trash']);
+    Route::post('taxonomies/bulk-delete', [TaxonomyController::class, 'bulkDelete']);
+    Route::post('taxonomies/bulk-restore', [TaxonomyController::class, 'bulkRestore']);
+    Route::post('taxonomies/bulk-force-delete', [TaxonomyController::class, 'bulkForceDelete']);
+    
     Route::get('taxonomies/{taxonomy}', [TaxonomyController::class, 'show']);
     Route::put('taxonomies/{taxonomy}', [TaxonomyController::class, 'update']);
     Route::delete('taxonomies/{taxonomy}', [TaxonomyController::class, 'destroy']);
+
+    Route::get('taxonomies/{taxonomy}/terms', [TaxonomyController::class, 'terms']);
+    Route::get('taxonomies/{taxonomy}/fields', [TaxonomyController::class, 'fields']);
+
+    Route::post('taxonomies/{id}/restore', [TaxonomyController::class, 'restore']);
+    Route::delete('taxonomies/{id}/force-delete', [TaxonomyController::class, 'forceDelete']);
 
 
     // Taxonomy Terms
@@ -1083,6 +1104,10 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::put('custom-field-groups/{id}', [CustomFieldGroupController::class, 'update']);
     Route::delete('custom-field-groups/{id}', [CustomFieldGroupController::class, 'destroy']);
     Route::post('custom-field-groups-bulk-delete', [CustomFieldGroupController::class, 'bulkDelete']);
+
+    // Custom Field Groups Import/Export
+    Route::get('custom-field-groups/export-csv', [CustomFieldGroupExportImportController::class, 'exportToCsv']);
+    Route::post('custom-field-groups/import-csv', [CustomFieldGroupExportImportController::class, 'importFromCsv']);
 
     Route::get('custom-field-groups-by-post-type/{postType}', [CustomFieldGroupController::class, 'groupsByPostType']);
     Route::post('custom-field-groups-by-taxonomy/{taxonomy}', [CustomFieldGroupController::class, 'groupsByTaxonomy']);
