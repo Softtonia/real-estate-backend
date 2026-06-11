@@ -11,8 +11,6 @@ return new class extends Migration
         Schema::create('custom_field_repeaters', function (Blueprint $table) {
             $table->id();
 
-            $table->unsignedBigInteger('group_id')->nullable();
-
             $table->foreignId('custom_field_id')
                 ->constrained('custom_fields')
                 ->cascadeOnDelete();
@@ -49,12 +47,11 @@ return new class extends Migration
 
             $table->unique(
                 ['custom_field_id', 'field_name_slug'],
-                'uq_repeater_field_slug'
+                'uq_custom_field_repeater_slug'
             );
 
-            $table->index(['custom_field_id', 'status'], 'idx_repeaters_field_status');
-            $table->index(['group_id', 'status'], 'idx_repeaters_group_status');
-            $table->index(['sort_order', 'status'], 'idx_repeaters_sort_order_status');
+            $table->index(['custom_field_id', 'status'], 'idx_cfr_field_status');
+            $table->index(['sort_order', 'status'], 'idx_cfr_sort_status');
         });
     }
 

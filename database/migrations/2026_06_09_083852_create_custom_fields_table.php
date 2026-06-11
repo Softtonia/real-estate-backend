@@ -11,22 +11,9 @@ return new class extends Migration
         Schema::create('custom_fields', function (Blueprint $table) {
             $table->id();
 
-            $table->unsignedBigInteger('group_id')->nullable();
-
-            $table->enum('entity_type', [
-                'post',
-                'taxonomy'
-            ])->default('post');
-
-            $table->foreignId('post_type_id')
-                ->nullable()
-                ->constrained('post_types')
-                ->nullOnDelete();
-
-            $table->foreignId('taxonomy_id')
-                ->nullable()
-                ->constrained('taxonomies')
-                ->nullOnDelete();
+            $table->foreignId('custom_field_group_id')
+                ->constrained('custom_field_groups')
+                ->cascadeOnDelete();
 
             $table->string('field_label', 255);
             $table->string('field_name_slug', 255);
@@ -61,8 +48,6 @@ return new class extends Migration
             $table->json('validation_rules')->nullable();
             $table->json('conditional_rules')->nullable();
 
-            $table->unsignedBigInteger('template_id')->nullable();
-
             $table->integer('media_limit')->nullable();
             $table->string('media_size', 100)->nullable();
             $table->string('media_format', 255)->nullable();
@@ -75,13 +60,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(
-                ['entity_type', 'post_type_id', 'field_name_slug'],
-                'uq_custom_field_post_type_slug'
-            );
-
-            $table->unique(
-                ['entity_type', 'taxonomy_id', 'field_name_slug'],
-                'uq_custom_field_taxonomy_slug'
+                ['custom_field_group_id', 'field_name_slug'],
+                'uq_custom_field_group_slug'
             );
 
             $table->foreign('created_by')
@@ -89,12 +69,9 @@ return new class extends Migration
                 ->on('users')
                 ->nullOnDelete();
 
-            $table->index(['entity_type', 'post_type_id', 'status'], 'idx_custom_fields_post_type_status');
-            $table->index(['entity_type', 'taxonomy_id', 'status'], 'idx_custom_fields_taxonomy_status');
-            $table->index(['group_id', 'status'], 'idx_custom_fields_group_status');
-            $table->index(['sort_order', 'status'], 'idx_custom_fields_sort_order_status');
-            $table->index('template_id', 'idx_custom_fields_template_id');
-            $table->index('created_by', 'idx_custom_fields_created_by');
+            $table->index(['custom_field_group_id', 'status'], 'idx_cf_group_status');
+            $table->index(['sort_order', 'status'], 'idx_cf_sort_status');
+            $table->index('created_by', 'idx_cf_created_by');
         });
     }
 

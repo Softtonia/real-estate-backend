@@ -46,7 +46,10 @@ class DatabaseSeeder extends Seeder
          $this->call(LocationSeeder::class);
          $this->call(LeadTypesSeeder::class);
          $this->call(DefaultUser::class);
-        // $this->call(DefaultPostTypeSeeder::class);
-
+        $this->call(DefaultPostTypeSeeder::class);
+        $this->call(TaxonomySeeder::class);
+        $this->call(PostTypeTaxonomySeeder::class);
+        $this->call(TaxonomyTermSeeder::class);
+        $this->call(DynamicPostSeeder::class);
     }
 }

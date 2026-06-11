@@ -16,7 +16,6 @@ return new class extends Migration
                 ->cascadeOnDelete();
 
             $table->string('type', 50)->nullable();
-
             $table->string('name', 150);
             $table->string('value', 150);
 
@@ -25,20 +24,8 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->unique(
-                ['custom_field_repeater_id', 'value'],
-                'uq_repeater_option_value'
-            );
-
-            $table->index(
-                ['custom_field_repeater_id', 'status'],
-                'idx_repeater_options_field_status'
-            );
-
-            $table->index(
-                ['sort_order', 'status'],
-                'idx_repeater_options_sort_order_status'
-            );
+            $table->index(['custom_field_repeater_id', 'status'], 'idx_cfro_repeater_status');
+            $table->index(['sort_order', 'status'], 'idx_cfro_sort_status');
         });
     }
 

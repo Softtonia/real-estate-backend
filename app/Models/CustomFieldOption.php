@@ -16,22 +16,12 @@ class CustomFieldOption extends Model
     ];
 
     protected $casts = [
-        'status' => 'boolean',
         'sort_order' => 'integer',
+        'status' => 'boolean',
     ];
 
     public function customField()
     {
         return $this->belongsTo(CustomField::class, 'custom_field_id');
-    }
-
-    public function values()
-    {
-        return $this->hasMany(CustomFieldValue::class, 'custom_field_option_id');
-    }
-
-    public function scopeActive($query)
-    {
-        return $query->where('status', true);
     }
 }

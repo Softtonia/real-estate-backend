@@ -3,16 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class CustomField extends Model
 {
     protected $fillable = [
-        'group_id',
-        'entity_type',
-        'post_type_id',
-        'taxonomy_id',
+        'custom_field_group_id',
         'field_label',
         'field_name_slug',
         'field_placeholder',
@@ -22,20 +18,20 @@ class CustomField extends Model
         'default_value',
         'validation_rules',
         'conditional_rules',
-        'template_id',
         'media_limit',
         'media_size',
         'media_format',
         'sort_order',
         'status',
+        'created_by',
     ];
 
     protected $casts = [
         'validation_rules' => 'array',
         'conditional_rules' => 'array',
-        'status' => 'boolean',
         'sort_order' => 'integer',
         'media_limit' => 'integer',
+        'status' => 'boolean',
     ];
 
     protected static function booted(): void
@@ -53,14 +49,9 @@ class CustomField extends Model
         });
     }
 
-    public function postType()
+    public function group()
     {
-        return $this->belongsTo(PostType::class, 'post_type_id');
-    }
-
-    public function taxonomy()
-    {
-        return $this->belongsTo(Taxonomy::class, 'taxonomy_id');
+        return $this->belongsTo(CustomFieldGroup::class, 'custom_field_group_id');
     }
 
     public function options()
@@ -82,12 +73,6 @@ class CustomField extends Model
             ->orderBy('sort_order');
     }
 
-    public function repeaterFields()
-    {
-        return $this->hasMany(CustomFieldRepeater::class, 'custom_field_id')
-            ->orderBy('sort_order');
-    }
-
     public function activeRepeaters()
     {
         return $this->hasMany(CustomFieldRepeater::class, 'custom_field_id')
@@ -100,31 +85,9 @@ class CustomField extends Model
         return $this->hasMany(CustomFieldValue::class, 'custom_field_id');
     }
 
-    public function conditions()
+    public function creator()
     {
-        return $this->hasMany(CustomFieldCondition::class, 'custom_field_id');
-    }
-
-    public function groupname()
-    {
-        return $this->belongsTo(Groupname::class, 'group_id');
-    }
-
-    public function scopeActive($query)
-    {
-        return $query->where('status', true);
-    }
-
-    public function scopeForPostType($query, $postTypeId)
-    {
-        return $query->where('entity_type', 'post')
-            ->where('post_type_id', $postTypeId);
-    }
-
-    public function scopeForTaxonomy($query, $taxonomyId)
-    {
-        return $query->where('entity_type', 'taxonomy')
-            ->where('taxonomy_id', $taxonomyId);
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function isRequired(): bool
@@ -145,9 +108,5 @@ class CustomField extends Model
     public function isMediaType(): bool
     {
         return in_array($this->field_type, ['media', 'file']);
-    }
-        public function creator()
-    {
-        return $this->belongsTo(User::class, 'created_by');
     }
 }

@@ -16,7 +16,6 @@ return new class extends Migration
                 ->cascadeOnDelete();
 
             $table->string('type', 50)->nullable();
-
             $table->string('name', 150);
             $table->string('value', 150);
 
@@ -25,13 +24,8 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->unique(
-                ['custom_field_id', 'value'],
-                'uq_custom_field_option_value'
-            );
-
-            $table->index(['custom_field_id', 'status'], 'idx_custom_field_options_field_status');
-            $table->index(['sort_order', 'status'], 'idx_custom_field_options_sort_order_status');
+            $table->index(['custom_field_id', 'status'], 'idx_cfo_field_status');
+            $table->index(['sort_order', 'status'], 'idx_cfo_sort_status');
         });
     }
 

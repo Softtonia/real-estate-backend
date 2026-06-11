@@ -16,22 +16,12 @@ class CustomFieldRepeaterOption extends Model
     ];
 
     protected $casts = [
-        'status' => 'boolean',
         'sort_order' => 'integer',
+        'status' => 'boolean',
     ];
 
     public function repeater()
     {
         return $this->belongsTo(CustomFieldRepeater::class, 'custom_field_repeater_id');
-    }
-
-    public function customFieldRepeater()
-    {
-        return $this->belongsTo(CustomFieldRepeater::class, 'custom_field_repeater_id');
-    }
-
-    public function scopeActive($query)
-    {
-        return $query->where('status', true);
     }
 }

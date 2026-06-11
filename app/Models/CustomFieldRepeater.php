@@ -3,13 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class CustomFieldRepeater extends Model
 {
     protected $fillable = [
-        'group_id',
         'custom_field_id',
         'field_label',
         'field_name_slug',
@@ -23,9 +21,9 @@ class CustomFieldRepeater extends Model
     ];
 
     protected $casts = [
-        'status' => 'boolean',
         'sort_order' => 'integer',
         'media_limit' => 'integer',
+        'status' => 'boolean',
     ];
 
     protected static function booted(): void
@@ -54,27 +52,11 @@ class CustomFieldRepeater extends Model
             ->orderBy('sort_order');
     }
 
-    public function repeaterOptions()
-    {
-        return $this->hasMany(CustomFieldRepeaterOption::class, 'custom_field_repeater_id')
-            ->orderBy('sort_order');
-    }
-
     public function activeOptions()
     {
         return $this->hasMany(CustomFieldRepeaterOption::class, 'custom_field_repeater_id')
             ->where('status', true)
             ->orderBy('sort_order');
-    }
-
-    public function groupname()
-    {
-        return $this->belongsTo(Groupname::class, 'group_id');
-    }
-
-    public function scopeActive($query)
-    {
-        return $query->where('status', true);
     }
 
     public function hasOptions(): bool

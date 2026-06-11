@@ -71,6 +71,7 @@ use App\Http\Controllers\Help\HelpArticleController;
 use App\Http\Controllers\DeveloperListing\DeveloperlistingController;
 use App\Http\Controllers\Admin\MailConfigController;
 use App\Http\Controllers\Admin\SystemController;
+use App\Http\Controllers\Api\CustomFieldGroupController;
 use App\Http\Controllers\OtpController;
 use App\Http\Controllers\EmailOtpController;
 use App\Http\Controllers\GoogleAuthController;
@@ -1038,7 +1039,6 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
     Route::get('post-types/{postType}', [PostTypeController::class, 'show']);
     Route::put('post-types/{postType}', [PostTypeController::class, 'update']);
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
-
     // Dynamic Posts
     Route::get('dynamic-posts/by-type/{slug}', [DynamicPostController::class, 'byPostType']);
     Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
@@ -1047,8 +1047,6 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show']);
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update']);
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
-
-
     // Taxonomies
     Route::get('taxonomies/{taxonomy}/terms', [TaxonomyController::class, 'terms']);
     Route::get('taxonomies/{taxonomy}/fields', [TaxonomyController::class, 'fields']);
@@ -1086,4 +1084,14 @@ Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
     Route::get('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'show']);
     Route::put('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'update']);
     Route::delete('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'destroy']);
+
+    Route::get('custom-field-groups', [CustomFieldGroupController::class, 'index']);
+    Route::post('custom-field-groups', [CustomFieldGroupController::class, 'store']);
+    Route::get('custom-field-groups/{id}', [CustomFieldGroupController::class, 'show']);
+    Route::put('custom-field-groups/{id}', [CustomFieldGroupController::class, 'update']);
+    Route::delete('custom-field-groups/{id}', [CustomFieldGroupController::class, 'destroy']);
+    Route::post('custom-field-groups-bulk-delete', [CustomFieldGroupController::class, 'bulkDelete']);
+
+    Route::get('custom-field-groups-by-post-type/{postType}', [CustomFieldGroupController::class, 'groupsByPostType']);
+    Route::post('custom-field-groups-by-taxonomy/{taxonomy}', [CustomFieldGroupController::class, 'groupsByTaxonomy']);
 });
