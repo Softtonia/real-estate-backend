@@ -3,11 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CustomFieldGroupLocationRule extends Model {
-    use SoftDeletes;
-
     protected $fillable = [
         'custom_field_group_id',
         'show_if',
