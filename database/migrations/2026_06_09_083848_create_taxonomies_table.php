@@ -33,10 +33,6 @@ return new class extends Migration
                 ->default(0)
                 ->comment('Controls display ordering in admin panel');
 
-            $table->unsignedInteger('menu_order')
-                ->nullable()
-                ->comment('1-5 reserved for system/admin default taxonomies');
-
             $table->timestamps();
             $table->softDeletes();
             $table->foreign('created_by')
@@ -47,7 +43,6 @@ return new class extends Migration
             $table->index(['slug', 'status']);
             $table->index(['is_default', 'status']);
             $table->index(['sort_order', 'status']);
-            $table->index(['menu_order', 'status']);
             $table->index('created_by');
         });
     }

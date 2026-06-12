@@ -76,7 +76,6 @@ class TaxonomyController extends Controller
                 'hierarchical' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
-                'menu_order' => ['nullable', 'integer', 'min:6'],
                 'post_type_ids' => ['nullable', 'array'],
                 'post_type_ids.*' => ['integer', 'exists:post_types,id'],
             ]);
@@ -100,7 +99,6 @@ class TaxonomyController extends Controller
                 'status' => $validated['status'] ?? true,
                 'created_by' => Auth::id(),
                 'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
-                'menu_order' => $validated['menu_order'] ?? $this->getNextAvailableMenuOrder(),
             ]);
             if (array_key_exists('post_type_ids', $validated)) {
                 $this->syncPostTypes($taxonomy, $validated['post_type_ids'] ?? []);
@@ -158,15 +156,14 @@ class TaxonomyController extends Controller
                 'hierarchical' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
-                'menu_order' => ['nullable', 'integer', 'min:6'],
                 'post_type_ids' => ['nullable', 'array'],
                 'post_type_ids.*' => ['integer', 'exists:post_types,id'],
             ]);
 
             $updateData = [];
-            foreach (['name', 'description', 'is_default', 'hierarchical', 'status', 'sort_order', 'menu_order'] as $field) {
+            foreach (['name', 'description', 'is_default', 'hierarchical', 'status', 'sort_order'] as $field) {
                 if (array_key_exists($field, $validated)) {
-                    $updateData[$field] = $validated[$field] ?? ($field === 'sort_order' ? $this->getNextSortOrder() : $this->getNextAvailableMenuOrder());
+                    $updateData[$field] = $validated[$field] ?? ($field === 'sort_order' ? $this->getNextSortOrder() : null);
                 }
             }
 
@@ -229,20 +226,6 @@ class TaxonomyController extends Controller
         return (Taxonomy::max('sort_order') ?? 0) + 1;
     }
 
-    private function getNextAvailableMenuOrder(): int
-    {
-        $usedOrders = Taxonomy::whereNotNull('menu_order')->where('menu_order', '>=', 6)->orderBy('menu_order', 'asc')->pluck('menu_order')->map(fn($v) => (int)$v)->toArray();
-        $nextOrder = 6;
-        foreach ($usedOrders as $order) {
-            if ($order == $nextOrder) {
-                $nextOrder++;
-            } elseif ($order > $nextOrder) {
-                break;
-            }
-        }
-        return $nextOrder;
-    }
-
     private function formatTaxonomy($taxonomy): array
     {
         $creator = $taxonomy->creator;
@@ -260,7 +243,6 @@ class TaxonomyController extends Controller
             'hierarchical' => (bool) $taxonomy->hierarchical,
             'status' => (bool) $taxonomy->status,
             'sort_order' => $taxonomy->sort_order,
-            'menu_order' => $taxonomy->menu_order,
 
             'post_type_ids' => $taxonomy->relationLoaded('postTypes')
                 ? $postTypes->pluck('id')->map(fn($id) => (int) $id)->values()->toArray()

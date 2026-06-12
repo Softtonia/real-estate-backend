@@ -19,7 +19,6 @@ class Taxonomy extends Model
         'status',
         'created_by',
         'sort_order',
-        'menu_order',
     ];
 
     protected $casts = [
@@ -27,7 +26,6 @@ class Taxonomy extends Model
         'hierarchical' => 'boolean',
         'status' => 'boolean',
         'sort_order' => 'integer',
-        'menu_order' => 'integer',
     ];
 
     protected static function booted(): void
