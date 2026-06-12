@@ -89,8 +89,8 @@ class DynamicPostController extends Controller
         }
 
         return collect($ids)
-            ->filter(fn ($id) => $id !== null && $id !== '')
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '')
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -117,7 +117,7 @@ class DynamicPostController extends Controller
 
                 $existingTermIds = TaxonomyTerm::whereIn('id', $termIds)
                     ->pluck('id')
-                    ->map(fn ($id) => (int) $id)
+                    ->map(fn($id) => (int) $id)
                     ->toArray();
 
                 $missingTermIds = array_values(array_diff($termIds, $existingTermIds));
@@ -185,7 +185,7 @@ class DynamicPostController extends Controller
                 return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
                     'errors' => [
                         'slug' => [
-                            'The generated slug "' . $slug . '" already exists for this post type.',
+                            '' . $slug . ' already exists for this post type.',
                         ],
                     ],
                 ]);
@@ -359,7 +359,7 @@ class DynamicPostController extends Controller
 
             $existingIds = DynamicPost::whereIn('id', $ids)
                 ->pluck('id')
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->toArray();
 
             $missingIds = array_values(array_diff($ids, $existingIds));
@@ -489,248 +489,476 @@ class DynamicPostController extends Controller
         }
     }
     public function customFieldsByPostType(Request $request): JsonResponse
-{
-    try {
-        $request->validate([
-            'post_type_id' => ['required', 'integer', 'exists:post_types,id'],
-            'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
-            'taxonomy_term_ids' => ['nullable'],
-        ]);
+    {
+        try {
+            $request->validate([
+                'post_type_id' => ['required', 'integer', 'exists:post_types,id'],
+                'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+                'taxonomy_term_ids' => ['nullable'],
+            ]);
 
-        $postTypeId = (int) $request->post_type_id;
-        $termIds = $this->normalizeIds($request->taxonomy_term_ids);
+            $postTypeId = (int) $request->post_type_id;
+            $termIds = $this->normalizeIds($request->taxonomy_term_ids);
 
-        // Validate taxonomy term ids if provided
-        if (!empty($termIds)) {
-            $existingTermIds = TaxonomyTerm::whereIn('id', $termIds)
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->toArray();
+            if (!empty($termIds)) {
+                $existingTermIds = TaxonomyTerm::whereIn('id', $termIds)
+                    ->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
 
-            $missingTermIds = array_values(array_diff($termIds, $existingTermIds));
+                $missingTermIds = array_values(array_diff($termIds, $existingTermIds));
 
-            if (!empty($missingTermIds)) {
-                return $this->errorResponse(
-                    'Some taxonomy terms were not found.',
-                    404,
-                    'One or more taxonomy term ids do not exist.',
-                    [
-                        'missing_taxonomy_term_ids' => $missingTermIds,
-                    ]
-                );
-            }
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Taxonomy condition context
-        |--------------------------------------------------------------------------
-        | taxonomy_id optional hai.
-        | Agar taxonomy_term_ids diye hain aur taxonomy_id nahi diya,
-        | to taxonomy_id term se auto detect ho jayega.
-        */
-        $taxonomyIds = [];
-
-        if ($request->filled('taxonomy_id')) {
-            $taxonomyIds[] = (int) $request->taxonomy_id;
-        }
-
-        if (!empty($termIds)) {
-            $termTaxonomyIds = TaxonomyTerm::whereIn('id', $termIds)
-                ->pluck('taxonomy_id')
-                ->map(fn ($id) => (int) $id)
-                ->toArray();
-
-            $taxonomyIds = array_values(array_unique(array_merge($taxonomyIds, $termTaxonomyIds)));
-        }
-
-        $hasTaxonomyCondition = !empty($taxonomyIds) || !empty($termIds);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Main logic
-        |--------------------------------------------------------------------------
-        | 1. Group ka post_type rule selected post_type_id se match hona chahiye.
-        | 2. Agar group me taxonomy rule bhi hai, to taxonomy condition bhi match honi chahiye.
-        | 3. Agar taxonomy condition request me nahi bheji, to taxonomy-based groups hide rahenge.
-        */
-        $groups = CustomFieldGroup::query()
-            ->with([
-                'locationRules',
-
-                'fields' => function ($fieldQuery) {
-                    $fieldQuery
-                        ->where('status', true)
-                        ->orderBy('sort_order', 'asc')
-                        ->orderBy('id', 'asc')
-                        ->with([
-                            'options' => function ($optionQuery) {
-                                $optionQuery
-                                    ->where('status', true)
-                                    ->orderBy('sort_order', 'asc')
-                                    ->orderBy('id', 'asc');
-                            },
-                            'repeaters' => function ($repeaterQuery) {
-                                $repeaterQuery
-                                    ->where('status', true)
-                                    ->orderBy('sort_order', 'asc')
-                                    ->orderBy('id', 'asc')
-                                    ->with([
-                                        'options' => function ($optionQuery) {
-                                            $optionQuery
-                                                ->where('status', true)
-                                                ->orderBy('sort_order', 'asc')
-                                                ->orderBy('id', 'asc');
-                                        }
-                                    ]);
-                            },
-                        ]);
-                },
-            ])
-
-            // Post type condition required
-            ->whereHas('locationRules', function ($ruleQuery) use ($postTypeId) {
-                $ruleQuery
-                    ->where('show_if', 'post_type')
-                    ->where(function ($subQuery) use ($postTypeId) {
-                        $subQuery
-                            ->where('match_type', 'all')
-                            ->orWhere(function ($specificQuery) use ($postTypeId) {
-                                $specificQuery
-                                    ->where('match_type', 'specific')
-                                    ->where('post_type_id', $postTypeId);
-                            });
-                    });
-            })
-
-            // Taxonomy condition optional
-            ->where(function ($groupQuery) use ($hasTaxonomyCondition, $taxonomyIds, $termIds) {
-                if (!$hasTaxonomyCondition) {
-                    // Agar taxonomy selected nahi hai, taxonomy-condition wale groups hide
-                    $groupQuery->whereDoesntHave('locationRules', function ($ruleQuery) {
-                        $ruleQuery->where('show_if', 'taxonomy');
-                    });
-
-                    return;
+                if (!empty($missingTermIds)) {
+                    return $this->errorResponse(
+                        'Some taxonomy terms were not found.',
+                        404,
+                        'One or more taxonomy term ids do not exist.',
+                        [
+                            'missing_taxonomy_term_ids' => $missingTermIds,
+                        ]
+                    );
                 }
+            }
 
-                $groupQuery
-                    // Groups without taxonomy condition can show
-                    ->whereDoesntHave('locationRules', function ($ruleQuery) {
-                        $ruleQuery->where('show_if', 'taxonomy');
-                    })
+            $taxonomyIds = [];
 
-                    // Or groups with matching taxonomy condition can show
-                    ->orWhereHas('locationRules', function ($ruleQuery) use ($taxonomyIds, $termIds) {
-                        $ruleQuery
-                            ->where('show_if', 'taxonomy')
-                            ->where(function ($subQuery) use ($taxonomyIds, $termIds) {
-                                $subQuery
-                                    ->where('match_type', 'all')
-                                    ->orWhere(function ($specificQuery) use ($taxonomyIds, $termIds) {
-                                        $specificQuery->where('match_type', 'specific');
+            if ($request->filled('taxonomy_id')) {
+                $taxonomyIds[] = (int) $request->taxonomy_id;
+            }
 
-                                        if (!empty($taxonomyIds)) {
-                                            $specificQuery->whereIn('taxonomy_id', $taxonomyIds);
-                                        }
+            if (!empty($termIds)) {
+                $termTaxonomyIds = TaxonomyTerm::whereIn('id', $termIds)
+                    ->pluck('taxonomy_id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
 
-                                        if (!empty($termIds)) {
-                                            $specificQuery->where(function ($termQuery) use ($termIds) {
-                                                foreach ($termIds as $termId) {
-                                                    $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
+                $taxonomyIds = array_values(array_unique(array_merge($taxonomyIds, $termTaxonomyIds)));
+            }
+
+            $groups = CustomFieldGroup::query()
+                ->with([
+                    'locationRules',
+
+                    'fields' => function ($fieldQuery) {
+                        $fieldQuery
+                            ->where('status', true)
+                            ->orderBy('sort_order', 'asc')
+                            ->orderBy('id', 'asc')
+                            ->with([
+                                'options' => function ($optionQuery) {
+                                    $optionQuery
+                                        ->where('status', true)
+                                        ->orderBy('sort_order', 'asc')
+                                        ->orderBy('id', 'asc');
+                                },
+                                'repeaters' => function ($repeaterQuery) {
+                                    $repeaterQuery
+                                        ->where('status', true)
+                                        ->orderBy('sort_order', 'asc')
+                                        ->orderBy('id', 'asc')
+                                        ->with([
+                                            'options' => function ($optionQuery) {
+                                                $optionQuery
+                                                    ->where('status', true)
+                                                    ->orderBy('sort_order', 'asc')
+                                                    ->orderBy('id', 'asc');
+                                            },
+                                        ]);
+                                },
+                            ]);
+                    },
+                ])
+
+                // Required: post type rule must match
+                ->whereHas('locationRules', function ($ruleQuery) use ($postTypeId) {
+                    $ruleQuery
+                        ->where('show_if', 'post_type')
+                        ->where(function ($subQuery) use ($postTypeId) {
+                            $subQuery
+                                ->where('match_type', 'all')
+                                ->orWhere(function ($specificQuery) use ($postTypeId) {
+                                    $specificQuery
+                                        ->where('match_type', 'specific')
+                                        ->where('post_type_id', $postTypeId);
+                                });
+                        });
+                })
+
+                // Optional: apply taxonomy filtering only when taxonomy/terms are sent
+                ->when(!empty($taxonomyIds) || !empty($termIds), function ($groupQuery) use ($taxonomyIds, $termIds) {
+                    $groupQuery->where(function ($taxonomyGroupQuery) use ($taxonomyIds, $termIds) {
+                        $taxonomyGroupQuery
+                            ->whereDoesntHave('locationRules', function ($ruleQuery) {
+                                $ruleQuery->where('show_if', 'taxonomy');
+                            })
+                            ->orWhereHas('locationRules', function ($ruleQuery) use ($taxonomyIds, $termIds) {
+                                $ruleQuery
+                                    ->where('show_if', 'taxonomy')
+                                    ->where(function ($subQuery) use ($taxonomyIds, $termIds) {
+                                        $subQuery
+                                            ->where('match_type', 'all')
+                                            ->orWhere(function ($specificQuery) use ($taxonomyIds, $termIds) {
+                                                $specificQuery->where('match_type', 'specific');
+
+                                                if (!empty($taxonomyIds)) {
+                                                    $specificQuery->whereIn('taxonomy_id', $taxonomyIds);
                                                 }
 
-                                                $termQuery
-                                                    ->orWhereNull('taxonomy_term_ids')
-                                                    ->orWhereRaw('JSON_LENGTH(taxonomy_term_ids) = 0');
+                                                if (!empty($termIds)) {
+                                                    $specificQuery->where(function ($termQuery) use ($termIds) {
+                                                        foreach ($termIds as $termId) {
+                                                            $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
+                                                        }
+
+                                                        $termQuery
+                                                            ->orWhereNull('taxonomy_term_ids')
+                                                            ->orWhereRaw('JSON_LENGTH(taxonomy_term_ids) = 0');
+                                                    });
+                                                }
                                             });
-                                        } else {
-                                            $specificQuery->where(function ($termQuery) {
-                                                $termQuery
-                                                    ->whereNull('taxonomy_term_ids')
-                                                    ->orWhereRaw('JSON_LENGTH(taxonomy_term_ids) = 0');
-                                            });
-                                        }
                                     });
                             });
                     });
-            })
-            ->orderBy('id', 'asc')
-            ->get();
+                })
 
-        $customFields = $groups
-            ->flatMap(function ($group) {
-                return $group->fields->map(function ($field) use ($group) {
-                    return [
-                        'group_id' => $group->id,
-                        'group_name' => $group->group_name,
-                        'group_slug' => $group->group_slug,
+                ->orderBy('id', 'asc')
+                ->get();
 
-                        'id' => $field->id,
-                        'field_label' => $field->field_label,
-                        'field_name_slug' => $field->field_name_slug,
-                        'field_placeholder' => $field->field_placeholder,
-                        'field_type' => $field->field_type,
-                        'required' => $field->required,
-                        'checkbox_type' => $field->checkbox_type,
-                        'default_value' => $field->default_value,
-                        'validation_rules' => $field->validation_rules,
-                        'conditional_rules' => $field->conditional_rules,
-                        'media_limit' => $field->media_limit,
-                        'media_size' => $field->media_size,
-                        'media_format' => $field->media_format,
-                        'sort_order' => $field->sort_order,
+            $customFields = $groups
+                ->flatMap(function ($group) {
+                    return $group->fields->map(function ($field) use ($group) {
+                        return [
+                            'group_id' => $group->id,
+                            'group_name' => $group->group_name,
+                            'group_slug' => $group->group_slug,
 
-                        'options' => $field->options->map(fn ($option) => [
-                            'id' => $option->id,
-                            'name' => $option->name,
-                            'value' => $option->value,
-                            'type' => $option->type,
-                            'sort_order' => $option->sort_order,
-                        ])->values(),
+                            'id' => $field->id,
+                            'field_label' => $field->field_label,
+                            'field_name_slug' => $field->field_name_slug,
+                            'field_placeholder' => $field->field_placeholder,
+                            'field_type' => $field->field_type,
+                            'required' => $field->required,
+                            'checkbox_type' => $field->checkbox_type,
+                            'default_value' => $field->default_value,
+                            'validation_rules' => $field->validation_rules,
+                            'conditional_rules' => $field->conditional_rules,
+                            'media_limit' => $field->media_limit,
+                            'media_size' => $field->media_size,
+                            'media_format' => $field->media_format,
+                            'sort_order' => $field->sort_order,
 
-                        'repeaters' => $field->repeaters->map(fn ($repeater) => [
-                            'id' => $repeater->id,
-                            'field_label' => $repeater->field_label,
-                            'field_name_slug' => $repeater->field_name_slug,
-                            'field_placeholder' => $repeater->field_placeholder,
-                            'field_type' => $repeater->field_type,
-                            'media_limit' => $repeater->media_limit,
-                            'media_size' => $repeater->media_size,
-                            'media_format' => $repeater->media_format,
-                            'sort_order' => $repeater->sort_order,
-
-                            'options' => $repeater->options->map(fn ($option) => [
+                            'options' => $field->options->map(fn($option) => [
                                 'id' => $option->id,
                                 'name' => $option->name,
                                 'value' => $option->value,
                                 'type' => $option->type,
                                 'sort_order' => $option->sort_order,
                             ])->values(),
-                        ])->values(),
-                    ];
-                });
-            })
-            ->sortBy('sort_order')
-            ->values();
 
-        return $this->successResponse(
-            'Custom fields fetched successfully.',
-            [
+                            'repeaters' => $field->repeaters->map(fn($repeater) => [
+                                'id' => $repeater->id,
+                                'field_label' => $repeater->field_label,
+                                'field_name_slug' => $repeater->field_name_slug,
+                                'field_placeholder' => $repeater->field_placeholder,
+                                'field_type' => $repeater->field_type,
+                                'media_limit' => $repeater->media_limit,
+                                'media_size' => $repeater->media_size,
+                                'media_format' => $repeater->media_format,
+                                'sort_order' => $repeater->sort_order,
+
+                                'options' => $repeater->options->map(fn($option) => [
+                                    'id' => $option->id,
+                                    'name' => $option->name,
+                                    'value' => $option->value,
+                                    'type' => $option->type,
+                                    'sort_order' => $option->sort_order,
+                                ])->values(),
+                            ])->values(),
+                        ];
+                    });
+                })
+                ->sortBy('sort_order')
+                ->values();
+
+            return $this->successResponse(
+                'Custom fields fetched successfully.',
+                [
+                    'post_type_id' => $postTypeId,
+                    'taxonomy_ids' => $taxonomyIds,
+                    'taxonomy_term_ids' => $termIds,
+                    'groups_count' => $groups->count(),
+                    'custom_fields_count' => $customFields->count(),
+                    'groups' => $groups,
+                    'custom_fields' => $customFields,
+                ]
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching custom fields.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch custom fields.', 500, $e->getMessage());
+        }
+    }
+    public function resolveCustomFieldsForCreate(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'post_type_id' => ['required', 'integer', 'exists:post_types,id'],
+                'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+                'taxonomy_term_ids' => ['nullable'],
+                'custom_fields' => ['nullable', 'array'],
+                'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
+                'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
+                'custom_fields.*.value_text' => ['nullable'],
+                'custom_fields.*.value_string' => ['nullable'],
+                'custom_fields.*.value_number' => ['nullable'],
+                'custom_fields.*.value_date' => ['nullable'],
+                'custom_fields.*.value_datetime' => ['nullable'],
+                'custom_fields.*.value_json' => ['nullable'],
+            ]);
+
+            $postTypeId = (int) $request->post_type_id;
+            $termIds = $this->normalizeIds($request->taxonomy_term_ids);
+
+            $taxonomyIds = [];
+
+            if ($request->filled('taxonomy_id')) {
+                $taxonomyIds[] = (int) $request->taxonomy_id;
+            }
+
+            if (!empty($termIds)) {
+                $termTaxonomyIds = TaxonomyTerm::whereIn('id', $termIds)
+                    ->pluck('taxonomy_id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
+
+                $taxonomyIds = array_values(array_unique(array_merge($taxonomyIds, $termTaxonomyIds)));
+            }
+
+            $groups = CustomFieldGroup::query()
+                ->with([
+                    'locationRules',
+                    'fields' => function ($fieldQuery) {
+                        $fieldQuery
+                            ->where('status', true)
+                            ->orderBy('sort_order', 'asc')
+                            ->orderBy('id', 'asc')
+                            ->with([
+                                'options' => function ($optionQuery) {
+                                    $optionQuery
+                                        ->where('status', true)
+                                        ->orderBy('sort_order', 'asc')
+                                        ->orderBy('id', 'asc');
+                                },
+                                'repeaters' => function ($repeaterQuery) {
+                                    $repeaterQuery
+                                        ->where('status', true)
+                                        ->orderBy('sort_order', 'asc')
+                                        ->orderBy('id', 'asc')
+                                        ->with([
+                                            'options' => function ($optionQuery) {
+                                                $optionQuery
+                                                    ->where('status', true)
+                                                    ->orderBy('sort_order', 'asc')
+                                                    ->orderBy('id', 'asc');
+                                            }
+                                        ]);
+                                },
+                            ]);
+                    },
+                ])
+                ->whereHas('locationRules', function ($ruleQuery) use ($postTypeId) {
+                    $ruleQuery
+                        ->where('show_if', 'post_type')
+                        ->where(function ($subQuery) use ($postTypeId) {
+                            $subQuery
+                                ->where('match_type', 'all')
+                                ->orWhere(function ($specificQuery) use ($postTypeId) {
+                                    $specificQuery
+                                        ->where('match_type', 'specific')
+                                        ->where('post_type_id', $postTypeId);
+                                });
+                        });
+                })
+                ->when(!empty($taxonomyIds) || !empty($termIds), function ($groupQuery) use ($taxonomyIds, $termIds) {
+                    $groupQuery->where(function ($taxonomyGroupQuery) use ($taxonomyIds, $termIds) {
+                        $taxonomyGroupQuery
+                            ->whereDoesntHave('locationRules', function ($ruleQuery) {
+                                $ruleQuery->where('show_if', 'taxonomy');
+                            })
+                            ->orWhereHas('locationRules', function ($ruleQuery) use ($taxonomyIds, $termIds) {
+                                $ruleQuery
+                                    ->where('show_if', 'taxonomy')
+                                    ->where(function ($subQuery) use ($taxonomyIds, $termIds) {
+                                        $subQuery
+                                            ->where('match_type', 'all')
+                                            ->orWhere(function ($specificQuery) use ($taxonomyIds, $termIds) {
+                                                $specificQuery->where('match_type', 'specific');
+
+                                                if (!empty($taxonomyIds)) {
+                                                    $specificQuery->whereIn('taxonomy_id', $taxonomyIds);
+                                                }
+
+                                                if (!empty($termIds)) {
+                                                    $specificQuery->where(function ($termQuery) use ($termIds) {
+                                                        foreach ($termIds as $termId) {
+                                                            $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
+                                                        }
+
+                                                        $termQuery
+                                                            ->orWhereNull('taxonomy_term_ids')
+                                                            ->orWhereRaw('JSON_LENGTH(taxonomy_term_ids) = 0');
+                                                    });
+                                                }
+                                            });
+                                    });
+                            });
+                    });
+                })
+                ->orderBy('id', 'asc')
+                ->get();
+
+            $fields = $groups
+                ->flatMap(fn($group) => $group->fields)
+                ->values();
+
+            $fieldsById = $fields->keyBy('id');
+
+            $selectedValues = [];
+
+            foreach ($request->custom_fields ?? [] as $submittedField) {
+                $fieldId = (int) $submittedField['custom_field_id'];
+
+                if (!$fieldsById->has($fieldId)) {
+                    continue;
+                }
+
+                $field = $fieldsById[$fieldId];
+
+                $value = $submittedField['value_string']
+                    ?? $submittedField['value_text']
+                    ?? $submittedField['value_number']
+                    ?? $submittedField['value_date']
+                    ?? $submittedField['value_datetime']
+                    ?? $submittedField['value_json']
+                    ?? null;
+
+                if (!empty($submittedField['custom_field_option_id'])) {
+                    $option = $field->options->firstWhere('id', (int) $submittedField['custom_field_option_id']);
+
+                    if ($option) {
+                        $value = $option->value;
+                    }
+                }
+
+                $selectedValues[$field->field_name_slug] = $value;
+                $selectedValues[(string) $field->id] = $value;
+            }
+
+            $visibleFields = [];
+            $hiddenFields = [];
+
+            foreach ($fields as $field) {
+                $rules = $field->conditional_rules;
+
+                $isVisible = $this->isConditionalFieldVisible($rules, $selectedValues);
+
+                $fieldData = [
+                    'id' => $field->id,
+                    'field_label' => $field->field_label,
+                    'field_name_slug' => $field->field_name_slug,
+                    'field_type' => $field->field_type,
+                    'required' => $field->required,
+                    'conditional_rules' => $field->conditional_rules,
+                    'options' => $field->options->map(fn($option) => [
+                        'id' => $option->id,
+                        'name' => $option->name,
+                        'value' => $option->value,
+                    ])->values(),
+                ];
+
+                if ($isVisible) {
+                    $visibleFields[] = $fieldData;
+                } else {
+                    $fieldData['hidden_reason'] = 'Conditional rule not matched.';
+                    $hiddenFields[] = $fieldData;
+                }
+            }
+
+            $allowedFieldIds = collect($visibleFields)->pluck('id')->values()->toArray();
+
+            $submittedFieldIds = collect($request->custom_fields ?? [])
+                ->pluck('custom_field_id')
+                ->map(fn($id) => (int) $id)
+                ->values()
+                ->toArray();
+
+            $unsupportedFieldIds = array_values(array_diff($submittedFieldIds, $allowedFieldIds));
+
+            return $this->successResponse('Custom fields resolved successfully.', [
                 'post_type_id' => $postTypeId,
                 'taxonomy_ids' => $taxonomyIds,
                 'taxonomy_term_ids' => $termIds,
-                'groups' => $groups,
-                'custom_fields' => $customFields,
-            ]
-        );
+                'selected_values' => $selectedValues,
 
-    } catch (ValidationException $e) {
-        return $this->validationErrorResponse($e);
-    } catch (QueryException $e) {
-        return $this->databaseErrorResponse($e, 'Database error while fetching custom fields.');
-    } catch (Throwable $e) {
-        return $this->errorResponse('Unable to fetch custom fields.', 500, $e->getMessage());
+                'visible_custom_fields_count' => count($visibleFields),
+                'hidden_custom_fields_count' => count($hiddenFields),
+
+                'allowed_custom_field_ids' => $allowedFieldIds,
+                'submitted_custom_field_ids' => $submittedFieldIds,
+                'unsupported_custom_field_ids' => $unsupportedFieldIds,
+
+                'visible_custom_fields' => $visibleFields,
+                'hidden_custom_fields' => $hiddenFields,
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while resolving custom fields.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to resolve custom fields.', 500, $e->getMessage());
+        }
     }
-}
+    private function isConditionalFieldVisible(null|array|string $rules, array $selectedValues): bool
+    {
+        if (empty($rules)) {
+            return true;
+        }
+
+        if (is_string($rules)) {
+            $rules = json_decode($rules, true);
+        }
+
+        if (!is_array($rules)) {
+            return true;
+        }
+
+        $dependsOn = $rules['depends_on'] ?? $rules['field'] ?? null;
+        $operator = $rules['operator'] ?? 'equals';
+        $expectedValue = $rules['value'] ?? null;
+        $action = $rules['action'] ?? 'show';
+
+        if (!$dependsOn) {
+            return true;
+        }
+
+        $actualValue = $selectedValues[$dependsOn] ?? null;
+
+        $matched = match ($operator) {
+            'equals' => $actualValue == $expectedValue,
+            'not_equals' => $actualValue != $expectedValue,
+            'in' => in_array($actualValue, (array) $expectedValue),
+            'not_in' => !in_array($actualValue, (array) $expectedValue),
+            'empty' => empty($actualValue),
+            'not_empty' => !empty($actualValue),
+            default => true,
+        };
+
+        if ($action === 'hide') {
+            return !$matched;
+        }
+
+        return $matched;
+    }
 }

@@ -1040,8 +1040,10 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
     
     // Dynamic Posts
-    Route::get('dynamic-posts/custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
-    Route::get('dynamic-posts/by-type/{slug}', [DynamicPostController::class, 'byPostType']);
+    Route::get('custom-field', [DynamicPostController::class, 'customFieldsByPostType']);
+    Route::post('resolve-custom-fields', [DynamicPostController::class, 'resolveCustomFieldsForCreate']);
+    Route::get('custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
+    Route::get('custom-field/{slug}', [DynamicPostController::class, 'byPostType']);
     Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
 
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
@@ -1083,18 +1085,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::put('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'update']);
     Route::delete('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'destroy']);
 
-
-    // Dynamic Custom Fields
-    Route::post('custom-fields/bulk-delete', [DynamicCustomFieldController::class, 'bulkDelete']);
-    Route::get('custom-fields', [DynamicCustomFieldController::class, 'index']);
-    Route::post('custom-fields', [DynamicCustomFieldController::class, 'store']);
-    Route::get('custom-fields/{customField}', [DynamicCustomFieldController::class, 'show']);
-    Route::put('custom-fields/{customField}', [DynamicCustomFieldController::class, 'update']);
-    Route::delete('custom-fields/{customField}', [DynamicCustomFieldController::class, 'destroy']);
-    Route::get('custom-fields/post-type/{postType}', [DynamicCustomFieldController::class, 'fieldsByPostType']);
-
     // Post Taxonomy Terms
-    Route::get('dynamic-posts/custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
     Route::post('post-taxonomy-terms/sync', [PostTaxonomyTermController::class, 'sync']);
     Route::post('post-taxonomy-terms/bulk-delete', [PostTaxonomyTermController::class, 'bulkDelete']);
     Route::get('post-taxonomy-terms', [PostTaxonomyTermController::class, 'index']);

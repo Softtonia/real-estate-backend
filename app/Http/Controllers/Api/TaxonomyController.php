@@ -77,6 +77,8 @@ class TaxonomyController extends Controller
                 'status' => ['nullable', 'boolean'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'menu_order' => ['nullable', 'integer', 'min:6'],
+                'post_type_ids' => ['nullable', 'array'],
+                'post_type_ids.*' => ['integer', 'exists:post_types,id'],
             ]);
 
             $slug = Str::slug($validated['name']);
@@ -100,7 +102,9 @@ class TaxonomyController extends Controller
                 'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
                 'menu_order' => $validated['menu_order'] ?? $this->getNextAvailableMenuOrder(),
             ]);
-
+            if (array_key_exists('post_type_ids', $validated)) {
+                $this->syncPostTypes($taxonomy, $validated['post_type_ids'] ?? []);
+            }
             DB::commit();
             $taxonomy->load('creator');
 
@@ -123,6 +127,7 @@ class TaxonomyController extends Controller
         try {
             $taxonomy->load([
                 'creator',
+                'postTypes',
                 'terms',
                 'customFieldGroups.fields.options',
                 'customFieldGroups.fields.repeaters.options'
@@ -154,6 +159,8 @@ class TaxonomyController extends Controller
                 'status' => ['nullable', 'boolean'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'menu_order' => ['nullable', 'integer', 'min:6'],
+                'post_type_ids' => ['nullable', 'array'],
+                'post_type_ids.*' => ['integer', 'exists:post_types,id'],
             ]);
 
             $updateData = [];
@@ -164,6 +171,9 @@ class TaxonomyController extends Controller
             }
 
             $taxonomy->update($updateData);
+            if (array_key_exists('post_type_ids', $validated)) {
+                $this->syncPostTypes($taxonomy, $validated['post_type_ids'] ?? []);
+            }
             DB::commit();
 
             return response()->json([
@@ -236,18 +246,47 @@ class TaxonomyController extends Controller
     private function formatTaxonomy($taxonomy): array
     {
         $creator = $taxonomy->creator;
+
+        $postTypes = $taxonomy->relationLoaded('postTypes')
+            ? $taxonomy->postTypes
+            : collect();
+
         return [
             'id' => $taxonomy->id,
             'name' => $taxonomy->name,
             'slug' => $taxonomy->slug,
             'description' => $taxonomy->description,
-            'is_default' => (bool)$taxonomy->is_default,
-            'hierarchical' => (bool)$taxonomy->hierarchical,
-            'status' => (bool)$taxonomy->status,
+            'is_default' => (bool) $taxonomy->is_default,
+            'hierarchical' => (bool) $taxonomy->hierarchical,
+            'status' => (bool) $taxonomy->status,
             'sort_order' => $taxonomy->sort_order,
             'menu_order' => $taxonomy->menu_order,
+
+            'post_type_ids' => $taxonomy->relationLoaded('postTypes')
+                ? $postTypes->pluck('id')->map(fn($id) => (int) $id)->values()->toArray()
+                : [],
+
+            'post_types' => $taxonomy->relationLoaded('postTypes')
+                ? $postTypes->map(fn($postType) => [
+                    'id' => $postType->id,
+                    'name' => $postType->name,
+                    'slug' => $postType->slug,
+                    'status' => (bool) $postType->status,
+                    'sort_order' => $postType->pivot->sort_order ?? 0,
+                    'pivot_status' => isset($postType->pivot->status)
+                        ? (bool) $postType->pivot->status
+                        : true,
+                ])->values()->toArray()
+                : [],
+
             'created_by' => $taxonomy->created_by,
-            'created_by_user' => $creator ? ['id' => $creator->id, 'name' => trim(($creator->first_name ?? '') . ' ' . ($creator->last_name ?? '')), 'email' => $creator->email ?? null] : null,
+
+            'created_by_user' => $creator ? [
+                'id' => $creator->id,
+                'name' => trim(($creator->first_name ?? '') . ' ' . ($creator->last_name ?? '')),
+                'email' => $creator->email ?? null,
+            ] : null,
+
             'created_at' => $taxonomy->created_at,
             'updated_at' => $taxonomy->updated_at,
         ];
@@ -352,5 +391,18 @@ class TaxonomyController extends Controller
             'message' => 'Selected taxonomies restored successfully.',
             'restored_count' => $restoredCount
         ], 200);
+    }
+    private function syncPostTypes(Taxonomy $taxonomy, array $postTypeIds): void
+    {
+        $syncData = [];
+
+        foreach (array_values(array_unique($postTypeIds)) as $index => $postTypeId) {
+            $syncData[$postTypeId] = [
+                'sort_order' => $index + 1,
+                'status' => true,
+            ];
+        }
+
+        $taxonomy->postTypes()->sync($syncData);
     }
 }
