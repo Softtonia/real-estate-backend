@@ -18,7 +18,6 @@ class TaxonomySeeder extends Seeder
                 'hierarchical' => false,
                 'status' => true,
                 'sort_order' => 1,
-                'menu_order' => 1,
             ],
             [
                 'name' => 'Property',
@@ -28,7 +27,6 @@ class TaxonomySeeder extends Seeder
                 'hierarchical' => true,
                 'status' => true,
                 'sort_order' => 2,
-                'menu_order' => 2,
             ],
             [
                 'name' => 'Property Type',
@@ -38,7 +36,6 @@ class TaxonomySeeder extends Seeder
                 'hierarchical' => true,
                 'status' => true,
                 'sort_order' => 3,
-                'menu_order' => 3,
             ],
             [
                 'name' => 'Property Status',
@@ -48,7 +45,6 @@ class TaxonomySeeder extends Seeder
                 'hierarchical' => true,
                 'status' => true,
                 'sort_order' => 4,
-                'menu_order' => 4,
             ],
         ];
 
@@ -64,7 +60,6 @@ class TaxonomySeeder extends Seeder
                     'hierarchical' => $taxonomy['hierarchical'],
                     'status' => $taxonomy['status'],
                     'sort_order' => $taxonomy['sort_order'],
-                    'menu_order' => $taxonomy['menu_order'],
                     'created_by' => null,
                 ]
             );
