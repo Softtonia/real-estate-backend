@@ -142,3 +142,4 @@ class TaxonomySeeder extends Seeder
         return $taxonomy->fresh();
     }
 }
+
