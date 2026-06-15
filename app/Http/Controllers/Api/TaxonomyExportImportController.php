@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Taxonomy;
-use App\Models\PostType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -47,8 +46,8 @@ class TaxonomyExportImportController extends Controller
                     continue;
                 }
 
-                // Expected columns: name, slug, description, is_default, hierarchical, status, sort_order, menu_order, post_types
-                $expectedColumnCount = 9;
+                // Expected columns: name, slug, description, is_default, hierarchical, status, sort_order
+                $expectedColumnCount = 7;
                 if (count($row) < $expectedColumnCount) {
                     $row = array_pad($row, $expectedColumnCount, null);
                 }
@@ -60,8 +59,6 @@ class TaxonomyExportImportController extends Controller
                 $hierarchical = trim((string)($row[4] ?? ''));
                 $status = trim((string)($row[5] ?? ''));
                 $sortOrder = $row[6] ?? null;
-                $menuOrder = $row[7] ?? null;
-                $postTypesStr = trim((string)($row[8] ?? ''));
 
                 if (empty($name)) {
                     $skipped++;
@@ -80,16 +77,6 @@ class TaxonomyExportImportController extends Controller
                     }
                 }
 
-                // Parse post types
-                $postTypeId = null;
-                if (!empty($postTypesStr)) {
-                    $postTypeSlugs = array_map('trim', explode(',', $postTypesStr));
-                    $postType = PostType::whereIn('slug', $postTypeSlugs)->first();
-                    if ($postType) {
-                        $postTypeId = $postType->id;
-                    }
-                }
-
                 // Create or update taxonomy
                 $existingTaxonomy = Taxonomy::withTrashed()->where('slug', $slug)->first();
                 
@@ -102,7 +89,6 @@ class TaxonomyExportImportController extends Controller
                         'hierarchical' => filter_var($hierarchical, FILTER_VALIDATE_BOOLEAN),
                         'status' => filter_var($status, FILTER_VALIDATE_BOOLEAN) ?: true,
                         'sort_order' => $sortOrder ?: null,
-                        'menu_order' => $menuOrder ?: null,
                         'created_by' => Auth::id(),
                     ]
                 );
@@ -146,7 +132,7 @@ class TaxonomyExportImportController extends Controller
     public function exportToCsv()
     {
         try {
-            $taxonomies = Taxonomy::with('postTypes')->get();
+            $taxonomies = Taxonomy::all();
 
             if ($taxonomies->isEmpty()) {
                 return response()->json([
@@ -157,8 +143,6 @@ class TaxonomyExportImportController extends Controller
 
             $rows = [];
             foreach ($taxonomies as $taxonomy) {
-                $postTypes = $taxonomy->postTypes->pluck('slug')->implode(', ');
-
                 $rows[] = [
                     'name' => $taxonomy->name,
                     'slug' => $taxonomy->slug,
@@ -167,8 +151,6 @@ class TaxonomyExportImportController extends Controller
                     'hierarchical' => $taxonomy->hierarchical,
                     'status' => $taxonomy->status,
                     'sort_order' => $taxonomy->sort_order,
-                    'menu_order' => $taxonomy->menu_order,
-                    'post_types' => $postTypes,
                 ];
             }
 

@@ -16,7 +16,7 @@ class PostTypeController extends Controller
     {
         try {
             $query = PostType::query()
-                ->with(['creator', 'taxonomies'])
+                ->with(['creator', 'taxonomies', 'relatedPostTypes'])
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $search = $request->search;
                     $q->where(function ($subQuery) use ($search) {
@@ -27,6 +27,7 @@ class PostTypeController extends Controller
                 })
                 ->when($request->filled('status'), fn($q) => $q->where('status', filter_var($request->status, FILTER_VALIDATE_BOOLEAN)))
                 ->when($request->filled('is_default'), fn($q) => $q->where('is_default', filter_var($request->is_default, FILTER_VALIDATE_BOOLEAN)))
+                ->when($request->filled('is_relationship'), fn($q) => $q->where('is_relationship', filter_var($request->is_relationship, FILTER_VALIDATE_BOOLEAN)))
                 ->ordered();
 
             $perPage = min((int)$request->get('per_page', 10), 100);
@@ -48,10 +49,13 @@ class PostTypeController extends Controller
                 'slug' => ['nullable', 'string', 'max:150', 'regex:/^[a-z0-9_-]+$/'],
                 'description' => ['nullable', 'string'],
                 'is_default' => ['nullable', 'boolean'],
+                'is_relationship' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'menu_order' => ['nullable', 'integer', 'min:6'],
+                'post_type_ids' => ['nullable', 'array'],
+                'post_type_ids.*' => ['integer', 'exists:post_types,id'],
                 'taxonomies' => ['nullable', 'array'],
                 'taxonomies.*' => ['integer', 'exists:taxonomies,id'],
             ]);
@@ -69,6 +73,7 @@ class PostTypeController extends Controller
                 'slug' => $slug,
                 'description' => $validated['description'] ?? null,
                 'is_default' => $validated['is_default'] ?? false,
+                'is_relationship' => $validated['is_relationship'] ?? false,
                 'status' => $validated['status'] ?? true,
                 'supports' => $validated['supports'] ?? ['title', 'excerpt', 'featured_image', 'editor'],
                 'created_by' => Auth::id(),
@@ -76,12 +81,19 @@ class PostTypeController extends Controller
                 'menu_order' => $menuOrder,
             ]);
 
+            // Sync related post types
+            if (!empty($validated['is_relationship']) && !empty($validated['post_type_ids'])) {
+                $this->syncRelatedPostTypes($postType, $validated['post_type_ids']);
+            } elseif (isset($validated['is_relationship']) && !$validated['is_relationship']) {
+                $postType->relatedPostTypes()->detach();
+            }
+
             if (!empty($validated['taxonomies'])) {
                 $this->syncTaxonomies($postType, $validated['taxonomies']);
             }
 
             DB::commit();
-            $postType->load(['creator', 'taxonomies']);
+            $postType->load(['creator', 'taxonomies', 'relatedPostTypes']);
             return response()->json(['status' => true, 'message' => 'Post type created successfully.', 'data' => $this->formatPostType($postType)], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -91,7 +103,7 @@ class PostTypeController extends Controller
 
     public function show($id)
     {
-        $postType = PostType::with(['creator', 'taxonomies'])->find($id);
+        $postType = PostType::with(['creator', 'taxonomies', 'relatedPostTypes'])->find($id);
         if (!$postType) return response()->json(['status' => false, 'message' => 'Post type not found.'], 404);
         return response()->json(['status' => true, 'message' => 'Post type fetched successfully.', 'data' => $this->formatPostType($postType)], 200);
     }
@@ -108,10 +120,13 @@ class PostTypeController extends Controller
                 'slug' => ['nullable', 'string', 'max:150', 'regex:/^[a-z0-9_-]+$/'],
                 'description' => ['nullable', 'string'],
                 'is_default' => ['nullable', 'boolean'],
+                'is_relationship' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'menu_order' => ['nullable', 'integer', 'min:6'],
+                'post_type_ids' => ['nullable', 'array'],
+                'post_type_ids.*' => ['integer', 'exists:post_types,id'],
                 'taxonomies' => ['nullable', 'array'],
                 'taxonomies.*' => ['integer', 'exists:taxonomies,id'],
             ]);
@@ -122,7 +137,7 @@ class PostTypeController extends Controller
                 if (!$request->filled('slug')) $updateData['slug'] = PostType::generateUniqueSlug($validated['name'], $postType->id);
             }
             if ($request->filled('slug')) $updateData['slug'] = PostType::generateUniqueSlug($validated['slug'], $postType->id);
-            foreach (['description', 'is_default', 'status', 'supports', 'sort_order'] as $key) {
+            foreach (['description', 'is_default', 'is_relationship', 'status', 'supports', 'sort_order'] as $key) {
                 if (isset($validated[$key])) $updateData[$key] = $validated[$key];
             }
             if (isset($validated['menu_order'])) {
@@ -135,10 +150,18 @@ class PostTypeController extends Controller
             }
 
             $postType->update($updateData);
+
+            // Sync related post types
+            if (isset($validated['is_relationship']) && !empty($validated['is_relationship']) && isset($validated['post_type_ids'])) {
+                $this->syncRelatedPostTypes($postType, $validated['post_type_ids']);
+            } elseif (isset($validated['is_relationship']) && !$validated['is_relationship']) {
+                $postType->relatedPostTypes()->detach();
+            }
+
             if (isset($validated['taxonomies'])) $this->syncTaxonomies($postType, $validated['taxonomies']);
             DB::commit();
 
-            $postType->refresh()->load(['creator', 'taxonomies']);
+            $postType->refresh()->load(['creator', 'taxonomies', 'relatedPostTypes']);
             return response()->json(['status' => true, 'message' => 'Post type updated successfully.', 'data' => $this->formatPostType($postType)], 200);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -276,6 +299,25 @@ class PostTypeController extends Controller
 
     // ---------------- Helper ----------------
 
+    private function syncRelatedPostTypes(PostType $postType, array $postTypeIds): void
+    {
+        $syncData = [];
+
+        foreach (array_values(array_unique($postTypeIds)) as $index => $relatedPostTypeId) {
+            // Prevent the post type from relating to itself
+            if ((int) $relatedPostTypeId === (int) $postType->id) {
+                continue;
+            }
+
+            $syncData[$relatedPostTypeId] = [
+                'sort_order' => $index + 1,
+                'status' => true,
+            ];
+        }
+
+        $postType->relatedPostTypes()->sync($syncData);
+    }
+
     private function syncTaxonomies(PostType $postType, array $taxonomyIds): void
     {
         $syncData = [];
@@ -313,14 +355,36 @@ class PostTypeController extends Controller
             'slug' => $pt->slug,
             'description' => $pt->description,
             'is_default' => (bool) $pt->is_default,
+            'is_relationship' => (bool) $pt->is_relationship,
             'status' => (bool) $pt->status,
             'supports' => $pt->supports ?? [],
             'sort_order' => $pt->sort_order,
             'menu_order' => $pt->menu_order,
 
-            // Only taxonomy IDs
-            'taxonomies' => $pt->relationLoaded('taxonomies')
+            // Related post type IDs and full data
+            'post_type_ids' => $pt->relationLoaded('relatedPostTypes')
+                ? $pt->relatedPostTypes->pluck('id')->map(fn($id) => (int) $id)->values()->toArray()
+                : [],
+            'related_post_types' => $pt->relationLoaded('relatedPostTypes')
+                ? $pt->relatedPostTypes->map(fn($related) => [
+                    'id' => (int) $related->id,
+                    'name' => $related->name,
+                    'slug' => $related->slug,
+                    'status' => (bool) $related->status,
+                    'sort_order' => $related->pivot->sort_order ?? 0,
+                    'pivot_status' => isset($related->pivot->status) ? (bool) $related->pivot->status : true,
+                ])->values()->toArray()
+                : [],
+
+            // Taxonomy IDs and names
+            'taxonomy_ids' => $pt->relationLoaded('taxonomies')
                 ? $pt->taxonomies->pluck('id')->map(fn($id) => (int) $id)->values()->toArray()
+                : [],
+            'taxonomies' => $pt->relationLoaded('taxonomies')
+                ? $pt->taxonomies->map(fn($taxonomy) => [
+                    'id' => (int) $taxonomy->id,
+                    'name' => $taxonomy->name,
+                ])->values()->toArray()
                 : [],
 
             'created_by' => $pt->created_by,

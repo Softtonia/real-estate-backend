@@ -15,6 +15,7 @@ class PostType extends Model
         'slug',
         'description',
         'is_default',
+        'is_relationship',
         'status',
         'supports',
         'created_by',
@@ -24,6 +25,7 @@ class PostType extends Model
 
     protected $casts = [
         'is_default' => 'boolean',
+        'is_relationship' => 'boolean',
         'status' => 'boolean',
         'supports' => 'array',
         'sort_order' => 'integer',
@@ -121,6 +123,32 @@ class PostType extends Model
             ->where('taxonomies.status', true)
             ->orderBy('post_type_taxonomies.sort_order', 'asc')
             ->withTimestamps();
+    }
+
+    /**
+     * Related post types (simple many-to-many association).
+     * post_type_id = current post type
+     * related_post_type_id = selected associated post type
+     */
+    public function relatedPostTypes()
+    {
+        return $this->belongsToMany(
+            self::class,
+            'post_type_relationships',
+            'post_type_id',
+            'related_post_type_id'
+        )
+            ->withPivot(['sort_order', 'status'])
+            ->withTimestamps()
+            ->orderBy('post_type_relationships.sort_order')
+            ->orderBy('post_types.id');
+    }
+
+    public function activeRelatedPostTypes()
+    {
+        return $this->relatedPostTypes()
+            ->wherePivot('status', true)
+            ->where('post_types.status', true);
     }
 
     public function creator()

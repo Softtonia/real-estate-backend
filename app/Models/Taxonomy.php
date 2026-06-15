@@ -16,7 +16,6 @@ class Taxonomy extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'parent_id',
         'is_relationship',
         'is_parent',
         'name',
@@ -30,7 +29,6 @@ class Taxonomy extends Model
     ];
 
     protected $casts = [
-        'parent_id' => 'integer',
         'is_relationship' => 'boolean',
         'is_parent' => 'boolean',
         'is_default' => 'boolean',
@@ -43,7 +41,6 @@ class Taxonomy extends Model
     ];
 
     protected $attributes = [
-        'parent_id' => null,
         'is_relationship' => false,
         'is_parent' => false,
         'is_default' => false,
@@ -59,93 +56,53 @@ class Taxonomy extends Model
                 $taxonomy->slug = Str::slug($taxonomy->name);
             }
 
-            /*
-             * If relationship is disabled, taxonomy should stay standalone.
-             */
             if (!$taxonomy->is_relationship) {
                 $taxonomy->is_parent = false;
-                $taxonomy->parent_id = null;
-            }
-
-            /*
-             * Parent taxonomy should never have parent_id.
-             */
-            if ($taxonomy->is_relationship && $taxonomy->is_parent) {
-                $taxonomy->parent_id = null;
-            }
-        });
-
-        static::deleting(function (Taxonomy $taxonomy) {
-            /*
-             * On soft delete, do not permanently remove children.
-             * We only detach children from this parent to avoid broken hierarchy.
-             */
-            if (!$taxonomy->isForceDeleting()) {
-                $taxonomy->children()->update([
-                    'parent_id' => null,
-                    'is_relationship' => false,
-                    'is_parent' => false,
-                ]);
             }
         });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Taxonomy Parent / Child Relationships
-    |--------------------------------------------------------------------------
-    */
-
-    public function parent(): BelongsTo
+    public function parents(): BelongsToMany
     {
-        return $this->belongsTo(self::class, 'parent_id');
+        return $this->belongsToMany(
+            self::class,
+            'taxonomy_relationships',
+            'child_taxonomy_id',
+            'parent_taxonomy_id'
+        )
+            ->withPivot(['sort_order', 'status'])
+            ->withTimestamps()
+            ->orderBy('taxonomy_relationships.sort_order')
+            ->orderBy('taxonomies.id');
     }
 
-    public function parentTaxonomy(): BelongsTo
+    public function children(): BelongsToMany
     {
-        return $this->parent();
+        return $this->belongsToMany(
+            self::class,
+            'taxonomy_relationships',
+            'parent_taxonomy_id',
+            'child_taxonomy_id'
+        )
+            ->withPivot(['sort_order', 'status'])
+            ->withTimestamps()
+            ->orderBy('taxonomy_relationships.sort_order')
+            ->orderBy('taxonomies.id');
     }
 
-    public function children(): HasMany
+    public function activeParents(): BelongsToMany
     {
-        return $this->hasMany(self::class, 'parent_id')
-            ->orderBy('sort_order')
-            ->orderBy('id');
+        return $this->parents()
+            ->wherePivot('status', true)
+            ->where('taxonomies.status', true);
     }
 
-    public function childTaxonomies(): HasMany
-    {
-        return $this->children();
-    }
-
-    public function activeChildren(): HasMany
-    {
-        return $this->children()
-            ->where('status', true);
-    }
-
-    public function activeChildTaxonomies(): HasMany
-    {
-        return $this->activeChildren();
-    }
-
-    public function childrenRecursive(): HasMany
+    public function activeChildren(): BelongsToMany
     {
         return $this->children()
-            ->with('childrenRecursive');
+            ->wherePivot('status', true)
+            ->where('taxonomies.status', true);
     }
-
-    public function activeChildrenRecursive(): HasMany
-    {
-        return $this->activeChildren()
-            ->with('activeChildrenRecursive');
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Taxonomy Terms
-    |--------------------------------------------------------------------------
-    */
 
     public function terms(): HasMany
     {
@@ -159,12 +116,6 @@ class Taxonomy extends Model
             ->orderBy('sort_order')
             ->orderBy('id');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Custom Field Groups
-    |--------------------------------------------------------------------------
-    */
 
     public function customFieldGroups(): HasManyThrough
     {
@@ -184,52 +135,10 @@ class Taxonomy extends Model
             ->where('custom_field_groups.status', true);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Post Types
-    |--------------------------------------------------------------------------
-    */
-
-    public function postTypes(): BelongsToMany
-    {
-        return $this->belongsToMany(
-            PostType::class,
-            'post_type_taxonomies',
-            'taxonomy_id',
-            'post_type_id'
-        )
-            ->withPivot([
-                'sort_order',
-                'status',
-            ])
-            ->withTimestamps()
-            ->orderBy('post_type_taxonomies.sort_order')
-            ->orderBy('post_types.id');
-    }
-
-    public function activePostTypes(): BelongsToMany
-    {
-        return $this->postTypes()
-            ->where('post_type_taxonomies.status', true)
-            ->where('post_types.status', true);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Creator
-    |--------------------------------------------------------------------------
-    */
-
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Helper Methods
-    |--------------------------------------------------------------------------
-    */
 
     public function isStandalone(): bool
     {
@@ -238,17 +147,12 @@ class Taxonomy extends Model
 
     public function isParentTaxonomy(): bool
     {
-        return $this->is_relationship && $this->is_parent && is_null($this->parent_id);
+        return $this->is_relationship && $this->is_parent;
     }
 
     public function isChildTaxonomy(): bool
     {
-        return $this->is_relationship && !$this->is_parent && !is_null($this->parent_id);
-    }
-
-    public function canHaveChildren(): bool
-    {
-        return $this->is_relationship && $this->is_parent;
+        return $this->is_relationship && !$this->is_parent;
     }
 
     public function hierarchyType(): string
@@ -259,12 +163,6 @@ class Taxonomy extends Model
 
         return $this->is_parent ? 'parent' : 'child';
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Scopes
-    |--------------------------------------------------------------------------
-    */
 
     public function scopeActive(Builder $query): Builder
     {
@@ -299,25 +197,20 @@ class Taxonomy extends Model
     public function scopeParents(Builder $query): Builder
     {
         return $query->where('is_relationship', true)
-            ->where('is_parent', true)
-            ->whereNull('parent_id');
+            ->where('is_parent', true);
     }
 
     public function scopeChildren(Builder $query): Builder
     {
         return $query->where('is_relationship', true)
-            ->where('is_parent', false)
-            ->whereNotNull('parent_id');
-    }
-
-    public function scopeRoot(Builder $query): Builder
-    {
-        return $query->whereNull('parent_id');
+            ->where('is_parent', false);
     }
 
     public function scopeByParent(Builder $query, int $parentId): Builder
     {
-        return $query->where('parent_id', $parentId);
+        return $query->whereHas('parents', function ($q) use ($parentId) {
+            $q->where('taxonomies.id', $parentId);
+        });
     }
 
     public function scopeHierarchical(Builder $query): Builder

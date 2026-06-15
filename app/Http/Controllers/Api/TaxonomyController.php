@@ -14,22 +14,18 @@ use Illuminate\Validation\ValidationException;
 
 class TaxonomyController extends Controller
 {
-    /*
-    |--------------------------------------------------------------------------
-    | List Taxonomies
-    |--------------------------------------------------------------------------
-    */
-
     public function index(Request $request): JsonResponse
     {
         try {
             $query = Taxonomy::query()
                 ->with([
                     'creator:id,first_name,last_name,email',
-                    'parent:id,name,slug,is_relationship,is_parent,parent_id,status',
+                    'parents:id,name,slug,is_relationship,is_parent,status',
+                    'children:id,name,slug,is_relationship,is_parent,status,sort_order',
                 ])
                 ->withCount([
                     'terms',
+                    'parents as parent_taxonomies_count',
                     'children as child_taxonomies_count',
                     'customFieldGroups as custom_fields_count',
                 ])
@@ -43,44 +39,39 @@ class TaxonomyController extends Controller
                     });
                 })
                 ->when($request->filled('is_relationship'), function ($q) use ($request) {
-                    $q->where(
-                        'is_relationship',
-                        filter_var($request->input('is_relationship'), FILTER_VALIDATE_BOOLEAN)
-                    );
+                    $q->where('is_relationship', filter_var($request->input('is_relationship'), FILTER_VALIDATE_BOOLEAN));
                 })
                 ->when($request->filled('is_parent'), function ($q) use ($request) {
-                    $q->where(
-                        'is_parent',
-                        filter_var($request->input('is_parent'), FILTER_VALIDATE_BOOLEAN)
-                    );
+                    $q->where('is_parent', filter_var($request->input('is_parent'), FILTER_VALIDATE_BOOLEAN));
                 })
-                ->when($request->has('parent_id'), function ($q) use ($request) {
-                    if ($request->input('parent_id') === null || $request->input('parent_id') === 'null') {
-                        $q->whereNull('parent_id');
-                    } else {
-                        $q->where('parent_id', $request->input('parent_id'));
-                    }
+                ->when($request->filled('parent_id'), function ($q) use ($request) {
+                    $q->whereHas('parents', function ($parentQuery) use ($request) {
+                        $parentQuery->where('taxonomies.id', $request->input('parent_id'));
+                    });
+                })
+                ->when($request->filled('parent_ids'), function ($q) use ($request) {
+                    $parentIds = array_filter(explode(',', $request->input('parent_ids')));
+
+                    $q->whereHas('parents', function ($parentQuery) use ($parentIds) {
+                        $parentQuery->whereIn('taxonomies.id', $parentIds);
+                    });
+                })
+                ->when($request->filled('child_id'), function ($q) use ($request) {
+                    $q->whereHas('children', function ($childQuery) use ($request) {
+                        $childQuery->where('taxonomies.id', $request->input('child_id'));
+                    });
                 })
                 ->when($request->filled('is_default'), function ($q) use ($request) {
-                    $q->where(
-                        'is_default',
-                        filter_var($request->input('is_default'), FILTER_VALIDATE_BOOLEAN)
-                    );
+                    $q->where('is_default', filter_var($request->input('is_default'), FILTER_VALIDATE_BOOLEAN));
                 })
                 ->when($request->filled('hierarchical'), function ($q) use ($request) {
-                    $q->where(
-                        'hierarchical',
-                        filter_var($request->input('hierarchical'), FILTER_VALIDATE_BOOLEAN)
-                    );
+                    $q->where('hierarchical', filter_var($request->input('hierarchical'), FILTER_VALIDATE_BOOLEAN));
                 })
                 ->when($request->filled('status'), function ($q) use ($request) {
-                    $q->where(
-                        'status',
-                        filter_var($request->input('status'), FILTER_VALIDATE_BOOLEAN)
-                    );
+                    $q->where('status', filter_var($request->input('status'), FILTER_VALIDATE_BOOLEAN));
                 })
-                ->orderBy('sort_order', 'asc')
-                ->orderBy('id', 'asc');
+                ->orderBy('sort_order')
+                ->orderBy('id');
 
             $perPage = min((int) $request->get('per_page', 15), 100);
 
@@ -89,6 +80,7 @@ class TaxonomyController extends Controller
             $taxonomies->getCollection()->transform(function ($taxonomy) {
                 $formatted = $this->formatTaxonomy($taxonomy);
                 $formatted['terms_count'] = $taxonomy->terms_count ?? 0;
+                $formatted['parent_taxonomies_count'] = $taxonomy->parent_taxonomies_count ?? 0;
                 $formatted['child_taxonomies_count'] = $taxonomy->child_taxonomies_count ?? 0;
                 $formatted['custom_fields_count'] = $taxonomy->custom_fields_count ?? 0;
 
@@ -104,12 +96,6 @@ class TaxonomyController extends Controller
             return $this->serverErrorResponse('Unable to fetch taxonomies.', $e);
         }
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Store Taxonomy
-    |--------------------------------------------------------------------------
-    */
 
     public function store(Request $request): JsonResponse
     {
@@ -145,13 +131,8 @@ class TaxonomyController extends Controller
                 'name' => $validated['name'],
                 'slug' => $slug,
                 'description' => $validated['description'] ?? null,
-
                 'is_relationship' => $isRelationship,
                 'is_parent' => $isParent,
-                'parent_id' => ($isRelationship && !$isParent)
-                    ? ($validated['parent_id'] ?? null)
-                    : null,
-
                 'is_default' => $validated['is_default'] ?? false,
                 'hierarchical' => $validated['hierarchical'] ?? false,
                 'status' => $validated['status'] ?? true,
@@ -159,24 +140,20 @@ class TaxonomyController extends Controller
                 'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
             ]);
 
-            if (array_key_exists('post_type_ids', $validated)) {
-                $this->syncPostTypes($taxonomy, $validated['post_type_ids'] ?? []);
-            }
-
-            if ($taxonomy->is_relationship && $taxonomy->is_parent) {
-                $this->syncChildTaxonomies(
-                    $taxonomy,
-                    $validated['child_taxonomy_ids'] ?? []
-                );
+            if (!$taxonomy->is_relationship) {
+                $this->detachAllTaxonomyRelationships($taxonomy);
+            } elseif ($taxonomy->is_parent) {
+                $this->syncChildTaxonomies($taxonomy, $validated['child_taxonomy_ids'] ?? []);
+            } else {
+                $this->syncParentTaxonomies($taxonomy, $validated['parent_ids'] ?? []);
             }
 
             DB::commit();
 
             $taxonomy->load([
                 'creator:id,first_name,last_name,email',
-                'parent:id,name,slug,is_relationship,is_parent,parent_id,status',
-                'children:id,parent_id,is_relationship,is_parent,name,slug,status,sort_order',
-                'postTypes',
+                'parents:id,name,slug,is_relationship,is_parent,status',
+                'children:id,name,slug,is_relationship,is_parent,status,sort_order',
             ]);
 
             return response()->json([
@@ -199,20 +176,13 @@ class TaxonomyController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Show Taxonomy
-    |--------------------------------------------------------------------------
-    */
-
     public function show(Taxonomy $taxonomy): JsonResponse
     {
         try {
             $taxonomy->load([
                 'creator:id,first_name,last_name,email',
-                'parent:id,name,slug,is_relationship,is_parent,parent_id,status',
-                'children:id,parent_id,is_relationship,is_parent,name,slug,status,sort_order',
-                'postTypes',
+                'parents:id,name,slug,is_relationship,is_parent,status',
+                'children:id,name,slug,is_relationship,is_parent,status,sort_order',
                 'terms',
                 'customFieldGroups.fields.options',
                 'customFieldGroups.fields.repeaters.options',
@@ -227,12 +197,6 @@ class TaxonomyController extends Controller
             return $this->serverErrorResponse('Unable to fetch taxonomy.', $e);
         }
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Update Taxonomy
-    |--------------------------------------------------------------------------
-    */
 
     public function update(Request $request, Taxonomy $taxonomy): JsonResponse
     {
@@ -250,11 +214,13 @@ class TaxonomyController extends Controller
                     ? (bool) $validated['is_parent']
                     : (bool) $taxonomy->is_parent,
 
-                'parent_id' => array_key_exists('parent_id', $validated)
-                    ? $validated['parent_id']
-                    : $taxonomy->parent_id,
+                'parent_ids' => array_key_exists('parent_ids', $validated)
+                    ? $validated['parent_ids']
+                    : $taxonomy->parents()->pluck('taxonomies.id')->toArray(),
 
-                'child_taxonomy_ids' => $validated['child_taxonomy_ids'] ?? null,
+                'child_taxonomy_ids' => array_key_exists('child_taxonomy_ids', $validated)
+                    ? $validated['child_taxonomy_ids']
+                    : null,
             ];
 
             if ($response = $this->validateRelationshipData($relationshipPayload, $taxonomy)) {
@@ -265,14 +231,16 @@ class TaxonomyController extends Controller
 
             $updateData = [];
 
-            foreach ([
-                'name',
-                'description',
-                'is_default',
-                'hierarchical',
-                'status',
-                'sort_order',
-            ] as $field) {
+            foreach (
+                [
+                    'name',
+                    'description',
+                    'is_default',
+                    'hierarchical',
+                    'status',
+                    'sort_order',
+                ] as $field
+            ) {
                 if (array_key_exists($field, $validated)) {
                     $updateData[$field] = $validated[$field];
                 }
@@ -300,59 +268,40 @@ class TaxonomyController extends Controller
                 $updateData['slug'] = $slug;
             }
 
-            if (array_key_exists('is_relationship', $relationshipPayload)) {
-                $updateData['is_relationship'] = $relationshipPayload['is_relationship'];
-            }
-
-            if (array_key_exists('is_parent', $relationshipPayload)) {
-                $updateData['is_parent'] = $relationshipPayload['is_relationship']
-                    ? $relationshipPayload['is_parent']
-                    : false;
-            }
-
-            $updateData['parent_id'] = (
-                $relationshipPayload['is_relationship'] &&
-                !$relationshipPayload['is_parent']
-            )
-                ? $relationshipPayload['parent_id']
-                : null;
+            $updateData['is_relationship'] = $relationshipPayload['is_relationship'];
+            $updateData['is_parent'] = $relationshipPayload['is_relationship']
+                ? $relationshipPayload['is_parent']
+                : false;
 
             $taxonomy->update($updateData);
-
-            if (array_key_exists('post_type_ids', $validated)) {
-                $this->syncPostTypes($taxonomy, $validated['post_type_ids'] ?? []);
-            }
-
-            /*
-             * If taxonomy is no longer parent, detach its existing children.
-             */
-            if (!$taxonomy->fresh()->is_parent || !$taxonomy->fresh()->is_relationship) {
-                $this->detachChildTaxonomies($taxonomy);
-            }
-
-            /*
-             * If taxonomy is parent and child_taxonomy_ids is passed, sync children.
-             */
             $taxonomy = $taxonomy->fresh();
 
-            if (
-                $taxonomy->is_relationship &&
-                $taxonomy->is_parent &&
-                array_key_exists('child_taxonomy_ids', $validated)
-            ) {
-                $this->syncChildTaxonomies(
-                    $taxonomy,
-                    $validated['child_taxonomy_ids'] ?? []
-                );
+            if (!$taxonomy->is_relationship) {
+                $this->detachAllTaxonomyRelationships($taxonomy);
+            } elseif ($taxonomy->is_parent) {
+                $taxonomy->parents()->detach();
+
+                if (array_key_exists('child_taxonomy_ids', $validated)) {
+                    $this->syncChildTaxonomies($taxonomy, $validated['child_taxonomy_ids'] ?? []);
+                }
+            } else {
+                $this->detachChildTaxonomies($taxonomy);
+
+                if (
+                    array_key_exists('parent_ids', $validated) ||
+                    array_key_exists('is_relationship', $validated) ||
+                    array_key_exists('is_parent', $validated)
+                ) {
+                    $this->syncParentTaxonomies($taxonomy, $relationshipPayload['parent_ids'] ?? []);
+                }
             }
 
             DB::commit();
 
             $taxonomy = $taxonomy->fresh()->load([
                 'creator:id,first_name,last_name,email',
-                'parent:id,name,slug,is_relationship,is_parent,parent_id,status',
-                'children:id,parent_id,is_relationship,is_parent,name,slug,status,sort_order',
-                'postTypes',
+                'parents:id,name,slug,is_relationship,is_parent,status',
+                'children:id,name,slug,is_relationship,is_parent,status,sort_order',
             ]);
 
             return response()->json([
@@ -375,12 +324,6 @@ class TaxonomyController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Delete Taxonomy
-    |--------------------------------------------------------------------------
-    */
-
     public function destroy(Taxonomy $taxonomy): JsonResponse
     {
         DB::beginTransaction();
@@ -394,6 +337,8 @@ class TaxonomyController extends Controller
                     'message' => 'Default taxonomy cannot be deleted.',
                 ], 403);
             }
+
+            $this->detachAllTaxonomyRelationships($taxonomy);
 
             $taxonomy->delete();
 
@@ -410,32 +355,26 @@ class TaxonomyController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Taxonomy Tree
-    |--------------------------------------------------------------------------
-    */
-
     public function tree(Request $request): JsonResponse
     {
         try {
-            $taxonomies = Taxonomy::query()
-                ->select([
-                    'id',
-                    'parent_id',
-                    'is_relationship',
-                    'is_parent',
-                    'name',
-                    'slug',
-                    'description',
-                    'status',
-                    'sort_order',
+            $parents = Taxonomy::query()
+                ->parents()
+                ->with([
+                    'children' => function ($q) {
+                        $q->select([
+                            'taxonomies.id',
+                            'taxonomies.name',
+                            'taxonomies.slug',
+                            'taxonomies.is_relationship',
+                            'taxonomies.is_parent',
+                            'taxonomies.status',
+                            'taxonomies.sort_order',
+                        ]);
+                    },
                 ])
                 ->when($request->filled('status'), function ($q) use ($request) {
-                    $q->where(
-                        'status',
-                        filter_var($request->input('status'), FILTER_VALIDATE_BOOLEAN)
-                    );
+                    $q->where('status', filter_var($request->input('status'), FILTER_VALIDATE_BOOLEAN));
                 })
                 ->orderBy('sort_order')
                 ->orderBy('id')
@@ -444,47 +383,43 @@ class TaxonomyController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy tree fetched successfully.',
-                'data' => $this->buildTaxonomyTree($taxonomies),
+                'data' => $parents->map(function ($parent) {
+                    return [
+                        'id' => $parent->id,
+                        'is_relationship' => (bool) $parent->is_relationship,
+                        'is_parent' => (bool) $parent->is_parent,
+                        'name' => $parent->name,
+                        'slug' => $parent->slug,
+                        'description' => $parent->description,
+                        'status' => (bool) $parent->status,
+                        'sort_order' => $parent->sort_order,
+                        'children' => $parent->children->map(fn($child) => [
+                            'id' => $child->id,
+                            'name' => $child->name,
+                            'slug' => $child->slug,
+                            'is_relationship' => (bool) $child->is_relationship,
+                            'is_parent' => (bool) $child->is_parent,
+                            'status' => (bool) $child->status,
+                            'sort_order' => $child->sort_order,
+                            'pivot_sort_order' => $child->pivot->sort_order ?? 0,
+                            'pivot_status' => isset($child->pivot->status)
+                                ? (bool) $child->pivot->status
+                                : true,
+                        ])->values(),
+                    ];
+                })->values(),
             ], 200);
         } catch (\Throwable $e) {
             return $this->serverErrorResponse('Unable to fetch taxonomy tree.', $e);
         }
     }
 
-    private function buildTaxonomyTree($taxonomies, $parentId = null): array
-    {
-        return $taxonomies
-            ->where('parent_id', $parentId)
-            ->map(function ($taxonomy) use ($taxonomies) {
-                return [
-                    'id' => $taxonomy->id,
-                    'parent_id' => $taxonomy->parent_id,
-                    'is_relationship' => (bool) $taxonomy->is_relationship,
-                    'is_parent' => (bool) $taxonomy->is_parent,
-                    'name' => $taxonomy->name,
-                    'slug' => $taxonomy->slug,
-                    'description' => $taxonomy->description,
-                    'status' => (bool) $taxonomy->status,
-                    'sort_order' => $taxonomy->sort_order,
-                    'children' => $this->buildTaxonomyTree($taxonomies, $taxonomy->id),
-                ];
-            })
-            ->values()
-            ->toArray();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Related Terms
-    |--------------------------------------------------------------------------
-    */
-
     public function terms(Taxonomy $taxonomy): JsonResponse
     {
         try {
             $terms = $taxonomy->terms()
-                ->orderBy('sort_order', 'asc')
-                ->orderBy('id', 'asc')
+                ->orderBy('sort_order')
+                ->orderBy('id')
                 ->get();
 
             return response()->json([
@@ -496,12 +431,6 @@ class TaxonomyController extends Controller
             return $this->serverErrorResponse('Unable to fetch taxonomy terms.', $e);
         }
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Related Fields
-    |--------------------------------------------------------------------------
-    */
 
     public function fields(Taxonomy $taxonomy): JsonResponse
     {
@@ -523,22 +452,18 @@ class TaxonomyController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Trash
-    |--------------------------------------------------------------------------
-    */
-
     public function trash(Request $request): JsonResponse
     {
         try {
             $query = Taxonomy::onlyTrashed()
                 ->with([
                     'creator:id,first_name,last_name,email',
-                    'parent:id,name,slug,is_relationship,is_parent,parent_id,status',
+                    'parents:id,name,slug,is_relationship,is_parent,status',
+                    'children:id,name,slug,is_relationship,is_parent,status,sort_order',
                 ])
                 ->withCount([
                     'terms',
+                    'parents as parent_taxonomies_count',
                     'children as child_taxonomies_count',
                     'customFieldGroups as custom_fields_count',
                 ])
@@ -559,6 +484,7 @@ class TaxonomyController extends Controller
             $taxonomies->getCollection()->transform(function ($taxonomy) {
                 $formatted = $this->formatTaxonomy($taxonomy);
                 $formatted['terms_count'] = $taxonomy->terms_count ?? 0;
+                $formatted['parent_taxonomies_count'] = $taxonomy->parent_taxonomies_count ?? 0;
                 $formatted['child_taxonomies_count'] = $taxonomy->child_taxonomies_count ?? 0;
                 $formatted['custom_fields_count'] = $taxonomy->custom_fields_count ?? 0;
 
@@ -591,8 +517,8 @@ class TaxonomyController extends Controller
 
             $taxonomy->load([
                 'creator:id,first_name,last_name,email',
-                'parent:id,name,slug,is_relationship,is_parent,parent_id,status',
-                'children:id,parent_id,is_relationship,is_parent,name,slug,status,sort_order',
+                'parents:id,name,slug,is_relationship,is_parent,status',
+                'children:id,name,slug,is_relationship,is_parent,status,sort_order',
             ]);
 
             return response()->json([
@@ -630,7 +556,7 @@ class TaxonomyController extends Controller
                 ], 403);
             }
 
-            $this->detachChildTaxonomies($taxonomy);
+            $this->detachAllTaxonomyRelationships($taxonomy);
 
             $taxonomy->forceDelete();
 
@@ -647,12 +573,6 @@ class TaxonomyController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Bulk Actions
-    |--------------------------------------------------------------------------
-    */
-
     public function bulkDelete(Request $request): JsonResponse
     {
         try {
@@ -661,14 +581,19 @@ class TaxonomyController extends Controller
                 'ids.*' => ['integer', 'exists:taxonomies,id'],
             ]);
 
-            $deletedCount = Taxonomy::whereIn('id', $validated['ids'])
+            $taxonomies = Taxonomy::whereIn('id', $validated['ids'])
                 ->where('is_default', false)
-                ->delete();
+                ->get();
+
+            foreach ($taxonomies as $taxonomy) {
+                $this->detachAllTaxonomyRelationships($taxonomy);
+                $taxonomy->delete();
+            }
 
             return response()->json([
                 'status' => true,
                 'message' => 'Selected taxonomies deleted successfully.',
-                'deleted_count' => $deletedCount,
+                'deleted_count' => $taxonomies->count(),
             ], 200);
         } catch (ValidationException $e) {
             return response()->json([
@@ -724,12 +649,9 @@ class TaxonomyController extends Controller
                 ->where('is_default', false)
                 ->get();
 
-            $deletedCount = 0;
-
             foreach ($taxonomies as $taxonomy) {
-                $this->detachChildTaxonomies($taxonomy);
+                $this->detachAllTaxonomyRelationships($taxonomy);
                 $taxonomy->forceDelete();
-                $deletedCount++;
             }
 
             DB::commit();
@@ -737,7 +659,7 @@ class TaxonomyController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Selected taxonomies permanently deleted successfully.',
-                'deleted_count' => $deletedCount,
+                'deleted_count' => $taxonomies->count(),
             ], 200);
         } catch (ValidationException $e) {
             DB::rollBack();
@@ -754,12 +676,6 @@ class TaxonomyController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validation Rules
-    |--------------------------------------------------------------------------
-    */
-
     private function storeValidationRules(Request $request): array
     {
         return [
@@ -769,20 +685,21 @@ class TaxonomyController extends Controller
 
             'is_relationship' => ['nullable', 'boolean'],
             'is_parent' => [
-                Rule::requiredIf(fn () => $request->boolean('is_relationship')),
+                Rule::requiredIf(fn() => $request->boolean('is_relationship')),
                 'nullable',
                 'boolean',
             ],
 
-            'parent_id' => [
-                Rule::requiredIf(fn () =>
+            'parent_ids' => [
+                Rule::requiredIf(
+                    fn() =>
                     $request->boolean('is_relationship') &&
-                    !$request->boolean('is_parent')
+                        !$request->boolean('is_parent')
                 ),
                 'nullable',
-                'integer',
-                'exists:taxonomies,id',
+                'array',
             ],
+            'parent_ids.*' => ['integer', 'exists:taxonomies,id'],
 
             'child_taxonomy_ids' => ['nullable', 'array'],
             'child_taxonomy_ids.*' => ['integer', 'exists:taxonomies,id'],
@@ -791,9 +708,6 @@ class TaxonomyController extends Controller
             'hierarchical' => ['nullable', 'boolean'],
             'status' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
-
-            'post_type_ids' => ['nullable', 'array'],
-            'post_type_ids.*' => ['integer', 'exists:post_types,id'],
         ];
     }
 
@@ -807,11 +721,8 @@ class TaxonomyController extends Controller
             'is_relationship' => ['nullable', 'boolean'],
             'is_parent' => ['nullable', 'boolean'],
 
-            'parent_id' => [
-                'nullable',
-                'integer',
-                'exists:taxonomies,id',
-            ],
+            'parent_ids' => ['nullable', 'array'],
+            'parent_ids.*' => ['integer', 'exists:taxonomies,id'],
 
             'child_taxonomy_ids' => ['nullable', 'array'],
             'child_taxonomy_ids.*' => ['integer', 'exists:taxonomies,id'],
@@ -820,192 +731,172 @@ class TaxonomyController extends Controller
             'hierarchical' => ['nullable', 'boolean'],
             'status' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
-
-            'post_type_ids' => ['nullable', 'array'],
-            'post_type_ids.*' => ['integer', 'exists:post_types,id'],
         ];
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Relationship Validation
-    |--------------------------------------------------------------------------
-    */
 
     private function validateRelationshipData(array $data, ?Taxonomy $currentTaxonomy = null): ?JsonResponse
     {
         $isRelationship = (bool) ($data['is_relationship'] ?? false);
         $isParent = (bool) ($data['is_parent'] ?? false);
-        $parentId = $data['parent_id'] ?? null;
-        $childTaxonomyIds = $data['child_taxonomy_ids'] ?? [];
+        $parentIds = $this->cleanIds($data['parent_ids'] ?? []);
+        $childTaxonomyIds = $this->cleanIds($data['child_taxonomy_ids'] ?? []);
 
         if (!$isRelationship) {
             return null;
         }
 
-        if ($isParent && !empty($parentId)) {
+        if (!$isParent && empty($parentIds)) {
             return response()->json([
                 'status' => false,
-                'message' => 'Parent taxonomy cannot have another parent taxonomy.',
+                'message' => 'Child taxonomy must have at least one parent taxonomy.',
                 'errors' => [
-                    'parent_id' => ['Parent taxonomy must not have parent_id.'],
+                    'parent_ids' => ['parent_ids is required when is_parent is false.'],
                 ],
             ], 422);
         }
 
-        if (!$isParent && empty($parentId)) {
+        if ($currentTaxonomy && in_array($currentTaxonomy->id, $parentIds)) {
             return response()->json([
                 'status' => false,
-                'message' => 'Child taxonomy must have a parent taxonomy.',
+                'message' => 'Invalid parent taxonomy.',
                 'errors' => [
-                    'parent_id' => ['parent_id is required when is_parent is false.'],
+                    'parent_ids' => ['A taxonomy cannot be parent of itself.'],
                 ],
             ], 422);
         }
 
-        if (!$isParent) {
-            if ($currentTaxonomy && (int) $parentId === (int) $currentTaxonomy->id) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid parent taxonomy.',
-                    'errors' => [
-                        'parent_id' => ['A taxonomy cannot be parent of itself.'],
-                    ],
-                ], 422);
-            }
+        if ($currentTaxonomy && in_array($currentTaxonomy->id, $childTaxonomyIds)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid child taxonomy selection.',
+                'errors' => [
+                    'child_taxonomy_ids' => ['A taxonomy cannot be child of itself.'],
+                ],
+            ], 422);
+        }
 
-            $parentExists = Taxonomy::where('id', $parentId)
-                ->where('is_relationship', true)
-                ->where('is_parent', true)
-                ->exists();
-
-            if (!$parentExists) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid parent taxonomy.',
-                    'errors' => [
-                        'parent_id' => ['Selected taxonomy is not a valid parent taxonomy.'],
-                    ],
-                ], 422);
-            }
+        if (!$isParent && !empty($parentIds)) {
+            Taxonomy::whereIn('id', $parentIds)->update([
+                'is_relationship' => true,
+                'is_parent' => true,
+                'updated_at' => now(),
+            ]);
         }
 
         if ($isParent && !empty($childTaxonomyIds)) {
-            $childTaxonomyIds = array_values(array_unique($childTaxonomyIds));
-
-            if ($currentTaxonomy && in_array($currentTaxonomy->id, $childTaxonomyIds)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid child taxonomy selection.',
-                    'errors' => [
-                        'child_taxonomy_ids' => ['A taxonomy cannot be child of itself.'],
-                    ],
-                ], 422);
-            }
-
-            $parentChildIds = Taxonomy::whereIn('id', $childTaxonomyIds)
-                ->where('is_relationship', true)
-                ->where('is_parent', true)
-                ->pluck('id')
-                ->toArray();
-
-            if (!empty($parentChildIds)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid child taxonomy selection.',
-                    'errors' => [
-                        'child_taxonomy_ids' => [
-                            'Selected child taxonomies cannot already be parent taxonomies.',
-                        ],
-                    ],
-                ], 422);
-            }
+            Taxonomy::whereIn('id', $childTaxonomyIds)->update([
+                'is_relationship' => true,
+                'is_parent' => false,
+                'updated_at' => now(),
+            ]);
         }
 
         return null;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Relationship Sync Helpers
-    |--------------------------------------------------------------------------
-    */
-
     private function syncChildTaxonomies(Taxonomy $parentTaxonomy, array $childTaxonomyIds): void
     {
-        $childTaxonomyIds = array_values(array_unique(array_filter($childTaxonomyIds)));
+        $childTaxonomyIds = array_values(array_diff($this->cleanIds($childTaxonomyIds), [$parentTaxonomy->id]));
 
-        /*
-         * Detach old children which are not selected now.
-         */
-        Taxonomy::where('parent_id', $parentTaxonomy->id)
-            ->when(!empty($childTaxonomyIds), function ($query) use ($childTaxonomyIds) {
-                $query->whereNotIn('id', $childTaxonomyIds);
-            })
-            ->update([
-                'parent_id' => null,
-                'is_relationship' => false,
-                'is_parent' => false,
-                'updated_at' => now(),
-            ]);
+        $oldChildIds = $parentTaxonomy->children()
+            ->pluck('taxonomies.id')
+            ->toArray();
 
-        if (empty($childTaxonomyIds)) {
-            return;
-        }
+        $parentTaxonomy->children()->sync(
+            $this->makeSyncData($childTaxonomyIds)
+        );
 
-        /*
-         * Attach selected taxonomies as children.
-         */
-        Taxonomy::whereIn('id', $childTaxonomyIds)
-            ->where('id', '!=', $parentTaxonomy->id)
-            ->where(function ($query) {
-                $query->where('is_parent', false)
-                    ->orWhereNull('is_parent');
-            })
-            ->update([
-                'parent_id' => $parentTaxonomy->id,
+        if (!empty($childTaxonomyIds)) {
+            Taxonomy::whereIn('id', $childTaxonomyIds)->update([
                 'is_relationship' => true,
                 'is_parent' => false,
                 'updated_at' => now(),
             ]);
+        }
+
+        $this->markDetachedChildrenAsStandalone($oldChildIds, $childTaxonomyIds);
     }
 
-    private function detachChildTaxonomies(Taxonomy $parentTaxonomy): void
+    private function syncParentTaxonomies(Taxonomy $childTaxonomy, array $parentIds): void
     {
-        Taxonomy::where('parent_id', $parentTaxonomy->id)
-            ->update([
-                'parent_id' => null,
+        $parentIds = array_values(array_diff($this->cleanIds($parentIds), [$childTaxonomy->id]));
+
+        $childTaxonomy->parents()->sync(
+            $this->makeSyncData($parentIds)
+        );
+
+        if (!empty($parentIds)) {
+            Taxonomy::whereIn('id', $parentIds)->update([
+                'is_relationship' => true,
+                'is_parent' => true,
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    private function detachAllTaxonomyRelationships(Taxonomy $taxonomy): void
+    {
+        $oldChildIds = $taxonomy->children()
+            ->pluck('taxonomies.id')
+            ->toArray();
+
+        $taxonomy->parents()->detach();
+        $taxonomy->children()->detach();
+
+        $this->markDetachedChildrenAsStandalone($oldChildIds, []);
+    }
+
+    private function detachChildTaxonomies(Taxonomy $taxonomy): void
+    {
+        $oldChildIds = $taxonomy->children()
+            ->pluck('taxonomies.id')
+            ->toArray();
+
+        $taxonomy->children()->detach();
+
+        $this->markDetachedChildrenAsStandalone($oldChildIds, []);
+    }
+
+    private function markDetachedChildrenAsStandalone(array $oldChildIds, array $currentChildIds): void
+    {
+        $detachedIds = array_values(array_diff($oldChildIds, $currentChildIds));
+
+        if (empty($detachedIds)) {
+            return;
+        }
+
+        $standaloneIds = Taxonomy::whereIn('id', $detachedIds)
+            ->whereDoesntHave('parents')
+            ->pluck('id')
+            ->toArray();
+
+        if (!empty($standaloneIds)) {
+            Taxonomy::whereIn('id', $standaloneIds)->update([
                 'is_relationship' => false,
                 'is_parent' => false,
                 'updated_at' => now(),
             ]);
+        }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Post Type Sync
-    |--------------------------------------------------------------------------
-    */
-
-    private function syncPostTypes(Taxonomy $taxonomy, array $postTypeIds): void
+    private function makeSyncData(array $ids): array
     {
         $syncData = [];
 
-        foreach (array_values(array_unique($postTypeIds)) as $index => $postTypeId) {
-            $syncData[$postTypeId] = [
+        foreach ($this->cleanIds($ids) as $index => $id) {
+            $syncData[$id] = [
                 'sort_order' => $index + 1,
                 'status' => true,
             ];
         }
 
-        $taxonomy->postTypes()->sync($syncData);
+        return $syncData;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
+    private function cleanIds(array $ids): array
+    {
+        return array_values(array_unique(array_filter(array_map('intval', $ids))));
+    }
 
     private function getNextSortOrder(): int
     {
@@ -1014,91 +905,49 @@ class TaxonomyController extends Controller
 
     private function formatTaxonomy($taxonomy): array
     {
-        $creator = $taxonomy->relationLoaded('creator')
-            ? $taxonomy->creator
-            : null;
-
-        $parent = $taxonomy->relationLoaded('parent')
-            ? $taxonomy->parent
-            : null;
-
-        $children = $taxonomy->relationLoaded('children')
-            ? $taxonomy->children
-            : collect();
-
-        $postTypes = $taxonomy->relationLoaded('postTypes')
-            ? $taxonomy->postTypes
-            : collect();
+        $creator = $taxonomy->relationLoaded('creator') ? $taxonomy->creator : null;
+        $parents = $taxonomy->relationLoaded('parents') ? $taxonomy->parents : collect();
+        $children = $taxonomy->relationLoaded('children') ? $taxonomy->children : collect();
 
         return [
             'id' => $taxonomy->id,
-
-            'parent_id' => $taxonomy->parent_id,
             'is_relationship' => (bool) $taxonomy->is_relationship,
             'is_parent' => (bool) $taxonomy->is_parent,
-
             'relationship_type' => $this->getRelationshipType($taxonomy),
 
-            'name' => $taxonomy->name,
-            'slug' => $taxonomy->slug,
-            'description' => $taxonomy->description,
-
-            'is_default' => (bool) $taxonomy->is_default,
-            'hierarchical' => (bool) $taxonomy->hierarchical,
-            'status' => (bool) $taxonomy->status,
-            'sort_order' => $taxonomy->sort_order,
-
-            'parent_taxonomy' => $parent ? [
+            'parent_ids' => $parents->pluck('id')->map(fn($id) => (int) $id)->values()->toArray(),
+            'parents' => $parents->map(fn($parent) => [
                 'id' => $parent->id,
                 'name' => $parent->name,
                 'slug' => $parent->slug,
                 'is_relationship' => (bool) $parent->is_relationship,
                 'is_parent' => (bool) $parent->is_parent,
                 'status' => (bool) $parent->status,
-            ] : null,
+                'sort_order' => $parent->pivot->sort_order ?? 0,
+                'pivot_status' => isset($parent->pivot->status) ? (bool) $parent->pivot->status : true,
+            ])->values()->toArray(),
 
-            'child_taxonomy_ids' => $children
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->values()
-                ->toArray(),
+            'child_taxonomy_ids' => $children->pluck('id')->map(fn($id) => (int) $id)->values()->toArray(),
+            'child_taxonomies' => $children->map(fn($child) => [
+                'id' => $child->id,
+                'name' => $child->name,
+                'slug' => $child->slug,
+                'is_relationship' => (bool) $child->is_relationship,
+                'is_parent' => (bool) $child->is_parent,
+                'status' => (bool) $child->status,
+                'sort_order' => $child->pivot->sort_order ?? 0,
+                'pivot_status' => isset($child->pivot->status) ? (bool) $child->pivot->status : true,
+            ])->values()->toArray(),
 
-            'child_taxonomies' => $children
-                ->map(fn ($child) => [
-                    'id' => $child->id,
-                    'parent_id' => $child->parent_id,
-                    'name' => $child->name,
-                    'slug' => $child->slug,
-                    'is_relationship' => (bool) $child->is_relationship,
-                    'is_parent' => (bool) $child->is_parent,
-                    'status' => (bool) $child->status,
-                    'sort_order' => $child->sort_order,
-                ])
-                ->values()
-                ->toArray(),
-
-            'post_type_ids' => $postTypes
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->values()
-                ->toArray(),
-
-            'post_types' => $postTypes
-                ->map(fn ($postType) => [
-                    'id' => $postType->id,
-                    'name' => $postType->name,
-                    'slug' => $postType->slug,
-                    'status' => (bool) $postType->status,
-                    'sort_order' => $postType->pivot->sort_order ?? 0,
-                    'pivot_status' => isset($postType->pivot->status)
-                        ? (bool) $postType->pivot->status
-                        : true,
-                ])
-                ->values()
-                ->toArray(),
+            'name' => $taxonomy->name,
+            'slug' => $taxonomy->slug,
+            'description' => $taxonomy->description,
+            'is_default' => (bool) $taxonomy->is_default,
+            'hierarchical' => (bool) $taxonomy->hierarchical,
+            'status' => (bool) $taxonomy->status,
+            'sort_order' => $taxonomy->sort_order,
 
             'created_by' => $taxonomy->created_by,
-
             'created_by_user' => $creator ? [
                 'id' => $creator->id,
                 'name' => trim(($creator->first_name ?? '') . ' ' . ($creator->last_name ?? '')),
@@ -1106,6 +955,7 @@ class TaxonomyController extends Controller
             ] : null,
 
             'terms_count' => $taxonomy->terms_count ?? null,
+            'parent_taxonomies_count' => $taxonomy->parent_taxonomies_count ?? null,
             'child_taxonomies_count' => $taxonomy->child_taxonomies_count ?? null,
             'custom_fields_count' => $taxonomy->custom_fields_count ?? null,
 
