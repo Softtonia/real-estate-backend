@@ -1038,7 +1038,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('post-types/{postType}', [PostTypeController::class, 'show']);
     Route::put('post-types/{postType}', [PostTypeController::class, 'update']);
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
-    
+
     // Dynamic Posts
     Route::get('custom-field', [DynamicPostController::class, 'customFieldsByPostType']);
     Route::post('resolve-custom-fields', [DynamicPostController::class, 'resolveCustomFieldsForCreate']);
@@ -1055,27 +1055,20 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     // Taxonomies
     Route::get('taxonomies', [TaxonomyController::class, 'index']);
     Route::post('taxonomies', [TaxonomyController::class, 'store']);
-
-    // Taxonomies Import/Export
+    Route::get('taxonomies-tree', [TaxonomyController::class, 'tree']);
     Route::get('taxonomies/export-csv', [TaxonomyExportImportController::class, 'exportToCsv']);
     Route::post('taxonomies/import-csv', [TaxonomyExportImportController::class, 'importFromCsv']);
-
-    // Trash and bulk routes MUST come before {taxonomy} routes to avoid conflicts
     Route::get('taxonomies/trash', [TaxonomyController::class, 'trash']);
     Route::post('taxonomies/bulk-delete', [TaxonomyController::class, 'bulkDelete']);
     Route::post('taxonomies/bulk-restore', [TaxonomyController::class, 'bulkRestore']);
     Route::post('taxonomies/bulk-force-delete', [TaxonomyController::class, 'bulkForceDelete']);
-
     Route::get('taxonomies/{taxonomy}', [TaxonomyController::class, 'show']);
     Route::put('taxonomies/{taxonomy}', [TaxonomyController::class, 'update']);
     Route::delete('taxonomies/{taxonomy}', [TaxonomyController::class, 'destroy']);
-
     Route::get('taxonomies/{taxonomy}/terms', [TaxonomyController::class, 'terms']);
     Route::get('taxonomies/{taxonomy}/fields', [TaxonomyController::class, 'fields']);
-
     Route::post('taxonomies/{id}/restore', [TaxonomyController::class, 'restore']);
     Route::delete('taxonomies/{id}/force-delete', [TaxonomyController::class, 'forceDelete']);
-
 
     // Taxonomy Terms
     Route::post('taxonomy-terms/bulk-delete', [TaxonomyTermController::class, 'bulkDelete']);
