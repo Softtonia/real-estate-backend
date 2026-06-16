@@ -12,6 +12,7 @@ use App\Models\CustomFieldCondition;
 use App\Models\CustomFieldRepeaterOption;
 use App\Models\PostType;
 use App\Models\Taxonomy;
+use App\Models\TaxonomyTerm;
 use App\Services\CustomFieldValueService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -415,6 +416,71 @@ class CustomFieldGroupController extends Controller
                     "custom_fields.{$customField->field_name_slug}" => [$error],
                 ]);
             }
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  POST TYPE / TAXONOMY / TERM LISTING (for dropdowns)
+    // ──────────────────────────────────────────────
+
+    public function postTypesList(): JsonResponse
+    {
+        try {
+            $postTypes = PostType::query()
+                ->select('id', 'name', 'slug')
+                ->active()
+                ->ordered()
+                ->get();
+
+            return $this->successResponse('Post types fetched successfully.', $postTypes);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch post types.', 500, $e->getMessage());
+        }
+    }
+
+    public function taxonomiesList(): JsonResponse
+    {
+        try {
+            $taxonomies = Taxonomy::query()
+                ->select('id', 'name', 'slug', 'hierarchical')
+                ->active()
+                ->ordered()
+                ->get();
+
+            return $this->successResponse('Taxonomies fetched successfully.', $taxonomies);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch taxonomies.', 500, $e->getMessage());
+        }
+    }
+
+    public function taxonomyTermsList(int|string $taxonomyId): JsonResponse
+    {
+        try {
+            $taxonomy = Taxonomy::query()
+                ->select('id', 'name', 'slug')
+                ->where(function ($q) use ($taxonomyId) {
+                    if (is_numeric($taxonomyId)) $q->where('id', $taxonomyId);
+                    $q->orWhere('slug', $taxonomyId);
+                })
+                ->first();
+
+            if (!$taxonomy) {
+                return $this->errorResponse('Taxonomy not found.', 404);
+            }
+
+            $terms = TaxonomyTerm::query()
+                ->select('id', 'taxonomy_id', 'parent_id', 'name', 'slug')
+                ->where('taxonomy_id', $taxonomy->id)
+                ->active()
+                ->orderBy('sort_order', 'asc')
+                ->orderBy('id', 'asc')
+                ->get();
+
+            return $this->successResponse('Taxonomy terms fetched successfully.', $terms, 200, [
+                'taxonomy' => ['id' => $taxonomy->id, 'name' => $taxonomy->name, 'slug' => $taxonomy->slug],
+            ]);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch taxonomy terms.', 500, $e->getMessage());
         }
     }
 

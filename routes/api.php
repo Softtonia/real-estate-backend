@@ -1105,6 +1105,11 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('custom-field-groups/export-csv', [CustomFieldGroupExportImportController::class, 'exportToCsv']);
     Route::post('custom-field-groups/import-csv', [CustomFieldGroupExportImportController::class, 'importFromCsv']);
 
+    // Post type / taxonomy / term listing for custom field group location rule dropdowns
+    Route::get('post-types-list', [CustomFieldGroupController::class, 'postTypesList']);
+    Route::get('taxonomies-list', [CustomFieldGroupController::class, 'taxonomiesList']);
+    Route::get('taxonomy-terms-list/{taxonomyId}', [CustomFieldGroupController::class, 'taxonomyTermsList']);
+
     Route::get('custom-field-groups-by-post-type/{postType}', [CustomFieldGroupController::class, 'groupsByPostType']);
     Route::post('custom-field-groups-by-taxonomy/{taxonomy}', [CustomFieldGroupController::class, 'groupsByTaxonomy']);
 });
