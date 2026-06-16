@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\TaxonomyTerm;
 use App\Models\CustomFieldValue;
+use App\Services\CustomFieldValueService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -333,33 +334,7 @@ class TaxonomyTermController extends Controller
 
     private function saveCustomFieldValues(int $entityId, string $entityType, array $fields): void
     {
-        foreach ($fields as $field) {
-            if (empty($field['custom_field_id'])) {
-                continue;
-            }
-
-            $valueJson = $field['value_json'] ?? null;
-
-            if (is_array($valueJson)) {
-                $valueJson = json_encode($valueJson);
-            }
-
-            CustomFieldValue::updateOrCreate(
-                [
-                    'entity_type' => $entityType,
-                    'entity_id' => $entityId,
-                    'custom_field_id' => $field['custom_field_id'],
-                ],
-                [
-                    'custom_field_option_id' => $field['custom_field_option_id'] ?? null,
-                    'value_text' => $field['value_text'] ?? null,
-                    'value_string' => $field['value_string'] ?? null,
-                    'value_number' => $field['value_number'] ?? null,
-                    'value_date' => $field['value_date'] ?? null,
-                    'value_datetime' => $field['value_datetime'] ?? null,
-                    'value_json' => $valueJson,
-                ]
-            );
-        }
+        $service = app(CustomFieldValueService::class);
+        $service->saveValues($entityId, $entityType, $fields);
     }
 }

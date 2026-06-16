@@ -109,4 +109,20 @@ class CustomField extends Model
     {
         return in_array($this->field_type, ['media', 'file']);
     }
+
+    /**
+     * Per-field location rules.
+     */
+    public function locationRules()
+    {
+        return $this->hasMany(CustomFieldGroupLocationRule::class, 'custom_field_id');
+    }
+
+    /**
+     * Conditions for this field (taxonomy term include/exclude).
+     */
+    public function conditions()
+    {
+        return $this->hasMany(CustomFieldCondition::class, 'custom_field_id');
+    }
 }

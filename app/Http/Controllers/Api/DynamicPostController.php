@@ -8,6 +8,7 @@ use App\Models\DynamicPost;
 use App\Models\PostType;
 use App\Models\CustomFieldValue;
 use App\Models\TaxonomyTerm;
+use App\Services\CustomFieldValueService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -465,28 +466,8 @@ class DynamicPostController extends Controller
 
     private function saveCustomFieldValues(int $entityId, string $entityType, array $fields): void
     {
-        foreach ($fields as $field) {
-            if (empty($field['custom_field_id'])) {
-                continue;
-            }
-
-            CustomFieldValue::updateOrCreate(
-                [
-                    'entity_type' => $entityType,
-                    'entity_id' => $entityId,
-                    'custom_field_id' => $field['custom_field_id'],
-                ],
-                [
-                    'custom_field_option_id' => $field['custom_field_option_id'] ?? null,
-                    'value_text' => $field['value_text'] ?? null,
-                    'value_string' => $field['value_string'] ?? null,
-                    'value_number' => $field['value_number'] ?? null,
-                    'value_date' => $field['value_date'] ?? null,
-                    'value_datetime' => $field['value_datetime'] ?? null,
-                    'value_json' => $field['value_json'] ?? null,
-                ]
-            );
-        }
+        $service = app(CustomFieldValueService::class);
+        $service->saveValues($entityId, $entityType, $fields);
     }
     public function customFieldsByPostType(Request $request): JsonResponse
     {

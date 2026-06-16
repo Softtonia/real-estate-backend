@@ -8,9 +8,11 @@ use App\Models\CustomFieldGroup;
 use App\Models\CustomFieldGroupLocationRule;
 use App\Models\CustomFieldOption;
 use App\Models\CustomFieldRepeater;
+use App\Models\CustomFieldCondition;
 use App\Models\CustomFieldRepeaterOption;
 use App\Models\PostType;
 use App\Models\Taxonomy;
+use App\Services\CustomFieldValueService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +31,14 @@ class CustomFieldGroupController extends Controller
         'locationRules.taxonomy',
         'fields.options',
         'fields.repeaters.options',
+        'fields.locationRules',
+        'fields.conditions.taxonomy',
+        'fields.conditions.taxonomyTerm',
     ];
+
+    // ──────────────────────────────────────────────
+    //  GROUP CRUD
+    // ──────────────────────────────────────────────
 
     public function index(Request $request): JsonResponse
     {
@@ -45,44 +54,37 @@ class CustomFieldGroupController extends Controller
                 ->with($this->groupRelations)
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $search = $request->search;
-
                     $q->where(function ($subQuery) use ($search) {
                         $subQuery->where('group_name', 'like', "%{$search}%")
                             ->orWhere('group_slug', 'like', "%{$search}%");
                     });
                 })
                 ->when($request->filled('post_type_id'), function ($q) use ($request) {
-                    $q->whereHas('locationRules', function ($ruleQuery) use ($request) {
-                        $ruleQuery->where('show_if', 'post_type')
-                            ->where(function ($sub) use ($request) {
-                                $sub->where('match_type', 'all')
-                                    ->orWhere('post_type_id', $request->post_type_id);
-                            });
+                    $q->where(function ($groupQ) use ($request) {
+                        $groupQ->whereHas('locationRules', function ($ruleQuery) use ($request) {
+                            $this->scopePostTypeRule($ruleQuery, $request->post_type_id);
+                        })->orWhereHas('fields.locationRules', function ($ruleQuery) use ($request) {
+                            $this->scopePostTypeRule($ruleQuery, $request->post_type_id);
+                        });
                     });
                 })
                 ->when($request->filled('taxonomy_id'), function ($q) use ($request) {
-                    $q->whereHas('locationRules', function ($ruleQuery) use ($request) {
-                        $ruleQuery->where('show_if', 'taxonomy')
-                            ->where(function ($sub) use ($request) {
-                                $sub->where('match_type', 'all')
-                                    ->orWhere('taxonomy_id', $request->taxonomy_id);
-                            });
+                    $q->where(function ($groupQ) use ($request) {
+                        $groupQ->whereHas('locationRules', function ($ruleQuery) use ($request) {
+                            $this->scopeTaxonomyRule($ruleQuery, $request->taxonomy_id);
+                        })->orWhereHas('fields.locationRules', function ($ruleQuery) use ($request) {
+                            $this->scopeTaxonomyRule($ruleQuery, $request->taxonomy_id);
+                        });
                     });
                 })
                 ->orderBy('id', 'desc');
 
             $perPage = (int) $request->get('per_page', 15);
-
             $groups = $query->paginate($perPage);
 
-            $groups->getCollection()->transform(function ($group) {
-                return $this->formatGroup($group);
-            });
+            $groups->getCollection()->transform(fn($group) => $this->formatGroup($group));
 
-            return $this->successResponse(
-                'Custom field groups fetched successfully.',
-                $groups
-            );
+            return $this->successResponse('Custom field groups fetched successfully.', $groups);
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
@@ -95,7 +97,7 @@ class CustomFieldGroupController extends Controller
     public function store(Request $request): JsonResponse
     {
         try {
-            $validated = $this->validateGroup($request);
+            $validated = $this->validateGroupStore($request);
 
             $group = DB::transaction(function () use ($validated) {
                 $locationRules = $validated['location_rules'] ?? [];
@@ -111,23 +113,22 @@ class CustomFieldGroupController extends Controller
                     'created_by' => Auth::id(),
                 ]);
 
-                // ✅ Save location rules
-                $this->saveLocationRules($group, $locationRules);
-
-                // Save custom fields
+                $this->saveLocationRules($group->id, null, $locationRules);
                 $this->saveFields($group, $fields);
 
                 return $group;
             });
 
-            $group = $group->fresh()->load($this->groupRelations);
-
             return $this->successResponse(
                 'Custom field group created successfully.',
-                $this->formatGroup($group),
+                $this->formatGroup($group->fresh()->load($this->groupRelations)),
                 201
             );
-        } catch (\Throwable $e) {
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while creating custom field group.');
+        } catch (Throwable $e) {
             return $this->errorResponse('Unable to create custom field group.', 500, $e->getMessage());
         }
     }
@@ -138,15 +139,10 @@ class CustomFieldGroupController extends Controller
             $group = CustomFieldGroup::with($this->groupRelations)->find($id);
 
             if (!$group) {
-                return $this->errorResponse('Custom field group not found.', 404, 'No custom field group exists with this id.', [
-                    'id' => $id,
-                ]);
+                return $this->errorResponse('Custom field group not found.', 404);
             }
 
-            return $this->successResponse(
-                'Custom field group fetched successfully.',
-                $this->formatGroup($group)
-            );
+            return $this->successResponse('Custom field group fetched successfully.', $this->formatGroup($group));
         } catch (QueryException $e) {
             return $this->databaseErrorResponse($e, 'Database error while fetching custom field group.');
         } catch (Throwable $e) {
@@ -158,49 +154,47 @@ class CustomFieldGroupController extends Controller
     {
         try {
             $group = CustomFieldGroup::find($id);
-
             if (!$group) {
                 return $this->errorResponse('Custom field group not found.', 404);
             }
 
-            $validated = $this->validateGroup($request, $group->id);
+            $validated = $this->validateGroupUpdate($request, $group);
 
             DB::transaction(function () use ($group, $validated) {
-                $locationRules = $validated['location_rules'] ?? [];
-                $fields = $validated['fields'] ?? [];
-
-                unset($validated['location_rules'], $validated['fields']);
-
-                $slug = $group->group_slug;
-                if (!empty($validated['group_slug'])) {
-                    $slug = CustomFieldGroup::generateUniqueSlug($validated['group_slug'], $group->id);
-                } elseif ($validated['group_name'] !== $group->group_name) {
-                    $slug = CustomFieldGroup::generateUniqueSlug($validated['group_name'], $group->id);
+                $updateData = [];
+                if (isset($validated['group_name'])) {
+                    $updateData['group_name'] = $validated['group_name'];
                 }
 
-                $group->update([
-                    'group_name' => $validated['group_name'],
-                    'group_slug' => $slug,
-                ]);
+                if (isset($validated['group_slug'])) {
+                    $updateData['group_slug'] = CustomFieldGroup::generateUniqueSlug($validated['group_slug'], $group->id);
+                } elseif (isset($validated['group_name']) && $validated['group_name'] !== $group->group_name) {
+                    $updateData['group_slug'] = CustomFieldGroup::generateUniqueSlug($validated['group_name'], $group->id);
+                }
 
-                // Delete old rules and fields
-                $group->locationRules()->delete();
-                $group->fields()->delete();
+                if (!empty($updateData)) {
+                    $group->update($updateData);
+                }
 
-                // Save updated location rules
-                $this->saveLocationRules($group, $locationRules);
+                if (isset($validated['location_rules'])) {
+                    $group->locationRules()->delete();
+                    $this->saveLocationRules($group->id, null, $validated['location_rules']);
+                }
 
-                // Save updated fields
-                $this->saveFields($group, $fields);
+                if (isset($validated['fields'])) {
+                    $this->syncFields($group, $validated['fields']);
+                }
             });
-
-            $group = $group->fresh()->load($this->groupRelations);
 
             return $this->successResponse(
                 'Custom field group updated successfully.',
-                $this->formatGroup($group)
+                $this->formatGroup($group->fresh()->load($this->groupRelations))
             );
-        } catch (\Throwable $e) {
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while updating custom field group.');
+        } catch (Throwable $e) {
             return $this->errorResponse('Unable to update custom field group.', 500, $e->getMessage());
         }
     }
@@ -209,11 +203,8 @@ class CustomFieldGroupController extends Controller
     {
         try {
             $group = CustomFieldGroup::find($id);
-
             if (!$group) {
-                return $this->errorResponse('Custom field group not found.', 404, 'No custom field group exists with this id.', [
-                    'id' => $id,
-                ]);
+                return $this->errorResponse('Custom field group not found.', 404);
             }
 
             $group->delete();
@@ -235,10 +226,7 @@ class CustomFieldGroupController extends Controller
             ]);
 
             $ids = array_values(array_unique($request->ids));
-
-            $deleted = DB::transaction(function () use ($ids) {
-                return CustomFieldGroup::whereIn('id', $ids)->delete();
-            });
+            $deleted = DB::transaction(fn() => CustomFieldGroup::whereIn('id', $ids)->delete());
 
             return $this->successResponse('Selected custom field groups deleted successfully.', null, 200, [
                 'deleted_count' => $deleted,
@@ -252,6 +240,188 @@ class CustomFieldGroupController extends Controller
         }
     }
 
+    // ──────────────────────────────────────────────
+    //  PER-FIELD CRUD
+    // ──────────────────────────────────────────────
+
+    public function storeField(Request $request, int|string $groupId): JsonResponse
+    {
+        try {
+            $group = CustomFieldGroup::find($groupId);
+            if (!$group) {
+                return $this->errorResponse('Custom field group not found.', 404);
+            }
+
+            $validated = $this->validateFieldData($request);
+
+            $field = DB::transaction(function () use ($group, $validated) {
+                $locationRules = $validated['location_rules'] ?? [];
+                $options = $validated['options'] ?? [];
+                $repeaters = $validated['repeaters'] ?? [];
+                $conditions = $validated['conditions'] ?? [];
+
+                unset($validated['location_rules'], $validated['options'], $validated['repeaters'], $validated['conditions']);
+
+                $field = CustomField::create(array_merge($validated, [
+                    'custom_field_group_id' => $group->id,
+                    'field_name_slug' => $this->resolveFieldSlug($group->id, $validated),
+                    'sort_order' => $validated['sort_order'] ?? CustomField::where('custom_field_group_id', $group->id)->max('sort_order') + 1,
+                    'status' => $validated['status'] ?? true,
+                    'created_by' => Auth::id(),
+                ]));
+
+                $this->saveLocationRules($group->id, $field->id, $locationRules);
+                $this->saveOptions($field, $options);
+                $this->saveRepeaters($field, $repeaters);
+                $this->saveConditions($field, $conditions);
+
+                return $field;
+            });
+
+            return $this->successResponse(
+                'Field added successfully.',
+                $this->formatField($field->fresh()->load(['options', 'repeaters.options', 'locationRules', 'conditions'])),
+                201
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to add field.', 500, $e->getMessage());
+        }
+    }
+
+    public function updateField(Request $request, int|string $groupId, int|string $fieldId): JsonResponse
+    {
+        try {
+            $field = CustomField::where('custom_field_group_id', $groupId)->find($fieldId);
+            if (!$field) {
+                return $this->errorResponse('Field not found in this group.', 404);
+            }
+
+            $validated = $this->validateFieldData($request, true);
+
+            DB::transaction(function () use ($field, $validated) {
+                $updateData = [];
+
+                foreach (['field_label', 'field_placeholder', 'field_type', 'required', 'checkbox_type',
+                          'default_value', 'validation_rules', 'conditional_rules', 'media_limit',
+                          'media_size', 'media_format', 'sort_order', 'status'] as $key) {
+                    if (array_key_exists($key, $validated)) {
+                        $updateData[$key] = $validated[$key];
+                    }
+                }
+
+                if (isset($validated['field_name_slug'])) {
+                    $updateData['field_name_slug'] = Str::slug($validated['field_name_slug'], '_');
+                } elseif (isset($validated['field_label'])) {
+                    $updateData['field_name_slug'] = Str::slug($validated['field_label'], '_');
+                }
+
+                if (!empty($updateData)) {
+                    $field->update($updateData);
+                }
+
+                if (isset($validated['location_rules'])) {
+                    $field->locationRules()->delete();
+                    $this->saveLocationRules($field->custom_field_group_id, $field->id, $validated['location_rules']);
+                }
+
+                if (isset($validated['options'])) {
+                    $field->options()->delete();
+                    $this->saveOptions($field, $validated['options']);
+                }
+
+                if (isset($validated['repeaters'])) {
+                    $field->repeaters()->delete();
+                    $this->saveRepeaters($field, $validated['repeaters']);
+                }
+
+                if (isset($validated['conditions'])) {
+                    $field->conditions()->delete();
+                    $this->saveConditions($field, $validated['conditions']);
+                }
+            });
+
+            return $this->successResponse(
+                'Field updated successfully.',
+                $this->formatField($field->fresh()->load(['options', 'repeaters.options', 'locationRules', 'conditions']))
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to update field.', 500, $e->getMessage());
+        }
+    }
+
+    public function destroyField(int|string $groupId, int|string $fieldId): JsonResponse
+    {
+        try {
+            $field = CustomField::where('custom_field_group_id', $groupId)->find($fieldId);
+            if (!$field) {
+                return $this->errorResponse('Field not found in this group.', 404);
+            }
+
+            $field->delete();
+
+            return $this->successResponse('Field deleted successfully.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to delete field.', 500, $e->getMessage());
+        }
+    }
+
+    public function reorderFields(Request $request, int|string $groupId): JsonResponse
+    {
+        try {
+            $request->validate([
+                'fields' => ['required', 'array', 'min:1'],
+                'fields.*.id' => ['required', 'integer', 'exists:custom_fields,id'],
+                'fields.*.sort_order' => ['required', 'integer', 'min:0'],
+            ]);
+
+            DB::transaction(function () use ($request, $groupId) {
+                foreach ($request->fields as $fieldData) {
+                    CustomField::where('custom_field_group_id', $groupId)
+                        ->where('id', $fieldData['id'])
+                        ->update(['sort_order' => $fieldData['sort_order']]);
+                }
+            });
+
+            return $this->successResponse('Fields reordered successfully.');
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to reorder fields.', 500, $e->getMessage());
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  FIELD VALUE VALIDATION
+    // ──────────────────────────────────────────────
+
+    private function validateFieldValues(array $customFields): void
+    {
+        foreach ($customFields as $field) {
+            $customField = CustomField::find($field['custom_field_id'] ?? 0);
+            if (!$customField) continue;
+
+            $value = $field['value'] ?? $field['value_text'] ?? $field['value_string']
+                ?? $field['value_number'] ?? $field['value_date']
+                ?? $field['value_datetime'] ?? $field['value_json'] ?? null;
+
+            $error = CustomFieldValueService::validateFieldValue($customField, $value, $customField->isRequired());
+
+            if ($error) {
+                throw ValidationException::withMessages([
+                    "custom_fields.{$customField->field_name_slug}" => [$error],
+                ]);
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  FILTERING BY LOCATION
+    // ──────────────────────────────────────────────
+
     public function groupsByPostType(int|string $postType): JsonResponse
     {
         try {
@@ -262,28 +432,23 @@ class CustomFieldGroupController extends Controller
                 })
                 ->first();
 
-            if (!$postTypeData) return $this->errorResponse('Post type not found.', 404);
+            if (!$postTypeData) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
 
             $groups = CustomFieldGroup::with($this->groupRelations)
-                ->whereHas('locationRules', function ($q) use ($postTypeData) {
-                    $q->where('show_if', 'post_type')
-                        ->where(function ($sub) use ($postTypeData) {
-                            $sub->where('match_type', 'all')
-                                ->orWhere('post_type_id', $postTypeData->id);
-                        });
+                ->where(function ($q) use ($postTypeData) {
+                    $q->whereHas('locationRules', fn($r) => $this->scopePostTypeRule($r, $postTypeData->id))
+                      ->orWhereHas('fields.locationRules', fn($r) => $this->scopePostTypeRule($r, $postTypeData->id));
                 })
                 ->orderBy('id', 'asc')
                 ->get()
                 ->map(fn($group) => $this->formatGroup($group));
 
             return $this->successResponse('Custom field groups fetched by post type successfully.', $groups, 200, [
-                'post_type' => [
-                    'id' => $postTypeData->id,
-                    'name' => $postTypeData->name,
-                    'slug' => $postTypeData->slug,
-                ],
+                'post_type' => ['id' => $postTypeData->id, 'name' => $postTypeData->name, 'slug' => $postTypeData->slug],
             ]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             return $this->errorResponse('Unable to fetch custom field groups by post type.', 500, $e->getMessage());
         }
     }
@@ -303,63 +468,94 @@ class CustomFieldGroupController extends Controller
                 })
                 ->first();
 
-            if (!$taxonomyData) return $this->errorResponse('Taxonomy not found.', 404);
+            if (!$taxonomyData) {
+                return $this->errorResponse('Taxonomy not found.', 404);
+            }
 
             $selectedTermIds = collect($request->taxonomy_term_ids ?? [])->map(fn($id) => (int)$id)->toArray();
 
             $groups = CustomFieldGroup::with($this->groupRelations)
-                ->whereHas('locationRules', function ($q) use ($taxonomyData, $selectedTermIds) {
-                    $q->where('show_if', 'taxonomy')
-                        ->where(function ($sub) use ($taxonomyData, $selectedTermIds) {
-                            $sub->where('match_type', 'all')
-                                ->orWhere(function ($specific) use ($taxonomyData, $selectedTermIds) {
-                                    $specific->where('taxonomy_id', $taxonomyData->id);
-                                    if ($selectedTermIds) {
-                                        $specific->where(function ($termQuery) use ($selectedTermIds) {
-                                            foreach ($selectedTermIds as $termId) {
-                                                $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
-                                            }
-                                            $termQuery->orWhereNull('taxonomy_term_ids');
-                                        });
-                                    }
-                                });
-                        });
+                ->where(function ($q) use ($taxonomyData, $selectedTermIds) {
+                    $q->whereHas('locationRules', fn($r) => $this->scopeTaxonomyRuleWithTerms($r, $taxonomyData->id, $selectedTermIds))
+                      ->orWhereHas('fields.locationRules', fn($r) => $this->scopeTaxonomyRuleWithTerms($r, $taxonomyData->id, $selectedTermIds));
                 })
                 ->orderBy('id', 'asc')
                 ->get()
                 ->map(fn($group) => $this->formatGroup($group));
 
             return $this->successResponse('Custom field groups fetched by taxonomy successfully.', $groups, 200, [
-                'taxonomy' => [
-                    'id' => $taxonomyData->id,
-                    'name' => $taxonomyData->name,
-                    'slug' => $taxonomyData->slug,
-                ],
+                'taxonomy' => ['id' => $taxonomyData->id, 'name' => $taxonomyData->name, 'slug' => $taxonomyData->slug],
             ]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             return $this->errorResponse('Unable to fetch custom field groups by taxonomy.', 500, $e->getMessage());
         }
     }
 
-    private function validateGroup(Request $request, ?int $ignoreId = null): array
-    {
-        return $request->validate([
-            'group_name' => ['required', 'string', 'max:200'],
-            'group_slug' => ['nullable', 'string', 'max:200'],
+    // ──────────────────────────────────────────────
+    //  VALIDATION
+    // ──────────────────────────────────────────────
 
-            'location_rules' => ['required', 'array', 'min:1'],
-            'location_rules.*.show_if' => ['required', Rule::in(['post_type', 'taxonomy'])],
+    private function commonFieldValidationRules(): array
+    {
+        return [
+            'location_rules' => ['nullable', 'array'],
+            'location_rules.*.show_if' => ['required_with:location_rules', Rule::in(['post_type', 'taxonomy'])],
             'location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
             'location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
             'location_rules.*.taxonomy_term_ids' => ['nullable', 'array'],
             'location_rules.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
 
-            'fields' => ['required', 'array', 'min:1'],
-            'fields.*.field_label' => ['required', 'string', 'max:255'],
+            'options' => ['nullable', 'array'],
+            'options.*.name' => ['required_with:options', 'string', 'max:150'],
+            'options.*.value' => ['required_with:options', 'string', 'max:150'],
+            'options.*.type' => ['nullable', 'string', 'max:50'],
+            'options.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'options.*.status' => ['nullable', 'boolean'],
+
+            'repeaters' => ['nullable', 'array'],
+            'repeaters.*.field_label' => ['required_with:repeaters', 'string', 'max:255'],
+            'repeaters.*.field_name_slug' => ['nullable', 'string', 'max:255'],
+            'repeaters.*.field_placeholder' => ['nullable', 'string', 'max:255'],
+            'repeaters.*.field_type' => ['required_with:repeaters', Rule::in($this->repeaterFieldTypesArray())],
+            'repeaters.*.media_limit' => ['nullable', 'integer', 'min:1'],
+            'repeaters.*.media_size' => ['nullable', 'string', 'max:100'],
+            'repeaters.*.media_format' => ['nullable', 'string', 'max:255'],
+            'repeaters.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'repeaters.*.status' => ['nullable', 'boolean'],
+            'repeaters.*.options' => ['nullable', 'array'],
+            'repeaters.*.options.*.name' => ['required_with:repeaters.*.options', 'string', 'max:150'],
+            'repeaters.*.options.*.value' => ['required_with:repeaters.*.options', 'string', 'max:150'],
+            'repeaters.*.options.*.type' => ['nullable', 'string', 'max:50'],
+            'repeaters.*.options.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'repeaters.*.options.*.status' => ['nullable', 'boolean'],
+
+            'conditions' => ['nullable', 'array'],
+            'conditions.*.taxonomy_id' => ['required_with:conditions', 'integer', 'exists:taxonomies,id'],
+            'conditions.*.taxonomy_term_id' => ['required_with:conditions', 'integer', 'exists:taxonomy_terms,id'],
+            'conditions.*.operator' => ['nullable', 'in:include,exclude'],
+        ];
+    }
+
+    private function validateGroupStore(Request $request): array
+    {
+        $rules = [
+            'group_name' => ['required', 'string', 'max:200'],
+            'group_slug' => ['nullable', 'string', 'max:200'],
+
+            'location_rules' => ['nullable', 'array'],
+            'location_rules.*.show_if' => ['required_with:location_rules', Rule::in(['post_type', 'taxonomy'])],
+            'location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
+            'location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+            'location_rules.*.taxonomy_term_ids' => ['nullable', 'array'],
+            'location_rules.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+
+            'fields' => ['nullable', 'array'],
+            'fields.*.field_label' => ['required_with:fields', 'string', 'max:255'],
             'fields.*.field_name_slug' => ['nullable', 'string', 'max:255'],
             'fields.*.field_placeholder' => ['nullable', 'string', 'max:255'],
-            'fields.*.field_type' => ['required', Rule::in($this->fieldTypes())],
+            'fields.*.field_type' => ['required_with:fields', Rule::in($this->fieldTypesArray())],
             'fields.*.required' => ['nullable', Rule::in(['yes', 'no'])],
             'fields.*.checkbox_type' => ['nullable', 'string', 'max:100'],
             'fields.*.default_value' => ['nullable', 'string'],
@@ -370,6 +566,26 @@ class CustomFieldGroupController extends Controller
             'fields.*.media_format' => ['nullable', 'string', 'max:255'],
             'fields.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'fields.*.status' => ['nullable', 'boolean'],
+
+            'fields.*.conditions' => ['nullable', 'array'],
+            'fields.*.conditions.*.taxonomy_id' => ['required_with:fields.*.conditions', 'integer', 'exists:taxonomies,id'],
+            'fields.*.conditions.*.taxonomy_term_id' => ['required_with:fields.*.conditions', 'integer', 'exists:taxonomy_terms,id'],
+            'fields.*.conditions.*.operator' => ['nullable', 'in:include,exclude'],
+        ];
+
+        return $request->validate(array_merge($rules, $this->commonFieldNestedValidationRules()));
+    }
+
+    private function commonFieldNestedValidationRules(): array
+    {
+        return [
+            'fields.*.location_rules' => ['nullable', 'array'],
+            'fields.*.location_rules.*.show_if' => ['required_with:fields.*.location_rules', Rule::in(['post_type', 'taxonomy'])],
+            'fields.*.location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
+            'fields.*.location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'fields.*.location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+            'fields.*.location_rules.*.taxonomy_term_ids' => ['nullable', 'array'],
+            'fields.*.location_rules.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
 
             'fields.*.options' => ['nullable', 'array'],
             'fields.*.options.*.name' => ['required_with:fields.*.options', 'string', 'max:150'],
@@ -382,56 +598,171 @@ class CustomFieldGroupController extends Controller
             'fields.*.repeaters.*.field_label' => ['required_with:fields.*.repeaters', 'string', 'max:255'],
             'fields.*.repeaters.*.field_name_slug' => ['nullable', 'string', 'max:255'],
             'fields.*.repeaters.*.field_placeholder' => ['nullable', 'string', 'max:255'],
-            'fields.*.repeaters.*.field_type' => ['required_with:fields.*.repeaters', Rule::in($this->repeaterFieldTypes())],
+            'fields.*.repeaters.*.field_type' => ['required_with:fields.*.repeaters', Rule::in($this->repeaterFieldTypesArray())],
             'fields.*.repeaters.*.media_limit' => ['nullable', 'integer', 'min:1'],
             'fields.*.repeaters.*.media_size' => ['nullable', 'string', 'max:100'],
             'fields.*.repeaters.*.media_format' => ['nullable', 'string', 'max:255'],
             'fields.*.repeaters.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'fields.*.repeaters.*.status' => ['nullable', 'boolean'],
-
             'fields.*.repeaters.*.options' => ['nullable', 'array'],
             'fields.*.repeaters.*.options.*.name' => ['required_with:fields.*.repeaters.*.options', 'string', 'max:150'],
             'fields.*.repeaters.*.options.*.value' => ['required_with:fields.*.repeaters.*.options', 'string', 'max:150'],
             'fields.*.repeaters.*.options.*.type' => ['nullable', 'string', 'max:50'],
             'fields.*.repeaters.*.options.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'fields.*.repeaters.*.options.*.status' => ['nullable', 'boolean'],
-        ]);
+        ];
     }
 
-    private function saveLocationRules(CustomFieldGroup $group, array $locationRules): void
+    private function validateGroupUpdate(Request $request, CustomFieldGroup $group): array
     {
-        foreach ($locationRules as $index => $rule) {
+        $rules = [
+            'group_name' => ['sometimes', 'required', 'string', 'max:200'],
+            'group_slug' => ['nullable', 'string', 'max:200'],
+
+            'location_rules' => ['nullable', 'array'],
+            'location_rules.*.show_if' => ['required_with:location_rules', Rule::in(['post_type', 'taxonomy'])],
+            'location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
+            'location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+            'location_rules.*.taxonomy_term_ids' => ['nullable', 'array'],
+            'location_rules.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+
+            'fields' => ['nullable', 'array'],
+            'fields.*.id' => ['nullable', 'integer', 'exists:custom_fields,id'],
+            'fields.*.field_label' => ['required_with:fields', 'string', 'max:255'],
+            'fields.*.field_name_slug' => ['nullable', 'string', 'max:255'],
+            'fields.*.field_placeholder' => ['nullable', 'string', 'max:255'],
+            'fields.*.field_type' => ['required_with:fields', Rule::in($this->fieldTypesArray())],
+            'fields.*.required' => ['nullable', Rule::in(['yes', 'no'])],
+            'fields.*.checkbox_type' => ['nullable', 'string', 'max:100'],
+            'fields.*.default_value' => ['nullable', 'string'],
+            'fields.*.validation_rules' => ['nullable', 'array'],
+            'fields.*.conditional_rules' => ['nullable', 'array'],
+            'fields.*.media_limit' => ['nullable', 'integer', 'min:1'],
+            'fields.*.media_size' => ['nullable', 'string', 'max:100'],
+            'fields.*.media_format' => ['nullable', 'string', 'max:255'],
+            'fields.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'fields.*.status' => ['nullable', 'boolean'],
+
+            'fields.*.conditions' => ['nullable', 'array'],
+            'fields.*.conditions.*.taxonomy_id' => ['required_with:fields.*.conditions', 'integer', 'exists:taxonomies,id'],
+            'fields.*.conditions.*.taxonomy_term_id' => ['required_with:fields.*.conditions', 'integer', 'exists:taxonomy_terms,id'],
+            'fields.*.conditions.*.operator' => ['nullable', 'in:include,exclude'],
+        ];
+
+        return $request->validate(array_merge($rules, $this->commonFieldNestedValidationRules()));
+    }
+
+    private function validateFieldData(Request $request, bool $isUpdate = false): array
+    {
+        $rules = [
+            'field_label' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
+            'field_name_slug' => ['nullable', 'string', 'max:255'],
+            'field_placeholder' => ['nullable', 'string', 'max:255'],
+            'field_type' => [$isUpdate ? 'sometimes' : 'required', Rule::in($this->fieldTypesArray())],
+            'required' => ['nullable', Rule::in(['yes', 'no'])],
+            'checkbox_type' => ['nullable', 'string', 'max:100'],
+            'default_value' => ['nullable', 'string'],
+            'validation_rules' => ['nullable', 'array'],
+            'conditional_rules' => ['nullable', 'array'],
+            'media_limit' => ['nullable', 'integer', 'min:1'],
+            'media_size' => ['nullable', 'string', 'max:100'],
+            'media_format' => ['nullable', 'string', 'max:255'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'status' => ['nullable', 'boolean'],
+        ];
+
+        return $request->validate(array_merge($rules, $this->commonFieldValidationRules()));
+    }
+
+    // ──────────────────────────────────────────────
+    //  SAVE HELPERS
+    // ──────────────────────────────────────────────
+
+    private function saveLocationRules(?int $groupId, ?int $fieldId, array $locationRules): void
+    {
+        foreach ($locationRules as $rule) {
             CustomFieldGroupLocationRule::create([
-                'custom_field_group_id' => $group->id,
+                'custom_field_group_id' => $groupId,
+                'custom_field_id' => $fieldId,
                 'show_if' => $rule['show_if'],
                 'match_type' => $rule['match_type'] ?? 'specific',
                 'post_type_id' => $rule['show_if'] === 'post_type' && $rule['match_type'] === 'specific'
-                    ? ($rule['post_type_id'] ?? null)
-                    : null,
+                    ? ($rule['post_type_id'] ?? null) : null,
                 'taxonomy_id' => $rule['show_if'] === 'taxonomy' && $rule['match_type'] === 'specific'
-                    ? ($rule['taxonomy_id'] ?? null)
-                    : null,
+                    ? ($rule['taxonomy_id'] ?? null) : null,
                 'taxonomy_term_ids' => $rule['show_if'] === 'taxonomy'
-                    ? ($rule['taxonomy_term_ids'] ?? null)
-                    : null,
+                    ? ($rule['taxonomy_term_ids'] ?? null) : null,
             ]);
+        }
+    }
+
+    private function syncFields(CustomFieldGroup $group, array $fields): void
+    {
+        $submittedIds = [];
+
+        foreach ($fields as $index => $fieldData) {
+            $fieldId = $fieldData['id'] ?? null;
+            $locationRules = $fieldData['location_rules'] ?? [];
+            $options = $fieldData['options'] ?? [];
+            $repeaters = $fieldData['repeaters'] ?? [];
+            $conditions = $fieldData['conditions'] ?? [];
+
+            unset($fieldData['id'], $fieldData['location_rules'], $fieldData['options'], $fieldData['repeaters'], $fieldData['conditions']);
+
+            if ($fieldId) {
+                $field = CustomField::where('custom_field_group_id', $group->id)->find($fieldId);
+                if ($field) {
+                    $field->update(array_merge($fieldData, [
+                        'field_name_slug' => $this->resolveFieldSlug($group->id, $fieldData, $fieldId),
+                    ]));
+                    $field->locationRules()->delete();
+                    $this->saveLocationRules($group->id, $field->id, $locationRules);
+                    $field->options()->delete();
+                    $this->saveOptions($field, $options);
+                    $field->repeaters()->delete();
+                    $this->saveRepeaters($field, $repeaters);
+                    $field->conditions()->delete();
+                    $this->saveConditions($field, $conditions);
+                    $submittedIds[] = $field->id;
+                }
+            } else {
+                $field = CustomField::create(array_merge($fieldData, [
+                    'custom_field_group_id' => $group->id,
+                    'field_name_slug' => $this->resolveFieldSlug($group->id, $fieldData),
+                    'sort_order' => $fieldData['sort_order'] ?? $index,
+                    'status' => $fieldData['status'] ?? true,
+                    'created_by' => Auth::id(),
+                ]));
+                $this->saveLocationRules($group->id, $field->id, $locationRules);
+                $this->saveOptions($field, $options);
+                $this->saveRepeaters($field, $repeaters);
+                $this->saveConditions($field, $conditions);
+                $submittedIds[] = $field->id;
+            }
+        }
+
+        if (!empty($submittedIds)) {
+            CustomField::where('custom_field_group_id', $group->id)
+                ->whereNotIn('id', $submittedIds)
+                ->delete();
         }
     }
 
     private function saveFields(CustomFieldGroup $group, array $fields): void
     {
         foreach ($fields as $index => $fieldData) {
+            $locationRules = $fieldData['location_rules'] ?? [];
             $options = $fieldData['options'] ?? [];
             $repeaters = $fieldData['repeaters'] ?? [];
+            $conditions = $fieldData['conditions'] ?? [];
 
-            unset($fieldData['options'], $fieldData['repeaters']);
+            unset($fieldData['location_rules'], $fieldData['options'], $fieldData['repeaters'], $fieldData['conditions']);
 
             $field = CustomField::create([
                 'custom_field_group_id' => $group->id,
                 'field_label' => $fieldData['field_label'],
-                'field_name_slug' => !empty($fieldData['field_name_slug'])
-                    ? Str::slug($fieldData['field_name_slug'], '_')
-                    : Str::slug($fieldData['field_label'], '_'),
+                'field_name_slug' => $this->resolveFieldSlug($group->id, $fieldData),
                 'field_placeholder' => $fieldData['field_placeholder'] ?? null,
                 'field_type' => $fieldData['field_type'],
                 'required' => $fieldData['required'] ?? 'no',
@@ -447,8 +778,10 @@ class CustomFieldGroupController extends Controller
                 'created_by' => Auth::id(),
             ]);
 
+            $this->saveLocationRules($group->id, $field->id, $locationRules);
             $this->saveOptions($field, $options);
             $this->saveRepeaters($field, $repeaters);
+            $this->saveConditions($field, $conditions);
         }
     }
 
@@ -470,7 +803,6 @@ class CustomFieldGroupController extends Controller
     {
         foreach ($repeaters as $index => $repeaterData) {
             $options = $repeaterData['options'] ?? [];
-
             unset($repeaterData['options']);
 
             $repeater = CustomFieldRepeater::create([
@@ -501,60 +833,107 @@ class CustomFieldGroupController extends Controller
         }
     }
 
+    /**
+     * Save field conditions (taxonomy term include/exclude).
+     */
+    private function saveConditions(CustomField $field, array $conditions): void
+    {
+        foreach ($conditions as $condition) {
+            CustomFieldCondition::create([
+                'custom_field_id' => $field->id,
+                'taxonomy_id' => $condition['taxonomy_id'],
+                'taxonomy_term_id' => $condition['taxonomy_term_id'],
+                'operator' => $condition['operator'] ?? 'include',
+            ]);
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  FORMATTING
+    // ──────────────────────────────────────────────
+
     private function formatGroup(CustomFieldGroup $group): array
     {
         return [
             'id' => $group->id,
             'group_name' => $group->group_name,
             'group_slug' => $group->group_slug,
-            'creator' => $group->creator ? [
-                'id' => $group->creator->id,
-                'full_name' => trim(($group->creator->first_name ?? '') . ' ' . ($group->creator->last_name ?? '')),
-                'role' => $this->getUserRoleName($group->creator),
-            ] : null,
+            'creator' => $this->formatCreator($group->creator),
             'location_rules' => $group->relationLoaded('locationRules')
-                ? $group->locationRules->map(fn($rule) => [
+                ? $group->locationRules->whereNull('custom_field_id')->values()->map(fn($rule) => [
                     'id' => $rule->id,
                     'show_if' => $rule->show_if,
                     'match_type' => $rule->match_type,
                     'post_type_id' => $rule->post_type_id,
                     'taxonomy_id' => $rule->taxonomy_id,
                     'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
-                ])->values()
-                : [],
+                ])->values() : [],
             'fields' => $group->relationLoaded('fields')
-                ? $group->fields->map(fn($field) => [
-                    'id' => $field->id,
-                    'custom_field_group_id' => $field->custom_field_group_id,
-                    'field_label' => $field->field_label,
-                    'field_name_slug' => $field->field_name_slug,
-                    'field_placeholder' => $field->field_placeholder,
-                    'field_type' => $field->field_type,
-                    'required' => $field->required,
-                    'checkbox_type' => $field->checkbox_type,
-                    'default_value' => $field->default_value,
-                    'validation_rules' => $field->validation_rules,
-                    'conditional_rules' => $field->conditional_rules,
-                    'media_limit' => $field->media_limit,
-                    'media_size' => $field->media_size,
-                    'media_format' => $field->media_format,
-                    'created_by' => $field->created_by,
-                    'created_at' => $field->created_at,
-                    'updated_at' => $field->updated_at,
-                    'options' => $field->relationLoaded('options') ? $field->options->toArray() : [],
-                    'repeaters' => $field->relationLoaded('repeaters') ? $field->repeaters->toArray() : [],
-                ])->values()
-                : [],
+                ? $group->fields->map(fn($field) => $this->formatField($field))->values() : [],
             'created_at' => $group->created_at,
             'updated_at' => $group->updated_at,
         ];
     }
 
+    private function formatField(CustomField $field): array
+    {
+        $data = [
+            'id' => $field->id,
+            'custom_field_group_id' => $field->custom_field_group_id,
+            'field_label' => $field->field_label,
+            'field_name_slug' => $field->field_name_slug,
+            'field_placeholder' => $field->field_placeholder,
+            'field_type' => $field->field_type,
+            'required' => $field->required,
+            'checkbox_type' => $field->checkbox_type,
+            'default_value' => $field->default_value,
+            'validation_rules' => $field->validation_rules,
+            'conditional_rules' => $field->conditional_rules,
+            'media_limit' => $field->media_limit,
+            'media_size' => $field->media_size,
+            'media_format' => $field->media_format,
+            'sort_order' => $field->sort_order,
+            'status' => $field->status,
+            'created_by' => $field->created_by,
+            'created_at' => $field->created_at,
+            'updated_at' => $field->updated_at,
+        ];
+
+        if ($field->relationLoaded('locationRules')) {
+            $data['location_rules'] = $field->locationRules->map(fn($rule) => [
+                'id' => $rule->id,
+                'show_if' => $rule->show_if,
+                'match_type' => $rule->match_type,
+                'post_type_id' => $rule->post_type_id,
+                'taxonomy_id' => $rule->taxonomy_id,
+                'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
+            ])->values();
+        } else {
+            $data['location_rules'] = [];
+        }
+
+        if ($field->relationLoaded('conditions')) {
+            $data['conditions'] = $field->conditions->map(fn($c) => [
+                'id' => $c->id,
+                'taxonomy_id' => $c->taxonomy_id,
+                'taxonomy_term_id' => $c->taxonomy_term_id,
+                'operator' => $c->operator,
+                'taxonomy' => $c->taxonomy ? ['id' => $c->taxonomy->id, 'name' => $c->taxonomy->name] : null,
+                'taxonomy_term' => $c->taxonomyTerm ? ['id' => $c->taxonomyTerm->id, 'name' => $c->taxonomyTerm->name] : null,
+            ])->values();
+        } else {
+            $data['conditions'] = [];
+        }
+
+        $data['options'] = $field->relationLoaded('options') ? $field->options->toArray() : [];
+        $data['repeaters'] = $field->relationLoaded('repeaters') ? $field->repeaters->toArray() : [];
+
+        return $data;
+    }
+
     private function formatCreator($user): ?array
     {
-        if (!$user) {
-            return null;
-        }
+        if (!$user) return null;
 
         return [
             'id' => $user->id,
@@ -566,12 +945,7 @@ class CustomFieldGroupController extends Controller
     private function getUserFullName($user): ?string
     {
         $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
-
-        if (!empty($fullName)) {
-            return $fullName;
-        }
-
-        return $user->name ?? $user->user_name ?? $user->email ?? null;
+        return !empty($fullName) ? $fullName : ($user->name ?? $user->user_name ?? $user->email ?? null);
     }
 
     private function getUserRoleName($user): ?string
@@ -579,132 +953,137 @@ class CustomFieldGroupController extends Controller
         if (method_exists($user, 'roles')) {
             try {
                 $roleName = $user->roles()->pluck('name')->first();
-
-                if (!empty($roleName)) {
-                    return $roleName;
-                }
-            } catch (Throwable $e) {
-                //
-            }
+                if (!empty($roleName)) return $roleName;
+            } catch (Throwable $e) {}
         }
 
-        if (isset($user->role) && is_object($user->role)) {
-            return $user->role->name ?? null;
-        }
-
-        if (isset($user->role) && is_array($user->role)) {
-            return $user->role['name'] ?? null;
-        }
-
-        if (isset($user->role) && is_string($user->role)) {
-            $decodedRole = json_decode($user->role, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decodedRole)) {
-                return $decodedRole['name'] ?? null;
-            }
-
-            return $user->role;
-        }
-
-        if (isset($user->role_slug) && is_string($user->role_slug)) {
-            return $user->role_slug;
-        }
+        if (isset($user->role) && is_object($user->role)) return $user->role->name ?? null;
+        if (isset($user->role) && is_array($user->role)) return $user->role['name'] ?? null;
+        if (isset($user->role) && is_string($user->role)) return $user->role;
+        if (isset($user->role_slug) && is_string($user->role_slug)) return $user->role_slug;
 
         if (isset($user->role_id)) {
             try {
-                $role = DB::table('roles')
-                    ->where('id', $user->role_id)
-                    ->first();
-
+                $role = DB::table('roles')->where('id', $user->role_id)->first();
                 return $role->name ?? $role->role_name ?? null;
-            } catch (Throwable $e) {
-                return null;
-            }
+            } catch (Throwable $e) {}
         }
 
         return null;
     }
 
-    private function fieldTypes(): array
+    // ──────────────────────────────────────────────
+    //  HELPERS
+    // ──────────────────────────────────────────────
+
+    private function resolveFieldSlug(int $groupId, array $fieldData, ?int $ignoreId = null): string
+    {
+        $slug = !empty($fieldData['field_name_slug'])
+            ? Str::slug($fieldData['field_name_slug'], '_')
+            : Str::slug($fieldData['field_label'], '_');
+
+        $baseSlug = $slug;
+        $counter = 1;
+        while (
+            CustomField::where('custom_field_group_id', $groupId)
+                ->where('field_name_slug', $slug)
+                ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
+                ->exists()
+        ) {
+            $slug = $baseSlug . '_' . $counter;
+            $counter++;
+        }
+
+        return $slug;
+    }
+
+    private function fieldTypesArray(): array
     {
         return [
-            'text',
-            'texteditor',
-            'textarea',
-            'number',
-            'email',
-            'url',
-            'date',
-            'datetime',
-            'boolean',
-            'checkbox',
-            'radio',
-            'select',
-            'repeater',
-            'media',
-            'file',
+            'text', 'texteditor', 'textarea', 'number', 'email', 'url',
+            'date', 'datetime', 'boolean', 'checkbox', 'radio', 'select',
+            'repeater', 'media', 'file',
         ];
     }
 
-    private function repeaterFieldTypes(): array
+    private function repeaterFieldTypesArray(): array
     {
         return [
-            'text',
-            'texteditor',
-            'textarea',
-            'number',
-            'email',
-            'url',
-            'date',
-            'datetime',
-            'boolean',
-            'checkbox',
-            'radio',
-            'select',
-            'media',
-            'file',
+            'text', 'texteditor', 'textarea', 'number', 'email', 'url',
+            'date', 'datetime', 'boolean', 'checkbox', 'radio', 'select',
+            'media', 'file',
         ];
     }
+
+    private function scopePostTypeRule($query, int $postTypeId): void
+    {
+        $query->where('show_if', 'post_type')
+            ->where(function ($sub) use ($postTypeId) {
+                $sub->where('match_type', 'all')
+                    ->orWhere(function ($specific) use ($postTypeId) {
+                        $specific->where('match_type', 'specific')
+                            ->where('post_type_id', $postTypeId);
+                    });
+            });
+    }
+
+    private function scopeTaxonomyRule($query, int $taxonomyId): void
+    {
+        $query->where('show_if', 'taxonomy')
+            ->where(function ($sub) use ($taxonomyId) {
+                $sub->where('match_type', 'all')
+                    ->orWhere(function ($specific) use ($taxonomyId) {
+                        $specific->where('match_type', 'specific')
+                            ->where('taxonomy_id', $taxonomyId);
+                    });
+            });
+    }
+
+    private function scopeTaxonomyRuleWithTerms($query, int $taxonomyId, array $termIds): void
+    {
+        $query->where('show_if', 'taxonomy')
+            ->where(function ($sub) use ($taxonomyId, $termIds) {
+                $sub->where('match_type', 'all')
+                    ->orWhere(function ($specific) use ($taxonomyId, $termIds) {
+                        $specific->where('match_type', 'specific')
+                            ->where('taxonomy_id', $taxonomyId);
+                        if (!empty($termIds)) {
+                            $specific->where(function ($termQuery) use ($termIds) {
+                                foreach ($termIds as $termId) {
+                                    $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
+                                }
+                                $termQuery->orWhereNull('taxonomy_term_ids');
+                            });
+                        }
+                    });
+            });
+    }
+
+    // ──────────────────────────────────────────────
+    //  RESPONSE FORMATTERS
+    // ──────────────────────────────────────────────
 
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
     {
-        $response = array_merge([
-            'status' => true,
-            'message' => $message,
-        ], $extra);
-
-        if (!is_null($data)) {
-            $response['data'] = $data;
-        }
-
+        $response = array_merge(['status' => true, 'message' => $message], $extra);
+        if (!is_null($data)) $response['data'] = $data;
         return response()->json($response, $statusCode);
     }
 
     private function errorResponse(string $message, int $statusCode = 500, mixed $error = null, array $extra = []): JsonResponse
     {
-        $response = array_merge([
-            'status' => false,
-            'message' => $message,
-        ], $extra);
-
-        if (!is_null($error)) {
-            $response['error'] = $error;
-        }
-
+        $response = array_merge(['status' => false, 'message' => $message], $extra);
+        if (!is_null($error)) $response['error'] = $error;
         return response()->json($response, $statusCode);
     }
 
     private function validationErrorResponse(ValidationException $e): JsonResponse
     {
-        return $this->errorResponse('Validation failed.', 422, null, [
-            'errors' => $e->errors(),
-        ]);
+        return $this->errorResponse('Validation failed.', 422, null, ['errors' => $e->errors()]);
     }
 
     private function databaseErrorResponse(QueryException $e, string $message): JsonResponse
     {
-        return $this->errorResponse($message, 500, $e->getMessage(), [
-            'error_type' => 'database_error',
-        ]);
+        return $this->errorResponse($message, 500, $e->getMessage(), ['error_type' => 'database_error']);
     }
 }

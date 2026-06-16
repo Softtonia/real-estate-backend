@@ -1095,6 +1095,12 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('custom-field-groups/{id}', [CustomFieldGroupController::class, 'destroy']);
     Route::post('custom-field-groups-bulk-delete', [CustomFieldGroupController::class, 'bulkDelete']);
 
+    // Individual field CRUD inside a group
+    Route::post('custom-field-groups/{groupId}/fields', [CustomFieldGroupController::class, 'storeField']);
+    Route::put('custom-field-groups/{groupId}/fields/{fieldId}', [CustomFieldGroupController::class, 'updateField']);
+    Route::delete('custom-field-groups/{groupId}/fields/{fieldId}', [CustomFieldGroupController::class, 'destroyField']);
+    Route::post('custom-field-groups/{groupId}/fields/reorder', [CustomFieldGroupController::class, 'reorderFields']);
+
     // Custom Field Groups Import/Export
     Route::get('custom-field-groups/export-csv', [CustomFieldGroupExportImportController::class, 'exportToCsv']);
     Route::post('custom-field-groups/import-csv', [CustomFieldGroupExportImportController::class, 'importFromCsv']);
