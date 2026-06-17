@@ -14,6 +14,7 @@ use App\Models\PostType;
 use App\Models\Taxonomy;
 use App\Models\TaxonomyTerm;
 use App\Services\CustomFieldValueService;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -92,6 +93,95 @@ class CustomFieldGroupController extends Controller
             return $this->databaseErrorResponse($e, 'Database error while fetching custom field groups.');
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to fetch custom field groups.', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Get total count of all custom fields.
+     */
+    public function fieldsCount(): JsonResponse
+    {
+        try {
+            $totalFields = CustomField::count();
+            $activeFields = CustomField::where('status', true)->count();
+            $fieldsByType = CustomField::selectRaw('field_type, count(*) as total')
+                ->groupBy('field_type')
+                ->pluck('total', 'field_type');
+
+            return $this->successResponse('Custom fields count fetched successfully.', [
+                'total_fields' => $totalFields,
+                'active_fields' => $activeFields,
+                'fields_by_type' => $fieldsByType,
+            ]);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching custom fields count.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch custom fields count.', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Paginated list of all custom fields (independent of groups).
+     */
+    public function fieldsIndex(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'search' => ['nullable', 'string', 'max:255'],
+                'field_type' => ['nullable', 'string', Rule::in($this->fieldTypesArray())],
+                'group_id' => ['nullable', 'integer', 'exists:custom_field_groups,id'],
+                'status' => ['nullable', 'boolean'],
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+                'sort_by' => ['nullable', Rule::in(['field_label', 'field_type', 'sort_order', 'created_at', 'updated_at'])],
+                'sort_order' => ['nullable', Rule::in(['asc', 'desc'])],
+            ]);
+
+            $query = CustomField::with([
+                'group:id,group_name,group_slug',
+                'options',
+                'repeaters.options',
+                'locationRules',
+                'conditions.taxonomy',
+                'conditions.taxonomyTerm',
+                'creator',
+            ]);
+
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('field_label', 'like', "%{$search}%")
+                      ->orWhere('field_name_slug', 'like', "%{$search}%");
+                });
+            }
+
+            if ($request->filled('field_type')) {
+                $query->where('field_type', $request->field_type);
+            }
+
+            if ($request->filled('group_id')) {
+                $query->where('custom_field_group_id', $request->group_id);
+            }
+
+            if ($request->filled('status')) {
+                $query->where('status', filter_var($request->status, FILTER_VALIDATE_BOOLEAN));
+            }
+
+            $sortBy = $request->get('sort_by', 'sort_order');
+            $sortOrder = $request->get('sort_order', 'asc');
+            $query->orderBy($sortBy, $sortOrder)->orderBy('id', 'asc');
+
+            $perPage = (int) $request->get('per_page', 15);
+            $fields = $query->paginate($perPage);
+
+            $fields->getCollection()->transform(fn($field) => $this->formatField($field));
+
+            return $this->successResponse('Custom fields fetched successfully.', $fields);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching custom fields.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch custom fields.', 500, $e->getMessage());
         }
     }
 

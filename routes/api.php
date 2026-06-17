@@ -1098,6 +1098,12 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('custom-field-groups/{id}', [CustomFieldGroupController::class, 'destroy']);
     Route::post('custom-field-groups-bulk-delete', [CustomFieldGroupController::class, 'bulkDelete']);
 
+    // Paginated custom fields independent of groups
+    Route::get('custom-fields-paginated', [CustomFieldGroupController::class, 'fieldsIndex']);
+
+    // Custom fields count aggregate
+    Route::get('custom-fields-count', [CustomFieldGroupController::class, 'fieldsCount']);
+
     // Individual field CRUD inside a group
     Route::post('custom-field-groups/{groupId}/fields', [CustomFieldGroupController::class, 'storeField']);
     Route::put('custom-field-groups/{groupId}/fields/{fieldId}', [CustomFieldGroupController::class, 'updateField']);

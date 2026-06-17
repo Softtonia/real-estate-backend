@@ -77,9 +77,9 @@ class TaxonomySeeder extends Seeder
             ]);
 
             $amenity = $this->createOrUpdateTaxonomy([
-                'name' => 'Amenity',
-                'slug' => 'amenity',
-                'description' => 'Amenity taxonomy such as parking, pool, lift, garden.',
+                'name' => 'Amenities',
+                'slug' => 'amenities',
+                'description' => 'Amenities taxonomy such as parking, pool, lift, garden.',
                 'is_relationship' => true,
                 'is_parent' => false,
                 'is_default' => true,
