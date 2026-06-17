@@ -1087,6 +1087,9 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::put('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'update']);
     Route::delete('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'destroy']);
 
+    // Custom Field Groups Import/Export
+    Route::get('custom-field-groups/export-csv', [CustomFieldGroupExportImportController::class, 'exportToCsv']);
+    Route::post('custom-field-groups/import-csv', [CustomFieldGroupExportImportController::class, 'importFromCsv']);
 
     Route::get('custom-field-groups', [CustomFieldGroupController::class, 'index']);
     Route::post('custom-field-groups', [CustomFieldGroupController::class, 'store']);
@@ -1101,9 +1104,6 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('custom-field-groups/{groupId}/fields/{fieldId}', [CustomFieldGroupController::class, 'destroyField']);
     Route::post('custom-field-groups/{groupId}/fields/reorder', [CustomFieldGroupController::class, 'reorderFields']);
 
-    // Custom Field Groups Import/Export
-    Route::get('custom-field-groups/export-csv', [CustomFieldGroupExportImportController::class, 'exportToCsv']);
-    Route::post('custom-field-groups/import-csv', [CustomFieldGroupExportImportController::class, 'importFromCsv']);
 
     // Post type / taxonomy / term listing for custom field group location rule dropdowns
     Route::get('post-types-list', [CustomFieldGroupController::class, 'postTypesList']);
