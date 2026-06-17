@@ -565,7 +565,9 @@ class CustomFieldGroupController extends Controller
     {
         return [
             'location_rules' => ['nullable', 'array'],
+            'location_rules.*.logic_operator' => ['nullable', Rule::in(['and', 'or'])],
             'location_rules.*.show_if' => ['required_with:location_rules', Rule::in(['post_type', 'taxonomy'])],
+            'location_rules.*.operator' => ['nullable', Rule::in(['is_equal_to', 'is_not_equal_to'])],
             'location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
             'location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
@@ -610,7 +612,9 @@ class CustomFieldGroupController extends Controller
             'group_slug' => ['nullable', 'string', 'max:200'],
 
             'location_rules' => ['nullable', 'array'],
+            'location_rules.*.logic_operator' => ['nullable', Rule::in(['and', 'or'])],
             'location_rules.*.show_if' => ['required_with:location_rules', Rule::in(['post_type', 'taxonomy'])],
+            'location_rules.*.operator' => ['nullable', Rule::in(['is_equal_to', 'is_not_equal_to'])],
             'location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
             'location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
@@ -646,7 +650,9 @@ class CustomFieldGroupController extends Controller
     {
         return [
             'fields.*.location_rules' => ['nullable', 'array'],
+            'fields.*.location_rules.*.logic_operator' => ['nullable', Rule::in(['and', 'or'])],
             'fields.*.location_rules.*.show_if' => ['required_with:fields.*.location_rules', Rule::in(['post_type', 'taxonomy'])],
+            'fields.*.location_rules.*.operator' => ['nullable', Rule::in(['is_equal_to', 'is_not_equal_to'])],
             'fields.*.location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
             'fields.*.location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'fields.*.location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
@@ -686,7 +692,9 @@ class CustomFieldGroupController extends Controller
             'group_slug' => ['nullable', 'string', 'max:200'],
 
             'location_rules' => ['nullable', 'array'],
+            'location_rules.*.logic_operator' => ['nullable', Rule::in(['and', 'or'])],
             'location_rules.*.show_if' => ['required_with:location_rules', Rule::in(['post_type', 'taxonomy'])],
+            'location_rules.*.operator' => ['nullable', Rule::in(['is_equal_to', 'is_not_equal_to'])],
             'location_rules.*.match_type' => ['nullable', Rule::in(['all', 'specific'])],
             'location_rules.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'location_rules.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
@@ -742,16 +750,28 @@ class CustomFieldGroupController extends Controller
     }
 
     // ──────────────────────────────────────────────
-    //  SAVE HELPERS
+    //  SAVE LOCATION RULES (flat with logic_operator)
     // ──────────────────────────────────────────────
 
+    /**
+     * Save flat location rules with logic_operator support.
+     *
+     * The first rule always has logic_operator = null.
+     * Subsequent rules use logic_operator from payload, default 'and'.
+     * Rules are saved with incrementing sort_order.
+     *
+     * Evaluation: (Rule1 AND Rule2) OR Rule3 ...
+     * Split by 'or' to form blocks. Each block is AND. Any block matching = true.
+     */
     private function saveLocationRules(?int $groupId, ?int $fieldId, array $locationRules): void
     {
-        foreach ($locationRules as $rule) {
+        foreach ($locationRules as $index => $rule) {
             CustomFieldGroupLocationRule::create([
                 'custom_field_group_id' => $groupId,
                 'custom_field_id' => $fieldId,
+                'logic_operator' => $index === 0 ? null : ($rule['logic_operator'] ?? 'and'),
                 'show_if' => $rule['show_if'],
+                'operator' => $rule['operator'] ?? 'is_equal_to',
                 'match_type' => $rule['match_type'] ?? 'specific',
                 'post_type_id' => $rule['show_if'] === 'post_type' && $rule['match_type'] === 'specific'
                     ? ($rule['post_type_id'] ?? null) : null,
@@ -759,9 +779,123 @@ class CustomFieldGroupController extends Controller
                     ? ($rule['taxonomy_id'] ?? null) : null,
                 'taxonomy_term_ids' => $rule['show_if'] === 'taxonomy'
                     ? ($rule['taxonomy_term_ids'] ?? null) : null,
+                'status' => $rule['status'] ?? true,
+                'sort_order' => $index + 1,
             ]);
         }
     }
+
+    /**
+     * Evaluate flat location rules with logic_operator.
+     *
+     * Logic: Split rules by 'or' into blocks.
+     * Inside each block, all rules must match (AND).
+     * If any block matches, return true.
+     *
+     * Example: A AND B OR C  -> (A AND B) OR C
+     */
+    private function evaluateLocationRules($rules, array $context): bool
+    {
+        if ($rules->isEmpty()) {
+            return true; // No rules means always show
+        }
+
+        // Sort by sort_order
+        $sorted = $rules->sortBy('sort_order')->values();
+
+        // Split into blocks on 'or'
+        $blocks = [];
+        $currentBlock = [];
+
+        foreach ($sorted as $rule) {
+            if ($rule->logic_operator === 'or' && !empty($currentBlock)) {
+                // Start a new block
+                $blocks[] = $currentBlock;
+                $currentBlock = [$rule];
+            } else {
+                $currentBlock[] = $rule;
+            }
+        }
+
+        if (!empty($currentBlock)) {
+            $blocks[] = $currentBlock;
+        }
+
+        // Evaluate each block (AND inside block, OR across blocks)
+        foreach ($blocks as $block) {
+            $blockMatch = true;
+
+            foreach ($block as $rule) {
+                if (!$this->evaluateSingleRule($rule, $context)) {
+                    $blockMatch = false;
+                    break;
+                }
+            }
+
+            if ($blockMatch) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Evaluate a single location rule against context.
+     */
+    private function evaluateSingleRule($rule, array $context): bool
+    {
+        $showIf = $rule->show_if;
+        $operator = $rule->operator ?? 'is_equal_to';
+        $matchType = $rule->match_type ?? 'specific';
+
+        if ($matchType === 'all') {
+            return true;
+        }
+
+        if ($showIf === 'post_type') {
+            $contextPostTypeId = $context['post_type_id'] ?? null;
+            $rulePostTypeId = $rule->post_type_id;
+
+            if (!$contextPostTypeId || !$rulePostTypeId) {
+                return false;
+            }
+
+            $matches = (int)$contextPostTypeId === (int)$rulePostTypeId;
+            return $operator === 'is_equal_to' ? $matches : !$matches;
+        }
+
+        if ($showIf === 'taxonomy') {
+            $contextTaxonomyId = $context['taxonomy_id'] ?? null;
+            $ruleTaxonomyId = $rule->taxonomy_id;
+
+            $taxonomyMatches = $contextTaxonomyId && $ruleTaxonomyId && (int)$contextTaxonomyId === (int)$ruleTaxonomyId;
+
+            if (!$taxonomyMatches) {
+                return $operator === 'is_not_equal_to';
+            }
+
+            $ruleTermIds = $rule->taxonomy_term_ids ?? [];
+            $contextTermIds = $context['taxonomy_term_ids'] ?? [];
+
+            if (empty($ruleTermIds)) {
+                return true;
+            }
+
+            if (empty($contextTermIds)) {
+                return false;
+            }
+
+            $hasMatchingTerm = !empty(array_intersect($ruleTermIds, $contextTermIds));
+            return $operator === 'is_equal_to' ? $hasMatchingTerm : !$hasMatchingTerm;
+        }
+
+        return true;
+    }
+
+    // ──────────────────────────────────────────────
+    //  SAVE HELPERS
+    // ──────────────────────────────────────────────
 
     private function syncFields(CustomFieldGroup $group, array $fields): void
     {
@@ -899,9 +1033,6 @@ class CustomFieldGroupController extends Controller
         }
     }
 
-    /**
-     * Save field conditions (taxonomy term include/exclude).
-     */
     private function saveConditions(CustomField $field, array $conditions): void
     {
         foreach ($conditions as $condition) {
@@ -926,13 +1057,17 @@ class CustomFieldGroupController extends Controller
             'group_slug' => $group->group_slug,
             'creator' => $this->formatCreator($group->creator),
             'location_rules' => $group->relationLoaded('locationRules')
-                ? $group->locationRules->whereNull('custom_field_id')->values()->map(fn($rule) => [
+                ? $group->locationRules->whereNull('custom_field_id')->sortBy('sort_order')->values()->map(fn($rule) => [
                     'id' => $rule->id,
+                    'logic_operator' => $rule->logic_operator,
                     'show_if' => $rule->show_if,
+                    'operator' => $rule->operator ?? 'is_equal_to',
                     'match_type' => $rule->match_type,
                     'post_type_id' => $rule->post_type_id,
                     'taxonomy_id' => $rule->taxonomy_id,
                     'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
+                    'status' => $rule->status ?? true,
+                    'sort_order' => $rule->sort_order ?? 0,
                 ])->values() : [],
             'fields' => $group->relationLoaded('fields')
                 ? $group->fields->map(fn($field) => $this->formatField($field))->values() : [],
@@ -966,13 +1101,17 @@ class CustomFieldGroupController extends Controller
         ];
 
         if ($field->relationLoaded('locationRules')) {
-            $data['location_rules'] = $field->locationRules->map(fn($rule) => [
+            $data['location_rules'] = $field->locationRules->sortBy('sort_order')->values()->map(fn($rule) => [
                 'id' => $rule->id,
+                'logic_operator' => $rule->logic_operator,
                 'show_if' => $rule->show_if,
+                'operator' => $rule->operator ?? 'is_equal_to',
                 'match_type' => $rule->match_type,
                 'post_type_id' => $rule->post_type_id,
                 'taxonomy_id' => $rule->taxonomy_id,
                 'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
+                'status' => $rule->status ?? true,
+                'sort_order' => $rule->sort_order ?? 0,
             ])->values();
         } else {
             $data['location_rules'] = [];
