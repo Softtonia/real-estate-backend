@@ -97,30 +97,6 @@ class CustomFieldGroupController extends Controller
     }
 
     /**
-     * Get total count of all custom fields.
-     */
-    public function fieldsCount(): JsonResponse
-    {
-        try {
-            $totalFields = CustomField::count();
-            $activeFields = CustomField::where('status', true)->count();
-            $fieldsByType = CustomField::selectRaw('field_type, count(*) as total')
-                ->groupBy('field_type')
-                ->pluck('total', 'field_type');
-
-            return $this->successResponse('Custom fields count fetched successfully.', [
-                'total_fields' => $totalFields,
-                'active_fields' => $activeFields,
-                'fields_by_type' => $fieldsByType,
-            ]);
-        } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while fetching custom fields count.');
-        } catch (Throwable $e) {
-            return $this->errorResponse('Unable to fetch custom fields count.', 500, $e->getMessage());
-        }
-    }
-
-    /**
      * Paginated list of all custom fields (independent of groups).
      */
     public function fieldsIndex(Request $request): JsonResponse
@@ -287,6 +263,96 @@ class CustomFieldGroupController extends Controller
             return $this->databaseErrorResponse($e, 'Database error while updating custom field group.');
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to update custom field group.', 500, $e->getMessage());
+        }
+    }
+    public function updateFieldById(Request $request, int|string $fieldId): JsonResponse
+    {
+        try {
+            $field = CustomField::find($fieldId);
+
+            if (!$field) {
+                return $this->errorResponse('Custom field not found.', 404);
+            }
+
+            $validated = $this->validateFieldData($request, true);
+
+            DB::transaction(function () use ($field, $validated) {
+                $updateData = [];
+
+                foreach (
+                    [
+                        'field_label',
+                        'field_placeholder',
+                        'field_type',
+                        'required',
+                        'checkbox_type',
+                        'default_value',
+                        'validation_rules',
+                        'conditional_rules',
+                        'media_limit',
+                        'media_size',
+                        'media_format',
+                        'sort_order',
+                        'status'
+                    ] as $key
+                ) {
+                    if (array_key_exists($key, $validated)) {
+                        $updateData[$key] = $validated[$key];
+                    }
+                }
+
+                if (isset($validated['field_name_slug']) || isset($validated['field_label'])) {
+                    $updateData['field_name_slug'] = $this->resolveFieldSlug(
+                        $field->custom_field_group_id,
+                        [
+                            'field_name_slug' => $validated['field_name_slug'] ?? $field->field_name_slug,
+                            'field_label' => $validated['field_label'] ?? $field->field_label,
+                        ],
+                        $field->id
+                    );
+                }
+
+                if (!empty($updateData)) {
+                    $field->update($updateData);
+                }
+
+                if (isset($validated['location_rules'])) {
+                    $field->locationRules()->delete();
+                    $this->saveLocationRules($field->custom_field_group_id, $field->id, $validated['location_rules']);
+                }
+
+                if (isset($validated['options'])) {
+                    $field->options()->delete();
+                    $this->saveOptions($field, $validated['options']);
+                }
+
+                if (isset($validated['repeaters'])) {
+                    $field->repeaters()->delete();
+                    $this->saveRepeaters($field, $validated['repeaters']);
+                }
+
+                if (isset($validated['conditions'])) {
+                    $field->conditions()->delete();
+                    $this->saveConditions($field, $validated['conditions']);
+                }
+            });
+
+            return $this->successResponse(
+                'Custom field updated successfully.',
+                $this->formatField($field->fresh()->load([
+                    'options',
+                    'repeaters.options',
+                    'locationRules',
+                    'conditions.taxonomy',
+                    'conditions.taxonomyTerm'
+                ]))
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while updating custom field.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to update custom field.', 500, $e->getMessage());
         }
     }
 

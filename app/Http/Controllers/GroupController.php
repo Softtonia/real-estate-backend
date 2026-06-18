@@ -15,13 +15,36 @@ class GroupController extends Controller
     public function index(Request $request)
     {
         try {
-            $groups = CustomFieldGroup::orderBy('id', 'desc')
-                ->get(['id', 'group_name','group_slug']);
+            $groups = CustomFieldGroup::with([
+                'fields' => function ($query) {
+                    $query->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc');
+                },
+                'fields.options',
+                'fields.repeaters.options',
+                'fields.locationRules',
+                'fields.conditions.taxonomy',
+                'fields.conditions.taxonomyTerm',
+            ])
+                ->withCount(['fields as custom_field_count'])
+                ->orderBy('id', 'desc')
+                ->get(['id', 'group_name', 'group_slug']);
+
+            $groupsWithFields = $groups->map(function ($group) {
+                $groupData = $group->toArray();
+
+                $groupData['custom_field_count'] = $group->custom_field_count;
+                $groupData['custom_fields'] = $groupData['fields'] ?? [];
+
+                unset($groupData['fields']);
+
+                return $groupData;
+            });
 
             return response()->json([
                 'status' => true,
                 'message' => 'Custom field groups fetched successfully.',
-                'data' => $groups
+                'data' => $groupsWithFields
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -31,7 +54,6 @@ class GroupController extends Controller
             ], 500);
         }
     }
-
     // Create a new group
     public function createGroup(Request $request)
     {
@@ -166,37 +188,47 @@ class GroupController extends Controller
     // Search groups by name
     public function searchByGroupName(Request $request)
     {
-        $keyword = $request->input('group_name');
+        try {
+            $keyword = $request->input('group_name');
 
-        if (!$keyword) {
+            if (!$keyword) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please provide a group_name keyword to search.'
+                ], 400);
+            }
+
+            // Search groups by name
+            $groups = CustomFieldGroup::where('group_name', 'like', "%$keyword%")->get();
+
+            if ($groups->isEmpty()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No groups found matching the search keyword.'
+                ], 200);
+            }
+
+            // Add custom field count for each group
+            $groupsWithCounts = $groups->map(function ($group) {
+                $customFieldCount = CustomField::where('custom_field_group_id', $group->id)->count();
+
+                $groupData = $group->toArray();
+                $groupData['custom_field_count'] = $customFieldCount;
+
+                return $groupData;
+            });
+
             return response()->json([
-                'status' => false,
-                'message' => 'Please provide a group_name keyword to search.'
-            ], 400);
-        }
-
-        $groups = CustomFieldGroup::where('group_name', 'like', "%$keyword%")->get();
-
-        if ($groups->isEmpty()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'No groups found matching the search keyword.'
+                'status' => 'success',
+                'message' => 'Search results fetched successfully',
+                'data' => $groupsWithCounts
             ], 200);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while searching custom field groups.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to search custom field groups.', 500, $e->getMessage());
         }
-
-        $groupsWithCounts = $groups->map(function ($group) {
-            $groupData = $group->toArray();
-            $groupData['custom_field_count'] = $group->fields()->count(); // assumes relation 'fields' exists
-            return $groupData;
-        });
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Search results fetched successfully',
-            'data' => $groupsWithCounts
-        ], 200);
     }
-
     // Export groups as CSV
     public function exportGroups()
     {
