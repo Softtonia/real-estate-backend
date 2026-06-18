@@ -420,33 +420,10 @@ class TaxonomyTermController extends Controller
     public function relationTaxonomies(Request $request)
     {
         try {
-            $request->validate([
-                'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
-            ]);
-
-            $relationEnabled = true;
-
-            if ($request->filled('taxonomy_id')) {
-                $currentTaxonomy = Taxonomy::find($request->taxonomy_id);
-                $relationEnabled = $currentTaxonomy ? (bool) $currentTaxonomy->is_relationship : false;
-            }
-
-            if (!$relationEnabled) {
-                return response()->json([
-                    'status' => true,
-                    'message' => 'Relation is not enabled for this taxonomy.',
-                    'relation_enabled' => false,
-                    'data' => [],
-                ], 200);
-            }
-
             $taxonomies = Taxonomy::query()
                 ->select('id', 'name', 'slug')
                 ->where('is_relationship', true)
                 ->where('status', true)
-                ->when($request->filled('taxonomy_id'), function ($q) use ($request) {
-                    $q->where('id', '!=', $request->taxonomy_id);
-                })
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get();
@@ -454,7 +431,6 @@ class TaxonomyTermController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Relation taxonomies fetched successfully.',
-                'relation_enabled' => true,
                 'data' => $taxonomies,
             ], 200);
         } catch (Throwable $e) {
@@ -556,8 +532,8 @@ class TaxonomyTermController extends Controller
             ? $this->cleanRelationValueIds($validated['relation_value_term_ids'] ?? [])
             : (
                 $taxonomyTerm
-                    ? $taxonomyTerm->relationValues()->pluck('taxonomy_terms.id')->map(fn($id) => (int) $id)->toArray()
-                    : []
+                ? $taxonomyTerm->relationValues()->pluck('taxonomy_terms.id')->map(fn($id) => (int) $id)->toArray()
+                : []
             );
 
         if (!empty($relationValueTermIds) && empty($relationWithTaxonomyId)) {
