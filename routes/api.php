@@ -1101,6 +1101,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     // Paginated custom fields independent of groups
     Route::get('custom-fields-paginated', [CustomFieldGroupController::class, 'fieldsIndex']);
 
+    Route::post('custom-fields/bulk-delete', [CustomFieldGroupController::class, 'bulkDeleteFields']);
     Route::get('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'showFieldById'])
         ->whereNumber('fieldId');
     // Individual field CRUD inside a group
@@ -1110,6 +1111,8 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('custom-field-groups/{groupId}/fields/reorder', [CustomFieldGroupController::class, 'reorderFields']);
     // Update single custom field by id
     Route::match(['put', 'patch'], 'custom-fields/{fieldId}', [CustomFieldGroupController::class, 'updateFieldById'])
+        ->whereNumber('fieldId');
+    Route::delete('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'destroyFieldById'])
         ->whereNumber('fieldId');
 
     // Post type / taxonomy / term listing for custom field group location rule dropdowns

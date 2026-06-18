@@ -112,6 +112,12 @@ class CustomFieldGroupController extends Controller
                 'sort_order' => ['nullable', Rule::in(['asc', 'desc'])],
             ]);
 
+            // Summary counts
+            $totalCustomFields = CustomField::count();
+            $activeFields = CustomField::where('status', true)->count();
+            $inactiveFields = CustomField::where('status', false)->count();
+            $fieldGroups = CustomFieldGroup::count();
+
             $query = CustomField::with([
                 'group:id,group_name,group_slug',
                 'options',
@@ -144,14 +150,23 @@ class CustomFieldGroupController extends Controller
 
             $sortBy = $request->get('sort_by', 'sort_order');
             $sortOrder = $request->get('sort_order', 'asc');
+
             $query->orderBy($sortBy, $sortOrder)->orderBy('id', 'asc');
 
             $perPage = (int) $request->get('per_page', 15);
+
             $fields = $query->paginate($perPage);
 
             $fields->getCollection()->transform(fn($field) => $this->formatField($field));
 
-            return $this->successResponse('Custom fields fetched successfully.', $fields);
+            return $this->successResponse('Custom fields fetched successfully.', $fields, 200, [
+                'summary' => [
+                    'total_custom_fields' => $totalCustomFields,
+                    'active_fields' => $activeFields,
+                    'inactive_fields' => $inactiveFields,
+                    'field_groups' => $fieldGroups,
+                ],
+            ]);
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
@@ -586,6 +601,99 @@ class CustomFieldGroupController extends Controller
                     "custom_fields.{$customField->field_name_slug}" => [$error],
                 ]);
             }
+        }
+    }
+
+    public function destroyFieldById(int|string $fieldId): JsonResponse
+    {
+        try {
+            $field = CustomField::find($fieldId);
+
+            if (!$field) {
+                return $this->errorResponse('Custom field not found.', 404);
+            }
+
+            DB::transaction(function () use ($field) {
+                // Delete field location rules
+                $field->locationRules()->delete();
+
+                // Delete field options
+                $field->options()->delete();
+
+                // Delete repeater options first
+                $repeaterIds = $field->repeaters()->pluck('id')->toArray();
+
+                if (!empty($repeaterIds)) {
+                    CustomFieldRepeaterOption::whereIn('custom_field_repeater_id', $repeaterIds)->delete();
+                }
+
+                // Delete repeaters
+                $field->repeaters()->delete();
+
+                // Delete field conditions
+                $field->conditions()->delete();
+
+                // Delete field values if relation exists
+                if (method_exists($field, 'values')) {
+                    $field->values()->delete();
+                }
+
+                // Delete custom field
+                $field->delete();
+            });
+
+            return $this->successResponse('Custom field deleted successfully.');
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while deleting custom field.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to delete custom field.', 500, $e->getMessage());
+        }
+    }
+    public function bulkDeleteFields(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'ids' => ['required', 'array', 'min:1'],
+                'ids.*' => ['required', 'integer', 'exists:custom_fields,id'],
+            ]);
+
+            $ids = array_values(array_unique($request->ids));
+
+            $deletedCount = DB::transaction(function () use ($ids) {
+                // Delete field location rules
+                CustomFieldGroupLocationRule::whereIn('custom_field_id', $ids)->delete();
+
+                // Delete field options
+                CustomFieldOption::whereIn('custom_field_id', $ids)->delete();
+
+                // Delete repeater options first
+                $repeaterIds = CustomFieldRepeater::whereIn('custom_field_id', $ids)
+                    ->pluck('id')
+                    ->toArray();
+
+                if (!empty($repeaterIds)) {
+                    CustomFieldRepeaterOption::whereIn('custom_field_repeater_id', $repeaterIds)->delete();
+                }
+
+                // Delete repeaters
+                CustomFieldRepeater::whereIn('custom_field_id', $ids)->delete();
+
+                // Delete field conditions
+                CustomFieldCondition::whereIn('custom_field_id', $ids)->delete();
+
+                // Delete custom fields
+                return CustomField::whereIn('id', $ids)->delete();
+            });
+
+            return $this->successResponse('Selected custom fields deleted successfully.', null, 200, [
+                'deleted_count' => $deletedCount,
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while deleting selected custom fields.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to delete selected custom fields.', 500, $e->getMessage());
         }
     }
 
