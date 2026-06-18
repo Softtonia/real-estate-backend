@@ -410,12 +410,6 @@ class TaxonomyTermController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Relation With Taxonomies Dropdown
-    |--------------------------------------------------------------------------
-    | Ye API relation_with dropdown ke liye enabled taxonomies return karegi.
-    */
 
     public function relationTaxonomies(Request $request)
     {
@@ -442,12 +436,6 @@ class TaxonomyTermController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Relation Value Terms Dropdown
-    |--------------------------------------------------------------------------
-    | relation_with taxonomy select hone ke baad us taxonomy ke terms yahan se aayenge.
-    */
 
     public function relationValues(int|string $taxonomy)
     {
@@ -510,12 +498,6 @@ class TaxonomyTermController extends Controller
             ]);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Agar selected taxonomy me is_relationship false hai
-        |--------------------------------------------------------------------------
-        | To relation fields null rahengi aur pivot empty hoga.
-        */
 
         if (!$taxonomy->is_relationship) {
             return [
@@ -544,13 +526,6 @@ class TaxonomyTermController extends Controller
             ]);
         }
 
-        if (!empty($relationWithTaxonomyId) && (int) $relationWithTaxonomyId === (int) $taxonomyId) {
-            throw ValidationException::withMessages([
-                'relation_with_taxonomy_id' => [
-                    'Relation taxonomy cannot be same as selected taxonomy.',
-                ],
-            ]);
-        }
 
         if (!empty($relationWithTaxonomyId)) {
             $relationTaxonomy = Taxonomy::where('id', $relationWithTaxonomyId)
@@ -566,6 +541,7 @@ class TaxonomyTermController extends Controller
                 ]);
             }
         }
+
 
         if (!empty($relationValueTermIds)) {
             $validTermIds = TaxonomyTerm::where('taxonomy_id', $relationWithTaxonomyId)
