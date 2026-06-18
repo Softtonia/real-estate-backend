@@ -1040,7 +1040,6 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
 
     // Dynamic Posts
-    Route::get('custom-field', [DynamicPostController::class, 'customFieldsByPostType']);
     Route::post('resolve-custom-fields', [DynamicPostController::class, 'resolveCustomFieldsForCreate']);
     Route::get('custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
     Route::get('custom-field/{slug}', [DynamicPostController::class, 'byPostType']);
@@ -1077,6 +1076,8 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'show']);
     Route::put('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'update']);
     Route::delete('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'destroy']);
+    Route::get('term-relations/taxonomies', [TaxonomyTermController::class, 'relationTaxonomies']);
+    Route::get('relation-taxonomies/{taxonomy}/terms', [TaxonomyTermController::class, 'relationValues']);
 
     // Post Taxonomy Terms
     Route::post('post-taxonomy-terms/sync', [PostTaxonomyTermController::class, 'sync']);

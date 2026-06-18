@@ -233,7 +233,8 @@ class GroupController extends Controller
     public function exportGroups()
     {
         try {
-            $groups = CustomFieldGroup::all(['id', 'group_name', 'created_at', 'updated_at']);
+            $groups = CustomFieldGroup::orderBy('id', 'asc')
+                ->get(['id', 'group_name', 'group_slug', 'created_at', 'updated_at']);
 
             if ($groups->isEmpty()) {
                 return response()->json([
@@ -251,10 +252,34 @@ class GroupController extends Controller
 
             $callback = function () use ($groups) {
                 $file = fopen('php://output', 'w');
-                fputcsv($file, ['ID', 'Group Name']);
+
+                /*
+            |--------------------------------------------------------------------------
+            | Important:
+            |--------------------------------------------------------------------------
+            | ID export nahi karni.
+            | S.No sirf display ke liye hai.
+            | Import Key update ke liye use hogi.
+            */
+
+                fputcsv($file, [
+                    'S.No',
+                    'Import Key',
+                    'Group Name',
+                ]);
+
+                $serialNumber = 1;
+
                 foreach ($groups as $group) {
-                    fputcsv($file, [$group->id, $group->group_name]);
+                    fputcsv($file, [
+                        $serialNumber,
+                        $group->group_slug,
+                        $group->group_name,
+                    ]);
+
+                    $serialNumber++;
                 }
+
                 fclose($file);
             };
 
@@ -295,50 +320,139 @@ class GroupController extends Controller
                 ], 400);
             }
 
-            $header = fgetcsv($handle); // Skip header
-            $inserted = $updated = $skipped = 0;
+            $header = fgetcsv($handle);
+
+            if (!$header) {
+                fclose($handle);
+
+                return response()->json([
+                    'status' => false,
+                    'message' => 'CSV file is empty.',
+                ], 400);
+            }
+
+            $inserted = 0;
+            $updated = 0;
+            $skipped = 0;
+            $conflicts = 0;
+            $rowNumber = 1;
+
+            DB::beginTransaction();
 
             while (($row = fgetcsv($handle)) !== false) {
-                $id = trim($row[0] ?? '');
-                $groupName = trim($row[1] ?? '');
+                $rowNumber++;
 
-                if (!empty($groupName)) {
-                    $existing = !empty($id) ? CustomFieldGroup::find($id) : null;
+                /*
+            |--------------------------------------------------------------------------
+            | CSV Format:
+            |--------------------------------------------------------------------------
+            | 0 = S.No
+            | 1 = Import Key
+            | 2 = Group Name
+            */
 
-                    if ($existing) {
-                        $existing->update(['group_name' => $groupName]);
-                        $updated++;
-                    } else {
-                        $existsByName = CustomFieldGroup::where('group_name', $groupName)->exists();
-                        if (!$existsByName) {
-                            $group = new CustomFieldGroup([
-                                'group_name' => $groupName,
-                                'status' => '1',
-                            ]);
-                            if (!empty($id)) {
-                                $group->id = (int) $id;
-                            }
-                            $group->save();
-                            $inserted++;
-                        } else {
-                            $skipped++;
-                        }
-                    }
+                $serialNumber = trim($row[0] ?? '');
+                $importKey = trim($row[1] ?? '');
+                $groupName = trim($row[2] ?? '');
+
+                if (empty($groupName)) {
+                    $skipped++;
+                    continue;
                 }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Import Key update ke liye use hogi.
+            | Serial number ignore hoga.
+            |--------------------------------------------------------------------------
+            */
+
+                $importKey = !empty($importKey)
+                    ? \Illuminate\Support\Str::slug($importKey)
+                    : null;
+
+                $existingGroup = null;
+
+                if (!empty($importKey)) {
+                    $existingGroup = CustomFieldGroup::where('group_slug', $importKey)->first();
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Existing group mila to same record update hoga.
+            | Group slug change nahi karenge, taaki future import me conflict na ho.
+            |--------------------------------------------------------------------------
+            */
+
+                if ($existingGroup) {
+                    $nameConflict = CustomFieldGroup::where('group_name', $groupName)
+                        ->where('id', '!=', $existingGroup->id)
+                        ->exists();
+
+                    if ($nameConflict) {
+                        $conflicts++;
+                        $skipped++;
+                        continue;
+                    }
+
+                    $existingGroup->update([
+                        'group_name' => $groupName,
+                    ]);
+
+                    $updated++;
+                    continue;
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | New group create case
+            |--------------------------------------------------------------------------
+            | Agar import key blank hai to group name se slug banega.
+            |--------------------------------------------------------------------------
+            */
+
+                $newSlug = !empty($importKey)
+                    ? $importKey
+                    : \Illuminate\Support\Str::slug($groupName);
+
+                $slugExists = CustomFieldGroup::where('group_slug', $newSlug)->exists();
+                $nameExists = CustomFieldGroup::where('group_name', $groupName)->exists();
+
+                if ($slugExists || $nameExists) {
+                    $conflicts++;
+                    $skipped++;
+                    continue;
+                }
+
+                CustomFieldGroup::create([
+                    'group_name' => $groupName,
+                    'group_slug' => $newSlug,
+                ]);
+
+                $inserted++;
             }
 
             fclose($handle);
 
+            DB::commit();
+
             return response()->json([
                 'status' => true,
-                'message' => "Import completed successfully.",
+                'message' => 'Import completed successfully.',
                 'data' => [
                     'inserted' => $inserted,
                     'updated' => $updated,
                     'skipped' => $skipped,
+                    'conflicts' => $conflicts,
                 ],
             ], 200);
         } catch (\Exception $e) {
+            DB::rollBack();
+
+            if (isset($handle) && is_resource($handle)) {
+                fclose($handle);
+            }
+
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to import groups.',

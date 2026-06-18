@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CustomField;
 use App\Models\CustomFieldGroup;
 use App\Models\DynamicPost;
 use App\Models\PostType;
@@ -516,12 +517,27 @@ class DynamicPostController extends Controller
                 $taxonomyIds = array_values(array_unique(array_merge($taxonomyIds, $termTaxonomyIds)));
             }
 
-            $groups = CustomFieldGroup::query()
-                ->with([
-                    'locationRules',
+            $postType = PostType::select('id', 'name', 'slug')
+                ->where('id', $postTypeId)
+                ->first();
 
-                    'fields' => function ($fieldQuery) {
-                        $fieldQuery
+            $fields = CustomField::query()
+                ->where('status', true)
+                ->with([
+                    'locationRules' => function ($ruleQuery) {
+                        $ruleQuery
+                            ->where('status', true)
+                            ->orderBy('sort_order', 'asc')
+                            ->orderBy('id', 'asc');
+                    },
+                    'options' => function ($optionQuery) {
+                        $optionQuery
+                            ->where('status', true)
+                            ->orderBy('sort_order', 'asc')
+                            ->orderBy('id', 'asc');
+                    },
+                    'repeaters' => function ($repeaterQuery) {
+                        $repeaterQuery
                             ->where('status', true)
                             ->orderBy('sort_order', 'asc')
                             ->orderBy('id', 'asc')
@@ -532,27 +548,21 @@ class DynamicPostController extends Controller
                                         ->orderBy('sort_order', 'asc')
                                         ->orderBy('id', 'asc');
                                 },
-                                'repeaters' => function ($repeaterQuery) {
-                                    $repeaterQuery
-                                        ->where('status', true)
-                                        ->orderBy('sort_order', 'asc')
-                                        ->orderBy('id', 'asc')
-                                        ->with([
-                                            'options' => function ($optionQuery) {
-                                                $optionQuery
-                                                    ->where('status', true)
-                                                    ->orderBy('sort_order', 'asc')
-                                                    ->orderBy('id', 'asc');
-                                            },
-                                        ]);
-                                },
                             ]);
                     },
                 ])
 
-                // Required: post type rule must match
+                /*
+            |--------------------------------------------------------------------------
+            | Post Type Filter
+            |--------------------------------------------------------------------------
+            | Ab custom fields field-level location_rules se filter hongi.
+            | custom_field_group_location_rules.custom_field_id NULL nahi hona chahiye.
+            */
+
                 ->whereHas('locationRules', function ($ruleQuery) use ($postTypeId) {
                     $ruleQuery
+                        ->whereNotNull('custom_field_id')
                         ->where('show_if', 'post_type')
                         ->where(function ($subQuery) use ($postTypeId) {
                             $subQuery
@@ -560,20 +570,45 @@ class DynamicPostController extends Controller
                                 ->orWhere(function ($specificQuery) use ($postTypeId) {
                                     $specificQuery
                                         ->where('match_type', 'specific')
-                                        ->where('post_type_id', $postTypeId);
+                                        ->where(function ($operatorQuery) use ($postTypeId) {
+                                            $operatorQuery
+                                                ->where(function ($equalQuery) use ($postTypeId) {
+                                                    $equalQuery
+                                                        ->where(function ($q) {
+                                                            $q->whereNull('operator')
+                                                                ->orWhere('operator', 'is_equal_to');
+                                                        })
+                                                        ->where('post_type_id', $postTypeId);
+                                                })
+                                                ->orWhere(function ($notEqualQuery) use ($postTypeId) {
+                                                    $notEqualQuery
+                                                        ->where('operator', 'is_not_equal_to')
+                                                        ->where('post_type_id', '!=', $postTypeId);
+                                                });
+                                        });
                                 });
                         });
                 })
 
-                // Optional: apply taxonomy filtering only when taxonomy/terms are sent
-                ->when(!empty($taxonomyIds) || !empty($termIds), function ($groupQuery) use ($taxonomyIds, $termIds) {
-                    $groupQuery->where(function ($taxonomyGroupQuery) use ($taxonomyIds, $termIds) {
-                        $taxonomyGroupQuery
+                /*
+            |--------------------------------------------------------------------------
+            | Taxonomy Filter
+            |--------------------------------------------------------------------------
+            | Agar taxonomy_id ya taxonomy_term_ids bheje hain tabhi taxonomy filter lagega.
+            | Agar field par taxonomy rule nahi hai to field allowed rahegi.
+            */
+
+                ->when(!empty($taxonomyIds) || !empty($termIds), function ($fieldQuery) use ($taxonomyIds, $termIds) {
+                    $fieldQuery->where(function ($taxonomyFieldQuery) use ($taxonomyIds, $termIds) {
+                        $taxonomyFieldQuery
                             ->whereDoesntHave('locationRules', function ($ruleQuery) {
-                                $ruleQuery->where('show_if', 'taxonomy');
+                                $ruleQuery
+                                    ->whereNotNull('custom_field_id')
+                                    ->where('show_if', 'taxonomy');
                             })
                             ->orWhereHas('locationRules', function ($ruleQuery) use ($taxonomyIds, $termIds) {
                                 $ruleQuery
+                                    ->whereNotNull('custom_field_id')
                                     ->where('show_if', 'taxonomy')
                                     ->where(function ($subQuery) use ($taxonomyIds, $termIds) {
                                         $subQuery
@@ -602,74 +637,82 @@ class DynamicPostController extends Controller
                     });
                 })
 
+                ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get();
 
-            $customFields = $groups
-                ->flatMap(function ($group) {
-                    return $group->fields->map(function ($field) use ($group) {
-                        return [
-                            'group_id' => $group->id,
-                            'group_name' => $group->group_name,
-                            'group_slug' => $group->group_slug,
+            $customFields = $fields->map(function ($field) {
+                return [
+                    'id' => $field->id,
+                    'custom_field_group_id' => $field->custom_field_group_id,
 
-                            'id' => $field->id,
-                            'field_label' => $field->field_label,
-                            'field_name_slug' => $field->field_name_slug,
-                            'field_placeholder' => $field->field_placeholder,
-                            'field_type' => $field->field_type,
-                            'required' => $field->required,
-                            'checkbox_type' => $field->checkbox_type,
-                            'default_value' => $field->default_value,
-                            'validation_rules' => $field->validation_rules,
-                            'conditional_rules' => $field->conditional_rules,
-                            'media_limit' => $field->media_limit,
-                            'media_size' => $field->media_size,
-                            'media_format' => $field->media_format,
-                            'sort_order' => $field->sort_order,
+                    'field_label' => $field->field_label,
+                    'field_name_slug' => $field->field_name_slug,
+                    'field_placeholder' => $field->field_placeholder,
+                    'field_type' => $field->field_type,
+                    'required' => $field->required,
+                    'checkbox_type' => $field->checkbox_type,
+                    'default_value' => $field->default_value,
+                    'validation_rules' => $field->validation_rules,
+                    'conditional_rules' => $field->conditional_rules,
+                    'media_limit' => $field->media_limit,
+                    'media_size' => $field->media_size,
+                    'media_format' => $field->media_format,
+                    'sort_order' => $field->sort_order,
+                    'status' => $field->status,
 
-                            'options' => $field->options->map(fn($option) => [
-                                'id' => $option->id,
-                                'name' => $option->name,
-                                'value' => $option->value,
-                                'type' => $option->type,
-                                'sort_order' => $option->sort_order,
-                            ])->values(),
+                    'location_rules' => $field->locationRules->map(fn($rule) => [
+                        'id' => $rule->id,
+                        'logic_operator' => $rule->logic_operator,
+                        'rule_group' => $rule->rule_group,
+                        'show_if' => $rule->show_if,
+                        'operator' => $rule->operator,
+                        'match_type' => $rule->match_type,
+                        'post_type_id' => $rule->post_type_id,
+                        'taxonomy_id' => $rule->taxonomy_id,
+                        'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
+                        'status' => $rule->status,
+                        'sort_order' => $rule->sort_order,
+                    ])->values(),
 
-                            'repeaters' => $field->repeaters->map(fn($repeater) => [
-                                'id' => $repeater->id,
-                                'field_label' => $repeater->field_label,
-                                'field_name_slug' => $repeater->field_name_slug,
-                                'field_placeholder' => $repeater->field_placeholder,
-                                'field_type' => $repeater->field_type,
-                                'media_limit' => $repeater->media_limit,
-                                'media_size' => $repeater->media_size,
-                                'media_format' => $repeater->media_format,
-                                'sort_order' => $repeater->sort_order,
+                    'options' => $field->options->map(fn($option) => [
+                        'id' => $option->id,
+                        'name' => $option->name,
+                        'value' => $option->value,
+                        'type' => $option->type,
+                        'sort_order' => $option->sort_order,
+                    ])->values(),
 
-                                'options' => $repeater->options->map(fn($option) => [
-                                    'id' => $option->id,
-                                    'name' => $option->name,
-                                    'value' => $option->value,
-                                    'type' => $option->type,
-                                    'sort_order' => $option->sort_order,
-                                ])->values(),
-                            ])->values(),
-                        ];
-                    });
-                })
-                ->sortBy('sort_order')
-                ->values();
+                    'repeaters' => $field->repeaters->map(fn($repeater) => [
+                        'id' => $repeater->id,
+                        'field_label' => $repeater->field_label,
+                        'field_name_slug' => $repeater->field_name_slug,
+                        'field_placeholder' => $repeater->field_placeholder,
+                        'field_type' => $repeater->field_type,
+                        'media_limit' => $repeater->media_limit,
+                        'media_size' => $repeater->media_size,
+                        'media_format' => $repeater->media_format,
+                        'sort_order' => $repeater->sort_order,
+
+                        'options' => $repeater->options->map(fn($option) => [
+                            'id' => $option->id,
+                            'name' => $option->name,
+                            'value' => $option->value,
+                            'type' => $option->type,
+                            'sort_order' => $option->sort_order,
+                        ])->values(),
+                    ])->values(),
+                ];
+            })->values();
 
             return $this->successResponse(
                 'Custom fields fetched successfully.',
                 [
+                    'post_type' => $postType,
                     'post_type_id' => $postTypeId,
                     'taxonomy_ids' => $taxonomyIds,
                     'taxonomy_term_ids' => $termIds,
-                    'groups_count' => $groups->count(),
                     'custom_fields_count' => $customFields->count(),
-                    'groups' => $groups,
                     'custom_fields' => $customFields,
                 ]
             );

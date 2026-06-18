@@ -3,13 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Taxonomy;
 use App\Models\TaxonomyTerm;
 use App\Models\CustomFieldValue;
 use App\Services\CustomFieldValueService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class TaxonomyTermController extends Controller
 {
@@ -17,7 +19,12 @@ class TaxonomyTermController extends Controller
     {
         try {
             $query = TaxonomyTerm::query()
-                ->with(['taxonomy', 'parent'])
+                ->with([
+                    'taxonomy',
+                    'parent',
+                    'relationWithTaxonomy:id,name,slug,is_relationship,status',
+                    'relationValues:id,taxonomy_id,parent_id,name,slug,status,sort_order',
+                ])
 
                 // Safer than withCount('posts') if DynamicPost soft delete issue exists
                 ->withCount('postTaxonomyTerms as posts_count')
@@ -59,8 +66,7 @@ class TaxonomyTermController extends Controller
                 'message' => 'Taxonomy terms fetched successfully.',
                 'data' => $query->paginate($perPage),
             ], 200);
-
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch taxonomy terms.',
@@ -75,11 +81,17 @@ class TaxonomyTermController extends Controller
             $validated = $request->validate([
                 'taxonomy_id' => ['required', 'integer', 'exists:taxonomies,id'],
                 'parent_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+
+                'relation_with_taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+                'relation_value_term_ids' => ['nullable', 'array'],
+                'relation_value_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+
                 'name' => ['required', 'string', 'max:150'],
                 'slug' => ['nullable', 'string', 'max:150'],
                 'description' => ['nullable', 'string'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'status' => ['nullable', 'boolean'],
+
                 'custom_fields' => ['nullable', 'array'],
                 'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
                 'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
@@ -118,15 +130,24 @@ class TaxonomyTermController extends Controller
             $term = DB::transaction(function () use ($validated, $slug) {
                 $customFields = $validated['custom_fields'] ?? [];
 
+                $relationData = $this->validateRelationFields($validated);
+
                 $term = TaxonomyTerm::create([
                     'taxonomy_id' => $validated['taxonomy_id'],
                     'parent_id' => $validated['parent_id'] ?? null,
+                    'relation_with_taxonomy_id' => $relationData['relation_with_taxonomy_id'],
                     'name' => $validated['name'],
                     'slug' => $slug,
                     'description' => $validated['description'] ?? null,
                     'sort_order' => $validated['sort_order'] ?? 0,
                     'status' => $validated['status'] ?? true,
                 ]);
+
+                $this->syncRelationValues(
+                    $term,
+                    $relationData['relation_with_taxonomy_id'],
+                    $relationData['relation_value_term_ids']
+                );
 
                 if (!empty($customFields)) {
                     $this->saveCustomFieldValues($term->id, 'taxonomy_term', $customFields);
@@ -138,17 +159,21 @@ class TaxonomyTermController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy term created successfully.',
-                'data' => $term->fresh()->load(['taxonomy', 'parent', 'meta.customField']),
+                'data' => $term->fresh()->load([
+                    'taxonomy',
+                    'parent',
+                    'relationWithTaxonomy',
+                    'relationValues',
+                    'meta.customField',
+                ]),
             ], 201);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to create taxonomy term.',
@@ -164,6 +189,8 @@ class TaxonomyTermController extends Controller
                 'taxonomy',
                 'parent',
                 'children',
+                'relationWithTaxonomy',
+                'relationValues',
                 'meta.customField',
                 'postTaxonomyTerms',
             ]);
@@ -173,8 +200,7 @@ class TaxonomyTermController extends Controller
                 'message' => 'Taxonomy term fetched successfully.',
                 'data' => $taxonomyTerm,
             ], 200);
-
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch taxonomy term.',
@@ -189,11 +215,17 @@ class TaxonomyTermController extends Controller
             $validated = $request->validate([
                 'taxonomy_id' => ['sometimes', 'required', 'integer', 'exists:taxonomies,id'],
                 'parent_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+
+                'relation_with_taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+                'relation_value_term_ids' => ['nullable', 'array'],
+                'relation_value_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+
                 'name' => ['sometimes', 'required', 'string', 'max:150'],
                 'slug' => ['nullable', 'string', 'max:150'],
                 'description' => ['nullable', 'string'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
                 'status' => ['nullable', 'boolean'],
+
                 'custom_fields' => ['nullable', 'array'],
                 'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
                 'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
@@ -205,8 +237,32 @@ class TaxonomyTermController extends Controller
                 'custom_fields.*.value_json' => ['nullable'],
             ]);
 
+            if (array_key_exists('slug', $validated) && !empty($validated['slug'])) {
+                $newSlug = Str::slug($validated['slug']);
+                $taxonomyId = $validated['taxonomy_id'] ?? $taxonomyTerm->taxonomy_id;
+
+                $slugExists = TaxonomyTerm::where('taxonomy_id', $taxonomyId)
+                    ->where('slug', $newSlug)
+                    ->where('id', '!=', $taxonomyTerm->id)
+                    ->exists();
+
+                if ($slugExists) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Taxonomy term slug already exists.',
+                        'errors' => [
+                            'slug' => [
+                                $newSlug . ' already exists in this taxonomy.',
+                            ],
+                        ],
+                    ], 422);
+                }
+            }
+
             DB::transaction(function () use ($taxonomyTerm, $validated) {
                 $customFields = $validated['custom_fields'] ?? [];
+
+                $relationData = $this->validateRelationFields($validated, $taxonomyTerm);
 
                 $updateData = [];
 
@@ -238,9 +294,17 @@ class TaxonomyTermController extends Controller
                     $updateData['status'] = $validated['status'];
                 }
 
+                $updateData['relation_with_taxonomy_id'] = $relationData['relation_with_taxonomy_id'];
+
                 if (!empty($updateData)) {
                     $taxonomyTerm->update($updateData);
                 }
+
+                $this->syncRelationValues(
+                    $taxonomyTerm,
+                    $relationData['relation_with_taxonomy_id'],
+                    $relationData['relation_value_term_ids']
+                );
 
                 if (!empty($customFields)) {
                     $this->saveCustomFieldValues($taxonomyTerm->id, 'taxonomy_term', $customFields);
@@ -250,17 +314,21 @@ class TaxonomyTermController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy term updated successfully.',
-                'data' => $taxonomyTerm->fresh()->load(['taxonomy', 'parent', 'meta.customField']),
+                'data' => $taxonomyTerm->fresh()->load([
+                    'taxonomy',
+                    'parent',
+                    'relationWithTaxonomy',
+                    'relationValues',
+                    'meta.customField',
+                ]),
             ], 200);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to update taxonomy term.',
@@ -277,6 +345,11 @@ class TaxonomyTermController extends Controller
                     ->where('entity_id', $taxonomyTerm->id)
                     ->delete();
 
+                DB::table('taxonomy_term_relations')
+                    ->where('taxonomy_term_id', $taxonomyTerm->id)
+                    ->orWhere('relation_value_term_id', $taxonomyTerm->id)
+                    ->delete();
+
                 $taxonomyTerm->delete();
             });
 
@@ -284,8 +357,7 @@ class TaxonomyTermController extends Controller
                 'status' => true,
                 'message' => 'Taxonomy term deleted successfully.',
             ], 200);
-
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to delete taxonomy term.',
@@ -302,34 +374,274 @@ class TaxonomyTermController extends Controller
                 'ids.*' => ['required', 'integer', 'exists:taxonomy_terms,id'],
             ]);
 
-            DB::transaction(function () use ($request, &$deleted) {
+            $ids = array_values(array_unique(array_map('intval', $request->ids)));
+            $deleted = 0;
+
+            DB::transaction(function () use ($ids, &$deleted) {
                 CustomFieldValue::where('entity_type', 'taxonomy_term')
-                    ->whereIn('entity_id', $request->ids)
+                    ->whereIn('entity_id', $ids)
                     ->delete();
 
-                $deleted = TaxonomyTerm::whereIn('id', $request->ids)->delete();
+                DB::table('taxonomy_term_relations')
+                    ->whereIn('taxonomy_term_id', $ids)
+                    ->orWhereIn('relation_value_term_id', $ids)
+                    ->delete();
+
+                $deleted = TaxonomyTerm::whereIn('id', $ids)->delete();
             });
 
             return response()->json([
                 'status' => true,
                 'message' => 'Selected taxonomy terms deleted successfully.',
-                'deleted_count' => $deleted ?? 0,
+                'deleted_count' => $deleted,
             ], 200);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to delete selected taxonomy terms.',
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Relation With Taxonomies Dropdown
+    |--------------------------------------------------------------------------
+    | Ye API relation_with dropdown ke liye enabled taxonomies return karegi.
+    */
+
+    public function relationTaxonomies(Request $request)
+    {
+        try {
+            $request->validate([
+                'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+            ]);
+
+            $relationEnabled = true;
+
+            if ($request->filled('taxonomy_id')) {
+                $currentTaxonomy = Taxonomy::find($request->taxonomy_id);
+                $relationEnabled = $currentTaxonomy ? (bool) $currentTaxonomy->is_relationship : false;
+            }
+
+            if (!$relationEnabled) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Relation is not enabled for this taxonomy.',
+                    'relation_enabled' => false,
+                    'data' => [],
+                ], 200);
+            }
+
+            $taxonomies = Taxonomy::query()
+                ->select('id', 'name', 'slug')
+                ->where('is_relationship', true)
+                ->where('status', true)
+                ->when($request->filled('taxonomy_id'), function ($q) use ($request) {
+                    $q->where('id', '!=', $request->taxonomy_id);
+                })
+                ->orderBy('sort_order', 'asc')
+                ->orderBy('id', 'asc')
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Relation taxonomies fetched successfully.',
+                'relation_enabled' => true,
+                'data' => $taxonomies,
+            ], 200);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch relation taxonomies.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Relation Value Terms Dropdown
+    |--------------------------------------------------------------------------
+    | relation_with taxonomy select hone ke baad us taxonomy ke terms yahan se aayenge.
+    */
+
+    public function relationValues(int|string $taxonomy)
+    {
+        try {
+            $taxonomyData = Taxonomy::query()
+                ->where(function ($q) use ($taxonomy) {
+                    if (is_numeric($taxonomy)) {
+                        $q->where('id', (int) $taxonomy);
+                    }
+
+                    $q->orWhere('slug', $taxonomy);
+                })
+                ->where('is_relationship', true)
+                ->where('status', true)
+                ->first();
+
+            if (!$taxonomyData) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Relation taxonomy not found or not enabled.',
+                ], 404);
+            }
+
+            $terms = TaxonomyTerm::query()
+                ->select('id', 'taxonomy_id', 'parent_id', 'name', 'slug')
+                ->where('taxonomy_id', $taxonomyData->id)
+                ->where('status', true)
+                ->orderBy('sort_order', 'asc')
+                ->orderBy('id', 'asc')
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Relation values fetched successfully.',
+                'taxonomy' => [
+                    'id' => $taxonomyData->id,
+                    'name' => $taxonomyData->name,
+                    'slug' => $taxonomyData->slug,
+                ],
+                'data' => $terms,
+            ], 200);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch relation values.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function validateRelationFields(array $validated, ?TaxonomyTerm $taxonomyTerm = null): array
+    {
+        $taxonomyId = $validated['taxonomy_id'] ?? $taxonomyTerm?->taxonomy_id;
+
+        $taxonomy = Taxonomy::find($taxonomyId);
+
+        if (!$taxonomy) {
+            throw ValidationException::withMessages([
+                'taxonomy_id' => ['Selected taxonomy does not exist.'],
+            ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Agar selected taxonomy me is_relationship false hai
+        |--------------------------------------------------------------------------
+        | To relation fields null rahengi aur pivot empty hoga.
+        */
+
+        if (!$taxonomy->is_relationship) {
+            return [
+                'relation_with_taxonomy_id' => null,
+                'relation_value_term_ids' => [],
+            ];
+        }
+
+        $relationWithTaxonomyId = array_key_exists('relation_with_taxonomy_id', $validated)
+            ? ($validated['relation_with_taxonomy_id'] ? (int) $validated['relation_with_taxonomy_id'] : null)
+            : ($taxonomyTerm?->relation_with_taxonomy_id ? (int) $taxonomyTerm->relation_with_taxonomy_id : null);
+
+        $relationValueTermIds = array_key_exists('relation_value_term_ids', $validated)
+            ? $this->cleanRelationValueIds($validated['relation_value_term_ids'] ?? [])
+            : (
+                $taxonomyTerm
+                    ? $taxonomyTerm->relationValues()->pluck('taxonomy_terms.id')->map(fn($id) => (int) $id)->toArray()
+                    : []
+            );
+
+        if (!empty($relationValueTermIds) && empty($relationWithTaxonomyId)) {
+            throw ValidationException::withMessages([
+                'relation_with_taxonomy_id' => [
+                    'Relation with taxonomy is required when relation values are selected.',
+                ],
+            ]);
+        }
+
+        if (!empty($relationWithTaxonomyId) && (int) $relationWithTaxonomyId === (int) $taxonomyId) {
+            throw ValidationException::withMessages([
+                'relation_with_taxonomy_id' => [
+                    'Relation taxonomy cannot be same as selected taxonomy.',
+                ],
+            ]);
+        }
+
+        if (!empty($relationWithTaxonomyId)) {
+            $relationTaxonomy = Taxonomy::where('id', $relationWithTaxonomyId)
+                ->where('is_relationship', true)
+                ->where('status', true)
+                ->first();
+
+            if (!$relationTaxonomy) {
+                throw ValidationException::withMessages([
+                    'relation_with_taxonomy_id' => [
+                        'Selected relation taxonomy is not enabled.',
+                    ],
+                ]);
+            }
+        }
+
+        if (!empty($relationValueTermIds)) {
+            $validTermIds = TaxonomyTerm::where('taxonomy_id', $relationWithTaxonomyId)
+                ->where('status', true)
+                ->whereIn('id', $relationValueTermIds)
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            $missingIds = array_values(array_diff($relationValueTermIds, $validTermIds));
+
+            if (!empty($missingIds)) {
+                throw ValidationException::withMessages([
+                    'relation_value_term_ids' => [
+                        'Some selected relation values do not belong to selected relation taxonomy.',
+                    ],
+                ]);
+            }
+        }
+
+        return [
+            'relation_with_taxonomy_id' => $relationWithTaxonomyId,
+            'relation_value_term_ids' => $relationValueTermIds,
+        ];
+    }
+
+    private function syncRelationValues(
+        TaxonomyTerm $taxonomyTerm,
+        ?int $relationWithTaxonomyId,
+        array $relationValueTermIds
+    ): void {
+        if (empty($relationWithTaxonomyId) || empty($relationValueTermIds)) {
+            $taxonomyTerm->relationValues()->detach();
+            return;
+        }
+
+        $syncData = [];
+
+        foreach ($relationValueTermIds as $index => $termId) {
+            $syncData[$termId] = [
+                'relation_with_taxonomy_id' => $relationWithTaxonomyId,
+                'sort_order' => $index + 1,
+                'status' => true,
+            ];
+        }
+
+        $taxonomyTerm->relationValues()->sync($syncData);
+    }
+
+    private function cleanRelationValueIds(array $ids): array
+    {
+        return array_values(array_unique(array_filter(array_map('intval', $ids))));
     }
 
     private function saveCustomFieldValues(int $entityId, string $entityType, array $fields): void

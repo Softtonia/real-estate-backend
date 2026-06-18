@@ -10,6 +10,7 @@ class TaxonomyTerm extends Model
     protected $fillable = [
         'taxonomy_id',
         'parent_id',
+        'relation_with_taxonomy_id',
         'name',
         'slug',
         'description',
@@ -19,8 +20,12 @@ class TaxonomyTerm extends Model
     ];
 
     protected $casts = [
+        'taxonomy_id' => 'integer',
+        'parent_id' => 'integer',
+        'relation_with_taxonomy_id' => 'integer',
         'status' => 'boolean',
         'sort_order' => 'integer',
+        'created_by' => 'integer',
     ];
 
     protected static function booted(): void
@@ -53,6 +58,69 @@ class TaxonomyTerm extends Model
         return $this->hasMany(TaxonomyTerm::class, 'parent_id')
             ->orderBy('sort_order', 'asc')
             ->orderBy('id', 'asc');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Relation With Taxonomy
+    |--------------------------------------------------------------------------
+    | Ye wo taxonomy hai jo relation_with dropdown me select hogi.
+    | Example: relation_with_taxonomy_id = City taxonomy id
+    */
+
+    public function relationWithTaxonomy()
+    {
+        return $this->belongsTo(Taxonomy::class, 'relation_with_taxonomy_id');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Multiple Relation Values
+    |--------------------------------------------------------------------------
+    | Ye multiple terms hain jo relation_value multi-select me select hongi.
+    | Pivot table: taxonomy_term_relations
+    */
+
+    public function relationValues()
+    {
+        return $this->belongsToMany(
+            TaxonomyTerm::class,
+            'taxonomy_term_relations',
+            'taxonomy_term_id',
+            'relation_value_term_id'
+        )
+            ->withPivot([
+                'relation_with_taxonomy_id',
+                'sort_order',
+                'status',
+            ])
+            ->withTimestamps()
+            ->orderBy('taxonomy_term_relations.sort_order', 'asc')
+            ->orderBy('taxonomy_terms.id', 'asc');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reverse Relation
+    |--------------------------------------------------------------------------
+    | Agar kisi term ko relation value ke roop me use kiya gaya hai,
+    | to usko yahan se find kar sakte ho.
+    */
+
+    public function relatedFromTerms()
+    {
+        return $this->belongsToMany(
+            TaxonomyTerm::class,
+            'taxonomy_term_relations',
+            'relation_value_term_id',
+            'taxonomy_term_id'
+        )
+            ->withPivot([
+                'relation_with_taxonomy_id',
+                'sort_order',
+                'status',
+            ])
+            ->withTimestamps();
     }
 
     public function posts()

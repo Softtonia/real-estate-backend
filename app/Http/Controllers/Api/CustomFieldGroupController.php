@@ -130,6 +130,7 @@ class CustomFieldGroupController extends Controller
 
             if ($request->filled('search')) {
                 $search = $request->search;
+
                 $query->where(function ($q) use ($search) {
                     $q->where('field_label', 'like', "%{$search}%")
                         ->orWhere('field_name_slug', 'like', "%{$search}%");
@@ -151,13 +152,22 @@ class CustomFieldGroupController extends Controller
             $sortBy = $request->get('sort_by', 'sort_order');
             $sortOrder = $request->get('sort_order', 'asc');
 
-            $query->orderBy($sortBy, $sortOrder)->orderBy('id', 'asc');
+            $query->orderBy($sortBy, $sortOrder)
+                ->orderBy('id', 'asc');
 
             $perPage = (int) $request->get('per_page', 15);
 
             $fields = $query->paginate($perPage);
 
-            $fields->getCollection()->transform(fn($field) => $this->formatField($field));
+            $fields->getCollection()->transform(function ($field) {
+                $data = $this->formatField($field);
+
+                $data['group_id'] = $field->custom_field_group_id;
+                $data['group_name'] = $field->group?->group_name;
+                $data['group_slug'] = $field->group?->group_slug;
+
+                return $data;
+            });
 
             return $this->successResponse('Custom fields fetched successfully.', $fields, 200, [
                 'summary' => [
@@ -182,7 +192,6 @@ class CustomFieldGroupController extends Controller
             $validated = $this->validateGroupStore($request);
 
             $group = DB::transaction(function () use ($validated) {
-                $locationRules = $validated['location_rules'] ?? [];
                 $fields = $validated['fields'] ?? [];
 
                 unset($validated['location_rules'], $validated['fields']);
@@ -195,7 +204,17 @@ class CustomFieldGroupController extends Controller
                     'created_by' => Auth::id(),
                 ]);
 
-                $this->saveLocationRules($group->id, null, $locationRules);
+                /*
+            |--------------------------------------------------------------------------
+            | Important:
+            |--------------------------------------------------------------------------
+            | Top-level location_rules ko save nahi karna,
+            | warna custom_field_id NULL save hogi.
+            |
+            | Field-specific location_rules fields array ke andar se save hongi
+            | saveFields() method ke through.
+            */
+
                 $this->saveFields($group, $fields);
 
                 return $group;
@@ -236,6 +255,7 @@ class CustomFieldGroupController extends Controller
     {
         try {
             $group = CustomFieldGroup::find($id);
+
             if (!$group) {
                 return $this->errorResponse('Custom field group not found.', 404);
             }
@@ -244,6 +264,7 @@ class CustomFieldGroupController extends Controller
 
             DB::transaction(function () use ($group, $validated) {
                 $updateData = [];
+
                 if (isset($validated['group_name'])) {
                     $updateData['group_name'] = $validated['group_name'];
                 }
@@ -258,10 +279,31 @@ class CustomFieldGroupController extends Controller
                     $group->update($updateData);
                 }
 
+                /*
+            |--------------------------------------------------------------------------
+            | Important:
+            |--------------------------------------------------------------------------
+            | Top-level location_rules ko save nahi karna,
+            | warna custom_field_id NULL save hoti hai.
+            |
+            | Pehle agar group-level NULL rules save ho chuki hain,
+            | to sirf wahi delete karo.
+            |
+            | Field-level rules ko delete mat karo.
+            */
+
                 if (isset($validated['location_rules'])) {
-                    $group->locationRules()->delete();
-                    $this->saveLocationRules($group->id, null, $validated['location_rules']);
+                    $group->locationRules()
+                        ->whereNull('custom_field_id')
+                        ->delete();
                 }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Field-specific location_rules yahan syncFields() ke andar save hongi.
+            | syncFields() method field id ke saath saveLocationRules() call karta hai.
+            |--------------------------------------------------------------------------
+            */
 
                 if (isset($validated['fields'])) {
                     $this->syncFields($group, $validated['fields']);
@@ -1043,11 +1085,20 @@ class CustomFieldGroupController extends Controller
      */
     private function saveLocationRules(?int $groupId, ?int $fieldId, array $locationRules): void
     {
+        $ruleGroup = 1;
+
         foreach ($locationRules as $index => $rule) {
+            $logicOperator = $index === 0 ? null : ($rule['logic_operator'] ?? 'and');
+
+            if ($logicOperator === 'or') {
+                $ruleGroup++;
+            }
+
             CustomFieldGroupLocationRule::create([
                 'custom_field_group_id' => $groupId,
                 'custom_field_id' => $fieldId,
-                'logic_operator' => $index === 0 ? null : ($rule['logic_operator'] ?? 'and'),
+                'logic_operator' => $logicOperator,
+                'rule_group' => $ruleGroup,
                 'show_if' => $rule['show_if'],
                 'operator' => $rule['operator'] ?? 'is_equal_to',
                 'match_type' => $rule['match_type'] ?? 'specific',
