@@ -150,7 +150,7 @@ class CustomFieldGroupController extends Controller
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('field_label', 'like', "%{$search}%")
-                      ->orWhere('field_name_slug', 'like', "%{$search}%");
+                        ->orWhere('field_name_slug', 'like', "%{$search}%");
                 });
             }
 
@@ -394,9 +394,23 @@ class CustomFieldGroupController extends Controller
             DB::transaction(function () use ($field, $validated) {
                 $updateData = [];
 
-                foreach (['field_label', 'field_placeholder', 'field_type', 'required', 'checkbox_type',
-                          'default_value', 'validation_rules', 'conditional_rules', 'media_limit',
-                          'media_size', 'media_format', 'sort_order', 'status'] as $key) {
+                foreach (
+                    [
+                        'field_label',
+                        'field_placeholder',
+                        'field_type',
+                        'required',
+                        'checkbox_type',
+                        'default_value',
+                        'validation_rules',
+                        'conditional_rules',
+                        'media_limit',
+                        'media_size',
+                        'media_format',
+                        'sort_order',
+                        'status'
+                    ] as $key
+                ) {
                     if (array_key_exists($key, $validated)) {
                         $updateData[$key] = $validated[$key];
                     }
@@ -595,7 +609,7 @@ class CustomFieldGroupController extends Controller
             $groups = CustomFieldGroup::with($this->groupRelations)
                 ->where(function ($q) use ($postTypeData) {
                     $q->whereHas('locationRules', fn($r) => $this->scopePostTypeRule($r, $postTypeData->id))
-                      ->orWhereHas('fields.locationRules', fn($r) => $this->scopePostTypeRule($r, $postTypeData->id));
+                        ->orWhereHas('fields.locationRules', fn($r) => $this->scopePostTypeRule($r, $postTypeData->id));
                 })
                 ->orderBy('id', 'asc')
                 ->get()
@@ -633,7 +647,7 @@ class CustomFieldGroupController extends Controller
             $groups = CustomFieldGroup::with($this->groupRelations)
                 ->where(function ($q) use ($taxonomyData, $selectedTermIds) {
                     $q->whereHas('locationRules', fn($r) => $this->scopeTaxonomyRuleWithTerms($r, $taxonomyData->id, $selectedTermIds))
-                      ->orWhereHas('fields.locationRules', fn($r) => $this->scopeTaxonomyRuleWithTerms($r, $taxonomyData->id, $selectedTermIds));
+                        ->orWhereHas('fields.locationRules', fn($r) => $this->scopeTaxonomyRuleWithTerms($r, $taxonomyData->id, $selectedTermIds));
                 })
                 ->orderBy('id', 'asc')
                 ->get()
@@ -1249,7 +1263,8 @@ class CustomFieldGroupController extends Controller
             try {
                 $roleName = $user->roles()->pluck('name')->first();
                 if (!empty($roleName)) return $roleName;
-            } catch (Throwable $e) {}
+            } catch (Throwable $e) {
+            }
         }
 
         if (isset($user->role) && is_object($user->role)) return $user->role->name ?? null;
@@ -1261,7 +1276,8 @@ class CustomFieldGroupController extends Controller
             try {
                 $role = DB::table('roles')->where('id', $user->role_id)->first();
                 return $role->name ?? $role->role_name ?? null;
-            } catch (Throwable $e) {}
+            } catch (Throwable $e) {
+            }
         }
 
         return null;
@@ -1281,9 +1297,9 @@ class CustomFieldGroupController extends Controller
         $counter = 1;
         while (
             CustomField::where('custom_field_group_id', $groupId)
-                ->where('field_name_slug', $slug)
-                ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
-                ->exists()
+            ->where('field_name_slug', $slug)
+            ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
+            ->exists()
         ) {
             $slug = $baseSlug . '_' . $counter;
             $counter++;
@@ -1295,18 +1311,41 @@ class CustomFieldGroupController extends Controller
     private function fieldTypesArray(): array
     {
         return [
-            'text', 'texteditor', 'textarea', 'number', 'email', 'url',
-            'date', 'datetime', 'boolean', 'checkbox', 'radio', 'select',
-            'repeater', 'media', 'file',
+            'text',
+            'texteditor',
+            'textarea',
+            'number',
+            'email',
+            'url',
+            'date',
+            'datetime',
+            'boolean',
+            'checkbox',
+            'radio',
+            'select',
+            'repeater',
+            'media',
+            'file',
         ];
     }
 
     private function repeaterFieldTypesArray(): array
     {
         return [
-            'text', 'texteditor', 'textarea', 'number', 'email', 'url',
-            'date', 'datetime', 'boolean', 'checkbox', 'radio', 'select',
-            'media', 'file',
+            'text',
+            'texteditor',
+            'textarea',
+            'number',
+            'email',
+            'url',
+            'date',
+            'datetime',
+            'boolean',
+            'checkbox',
+            'radio',
+            'select',
+            'media',
+            'file',
         ];
     }
 
@@ -1380,5 +1419,32 @@ class CustomFieldGroupController extends Controller
     private function databaseErrorResponse(QueryException $e, string $message): JsonResponse
     {
         return $this->errorResponse($message, 500, $e->getMessage(), ['error_type' => 'database_error']);
+    }
+    public function showFieldById(int|string $fieldId): JsonResponse
+    {
+        try {
+            $field = CustomField::with([
+                'group:id,group_name,group_slug',
+                'options',
+                'repeaters.options',
+                'locationRules',
+                'conditions.taxonomy',
+                'conditions.taxonomyTerm',
+                'creator',
+            ])->find($fieldId);
+
+            if (!$field) {
+                return $this->errorResponse('Custom field not found.', 404);
+            }
+
+            return $this->successResponse(
+                'Custom field fetched successfully.',
+                $this->formatField($field)
+            );
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching custom field.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch custom field.', 500, $e->getMessage());
+        }
     }
 }

@@ -8,7 +8,7 @@ class CustomFieldGroupLocationRule extends Model {
     protected $fillable = [
         'custom_field_group_id',
         'custom_field_id',
-        'logic_operator',
+        'rule_group',
         'show_if',
         'operator',
         'match_type',

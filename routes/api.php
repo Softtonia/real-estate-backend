@@ -1103,7 +1103,8 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     // Custom fields count aggregate
     Route::get('custom-fields-count', [CustomFieldGroupController::class, 'fieldsCount']);
-
+    Route::get('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'showFieldById'])
+        ->whereNumber('fieldId');
     // Individual field CRUD inside a group
     Route::post('custom-field-groups/{groupId}/fields', [CustomFieldGroupController::class, 'storeField']);
     Route::put('custom-field-groups/{groupId}/fields/{fieldId}', [CustomFieldGroupController::class, 'updateField']);
