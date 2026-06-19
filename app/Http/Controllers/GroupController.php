@@ -8,10 +8,11 @@ use App\Models\CustomField;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Response;
+use Illuminate\Support\Str;
 
 class GroupController extends Controller
 {
-    // List all groups (only name and id)
+    // List all groups
     public function index(Request $request)
     {
         try {
@@ -54,6 +55,7 @@ class GroupController extends Controller
             ], 500);
         }
     }
+
     // Create a new group
     public function createGroup(Request $request)
     {
@@ -67,12 +69,12 @@ class GroupController extends Controller
 
         $group = CustomFieldGroup::create([
             'group_name' => $request->group_name,
-            'group_slug' => \Str::slug($request->group_name),
+            'group_slug' => Str::slug($request->group_name),
         ]);
 
         return response()->json([
             'status' => true,
-            'message' => "Custom group created",
+            'message' => 'Custom group created',
             'data' => $group
         ]);
     }
@@ -99,7 +101,7 @@ class GroupController extends Controller
 
         $group->update([
             'group_name' => $request->group_name,
-            'group_slug' => \Str::slug($request->group_name),
+            'group_slug' => Str::slug($request->group_name),
         ]);
 
         return response()->json([
@@ -159,6 +161,7 @@ class GroupController extends Controller
 
             if ($groups->isEmpty()) {
                 DB::rollBack();
+
                 return response()->json([
                     'status' => false,
                     'message' => 'No groups found to delete.',
@@ -177,6 +180,7 @@ class GroupController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to delete groups.',
@@ -198,7 +202,6 @@ class GroupController extends Controller
                 ], 400);
             }
 
-            // Search groups by name
             $groups = CustomFieldGroup::where('group_name', 'like', "%$keyword%")->get();
 
             if ($groups->isEmpty()) {
@@ -208,7 +211,6 @@ class GroupController extends Controller
                 ], 200);
             }
 
-            // Add custom field count for each group
             $groupsWithCounts = $groups->map(function ($group) {
                 $customFieldCount = CustomField::where('custom_field_group_id', $group->id)->count();
 
@@ -219,16 +221,19 @@ class GroupController extends Controller
             });
 
             return response()->json([
-                'status' => 'success',
+                'status' => true,
                 'message' => 'Search results fetched successfully',
                 'data' => $groupsWithCounts
             ], 200);
-        } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while searching custom field groups.');
-        } catch (Throwable $e) {
-            return $this->errorResponse('Unable to search custom field groups.', 500, $e->getMessage());
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to search custom field groups.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
+
     // Export groups as CSV
     public function exportGroups()
     {
@@ -253,9 +258,20 @@ class GroupController extends Controller
             $callback = function () use ($groups) {
                 $file = fopen('php://output', 'w');
 
+                /*
+                |--------------------------------------------------------------------------
+                | CSV Format:
+                |--------------------------------------------------------------------------
+                | 0 = S.No
+                | 1 = Group Name
+                |
+                | Import Key column removed.
+                | S.No will be used for row-wise update during import.
+                |--------------------------------------------------------------------------
+                */
+
                 fputcsv($file, [
                     'S.No',
-                    'Import Key',
                     'Group Name',
                 ]);
 
@@ -263,7 +279,6 @@ class GroupController extends Controller
 
                 foreach ($groups as $group) {
                     fputcsv($file, [
-                        $serialNumber,
                         $serialNumber,
                         $group->group_name,
                     ]);
@@ -287,6 +302,9 @@ class GroupController extends Controller
     // Import groups from CSV
     public function importGroups(Request $request)
     {
+        $handle = null;
+        $transactionStarted = false;
+
         try {
             $validator = Validator::make($request->all(), [
                 'csv_file' => 'required|file|mimes:csv,txt|max:2048',
@@ -322,6 +340,19 @@ class GroupController extends Controller
                 ], 400);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | Expected CSV Format:
+            |--------------------------------------------------------------------------
+            | 0 = S.No
+            | 1 = Group Name
+            |
+            | Important:
+            | Group name se existing record find nahi hoga.
+            | S.No ke basis par existing group find hoga.
+            |--------------------------------------------------------------------------
+            */
+
             $inserted = 0;
             $updated = 0;
             $skipped = 0;
@@ -329,27 +360,13 @@ class GroupController extends Controller
             $rowNumber = 1;
 
             DB::beginTransaction();
+            $transactionStarted = true;
 
             while (($row = fgetcsv($handle)) !== false) {
                 $rowNumber++;
 
-                /*
-            |--------------------------------------------------------------------------
-            | CSV Format:
-            |--------------------------------------------------------------------------
-            | 0 = S.No
-            | 1 = Import Key
-            | 2 = Group Name
-            |
-            | Important:
-            | Import Key ab name/group_slug se nahi chalegi.
-            | Import Key row number / S.No se chalegi.
-            |--------------------------------------------------------------------------
-            */
-
                 $serialNumber = trim($row[0] ?? '');
-                $importKey = trim($row[1] ?? '');
-                $groupName = trim($row[2] ?? '');
+                $groupName = trim($row[1] ?? '');
 
                 if (empty($groupName)) {
                     $skipped++;
@@ -357,50 +374,46 @@ class GroupController extends Controller
                 }
 
                 /*
-            |--------------------------------------------------------------------------
-            | Import key priority:
-            |--------------------------------------------------------------------------
-            | 1. Import Key column
-            | 2. S.No column
-            | 3. Actual CSV row number
-            |--------------------------------------------------------------------------
-            */
+                |--------------------------------------------------------------------------
+                | S.No required for update
+                |--------------------------------------------------------------------------
+                | Agar S.No valid hai, to us row number ke basis par existing record update hoga.
+                | Example:
+                | S.No 1 = first group by id asc
+                | S.No 2 = second group by id asc
+                |--------------------------------------------------------------------------
+                */
 
-                $importKeyNumber = null;
+                $existingGroup = null;
 
-                if (!empty($importKey) && is_numeric($importKey)) {
-                    $importKeyNumber = (int) $importKey;
-                } elseif (!empty($serialNumber) && is_numeric($serialNumber)) {
-                    $importKeyNumber = (int) $serialNumber;
-                } else {
-                    $importKeyNumber = $rowNumber - 1;
-                }
+                if (!empty($serialNumber) && is_numeric($serialNumber)) {
+                    $serialNumber = (int) $serialNumber;
 
-                if ($importKeyNumber <= 0) {
-                    $skipped++;
-                    continue;
+                    if ($serialNumber > 0) {
+                        $existingGroup = CustomFieldGroup::orderBy('id', 'asc')
+                            ->skip($serialNumber - 1)
+                            ->first();
+                    }
                 }
 
                 /*
-            |--------------------------------------------------------------------------
-            | Row number ke basis par existing group find hoga
-            |--------------------------------------------------------------------------
-            | Example:
-            | Import Key 1 = first group
-            | Import Key 2 = second group
-            |--------------------------------------------------------------------------
-            */
-
-                $existingGroup = CustomFieldGroup::orderBy('id', 'asc')
-                    ->skip($importKeyNumber - 1)
-                    ->first();
+                |--------------------------------------------------------------------------
+                | Existing group update case
+                |--------------------------------------------------------------------------
+                */
 
                 if ($existingGroup) {
+                    $newSlug = Str::slug($groupName);
+
                     $nameConflict = CustomFieldGroup::where('group_name', $groupName)
                         ->where('id', '!=', $existingGroup->id)
                         ->exists();
 
-                    if ($nameConflict) {
+                    $slugConflict = CustomFieldGroup::where('group_slug', $newSlug)
+                        ->where('id', '!=', $existingGroup->id)
+                        ->exists();
+
+                    if ($nameConflict || $slugConflict) {
                         $conflicts++;
                         $skipped++;
                         continue;
@@ -408,7 +421,7 @@ class GroupController extends Controller
 
                     $existingGroup->update([
                         'group_name' => $groupName,
-                        'group_slug' => \Illuminate\Support\Str::slug($groupName),
+                        'group_slug' => $newSlug,
                     ]);
 
                     $updated++;
@@ -416,18 +429,20 @@ class GroupController extends Controller
                 }
 
                 /*
-            |--------------------------------------------------------------------------
-            | Agar row number ke basis par existing record nahi mila,
-            | to new group create hoga.
-            |--------------------------------------------------------------------------
-            */
+                |--------------------------------------------------------------------------
+                | New group create case
+                |--------------------------------------------------------------------------
+                | Agar S.No ke basis par existing group nahi mila,
+                | to new group create hoga.
+                |--------------------------------------------------------------------------
+                */
 
-                $newSlug = \Illuminate\Support\Str::slug($groupName);
+                $newSlug = Str::slug($groupName);
 
-                $slugExists = CustomFieldGroup::where('group_slug', $newSlug)->exists();
                 $nameExists = CustomFieldGroup::where('group_name', $groupName)->exists();
+                $slugExists = CustomFieldGroup::where('group_slug', $newSlug)->exists();
 
-                if ($slugExists || $nameExists) {
+                if ($nameExists || $slugExists) {
                     $conflicts++;
                     $skipped++;
                     continue;
@@ -456,7 +471,9 @@ class GroupController extends Controller
                 ],
             ], 200);
         } catch (\Exception $e) {
-            DB::rollBack();
+            if ($transactionStarted) {
+                DB::rollBack();
+            }
 
             if (isset($handle) && is_resource($handle)) {
                 fclose($handle);
