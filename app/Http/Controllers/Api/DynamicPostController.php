@@ -189,6 +189,7 @@ class DynamicPostController extends Controller
 
             $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
+            $this->validateDependentTaxonomySelections($taxonomyTermIds);
             $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
 
             $slug = !empty($validated['slug'])
@@ -297,6 +298,7 @@ class DynamicPostController extends Controller
             if ($hasTaxonomyPayload) {
                 $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
                 $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
+                $this->validateDependentTaxonomySelections($taxonomyTermIds);
             }
 
             if (is_array($customFields)) {
@@ -529,7 +531,7 @@ class DynamicPostController extends Controller
             $supports = $this->normalizePostTypeSupports($postTypeData->supports ?? []);
 
             $taxonomyFields = $supports['taxonomies']
-                ? $this->buildTaxonomyFields($postTypeData)
+                ? $this->buildTaxonomyFields($postTypeData, $selectedTermIds)
                 : collect();
 
             $customFields = $supports['custom_fields']
@@ -681,6 +683,7 @@ class DynamicPostController extends Controller
 
             $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $termIds);
+            $this->validateDependentTaxonomySelections($termIds);
 
             $fields = $this->resolveVisibleCustomFields((int) $validated['post_type_id'], $termIds);
 
@@ -884,6 +887,57 @@ class DynamicPostController extends Controller
         }
     }
 
+    private function validateDependentTaxonomySelections(array $selectedTermIds): void
+    {
+        if (empty($selectedTermIds)) {
+            return;
+        }
+
+        $terms = TaxonomyTerm::query()
+            ->with([
+                'relationValues' => function ($query) {
+                    $query
+                        ->select(
+                            'taxonomy_terms.id',
+                            'taxonomy_terms.taxonomy_id',
+                            'taxonomy_terms.name',
+                            'taxonomy_terms.slug'
+                        )
+                        ->where('taxonomy_terms.status', true)
+                        ->wherePivot('status', true);
+                },
+            ])
+            ->whereIn('id', $selectedTermIds)
+            ->get();
+
+        foreach ($terms as $term) {
+            $relationValueIds = $term->relationValues
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->values()
+                ->toArray();
+
+            if (empty($relationValueIds)) {
+                continue;
+            }
+
+            $hasMatchedParent = count(array_intersect($relationValueIds, $selectedTermIds)) > 0;
+
+            if (!$hasMatchedParent) {
+                $requiredValues = $term->relationValues
+                    ->pluck('name')
+                    ->values()
+                    ->implode(', ');
+
+                throw ValidationException::withMessages([
+                    'taxonomies' => [
+                        $term->name . ' depends on selected parent term: ' . $requiredValues,
+                    ],
+                ]);
+            }
+        }
+    }
+
     private function syncTaxonomyTerms(DynamicPost $post, array $taxonomyTermIds): void
     {
         if (empty($taxonomyTermIds)) {
@@ -1061,18 +1115,41 @@ class DynamicPostController extends Controller
             : 'single';
     }
 
-    private function buildTaxonomyFields(PostType $postType)
+    private function buildTaxonomyFields(PostType $postType, array $selectedTermIds = [])
     {
-        return $postType->taxonomies->map(function ($taxonomy) {
+        return $postType->taxonomies->map(function ($taxonomy) use ($selectedTermIds) {
             $selectionType = $this->getTaxonomySelectionType($taxonomy);
 
             $terms = TaxonomyTerm::query()
-                ->select('id', 'taxonomy_id', 'parent_id', 'name', 'slug')
+                ->with([
+                    'relationValues' => function ($query) {
+                        $query
+                            ->select(
+                                'taxonomy_terms.id',
+                                'taxonomy_terms.taxonomy_id',
+                                'taxonomy_terms.name',
+                                'taxonomy_terms.slug'
+                            )
+                            ->where('taxonomy_terms.status', true)
+                            ->wherePivot('status', true);
+                    },
+                ])
+                ->select(
+                    'id',
+                    'taxonomy_id',
+                    'parent_id',
+                    'relation_with_taxonomy_id',
+                    'name',
+                    'slug'
+                )
                 ->where('taxonomy_id', $taxonomy->id)
                 ->where('status', true)
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get();
+
+            $dependencyMeta = $this->getTaxonomyDependencyMeta($terms, $selectedTermIds);
+            $terms = $this->filterDependentTaxonomyTerms($terms, $selectedTermIds);
 
             return [
                 'taxonomy_id' => $taxonomy->id,
@@ -1083,10 +1160,19 @@ class DynamicPostController extends Controller
                 'selection_type' => $selectionType,
                 'multiple' => $selectionType === 'multiple',
                 'request_key' => $selectionType === 'multiple' ? 'taxonomy_term_ids' : 'taxonomy_term_id',
+                'is_dependent' => $dependencyMeta['is_dependent'],
+                'depends_on_taxonomy_ids' => $dependencyMeta['depends_on_taxonomy_ids'],
+                'depends_on_term_ids' => $dependencyMeta['depends_on_term_ids'],
+                'depends_on_selected_term_ids' => $dependencyMeta['depends_on_selected_term_ids'],
                 'terms' => $terms->map(fn($term) => [
                     'id' => $term->id,
                     'taxonomy_id' => $term->taxonomy_id,
                     'parent_id' => $term->parent_id,
+                    'relation_with_taxonomy_id' => $term->relation_with_taxonomy_id,
+                    'relation_value_term_ids' => $term->relationValues
+                        ->pluck('id')
+                        ->map(fn($id) => (int) $id)
+                        ->values(),
                     'name' => $term->name,
                     'slug' => $term->slug,
                 ])->values(),
@@ -1094,40 +1180,68 @@ class DynamicPostController extends Controller
         })->values();
     }
 
-    // private function buildRelationshipPostTypeFields(PostType $postType)
-    // {
-    //     $relatedPostTypes = $postType->activeRelatedPostTypes()->get();
+    private function getTaxonomyDependencyMeta($terms, array $selectedTermIds): array
+    {
+        $dependentTerms = $terms->filter(function ($term) {
+            return !empty($term->relation_with_taxonomy_id) || $term->relationValues->isNotEmpty();
+        });
 
-    //     if ($relatedPostTypes->isEmpty()) {
-    //         return collect();
-    //     }
+        $dependsOnTaxonomyIds = $dependentTerms
+            ->pluck('relation_with_taxonomy_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
 
-    //     return $relatedPostTypes->map(function ($relatedPostType) {
-    //         $options = DynamicPost::query()
-    //             ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
-    //             ->where('post_type_id', $relatedPostType->id)
-    //             ->whereIn('status', ['draft', 'published', 'private'])
-    //             ->orderBy('title', 'asc')
-    //             ->get();
+        $dependsOnTermIds = $dependentTerms
+            ->flatMap(fn($term) => $term->relationValues->pluck('id'))
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
 
-    //         return [
-    //             'post_type_id' => $relatedPostType->id,
-    //             'name' => $relatedPostType->name,
-    //             'slug' => $relatedPostType->slug,
-    //             'field_label' => $relatedPostType->name,
-    //             'field_name' => 'parent_id',
-    //             'selection_type' => 'single',
-    //             'multiple' => false,
-    //             'options' => $options->map(fn($post) => [
-    //                 'id' => $post->id,
-    //                 'title' => $post->title,
-    //                 'slug' => $post->slug,
-    //                 'status' => $post->status,
-    //                 'live_status' => $post->live_status,
-    //             ])->values(),
-    //         ];
-    //     })->values();
-    // }
+        $dependsOnSelectedTermIds = $dependsOnTermIds
+            ->filter(fn($id) => in_array((int) $id, $selectedTermIds, true))
+            ->values();
+
+        return [
+            'is_dependent' => $dependentTerms->isNotEmpty(),
+            'depends_on_taxonomy_ids' => $dependsOnTaxonomyIds,
+            'depends_on_term_ids' => $dependsOnTermIds,
+            'depends_on_selected_term_ids' => $dependsOnSelectedTermIds,
+        ];
+    }
+
+    private function filterDependentTaxonomyTerms($terms, array $selectedTermIds)
+    {
+        $hasDependentTerms = $terms->contains(function ($term) {
+            return !empty($term->relation_with_taxonomy_id) || $term->relationValues->isNotEmpty();
+        });
+
+        if (!$hasDependentTerms) {
+            return $terms->values();
+        }
+
+        if (empty($selectedTermIds)) {
+            return collect();
+        }
+
+        return $terms
+            ->filter(function ($term) use ($selectedTermIds) {
+                $relationValueTermIds = $term->relationValues
+                    ->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->values()
+                    ->toArray();
+
+                if (empty($relationValueTermIds)) {
+                    return false;
+                }
+
+                return count(array_intersect($relationValueTermIds, $selectedTermIds)) > 0;
+            })
+            ->values();
+    }
+
 
     private function baseFields(array $supports): array
     {
