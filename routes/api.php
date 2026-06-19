@@ -1040,9 +1040,13 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
 
     // Dynamic Posts
+    Route::get('dynamic-post-form/{postType}', [DynamicPostController::class, 'formOptions']);
+
     Route::post('resolve-custom-fields', [DynamicPostController::class, 'resolveCustomFieldsForCreate']);
     Route::get('custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
-    Route::get('custom-field/{slug}', [DynamicPostController::class, 'byPostType']);
+
+    Route::get('dynamic-posts/by-post-type/{slug}', [DynamicPostController::class, 'byPostType']);
+
     Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
 
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);

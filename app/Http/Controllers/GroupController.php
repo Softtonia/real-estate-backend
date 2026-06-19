@@ -253,15 +253,6 @@ class GroupController extends Controller
             $callback = function () use ($groups) {
                 $file = fopen('php://output', 'w');
 
-                /*
-            |--------------------------------------------------------------------------
-            | Important:
-            |--------------------------------------------------------------------------
-            | ID export nahi karni.
-            | S.No sirf display ke liye hai.
-            | Import Key update ke liye use hogi.
-            */
-
                 fputcsv($file, [
                     'S.No',
                     'Import Key',
@@ -273,7 +264,7 @@ class GroupController extends Controller
                 foreach ($groups as $group) {
                     fputcsv($file, [
                         $serialNumber,
-                        $group->group_slug,
+                        $serialNumber,
                         $group->group_name,
                     ]);
 
@@ -349,6 +340,11 @@ class GroupController extends Controller
             | 0 = S.No
             | 1 = Import Key
             | 2 = Group Name
+            |
+            | Important:
+            | Import Key ab name/group_slug se nahi chalegi.
+            | Import Key row number / S.No se chalegi.
+            |--------------------------------------------------------------------------
             */
 
                 $serialNumber = trim($row[0] ?? '');
@@ -362,27 +358,42 @@ class GroupController extends Controller
 
                 /*
             |--------------------------------------------------------------------------
-            | Import Key update ke liye use hogi.
-            | Serial number ignore hoga.
+            | Import key priority:
+            |--------------------------------------------------------------------------
+            | 1. Import Key column
+            | 2. S.No column
+            | 3. Actual CSV row number
             |--------------------------------------------------------------------------
             */
 
-                $importKey = !empty($importKey)
-                    ? \Illuminate\Support\Str::slug($importKey)
-                    : null;
+                $importKeyNumber = null;
 
-                $existingGroup = null;
+                if (!empty($importKey) && is_numeric($importKey)) {
+                    $importKeyNumber = (int) $importKey;
+                } elseif (!empty($serialNumber) && is_numeric($serialNumber)) {
+                    $importKeyNumber = (int) $serialNumber;
+                } else {
+                    $importKeyNumber = $rowNumber - 1;
+                }
 
-                if (!empty($importKey)) {
-                    $existingGroup = CustomFieldGroup::where('group_slug', $importKey)->first();
+                if ($importKeyNumber <= 0) {
+                    $skipped++;
+                    continue;
                 }
 
                 /*
             |--------------------------------------------------------------------------
-            | Existing group mila to same record update hoga.
-            | Group slug change nahi karenge, taaki future import me conflict na ho.
+            | Row number ke basis par existing group find hoga
+            |--------------------------------------------------------------------------
+            | Example:
+            | Import Key 1 = first group
+            | Import Key 2 = second group
             |--------------------------------------------------------------------------
             */
+
+                $existingGroup = CustomFieldGroup::orderBy('id', 'asc')
+                    ->skip($importKeyNumber - 1)
+                    ->first();
 
                 if ($existingGroup) {
                     $nameConflict = CustomFieldGroup::where('group_name', $groupName)
@@ -397,6 +408,7 @@ class GroupController extends Controller
 
                     $existingGroup->update([
                         'group_name' => $groupName,
+                        'group_slug' => \Illuminate\Support\Str::slug($groupName),
                     ]);
 
                     $updated++;
@@ -405,15 +417,12 @@ class GroupController extends Controller
 
                 /*
             |--------------------------------------------------------------------------
-            | New group create case
-            |--------------------------------------------------------------------------
-            | Agar import key blank hai to group name se slug banega.
+            | Agar row number ke basis par existing record nahi mila,
+            | to new group create hoga.
             |--------------------------------------------------------------------------
             */
 
-                $newSlug = !empty($importKey)
-                    ? $importKey
-                    : \Illuminate\Support\Str::slug($groupName);
+                $newSlug = \Illuminate\Support\Str::slug($groupName);
 
                 $slugExists = CustomFieldGroup::where('group_slug', $newSlug)->exists();
                 $nameExists = CustomFieldGroup::where('group_name', $groupName)->exists();

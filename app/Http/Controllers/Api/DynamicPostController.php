@@ -5,14 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CustomField;
 use App\Models\CustomFieldGroup;
+use App\Models\CustomFieldValue;
 use App\Models\DynamicPost;
 use App\Models\PostType;
-use App\Models\CustomFieldValue;
 use App\Models\TaxonomyTerm;
 use App\Services\CustomFieldValueService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -23,12 +24,15 @@ class DynamicPostController extends Controller
 {
     private array $postRelations = [
         'postType',
+        'parent:id,post_type_id,title,slug,status,live_status',
         'taxonomyTerms.taxonomy',
         'meta.customField',
     ];
 
     private array $singlePostRelations = [
         'postType',
+        'parent:id,post_type_id,title,slug,status,live_status',
+        'children:id,post_type_id,parent_id,title,slug,status,live_status',
         'taxonomyTerms.taxonomy',
         'meta.customField.options',
     ];
@@ -105,6 +109,8 @@ class DynamicPostController extends Controller
                 'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
                 'post_type_slug' => ['nullable', 'string', 'exists:post_types,slug'],
                 'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
+                'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
+                'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
                 'search' => ['nullable', 'string', 'max:255'],
                 'taxonomy_term_ids' => ['nullable'],
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
@@ -113,22 +119,7 @@ class DynamicPostController extends Controller
             $termIds = $this->normalizeIds($request->taxonomy_term_ids);
 
             if ($request->filled('taxonomy_term_ids')) {
-                if (empty($termIds)) {
-                    return $this->errorResponse('Invalid taxonomy term ids.', 422, 'Please provide valid taxonomy term ids.');
-                }
-
-                $existingTermIds = TaxonomyTerm::whereIn('id', $termIds)
-                    ->pluck('id')
-                    ->map(fn($id) => (int) $id)
-                    ->toArray();
-
-                $missingTermIds = array_values(array_diff($termIds, $existingTermIds));
-
-                if (!empty($missingTermIds)) {
-                    return $this->errorResponse('Some taxonomy terms were not found.', 404, 'One or more taxonomy term ids do not exist.', [
-                        'missing_taxonomy_term_ids' => $missingTermIds,
-                    ]);
-                }
+                $this->assertTaxonomyTermsExist($termIds);
             }
 
             $query = DynamicPost::query()
@@ -144,6 +135,12 @@ class DynamicPostController extends Controller
                 ->when($request->filled('status'), function ($q) use ($request) {
                     $q->where('status', $request->status);
                 })
+                ->when($request->filled('live_status'), function ($q) use ($request) {
+                    $q->where('live_status', $request->live_status);
+                })
+                ->when($request->filled('parent_id'), function ($q) use ($request) {
+                    $q->where('parent_id', $request->parent_id);
+                })
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $search = $request->search;
 
@@ -158,6 +155,7 @@ class DynamicPostController extends Controller
                         $termQuery->whereIn('taxonomy_terms.id', $termIds);
                     });
                 })
+                ->orderBy('sort_order', 'asc')
                 ->latest();
 
             $perPage = (int) $request->get('per_page', 15);
@@ -177,7 +175,21 @@ class DynamicPostController extends Controller
         try {
             $validated = $this->validatePost($request);
 
-            $slug = Str::slug($validated['title']);
+            $postType = PostType::with('taxonomies')->find($validated['post_type_id']);
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
+
+            $taxonomyTermIds = $this->normalizeIds($validated['taxonomy_term_ids'] ?? []);
+            $customFields = $validated['custom_fields'] ?? [];
+
+            $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
+            $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
+
+            $slug = !empty($validated['slug'])
+                ? Str::slug($validated['slug'])
+                : Str::slug($validated['title']);
 
             $slugExists = DynamicPost::where('post_type_id', $validated['post_type_id'])
                 ->where('slug', $slug)
@@ -187,20 +199,22 @@ class DynamicPostController extends Controller
                 return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
                     'errors' => [
                         'slug' => [
-                            '' . $slug . ' already exists for this post type.',
+                            $slug . ' already exists for this post type.',
                         ],
                     ],
                 ]);
             }
 
-            $post = DB::transaction(function () use ($validated, $slug) {
-                $taxonomyTermIds = $validated['taxonomy_term_ids'] ?? [];
-                $customFields = $validated['custom_fields'] ?? [];
-
+            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields) {
                 unset($validated['taxonomy_term_ids'], $validated['custom_fields']);
 
                 $validated['slug'] = $slug;
                 $validated['status'] = $validated['status'] ?? 'draft';
+                $validated['author_id'] = $validated['author_id'] ?? Auth::id();
+
+                if ($validated['status'] === 'published' && empty($validated['published_at'])) {
+                    $validated['published_at'] = now();
+                }
 
                 $post = DynamicPost::create($validated);
 
@@ -212,7 +226,7 @@ class DynamicPostController extends Controller
 
             return $this->successResponse(
                 'Dynamic post created successfully.',
-                $post->load($this->postRelations),
+                $post->fresh()->load($this->postRelations),
                 201
             );
         } catch (ValidationException $e) {
@@ -256,53 +270,66 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            if ($request->has('slug')) {
-                $requestedSlug = Str::slug($request->slug);
-                $oldSlug = $post->slug;
-                $nameBasedSlug = $request->filled('title')
-                    ? Str::slug($request->title)
-                    : $oldSlug;
-
-                if ($requestedSlug !== $oldSlug && $requestedSlug !== $nameBasedSlug) {
-                    return $this->errorResponse('Validation failed.', 422, null, [
-                        'errors' => [
-                            'slug' => [
-                                'Slug cannot be changed after creation.',
-                            ],
-                        ],
-                    ]);
-                }
-            }
-
             $validated = $this->validatePost($request, true);
 
-            if (isset($validated['title'])) {
-                $newSlug = Str::slug($validated['title']);
-                $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
+            $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
+            $postType = PostType::with('taxonomies')->find($postTypeId);
 
-                $slugExists = DynamicPost::where('post_type_id', $postTypeId)
-                    ->where('slug', $newSlug)
-                    ->where('id', '!=', $post->id)
-                    ->exists();
-
-                if ($slugExists) {
-                    return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
-                        'errors' => [
-                            'title' => [
-                                'The generated slug "' . $newSlug . '" already exists for this post type.',
-                            ],
-                        ],
-                    ]);
-                }
-
-                $validated['slug'] = $newSlug;
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
             }
 
-            DB::transaction(function () use ($post, $validated) {
-                $taxonomyTermIds = $validated['taxonomy_term_ids'] ?? null;
-                $customFields = $validated['custom_fields'] ?? null;
+            $taxonomyTermIds = array_key_exists('taxonomy_term_ids', $validated)
+                ? $this->normalizeIds($validated['taxonomy_term_ids'])
+                : null;
 
+            $customFields = array_key_exists('custom_fields', $validated)
+                ? $validated['custom_fields']
+                : null;
+
+            if (is_array($taxonomyTermIds)) {
+                $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
+            }
+
+            if (is_array($customFields)) {
+                $effectiveTermIds = is_array($taxonomyTermIds)
+                    ? $taxonomyTermIds
+                    : $post->taxonomyTerms()->pluck('taxonomy_terms.id')->map(fn($id) => (int) $id)->toArray();
+
+                $this->validateSubmittedCustomFieldsForPostType($postType, $effectiveTermIds, $customFields);
+            }
+
+            $newSlug = $post->slug;
+
+            if (array_key_exists('slug', $validated) && !empty($validated['slug'])) {
+                $newSlug = Str::slug($validated['slug']);
+            } elseif (array_key_exists('title', $validated)) {
+                $newSlug = Str::slug($validated['title']);
+            }
+
+            $slugExists = DynamicPost::where('post_type_id', $postTypeId)
+                ->where('slug', $newSlug)
+                ->where('id', '!=', $post->id)
+                ->exists();
+
+            if ($slugExists) {
+                return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
+                    'errors' => [
+                        'slug' => [
+                            $newSlug . ' already exists for this post type.',
+                        ],
+                    ],
+                ]);
+            }
+
+            DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields) {
                 unset($validated['taxonomy_term_ids'], $validated['custom_fields']);
+
+                $validated['slug'] = $newSlug;
+
+                if (($validated['status'] ?? null) === 'published' && empty($validated['published_at']) && empty($post->published_at)) {
+                    $validated['published_at'] = now();
+                }
 
                 $post->update($validated);
 
@@ -339,7 +366,14 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $post->delete();
+            DB::transaction(function () use ($post) {
+                CustomFieldValue::where('entity_type', 'post')
+                    ->where('entity_id', $post->id)
+                    ->delete();
+
+                $post->taxonomyTerms()->detach();
+                $post->delete();
+            });
 
             return $this->successResponse('Dynamic post deleted successfully.');
         } catch (QueryException $e) {
@@ -357,7 +391,7 @@ class DynamicPostController extends Controller
                 'ids.*' => ['required', 'integer'],
             ]);
 
-            $ids = array_values(array_unique($request->ids));
+            $ids = array_values(array_unique(array_map('intval', $request->ids)));
 
             $existingIds = DynamicPost::whereIn('id', $ids)
                 ->pluck('id')
@@ -373,6 +407,14 @@ class DynamicPostController extends Controller
             }
 
             $deleted = DB::transaction(function () use ($existingIds) {
+                CustomFieldValue::where('entity_type', 'post')
+                    ->whereIn('entity_id', $existingIds)
+                    ->delete();
+
+                DB::table('post_taxonomy_terms')
+                    ->whereIn('dynamic_post_id', $existingIds)
+                    ->delete();
+
                 return DynamicPost::whereIn('id', $existingIds)->delete();
             });
 
@@ -393,6 +435,8 @@ class DynamicPostController extends Controller
         try {
             $request->validate([
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+                'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
+                'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
             ]);
 
             $postType = PostType::where('slug', $slug)->first();
@@ -407,6 +451,13 @@ class DynamicPostController extends Controller
 
             $posts = DynamicPost::where('post_type_id', $postType->id)
                 ->with($this->postRelations)
+                ->when($request->filled('status'), function ($q) use ($request) {
+                    $q->where('status', $request->status);
+                })
+                ->when($request->filled('live_status'), function ($q) use ($request) {
+                    $q->where('live_status', $request->live_status);
+                })
+                ->orderBy('sort_order', 'asc')
                 ->latest()
                 ->paginate($perPage);
 
@@ -422,300 +473,159 @@ class DynamicPostController extends Controller
         }
     }
 
-    private function validatePost(Request $request, bool $isUpdate = false): array
+    public function formOptions(Request $request, int|string $postType): JsonResponse
     {
-        return $request->validate([
-            'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'required', 'exists:post_types,id'],
-            'title' => [$isUpdate ? 'sometimes' : 'required', 'required', 'string', 'max:255'],
-            'excerpt' => ['nullable', 'string'],
-            'content' => ['nullable', 'string'],
-            'featured_image_id' => ['nullable', 'integer'],
-            'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
-            'author_id' => ['nullable', 'integer'],
-            'parent_id' => ['nullable', 'exists:dynamic_posts,id'],
-            'published_at' => ['nullable', 'date'],
-            'taxonomy_term_ids' => ['nullable', 'array'],
-            'taxonomy_term_ids.*' => ['required_with:taxonomy_term_ids', 'integer', 'exists:taxonomy_terms,id'],
-            'custom_fields' => ['nullable', 'array'],
-            'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
-            'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
-            'custom_fields.*.value_text' => ['nullable', 'string'],
-            'custom_fields.*.value_string' => ['nullable', 'string'],
-            'custom_fields.*.value_number' => ['nullable', 'numeric'],
-            'custom_fields.*.value_date' => ['nullable', 'date'],
-            'custom_fields.*.value_datetime' => ['nullable', 'date'],
-            'custom_fields.*.value_json' => ['nullable'],
-        ]);
-    }
+        try {
+            $request->validate([
+                'taxonomy_term_ids' => ['nullable'],
+            ]);
 
-    private function syncTaxonomyTerms(DynamicPost $post, array $taxonomyTermIds): void
-    {
-        $syncData = [];
+            $selectedTermIds = $this->normalizeIds($request->taxonomy_term_ids);
 
-        if (!empty($taxonomyTermIds)) {
-            $terms = TaxonomyTerm::whereIn('id', $taxonomyTermIds)->get();
-
-            foreach ($terms as $term) {
-                $syncData[$term->id] = [
-                    'taxonomy_id' => $term->taxonomy_id,
-                ];
+            if ($request->filled('taxonomy_term_ids')) {
+                $this->assertTaxonomyTermsExist($selectedTermIds);
             }
+
+            $postTypeData = PostType::with([
+                'taxonomies' => function ($taxonomyQuery) {
+                    $taxonomyQuery
+                        ->select(
+                            'taxonomies.id',
+                            'taxonomies.name',
+                            'taxonomies.slug',
+                            'taxonomies.status',
+                            'taxonomies.sort_order'
+                        )
+                        ->where('taxonomies.status', true)
+                        ->orderBy('taxonomies.sort_order', 'asc')
+                        ->orderBy('taxonomies.id', 'asc');
+                },
+            ])
+                ->where(function ($q) use ($postType) {
+                    if (is_numeric($postType)) {
+                        $q->where('id', (int) $postType);
+                    }
+
+                    $q->orWhere('slug', $postType)
+                        ->orWhere('name', $postType);
+                })
+                ->first();
+
+            if (!$postTypeData) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
+
+            $supports = $this->normalizePostTypeSupports($postTypeData->supports ?? []);
+
+            $taxonomyFields = $supports['taxonomies']
+                ? $this->buildTaxonomyFields($postTypeData)
+                : collect();
+
+            $customFields = $supports['custom_fields']
+                ? $this->resolveVisibleCustomFields($postTypeData->id, $selectedTermIds)->map(fn($field) => $this->formatCustomField($field))->values()
+                : collect();
+
+            $relationshipPostTypes = $this->buildRelationshipPostTypeFields($postTypeData);
+
+            return $this->successResponse(
+                'Dynamic post form options fetched successfully.',
+                [
+                    'post_type' => [
+                        'id' => $postTypeData->id,
+                        'name' => $postTypeData->name,
+                        'slug' => $postTypeData->slug,
+                    ],
+                    'supports' => $supports,
+                    'base_fields' => $this->baseFields($supports),
+                    'relationship_post_types' => $relationshipPostTypes,
+                    'taxonomy_fields' => $taxonomyFields,
+                    'custom_fields_count' => $customFields->count(),
+                    'custom_fields' => $customFields,
+                    'status_options' => $this->statusOptions(),
+                    'live_status_options' => $this->liveStatusOptions(),
+                ]
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch dynamic post form options.', 500, $e->getMessage());
+        }
+    }
+    private function buildRelationshipPostTypeFields(PostType $postType)
+    {
+        $relatedPostTypes = $postType->activeRelatedPostTypes()->get();
+
+        if ($relatedPostTypes->isEmpty()) {
+            return collect();
         }
 
-        $post->taxonomyTerms()->sync($syncData);
-    }
+        return $relatedPostTypes->map(function ($relatedPostType) {
+            $options = DynamicPost::query()
+                ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
+                ->where('post_type_id', $relatedPostType->id)
+                ->whereIn('status', ['draft', 'published', 'private'])
+                ->orderBy('title', 'asc')
+                ->get();
 
-    private function saveCustomFieldValues(int $entityId, string $entityType, array $fields): void
-    {
-        $service = app(CustomFieldValueService::class);
-        $service->saveValues($entityId, $entityType, $fields);
+            return [
+                'post_type_id' => $relatedPostType->id,
+                'name' => $relatedPostType->name,
+                'slug' => $relatedPostType->slug,
+                'field_label' => $relatedPostType->name,
+                'field_name' => 'parent_id',
+                'selection_type' => 'single',
+                'multiple' => false,
+                'options' => $options->map(fn($post) => [
+                    'id' => $post->id,
+                    'title' => $post->title,
+                    'slug' => $post->slug,
+                    'status' => $post->status,
+                    'live_status' => $post->live_status,
+                ])->values(),
+            ];
+        })->values();
     }
     public function customFieldsByPostType(Request $request): JsonResponse
     {
         try {
             $request->validate([
                 'post_type_id' => ['required', 'integer', 'exists:post_types,id'],
-                'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
                 'taxonomy_term_ids' => ['nullable'],
             ]);
 
-            $postTypeId = (int) $request->post_type_id;
+            $postType = PostType::find($request->post_type_id);
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
+
+            $supports = $this->normalizePostTypeSupports($postType->supports ?? []);
+
+            if (!$supports['custom_fields']) {
+                return $this->successResponse('Custom fields fetched successfully.', [
+                    'post_type_id' => (int) $request->post_type_id,
+                    'taxonomy_term_ids' => [],
+                    'custom_fields_count' => 0,
+                    'custom_fields' => [],
+                ]);
+            }
+
             $termIds = $this->normalizeIds($request->taxonomy_term_ids);
 
-            if (!empty($termIds)) {
-                $existingTermIds = TaxonomyTerm::whereIn('id', $termIds)
-                    ->pluck('id')
-                    ->map(fn($id) => (int) $id)
-                    ->toArray();
-
-                $missingTermIds = array_values(array_diff($termIds, $existingTermIds));
-
-                if (!empty($missingTermIds)) {
-                    return $this->errorResponse(
-                        'Some taxonomy terms were not found.',
-                        404,
-                        'One or more taxonomy term ids do not exist.',
-                        [
-                            'missing_taxonomy_term_ids' => $missingTermIds,
-                        ]
-                    );
-                }
+            if ($request->filled('taxonomy_term_ids')) {
+                $this->assertTaxonomyTermsExist($termIds);
             }
 
-            $taxonomyIds = [];
+            $fields = $this->resolveVisibleCustomFields((int) $request->post_type_id, $termIds)
+                ->map(fn($field) => $this->formatCustomField($field))
+                ->values();
 
-            if ($request->filled('taxonomy_id')) {
-                $taxonomyIds[] = (int) $request->taxonomy_id;
-            }
-
-            if (!empty($termIds)) {
-                $termTaxonomyIds = TaxonomyTerm::whereIn('id', $termIds)
-                    ->pluck('taxonomy_id')
-                    ->map(fn($id) => (int) $id)
-                    ->toArray();
-
-                $taxonomyIds = array_values(array_unique(array_merge($taxonomyIds, $termTaxonomyIds)));
-            }
-
-            $postType = PostType::select('id', 'name', 'slug')
-                ->where('id', $postTypeId)
-                ->first();
-
-            $fields = CustomField::query()
-                ->where('status', true)
-                ->with([
-                    'locationRules' => function ($ruleQuery) {
-                        $ruleQuery
-                            ->where('status', true)
-                            ->orderBy('sort_order', 'asc')
-                            ->orderBy('id', 'asc');
-                    },
-                    'options' => function ($optionQuery) {
-                        $optionQuery
-                            ->where('status', true)
-                            ->orderBy('sort_order', 'asc')
-                            ->orderBy('id', 'asc');
-                    },
-                    'repeaters' => function ($repeaterQuery) {
-                        $repeaterQuery
-                            ->where('status', true)
-                            ->orderBy('sort_order', 'asc')
-                            ->orderBy('id', 'asc')
-                            ->with([
-                                'options' => function ($optionQuery) {
-                                    $optionQuery
-                                        ->where('status', true)
-                                        ->orderBy('sort_order', 'asc')
-                                        ->orderBy('id', 'asc');
-                                },
-                            ]);
-                    },
-                ])
-
-                /*
-            |--------------------------------------------------------------------------
-            | Post Type Filter
-            |--------------------------------------------------------------------------
-            | Ab custom fields field-level location_rules se filter hongi.
-            | custom_field_group_location_rules.custom_field_id NULL nahi hona chahiye.
-            */
-
-                ->whereHas('locationRules', function ($ruleQuery) use ($postTypeId) {
-                    $ruleQuery
-                        ->whereNotNull('custom_field_id')
-                        ->where('show_if', 'post_type')
-                        ->where(function ($subQuery) use ($postTypeId) {
-                            $subQuery
-                                ->where('match_type', 'all')
-                                ->orWhere(function ($specificQuery) use ($postTypeId) {
-                                    $specificQuery
-                                        ->where('match_type', 'specific')
-                                        ->where(function ($operatorQuery) use ($postTypeId) {
-                                            $operatorQuery
-                                                ->where(function ($equalQuery) use ($postTypeId) {
-                                                    $equalQuery
-                                                        ->where(function ($q) {
-                                                            $q->whereNull('operator')
-                                                                ->orWhere('operator', 'is_equal_to');
-                                                        })
-                                                        ->where('post_type_id', $postTypeId);
-                                                })
-                                                ->orWhere(function ($notEqualQuery) use ($postTypeId) {
-                                                    $notEqualQuery
-                                                        ->where('operator', 'is_not_equal_to')
-                                                        ->where('post_type_id', '!=', $postTypeId);
-                                                });
-                                        });
-                                });
-                        });
-                })
-
-                /*
-            |--------------------------------------------------------------------------
-            | Taxonomy Filter
-            |--------------------------------------------------------------------------
-            | Agar taxonomy_id ya taxonomy_term_ids bheje hain tabhi taxonomy filter lagega.
-            | Agar field par taxonomy rule nahi hai to field allowed rahegi.
-            */
-
-                ->when(!empty($taxonomyIds) || !empty($termIds), function ($fieldQuery) use ($taxonomyIds, $termIds) {
-                    $fieldQuery->where(function ($taxonomyFieldQuery) use ($taxonomyIds, $termIds) {
-                        $taxonomyFieldQuery
-                            ->whereDoesntHave('locationRules', function ($ruleQuery) {
-                                $ruleQuery
-                                    ->whereNotNull('custom_field_id')
-                                    ->where('show_if', 'taxonomy');
-                            })
-                            ->orWhereHas('locationRules', function ($ruleQuery) use ($taxonomyIds, $termIds) {
-                                $ruleQuery
-                                    ->whereNotNull('custom_field_id')
-                                    ->where('show_if', 'taxonomy')
-                                    ->where(function ($subQuery) use ($taxonomyIds, $termIds) {
-                                        $subQuery
-                                            ->where('match_type', 'all')
-                                            ->orWhere(function ($specificQuery) use ($taxonomyIds, $termIds) {
-                                                $specificQuery->where('match_type', 'specific');
-
-                                                if (!empty($taxonomyIds)) {
-                                                    $specificQuery->whereIn('taxonomy_id', $taxonomyIds);
-                                                }
-
-                                                if (!empty($termIds)) {
-                                                    $specificQuery->where(function ($termQuery) use ($termIds) {
-                                                        foreach ($termIds as $termId) {
-                                                            $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
-                                                        }
-
-                                                        $termQuery
-                                                            ->orWhereNull('taxonomy_term_ids')
-                                                            ->orWhereRaw('JSON_LENGTH(taxonomy_term_ids) = 0');
-                                                    });
-                                                }
-                                            });
-                                    });
-                            });
-                    });
-                })
-
-                ->orderBy('sort_order', 'asc')
-                ->orderBy('id', 'asc')
-                ->get();
-
-            $customFields = $fields->map(function ($field) {
-                return [
-                    'id' => $field->id,
-                    'custom_field_group_id' => $field->custom_field_group_id,
-
-                    'field_label' => $field->field_label,
-                    'field_name_slug' => $field->field_name_slug,
-                    'field_placeholder' => $field->field_placeholder,
-                    'field_type' => $field->field_type,
-                    'required' => $field->required,
-                    'checkbox_type' => $field->checkbox_type,
-                    'default_value' => $field->default_value,
-                    'validation_rules' => $field->validation_rules,
-                    'conditional_rules' => $field->conditional_rules,
-                    'media_limit' => $field->media_limit,
-                    'media_size' => $field->media_size,
-                    'media_format' => $field->media_format,
-                    'sort_order' => $field->sort_order,
-                    'status' => $field->status,
-
-                    'location_rules' => $field->locationRules->map(fn($rule) => [
-                        'id' => $rule->id,
-                        'logic_operator' => $rule->logic_operator,
-                        'rule_group' => $rule->rule_group,
-                        'show_if' => $rule->show_if,
-                        'operator' => $rule->operator,
-                        'match_type' => $rule->match_type,
-                        'post_type_id' => $rule->post_type_id,
-                        'taxonomy_id' => $rule->taxonomy_id,
-                        'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
-                        'status' => $rule->status,
-                        'sort_order' => $rule->sort_order,
-                    ])->values(),
-
-                    'options' => $field->options->map(fn($option) => [
-                        'id' => $option->id,
-                        'name' => $option->name,
-                        'value' => $option->value,
-                        'type' => $option->type,
-                        'sort_order' => $option->sort_order,
-                    ])->values(),
-
-                    'repeaters' => $field->repeaters->map(fn($repeater) => [
-                        'id' => $repeater->id,
-                        'field_label' => $repeater->field_label,
-                        'field_name_slug' => $repeater->field_name_slug,
-                        'field_placeholder' => $repeater->field_placeholder,
-                        'field_type' => $repeater->field_type,
-                        'media_limit' => $repeater->media_limit,
-                        'media_size' => $repeater->media_size,
-                        'media_format' => $repeater->media_format,
-                        'sort_order' => $repeater->sort_order,
-
-                        'options' => $repeater->options->map(fn($option) => [
-                            'id' => $option->id,
-                            'name' => $option->name,
-                            'value' => $option->value,
-                            'type' => $option->type,
-                            'sort_order' => $option->sort_order,
-                        ])->values(),
-                    ])->values(),
-                ];
-            })->values();
-
-            return $this->successResponse(
-                'Custom fields fetched successfully.',
-                [
-                    'post_type' => $postType,
-                    'post_type_id' => $postTypeId,
-                    'taxonomy_ids' => $taxonomyIds,
-                    'taxonomy_term_ids' => $termIds,
-                    'custom_fields_count' => $customFields->count(),
-                    'custom_fields' => $customFields,
-                ]
-            );
+            return $this->successResponse('Custom fields fetched successfully.', [
+                'post_type_id' => (int) $request->post_type_id,
+                'taxonomy_term_ids' => $termIds,
+                'custom_fields_count' => $fields->count(),
+                'custom_fields' => $fields,
+            ]);
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
@@ -724,141 +634,41 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to fetch custom fields.', 500, $e->getMessage());
         }
     }
+
     public function resolveCustomFieldsForCreate(Request $request): JsonResponse
     {
         try {
             $request->validate([
                 'post_type_id' => ['required', 'integer', 'exists:post_types,id'],
-                'taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
                 'taxonomy_term_ids' => ['nullable'],
                 'custom_fields' => ['nullable', 'array'],
                 'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
                 'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
                 'custom_fields.*.value_text' => ['nullable'],
                 'custom_fields.*.value_string' => ['nullable'],
-                'custom_fields.*.value_number' => ['nullable'],
-                'custom_fields.*.value_date' => ['nullable'],
-                'custom_fields.*.value_datetime' => ['nullable'],
+                'custom_fields.*.value_number' => ['nullable', 'numeric'],
+                'custom_fields.*.value_date' => ['nullable', 'date'],
+                'custom_fields.*.value_datetime' => ['nullable', 'date'],
                 'custom_fields.*.value_json' => ['nullable'],
             ]);
 
-            $postTypeId = (int) $request->post_type_id;
             $termIds = $this->normalizeIds($request->taxonomy_term_ids);
 
-            $taxonomyIds = [];
-
-            if ($request->filled('taxonomy_id')) {
-                $taxonomyIds[] = (int) $request->taxonomy_id;
+            if ($request->filled('taxonomy_term_ids')) {
+                $this->assertTaxonomyTermsExist($termIds);
             }
 
-            if (!empty($termIds)) {
-                $termTaxonomyIds = TaxonomyTerm::whereIn('id', $termIds)
-                    ->pluck('taxonomy_id')
-                    ->map(fn($id) => (int) $id)
-                    ->toArray();
-
-                $taxonomyIds = array_values(array_unique(array_merge($taxonomyIds, $termTaxonomyIds)));
-            }
-
-            $groups = CustomFieldGroup::query()
-                ->with([
-                    'locationRules',
-                    'fields' => function ($fieldQuery) {
-                        $fieldQuery
-                            ->where('status', true)
-                            ->orderBy('sort_order', 'asc')
-                            ->orderBy('id', 'asc')
-                            ->with([
-                                'options' => function ($optionQuery) {
-                                    $optionQuery
-                                        ->where('status', true)
-                                        ->orderBy('sort_order', 'asc')
-                                        ->orderBy('id', 'asc');
-                                },
-                                'repeaters' => function ($repeaterQuery) {
-                                    $repeaterQuery
-                                        ->where('status', true)
-                                        ->orderBy('sort_order', 'asc')
-                                        ->orderBy('id', 'asc')
-                                        ->with([
-                                            'options' => function ($optionQuery) {
-                                                $optionQuery
-                                                    ->where('status', true)
-                                                    ->orderBy('sort_order', 'asc')
-                                                    ->orderBy('id', 'asc');
-                                            }
-                                        ]);
-                                },
-                            ]);
-                    },
-                ])
-                ->whereHas('locationRules', function ($ruleQuery) use ($postTypeId) {
-                    $ruleQuery
-                        ->where('show_if', 'post_type')
-                        ->where(function ($subQuery) use ($postTypeId) {
-                            $subQuery
-                                ->where('match_type', 'all')
-                                ->orWhere(function ($specificQuery) use ($postTypeId) {
-                                    $specificQuery
-                                        ->where('match_type', 'specific')
-                                        ->where('post_type_id', $postTypeId);
-                                });
-                        });
-                })
-                ->when(!empty($taxonomyIds) || !empty($termIds), function ($groupQuery) use ($taxonomyIds, $termIds) {
-                    $groupQuery->where(function ($taxonomyGroupQuery) use ($taxonomyIds, $termIds) {
-                        $taxonomyGroupQuery
-                            ->whereDoesntHave('locationRules', function ($ruleQuery) {
-                                $ruleQuery->where('show_if', 'taxonomy');
-                            })
-                            ->orWhereHas('locationRules', function ($ruleQuery) use ($taxonomyIds, $termIds) {
-                                $ruleQuery
-                                    ->where('show_if', 'taxonomy')
-                                    ->where(function ($subQuery) use ($taxonomyIds, $termIds) {
-                                        $subQuery
-                                            ->where('match_type', 'all')
-                                            ->orWhere(function ($specificQuery) use ($taxonomyIds, $termIds) {
-                                                $specificQuery->where('match_type', 'specific');
-
-                                                if (!empty($taxonomyIds)) {
-                                                    $specificQuery->whereIn('taxonomy_id', $taxonomyIds);
-                                                }
-
-                                                if (!empty($termIds)) {
-                                                    $specificQuery->where(function ($termQuery) use ($termIds) {
-                                                        foreach ($termIds as $termId) {
-                                                            $termQuery->orWhereJsonContains('taxonomy_term_ids', $termId);
-                                                        }
-
-                                                        $termQuery
-                                                            ->orWhereNull('taxonomy_term_ids')
-                                                            ->orWhereRaw('JSON_LENGTH(taxonomy_term_ids) = 0');
-                                                    });
-                                                }
-                                            });
-                                    });
-                            });
-                    });
-                })
-                ->orderBy('id', 'asc')
-                ->get();
-
-            $fields = $groups
-                ->flatMap(fn($group) => $group->fields)
-                ->values();
-
-            $fieldsById = $fields->keyBy('id');
+            $fields = $this->resolveVisibleCustomFields((int) $request->post_type_id, $termIds);
 
             $selectedValues = [];
 
             foreach ($request->custom_fields ?? [] as $submittedField) {
                 $fieldId = (int) $submittedField['custom_field_id'];
+                $field = $fields->firstWhere('id', $fieldId);
 
-                if (!$fieldsById->has($fieldId)) {
+                if (!$field) {
                     continue;
                 }
-
-                $field = $fieldsById[$fieldId];
 
                 $value = $submittedField['value_string']
                     ?? $submittedField['value_text']
@@ -884,23 +694,8 @@ class DynamicPostController extends Controller
             $hiddenFields = [];
 
             foreach ($fields as $field) {
-                $rules = $field->conditional_rules;
-
-                $isVisible = $this->isConditionalFieldVisible($rules, $selectedValues);
-
-                $fieldData = [
-                    'id' => $field->id,
-                    'field_label' => $field->field_label,
-                    'field_name_slug' => $field->field_name_slug,
-                    'field_type' => $field->field_type,
-                    'required' => $field->required,
-                    'conditional_rules' => $field->conditional_rules,
-                    'options' => $field->options->map(fn($option) => [
-                        'id' => $option->id,
-                        'name' => $option->name,
-                        'value' => $option->value,
-                    ])->values(),
-                ];
+                $isVisible = $this->isConditionalFieldVisible($field->conditional_rules, $selectedValues);
+                $fieldData = $this->formatCustomField($field);
 
                 if ($isVisible) {
                     $visibleFields[] = $fieldData;
@@ -921,18 +716,14 @@ class DynamicPostController extends Controller
             $unsupportedFieldIds = array_values(array_diff($submittedFieldIds, $allowedFieldIds));
 
             return $this->successResponse('Custom fields resolved successfully.', [
-                'post_type_id' => $postTypeId,
-                'taxonomy_ids' => $taxonomyIds,
+                'post_type_id' => (int) $request->post_type_id,
                 'taxonomy_term_ids' => $termIds,
                 'selected_values' => $selectedValues,
-
                 'visible_custom_fields_count' => count($visibleFields),
                 'hidden_custom_fields_count' => count($hiddenFields),
-
                 'allowed_custom_field_ids' => $allowedFieldIds,
                 'submitted_custom_field_ids' => $submittedFieldIds,
                 'unsupported_custom_field_ids' => $unsupportedFieldIds,
-
                 'visible_custom_fields' => $visibleFields,
                 'hidden_custom_fields' => $hiddenFields,
             ]);
@@ -944,6 +735,542 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to resolve custom fields.', 500, $e->getMessage());
         }
     }
+
+    private function validatePost(Request $request, bool $isUpdate = false): array
+    {
+        return $request->validate([
+            'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'integer', 'exists:post_types,id'],
+            'title' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255'],
+            'excerpt' => ['nullable', 'string'],
+            'content' => ['nullable', 'string'],
+            'featured_image_id' => ['nullable', 'integer'],
+            'gallery_image_ids' => ['nullable', 'array'],
+            'gallery_image_ids.*' => ['integer'],
+            'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
+            'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
+            'author_id' => ['nullable', 'integer', 'exists:users,id'],
+            'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+            'published_at' => ['nullable', 'date'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'taxonomy_term_ids' => ['nullable'],
+            'custom_fields' => ['nullable', 'array'],
+            'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
+            'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
+            'custom_fields.*.value_text' => ['nullable'],
+            'custom_fields.*.value_string' => ['nullable'],
+            'custom_fields.*.value_number' => ['nullable', 'numeric'],
+            'custom_fields.*.value_date' => ['nullable', 'date'],
+            'custom_fields.*.value_datetime' => ['nullable', 'date'],
+            'custom_fields.*.value_json' => ['nullable'],
+        ]);
+    }
+
+    private function syncTaxonomyTerms(DynamicPost $post, array $taxonomyTermIds): void
+    {
+        if (empty($taxonomyTermIds)) {
+            $post->taxonomyTerms()->sync([]);
+            return;
+        }
+
+        $terms = TaxonomyTerm::whereIn('id', $taxonomyTermIds)->get();
+
+        $syncData = [];
+
+        foreach ($terms as $term) {
+            $syncData[$term->id] = [
+                'taxonomy_id' => $term->taxonomy_id,
+            ];
+        }
+
+        $post->taxonomyTerms()->sync($syncData);
+    }
+
+    private function saveCustomFieldValues(int $entityId, string $entityType, array $fields): void
+    {
+        if (empty($fields)) {
+            return;
+        }
+
+        $service = app(CustomFieldValueService::class);
+        $service->saveValues($entityId, $entityType, $fields);
+    }
+
+    private function assertTaxonomyTermsExist(array $termIds): void
+    {
+        if (empty($termIds)) {
+            return;
+        }
+
+        $existingTermIds = TaxonomyTerm::whereIn('id', $termIds)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->toArray();
+
+        $missingTermIds = array_values(array_diff($termIds, $existingTermIds));
+
+        if (!empty($missingTermIds)) {
+            throw ValidationException::withMessages([
+                'taxonomy_term_ids' => ['One or more taxonomy term ids do not exist.'],
+            ]);
+        }
+    }
+
+    private function validateTaxonomyTermsForPostType(PostType $postType, array $termIds): void
+    {
+        $supports = $this->normalizePostTypeSupports($postType->supports ?? []);
+
+        if (!$supports['taxonomies'] && !empty($termIds)) {
+            throw ValidationException::withMessages([
+                'taxonomy_term_ids' => ['This post type does not support taxonomies.'],
+            ]);
+        }
+
+        if (empty($termIds)) {
+            return;
+        }
+
+        $attachedTaxonomies = $postType->relationLoaded('taxonomies')
+            ? $postType->taxonomies
+            : $postType->taxonomies()->get();
+
+        $allowedTaxonomyIds = $attachedTaxonomies
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->toArray();
+
+        $terms = TaxonomyTerm::whereIn('id', $termIds)->get(['id', 'taxonomy_id', 'name']);
+
+        $invalidTaxonomyTermIds = $terms
+            ->filter(fn($term) => !in_array((int) $term->taxonomy_id, $allowedTaxonomyIds, true))
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->toArray();
+
+        if (!empty($invalidTaxonomyTermIds)) {
+            throw ValidationException::withMessages([
+                'taxonomy_term_ids' => ['Some taxonomy terms do not belong to this post type taxonomies.'],
+            ]);
+        }
+
+        $termsByTaxonomy = $terms->groupBy('taxonomy_id');
+
+        foreach ($attachedTaxonomies as $taxonomy) {
+            $selectionType = $this->getTaxonomySelectionType($taxonomy);
+            $selectedCount = $termsByTaxonomy->get($taxonomy->id, collect())->count();
+
+            if ($selectionType === 'single' && $selectedCount > 1) {
+                throw ValidationException::withMessages([
+                    'taxonomy_term_ids' => [$taxonomy->name . ' allows only one term.'],
+                ]);
+            }
+        }
+    }
+
+    private function validateSubmittedCustomFieldsForPostType(PostType $postType, array $termIds, array $customFields): void
+    {
+        $supports = $this->normalizePostTypeSupports($postType->supports ?? []);
+
+        if (!$supports['custom_fields'] && !empty($customFields)) {
+            throw ValidationException::withMessages([
+                'custom_fields' => ['This post type does not support custom fields.'],
+            ]);
+        }
+
+        if (empty($customFields)) {
+            return;
+        }
+
+        $allowedFieldIds = $this->resolveVisibleCustomFields($postType->id, $termIds)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->toArray();
+
+        $submittedFieldIds = collect($customFields)
+            ->pluck('custom_field_id')
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $unsupportedFieldIds = array_values(array_diff($submittedFieldIds, $allowedFieldIds));
+
+        if (!empty($unsupportedFieldIds)) {
+            throw ValidationException::withMessages([
+                'custom_fields' => ['Some custom fields are not allowed for selected post type or selected taxonomy terms.'],
+            ]);
+        }
+    }
+
+    private function normalizePostTypeSupports(array|string|null $supports): array
+    {
+        if (is_string($supports)) {
+            $decoded = json_decode($supports, true);
+            $supports = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($supports)) {
+            $supports = [];
+        }
+
+        $supports = collect($supports)
+            ->map(fn($item) => Str::slug((string) $item, '_'))
+            ->values()
+            ->toArray();
+
+        return [
+            'featured_image' => in_array('featured_image', $supports, true),
+            'title' => in_array('title', $supports, true),
+            'custom_fields' => in_array('custom_fields', $supports, true),
+            'content' => in_array('content', $supports, true),
+            'taxonomies' => in_array('taxonomies', $supports, true),
+            'excerpt' => in_array('excerpt', $supports, true),
+            'gallery' => in_array('gallery', $supports, true),
+        ];
+    }
+
+    private function getTaxonomySelectionType($taxonomy): string
+    {
+        $pivotType = $taxonomy->pivot->selection_type ?? null;
+
+        if (in_array($pivotType, ['single', 'multiple'], true)) {
+            return $pivotType;
+        }
+
+        $slug = Str::slug($taxonomy->slug ?? $taxonomy->name, '-');
+
+        return in_array($slug, ['property-types', 'property-type', 'property-status'], true)
+            ? 'multiple'
+            : 'single';
+    }
+
+    private function buildTaxonomyFields(PostType $postType)
+    {
+        return $postType->taxonomies->map(function ($taxonomy) {
+            $selectionType = $this->getTaxonomySelectionType($taxonomy);
+
+            $terms = TaxonomyTerm::query()
+                ->select('id', 'taxonomy_id', 'parent_id', 'name', 'slug')
+                ->where('taxonomy_id', $taxonomy->id)
+                ->where('status', true)
+                ->orderBy('sort_order', 'asc')
+                ->orderBy('id', 'asc')
+                ->get();
+
+            return [
+                'taxonomy_id' => $taxonomy->id,
+                'taxonomy_name' => $taxonomy->name,
+                'taxonomy_slug' => $taxonomy->slug,
+                'field_label' => $taxonomy->name,
+                'field_name' => 'taxonomy_term_ids',
+                'selection_type' => $selectionType,
+                'multiple' => $selectionType === 'multiple',
+                'terms' => $terms->map(fn($term) => [
+                    'id' => $term->id,
+                    'taxonomy_id' => $term->taxonomy_id,
+                    'parent_id' => $term->parent_id,
+                    'name' => $term->name,
+                    'slug' => $term->slug,
+                ])->values(),
+            ];
+        })->values();
+    }
+
+    private function buildRelationshipPostTypeField(PostType $postType): ?array
+    {
+        $relationshipPostTypeId = $postType->relationship_post_type_id ?? null;
+
+        if (empty($relationshipPostTypeId)) {
+            return null;
+        }
+
+        $relationshipPostType = PostType::select('id', 'name', 'slug')
+            ->find($relationshipPostTypeId);
+
+        if (!$relationshipPostType) {
+            return null;
+        }
+
+        $options = DynamicPost::query()
+            ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
+            ->where('post_type_id', $relationshipPostType->id)
+            ->whereIn('status', ['draft', 'published', 'private'])
+            ->orderBy('title', 'asc')
+            ->get();
+
+        return [
+            'post_type_id' => $relationshipPostType->id,
+            'name' => $relationshipPostType->name,
+            'slug' => $relationshipPostType->slug,
+            'field_label' => $relationshipPostType->name,
+            'field_name' => 'parent_id',
+            'selection_type' => 'single',
+            'multiple' => false,
+            'options' => $options->map(fn($post) => [
+                'id' => $post->id,
+                'title' => $post->title,
+                'slug' => $post->slug,
+                'status' => $post->status,
+                'live_status' => $post->live_status,
+            ])->values(),
+        ];
+    }
+
+    private function baseFields(array $supports): array
+    {
+        return [
+            [
+                'key' => 'featured_image_id',
+                'label' => 'Featured Image',
+                'enabled' => $supports['featured_image'],
+            ],
+            [
+                'key' => 'title',
+                'label' => 'Title',
+                'enabled' => $supports['title'],
+            ],
+            [
+                'key' => 'content',
+                'label' => 'Content',
+                'enabled' => $supports['content'],
+            ],
+            [
+                'key' => 'excerpt',
+                'label' => 'Excerpt',
+                'enabled' => $supports['excerpt'],
+            ],
+            [
+                'key' => 'gallery_image_ids',
+                'label' => 'Gallery',
+                'enabled' => $supports['gallery'],
+            ],
+        ];
+    }
+
+    private function statusOptions(): array
+    {
+        return [
+            [
+                'label' => 'Ready for Publish',
+                'value' => 'published',
+            ],
+            [
+                'label' => 'Save as Draft',
+                'value' => 'draft',
+            ],
+        ];
+    }
+
+    private function liveStatusOptions(): array
+    {
+        return [
+            [
+                'label' => 'Approve',
+                'value' => 'approve',
+            ],
+            [
+                'label' => 'Reject',
+                'value' => 'reject',
+            ],
+            [
+                'label' => 'Under Review',
+                'value' => 'under_review',
+            ],
+            [
+                'label' => 'Disapprove',
+                'value' => 'disapprove',
+            ],
+            [
+                'label' => 'Modify Review',
+                'value' => 'modify_review',
+            ],
+            [
+                'label' => 'Submit',
+                'value' => 'submit',
+            ],
+        ];
+    }
+
+    private function resolveVisibleCustomFields(int $postTypeId, array $selectedTermIds)
+    {
+        $selectedTerms = TaxonomyTerm::whereIn('id', $selectedTermIds)
+            ->get(['id', 'taxonomy_id']);
+
+        $selectedTaxonomyIds = $selectedTerms
+            ->pluck('taxonomy_id')
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        return CustomField::query()
+            ->with([
+                'options' => function ($query) {
+                    $query->where('status', true)
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc');
+                },
+                'repeaters' => function ($query) {
+                    $query->where('status', true)
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc')
+                        ->with([
+                            'options' => function ($optionQuery) {
+                                $optionQuery->where('status', true)
+                                    ->orderBy('sort_order', 'asc')
+                                    ->orderBy('id', 'asc');
+                            },
+                        ]);
+                },
+                'locationRules' => function ($query) {
+                    $query->where('status', true)
+                        ->orderBy('rule_group', 'asc')
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc');
+                },
+                'conditions.taxonomy',
+                'conditions.taxonomyTerm',
+            ])
+            ->where('status', true)
+            ->whereHas('locationRules', function ($query) {
+                $query->whereNotNull('custom_field_id')
+                    ->where('status', true)
+                    ->where('show_if', 'post_type');
+            })
+            ->orderBy('sort_order', 'asc')
+            ->orderBy('id', 'asc')
+            ->get()
+            ->filter(fn($field) => $this->fieldLocationRulesMatch($field, $postTypeId, $selectedTaxonomyIds, $selectedTermIds))
+            ->values();
+    }
+
+    private function fieldLocationRulesMatch($field, int $postTypeId, array $selectedTaxonomyIds, array $selectedTermIds): bool
+    {
+        $rules = $field->locationRules ?? collect();
+
+        if ($rules->isEmpty()) {
+            return false;
+        }
+
+        $groups = $rules->groupBy(fn($rule) => $rule->rule_group ?: 1);
+
+        foreach ($groups as $groupRules) {
+            $matched = true;
+
+            foreach ($groupRules as $rule) {
+                if (!$this->locationRuleMatches($rule, $postTypeId, $selectedTaxonomyIds, $selectedTermIds)) {
+                    $matched = false;
+                    break;
+                }
+            }
+
+            if ($matched) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function locationRuleMatches($rule, int $postTypeId, array $selectedTaxonomyIds, array $selectedTermIds): bool
+    {
+        $operator = $rule->operator ?: 'is_equal_to';
+        $matchType = $rule->match_type ?: 'specific';
+
+        if ($rule->show_if === 'post_type') {
+            if ($matchType === 'all') {
+                $matched = true;
+            } else {
+                $matched = (int) $rule->post_type_id === $postTypeId;
+            }
+
+            return $operator === 'is_not_equal_to' ? !$matched : $matched;
+        }
+
+        if ($rule->show_if === 'taxonomy') {
+            if ($matchType === 'all') {
+                $matched = true;
+            } else {
+                $taxonomyMatched = empty($rule->taxonomy_id)
+                    ? true
+                    : in_array((int) $rule->taxonomy_id, $selectedTaxonomyIds, true);
+
+                $ruleTermIds = $this->normalizeIds($rule->taxonomy_term_ids ?? []);
+
+                $termMatched = empty($ruleTermIds)
+                    ? $taxonomyMatched
+                    : count(array_intersect($ruleTermIds, $selectedTermIds)) > 0;
+
+                $matched = $taxonomyMatched && $termMatched;
+            }
+
+            return $operator === 'is_not_equal_to' ? !$matched : $matched;
+        }
+
+        return false;
+    }
+
+    private function formatCustomField($field): array
+    {
+        return [
+            'id' => $field->id,
+            'custom_field_group_id' => $field->custom_field_group_id,
+            'field_label' => $field->field_label,
+            'field_name_slug' => $field->field_name_slug,
+            'field_placeholder' => $field->field_placeholder,
+            'field_type' => $field->field_type,
+            'required' => $field->required,
+            'checkbox_type' => $field->checkbox_type,
+            'default_value' => $field->default_value,
+            'validation_rules' => $field->validation_rules,
+            'conditional_rules' => $field->conditional_rules,
+            'media_limit' => $field->media_limit,
+            'media_size' => $field->media_size,
+            'media_format' => $field->media_format,
+            'sort_order' => $field->sort_order,
+            'status' => $field->status,
+            'location_rules' => ($field->locationRules ?? collect())->map(fn($rule) => [
+                'id' => $rule->id,
+                'logic_operator' => $rule->logic_operator,
+                'rule_group' => $rule->rule_group,
+                'show_if' => $rule->show_if,
+                'operator' => $rule->operator,
+                'match_type' => $rule->match_type,
+                'post_type_id' => $rule->post_type_id,
+                'taxonomy_id' => $rule->taxonomy_id,
+                'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
+                'status' => $rule->status,
+                'sort_order' => $rule->sort_order,
+            ])->values(),
+            'options' => ($field->options ?? collect())->map(fn($option) => [
+                'id' => $option->id,
+                'name' => $option->name,
+                'value' => $option->value,
+                'type' => $option->type,
+                'sort_order' => $option->sort_order,
+            ])->values(),
+            'repeaters' => ($field->repeaters ?? collect())->map(fn($repeater) => [
+                'id' => $repeater->id,
+                'field_label' => $repeater->field_label,
+                'field_name_slug' => $repeater->field_name_slug,
+                'field_placeholder' => $repeater->field_placeholder,
+                'field_type' => $repeater->field_type,
+                'media_limit' => $repeater->media_limit,
+                'media_size' => $repeater->media_size,
+                'media_format' => $repeater->media_format,
+                'sort_order' => $repeater->sort_order,
+                'options' => ($repeater->options ?? collect())->map(fn($option) => [
+                    'id' => $option->id,
+                    'name' => $option->name,
+                    'value' => $option->value,
+                    'type' => $option->type,
+                    'sort_order' => $option->sort_order,
+                ])->values(),
+            ])->values(),
+        ];
+    }
+
     private function isConditionalFieldVisible(null|array|string $rules, array $selectedValues): bool
     {
         if (empty($rules)) {

@@ -110,26 +110,32 @@ class PostType extends Model
 
     public function taxonomies()
     {
-        return $this->belongsToMany(Taxonomy::class, 'post_type_taxonomies')
+        return $this->belongsToMany(
+            Taxonomy::class,
+            'post_type_taxonomies',
+            'post_type_id',
+            'taxonomy_id'
+        )
             ->withPivot(['sort_order', 'status'])
             ->withTimestamps();
     }
 
     public function activeTaxonomies()
     {
-        return $this->belongsToMany(Taxonomy::class, 'post_type_taxonomies')
+        return $this->belongsToMany(
+            Taxonomy::class,
+            'post_type_taxonomies',
+            'post_type_id',
+            'taxonomy_id'
+        )
             ->withPivot(['sort_order', 'status'])
             ->wherePivot('status', true)
             ->where('taxonomies.status', true)
             ->orderBy('post_type_taxonomies.sort_order', 'asc')
+            ->orderBy('taxonomies.id', 'asc')
             ->withTimestamps();
     }
 
-    /**
-     * Related post types (simple many-to-many association).
-     * post_type_id = current post type
-     * related_post_type_id = selected associated post type
-     */
     public function relatedPostTypes()
     {
         return $this->belongsToMany(
@@ -140,15 +146,38 @@ class PostType extends Model
         )
             ->withPivot(['sort_order', 'status'])
             ->withTimestamps()
-            ->orderBy('post_type_relationships.sort_order')
-            ->orderBy('post_types.id');
+            ->orderBy('post_type_relationships.sort_order', 'asc')
+            ->orderBy('post_types.id', 'asc');
     }
 
     public function activeRelatedPostTypes()
     {
-        return $this->relatedPostTypes()
+        return $this->belongsToMany(
+            self::class,
+            'post_type_relationships',
+            'post_type_id',
+            'related_post_type_id'
+        )
+            ->withPivot(['sort_order', 'status'])
             ->wherePivot('status', true)
-            ->where('post_types.status', true);
+            ->where('post_types.status', true)
+            ->withTimestamps()
+            ->orderBy('post_type_relationships.sort_order', 'asc')
+            ->orderBy('post_types.id', 'asc');
+    }
+
+    public function relatedFromPostTypes()
+    {
+        return $this->belongsToMany(
+            self::class,
+            'post_type_relationships',
+            'related_post_type_id',
+            'post_type_id'
+        )
+            ->withPivot(['sort_order', 'status'])
+            ->withTimestamps()
+            ->orderBy('post_type_relationships.sort_order', 'asc')
+            ->orderBy('post_types.id', 'asc');
     }
 
     public function creator()

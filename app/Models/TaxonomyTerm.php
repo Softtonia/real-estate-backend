@@ -60,26 +60,10 @@ class TaxonomyTerm extends Model
             ->orderBy('id', 'asc');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Relation With Taxonomy
-    |--------------------------------------------------------------------------
-    | Ye wo taxonomy hai jo relation_with dropdown me select hogi.
-    | Example: relation_with_taxonomy_id = City taxonomy id
-    */
-
     public function relationWithTaxonomy()
     {
         return $this->belongsTo(Taxonomy::class, 'relation_with_taxonomy_id');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Multiple Relation Values
-    |--------------------------------------------------------------------------
-    | Ye multiple terms hain jo relation_value multi-select me select hongi.
-    | Pivot table: taxonomy_term_relations
-    */
 
     public function relationValues()
     {
@@ -98,14 +82,6 @@ class TaxonomyTerm extends Model
             ->orderBy('taxonomy_term_relations.sort_order', 'asc')
             ->orderBy('taxonomy_terms.id', 'asc');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Reverse Relation
-    |--------------------------------------------------------------------------
-    | Agar kisi term ko relation value ke roop me use kiya gaya hai,
-    | to usko yahan se find kar sakte ho.
-    */
 
     public function relatedFromTerms()
     {

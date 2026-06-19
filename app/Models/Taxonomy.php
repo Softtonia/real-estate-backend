@@ -233,4 +233,29 @@ class Taxonomy extends Model
     {
         return $query->onlyTrashed();
     }
+    public function postTypes(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            PostType::class,
+            'post_type_taxonomies',
+            'taxonomy_id',
+            'post_type_id'
+        )
+            ->withPivot(['sort_order', 'status'])
+            ->withTimestamps();
+    }
+
+    public function activePostTypes(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            PostType::class,
+            'post_type_taxonomies',
+            'taxonomy_id',
+            'post_type_id'
+        )
+            ->withPivot(['sort_order', 'status'])
+            ->wherePivot('status', true)
+            ->where('post_types.status', true)
+            ->withTimestamps();
+    }
 }
