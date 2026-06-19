@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CustomField;
-use App\Models\CustomFieldGroup;
 use App\Models\CustomFieldValue;
 use App\Models\DynamicPost;
 use App\Models\PostType;
@@ -159,8 +158,11 @@ class DynamicPostController extends Controller
                 ->latest();
 
             $perPage = (int) $request->get('per_page', 15);
+            $posts = $query->paginate($perPage);
 
-            return $this->successResponse('Dynamic posts fetched successfully.', $query->paginate($perPage));
+            $posts->getCollection()->transform(fn($post) => $this->formatDynamicPostResponse($post));
+
+            return $this->successResponse('Dynamic posts fetched successfully.', $posts);
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
@@ -181,9 +183,11 @@ class DynamicPostController extends Controller
                 return $this->errorResponse('Post type not found.', 404);
             }
 
-            $taxonomyTermIds = $this->normalizeIds($validated['taxonomy_term_ids'] ?? []);
+            $submittedTaxonomies = $validated['taxonomies'] ?? [];
+            $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
             $customFields = $validated['custom_fields'] ?? [];
 
+            $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
             $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
 
@@ -206,7 +210,7 @@ class DynamicPostController extends Controller
             }
 
             $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields) {
-                unset($validated['taxonomy_term_ids'], $validated['custom_fields']);
+                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields']);
 
                 $validated['slug'] = $slug;
                 $validated['status'] = $validated['status'] ?? 'draft';
@@ -226,7 +230,7 @@ class DynamicPostController extends Controller
 
             return $this->successResponse(
                 'Dynamic post created successfully.',
-                $post->fresh()->load($this->postRelations),
+                $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations)),
                 201
             );
         } catch (ValidationException $e) {
@@ -251,7 +255,7 @@ class DynamicPostController extends Controller
 
             $post->load($this->singlePostRelations);
 
-            return $this->successResponse('Dynamic post fetched successfully.', $post);
+            return $this->successResponse('Dynamic post fetched successfully.', $this->formatDynamicPostResponse($post));
         } catch (QueryException $e) {
             return $this->databaseErrorResponse($e, 'Database error while fetching dynamic post.');
         } catch (Throwable $e) {
@@ -279,15 +283,19 @@ class DynamicPostController extends Controller
                 return $this->errorResponse('Post type not found.', 404);
             }
 
-            $taxonomyTermIds = array_key_exists('taxonomy_term_ids', $validated)
-                ? $this->normalizeIds($validated['taxonomy_term_ids'])
+            $hasTaxonomyPayload = array_key_exists('taxonomies', $validated) || array_key_exists('taxonomy_term_ids', $validated);
+            $submittedTaxonomies = $validated['taxonomies'] ?? [];
+
+            $taxonomyTermIds = $hasTaxonomyPayload
+                ? $this->normalizeSubmittedTaxonomyTermIds($validated)
                 : null;
 
             $customFields = array_key_exists('custom_fields', $validated)
                 ? $validated['custom_fields']
                 : null;
 
-            if (is_array($taxonomyTermIds)) {
+            if ($hasTaxonomyPayload) {
+                $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
                 $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
             }
 
@@ -323,7 +331,7 @@ class DynamicPostController extends Controller
             }
 
             DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields) {
-                unset($validated['taxonomy_term_ids'], $validated['custom_fields']);
+                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields']);
 
                 $validated['slug'] = $newSlug;
 
@@ -344,7 +352,7 @@ class DynamicPostController extends Controller
 
             return $this->successResponse(
                 'Dynamic post updated successfully.',
-                $post->fresh()->load($this->postRelations)
+                $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations))
             );
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
@@ -461,6 +469,8 @@ class DynamicPostController extends Controller
                 ->latest()
                 ->paginate($perPage);
 
+            $posts->getCollection()->transform(fn($post) => $this->formatDynamicPostResponse($post));
+
             return $this->successResponse('Dynamic posts fetched by post type successfully.', $posts, 200, [
                 'post_type' => $postType,
             ]);
@@ -496,8 +506,9 @@ class DynamicPostController extends Controller
                             'taxonomies.status',
                             'taxonomies.sort_order'
                         )
+                        ->wherePivot('status', true)
                         ->where('taxonomies.status', true)
-                        ->orderBy('taxonomies.sort_order', 'asc')
+                        ->orderBy('post_type_taxonomies.sort_order', 'asc')
                         ->orderBy('taxonomies.id', 'asc');
                 },
             ])
@@ -551,6 +562,7 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to fetch dynamic post form options.', 500, $e->getMessage());
         }
     }
+
     private function buildRelationshipPostTypeFields(PostType $postType)
     {
         $relatedPostTypes = $postType->activeRelatedPostTypes()->get();
@@ -585,6 +597,7 @@ class DynamicPostController extends Controller
             ];
         })->values();
     }
+
     public function customFieldsByPostType(Request $request): JsonResponse
     {
         try {
@@ -638,9 +651,14 @@ class DynamicPostController extends Controller
     public function resolveCustomFieldsForCreate(Request $request): JsonResponse
     {
         try {
-            $request->validate([
+            $validated = $request->validate([
                 'post_type_id' => ['required', 'integer', 'exists:post_types,id'],
                 'taxonomy_term_ids' => ['nullable'],
+                'taxonomies' => ['nullable', 'array'],
+                'taxonomies.*.taxonomy_id' => ['required_with:taxonomies', 'integer', 'exists:taxonomies,id'],
+                'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+                'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
+                'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
                 'custom_fields' => ['nullable', 'array'],
                 'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
                 'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
@@ -652,17 +670,23 @@ class DynamicPostController extends Controller
                 'custom_fields.*.value_json' => ['nullable'],
             ]);
 
-            $termIds = $this->normalizeIds($request->taxonomy_term_ids);
+            $postType = PostType::with('taxonomies')->find($validated['post_type_id']);
 
-            if ($request->filled('taxonomy_term_ids')) {
-                $this->assertTaxonomyTermsExist($termIds);
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
             }
 
-            $fields = $this->resolveVisibleCustomFields((int) $request->post_type_id, $termIds);
+            $termIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
+            $submittedTaxonomies = $validated['taxonomies'] ?? [];
+
+            $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
+            $this->validateTaxonomyTermsForPostType($postType, $termIds);
+
+            $fields = $this->resolveVisibleCustomFields((int) $validated['post_type_id'], $termIds);
 
             $selectedValues = [];
 
-            foreach ($request->custom_fields ?? [] as $submittedField) {
+            foreach ($validated['custom_fields'] ?? [] as $submittedField) {
                 $fieldId = (int) $submittedField['custom_field_id'];
                 $field = $fields->firstWhere('id', $fieldId);
 
@@ -707,7 +731,7 @@ class DynamicPostController extends Controller
 
             $allowedFieldIds = collect($visibleFields)->pluck('id')->values()->toArray();
 
-            $submittedFieldIds = collect($request->custom_fields ?? [])
+            $submittedFieldIds = collect($validated['custom_fields'] ?? [])
                 ->pluck('custom_field_id')
                 ->map(fn($id) => (int) $id)
                 ->values()
@@ -716,7 +740,7 @@ class DynamicPostController extends Controller
             $unsupportedFieldIds = array_values(array_diff($submittedFieldIds, $allowedFieldIds));
 
             return $this->successResponse('Custom fields resolved successfully.', [
-                'post_type_id' => (int) $request->post_type_id,
+                'post_type_id' => (int) $validated['post_type_id'],
                 'taxonomy_term_ids' => $termIds,
                 'selected_values' => $selectedValues,
                 'visible_custom_fields_count' => count($visibleFields),
@@ -754,6 +778,11 @@ class DynamicPostController extends Controller
             'published_at' => ['nullable', 'date'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'taxonomy_term_ids' => ['nullable'],
+            'taxonomies' => ['nullable', 'array'],
+            'taxonomies.*.taxonomy_id' => ['required_with:taxonomies', 'integer', 'exists:taxonomies,id'],
+            'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+            'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
+            'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
             'custom_fields' => ['nullable', 'array'],
             'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
             'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
@@ -764,6 +793,95 @@ class DynamicPostController extends Controller
             'custom_fields.*.value_datetime' => ['nullable', 'date'],
             'custom_fields.*.value_json' => ['nullable'],
         ]);
+    }
+
+    private function normalizeSubmittedTaxonomyTermIds(array $validated): array
+    {
+        if (array_key_exists('taxonomies', $validated) && is_array($validated['taxonomies'])) {
+            $termIds = [];
+
+            foreach ($validated['taxonomies'] as $taxonomyData) {
+                if (!empty($taxonomyData['taxonomy_term_id'])) {
+                    $termIds[] = (int) $taxonomyData['taxonomy_term_id'];
+                }
+
+                if (!empty($taxonomyData['taxonomy_term_ids'])) {
+                    foreach ($this->normalizeIds($taxonomyData['taxonomy_term_ids']) as $termId) {
+                        $termIds[] = $termId;
+                    }
+                }
+            }
+
+            return collect($termIds)
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        return $this->normalizeIds($validated['taxonomy_term_ids'] ?? []);
+    }
+
+    private function validateSubmittedTaxonomyGroups(PostType $postType, array $submittedTaxonomies): void
+    {
+        if (empty($submittedTaxonomies)) {
+            return;
+        }
+
+        $supports = $this->normalizePostTypeSupports($postType->supports ?? []);
+
+        if (!$supports['taxonomies']) {
+            throw ValidationException::withMessages([
+                'taxonomies' => ['This post type does not support taxonomies.'],
+            ]);
+        }
+
+        $attachedTaxonomies = $postType->activeTaxonomies()->get();
+        $attachedTaxonomiesById = $attachedTaxonomies->keyBy('id');
+
+        foreach ($submittedTaxonomies as $index => $taxonomyData) {
+            $taxonomyId = (int) ($taxonomyData['taxonomy_id'] ?? 0);
+
+            if (!$attachedTaxonomiesById->has($taxonomyId)) {
+                throw ValidationException::withMessages([
+                    "taxonomies.{$index}.taxonomy_id" => ['This taxonomy is not attached with selected post type.'],
+                ]);
+            }
+
+            $taxonomy = $attachedTaxonomiesById->get($taxonomyId);
+            $selectionType = $this->getTaxonomySelectionType($taxonomy);
+
+            $termIds = [];
+
+            if (!empty($taxonomyData['taxonomy_term_id'])) {
+                $termIds[] = (int) $taxonomyData['taxonomy_term_id'];
+            }
+
+            if (!empty($taxonomyData['taxonomy_term_ids'])) {
+                foreach ($this->normalizeIds($taxonomyData['taxonomy_term_ids']) as $termId) {
+                    $termIds[] = $termId;
+                }
+            }
+
+            $termIds = collect($termIds)->unique()->values()->toArray();
+
+            if ($selectionType === 'single' && count($termIds) > 1) {
+                throw ValidationException::withMessages([
+                    "taxonomies.{$index}" => [$taxonomy->name . ' allows only one term.'],
+                ]);
+            }
+
+            if (!empty($termIds)) {
+                $invalidTermExists = TaxonomyTerm::whereIn('id', $termIds)
+                    ->where('taxonomy_id', '!=', $taxonomyId)
+                    ->exists();
+
+                if ($invalidTermExists) {
+                    throw ValidationException::withMessages([
+                        "taxonomies.{$index}.taxonomy_term_ids" => ['Some selected terms do not belong to this taxonomy.'],
+                    ]);
+                }
+            }
+        }
     }
 
     private function syncTaxonomyTerms(DynamicPost $post, array $taxonomyTermIds): void
@@ -830,9 +948,7 @@ class DynamicPostController extends Controller
             return;
         }
 
-        $attachedTaxonomies = $postType->relationLoaded('taxonomies')
-            ? $postType->taxonomies
-            : $postType->taxonomies()->get();
+        $attachedTaxonomies = $postType->activeTaxonomies()->get();
 
         $allowedTaxonomyIds = $attachedTaxonomies
             ->pluck('id')
@@ -932,7 +1048,7 @@ class DynamicPostController extends Controller
 
     private function getTaxonomySelectionType($taxonomy): string
     {
-        $pivotType = $taxonomy->pivot->selection_type ?? null;
+        $pivotType = $taxonomy->pivot?->selection_type ?? null;
 
         if (in_array($pivotType, ['single', 'multiple'], true)) {
             return $pivotType;
@@ -963,9 +1079,10 @@ class DynamicPostController extends Controller
                 'taxonomy_name' => $taxonomy->name,
                 'taxonomy_slug' => $taxonomy->slug,
                 'field_label' => $taxonomy->name,
-                'field_name' => 'taxonomy_term_ids',
+                'field_name' => 'taxonomies',
                 'selection_type' => $selectionType,
                 'multiple' => $selectionType === 'multiple',
+                'request_key' => $selectionType === 'multiple' ? 'taxonomy_term_ids' : 'taxonomy_term_id',
                 'terms' => $terms->map(fn($term) => [
                     'id' => $term->id,
                     'taxonomy_id' => $term->taxonomy_id,
@@ -977,45 +1094,40 @@ class DynamicPostController extends Controller
         })->values();
     }
 
-    private function buildRelationshipPostTypeField(PostType $postType): ?array
-    {
-        $relationshipPostTypeId = $postType->relationship_post_type_id ?? null;
+    // private function buildRelationshipPostTypeFields(PostType $postType)
+    // {
+    //     $relatedPostTypes = $postType->activeRelatedPostTypes()->get();
 
-        if (empty($relationshipPostTypeId)) {
-            return null;
-        }
+    //     if ($relatedPostTypes->isEmpty()) {
+    //         return collect();
+    //     }
 
-        $relationshipPostType = PostType::select('id', 'name', 'slug')
-            ->find($relationshipPostTypeId);
+    //     return $relatedPostTypes->map(function ($relatedPostType) {
+    //         $options = DynamicPost::query()
+    //             ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
+    //             ->where('post_type_id', $relatedPostType->id)
+    //             ->whereIn('status', ['draft', 'published', 'private'])
+    //             ->orderBy('title', 'asc')
+    //             ->get();
 
-        if (!$relationshipPostType) {
-            return null;
-        }
-
-        $options = DynamicPost::query()
-            ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
-            ->where('post_type_id', $relationshipPostType->id)
-            ->whereIn('status', ['draft', 'published', 'private'])
-            ->orderBy('title', 'asc')
-            ->get();
-
-        return [
-            'post_type_id' => $relationshipPostType->id,
-            'name' => $relationshipPostType->name,
-            'slug' => $relationshipPostType->slug,
-            'field_label' => $relationshipPostType->name,
-            'field_name' => 'parent_id',
-            'selection_type' => 'single',
-            'multiple' => false,
-            'options' => $options->map(fn($post) => [
-                'id' => $post->id,
-                'title' => $post->title,
-                'slug' => $post->slug,
-                'status' => $post->status,
-                'live_status' => $post->live_status,
-            ])->values(),
-        ];
-    }
+    //         return [
+    //             'post_type_id' => $relatedPostType->id,
+    //             'name' => $relatedPostType->name,
+    //             'slug' => $relatedPostType->slug,
+    //             'field_label' => $relatedPostType->name,
+    //             'field_name' => 'parent_id',
+    //             'selection_type' => 'single',
+    //             'multiple' => false,
+    //             'options' => $options->map(fn($post) => [
+    //                 'id' => $post->id,
+    //                 'title' => $post->title,
+    //                 'slug' => $post->slug,
+    //                 'status' => $post->status,
+    //                 'live_status' => $post->live_status,
+    //             ])->values(),
+    //         ];
+    //     })->values();
+    // }
 
     private function baseFields(array $supports): array
     {
@@ -1179,11 +1291,9 @@ class DynamicPostController extends Controller
         $matchType = $rule->match_type ?: 'specific';
 
         if ($rule->show_if === 'post_type') {
-            if ($matchType === 'all') {
-                $matched = true;
-            } else {
-                $matched = (int) $rule->post_type_id === $postTypeId;
-            }
+            $matched = $matchType === 'all'
+                ? true
+                : (int) $rule->post_type_id === $postTypeId;
 
             return $operator === 'is_not_equal_to' ? !$matched : $matched;
         }
@@ -1271,6 +1381,57 @@ class DynamicPostController extends Controller
         ];
     }
 
+    private function formatDynamicPostResponse(DynamicPost $post): array
+    {
+        $post->loadMissing([
+            'postType',
+            'parent:id,post_type_id,title,slug,status,live_status',
+            'taxonomyTerms.taxonomy',
+            'meta.customField',
+        ]);
+
+        $data = $post->toArray();
+        $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
+
+        return $data;
+    }
+
+    private function formatSelectedTaxonomies(DynamicPost $post): array
+    {
+        $terms = $post->taxonomyTerms ?? collect();
+
+        return $terms
+            ->groupBy('taxonomy_id')
+            ->map(function ($taxonomyTerms) {
+                $firstTerm = $taxonomyTerms->first();
+                $taxonomy = $firstTerm->taxonomy;
+
+                if (!$taxonomy) {
+                    return null;
+                }
+
+                $selectionType = $this->getTaxonomySelectionType($taxonomy);
+
+                return [
+                    'taxonomy_id' => $taxonomy->id,
+                    'taxonomy_name' => $taxonomy->name,
+                    'taxonomy_slug' => $taxonomy->slug,
+                    'selection_type' => $selectionType,
+                    'multiple' => $selectionType === 'multiple',
+                    'selected_term_id' => $selectionType === 'single' ? $firstTerm->id : null,
+                    'selected_term_ids' => $taxonomyTerms->pluck('id')->map(fn($id) => (int) $id)->values(),
+                    'selected_terms' => $taxonomyTerms->map(fn($term) => [
+                        'id' => $term->id,
+                        'name' => $term->name,
+                        'slug' => $term->slug,
+                    ])->values(),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray();
+    }
+
     private function isConditionalFieldVisible(null|array|string $rules, array $selectedValues): bool
     {
         if (empty($rules)) {
@@ -1306,10 +1467,6 @@ class DynamicPostController extends Controller
             default => true,
         };
 
-        if ($action === 'hide') {
-            return !$matched;
-        }
-
-        return $matched;
+        return $action === 'hide' ? !$matched : $matched;
     }
 }
