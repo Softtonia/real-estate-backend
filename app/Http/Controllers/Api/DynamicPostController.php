@@ -769,20 +769,55 @@ class DynamicPostController extends Controller
         }
     }
 
+    private function cleanEmptyUploadInputs(Request $request): void
+    {
+        if (!$request->hasFile('featured_image')) {
+            $request->request->remove('featured_image');
+        }
+
+        if (!$request->hasFile('gallery_images')) {
+            $request->request->remove('gallery_images');
+        }
+
+        if ($request->has('custom_fields')) {
+            $customFields = $request->input('custom_fields', []);
+
+            if (is_array($customFields)) {
+                foreach ($customFields as $index => $fieldData) {
+                    if (!$request->hasFile("custom_fields.{$index}.file")) {
+                        unset($customFields[$index]['file']);
+                    }
+
+                    if (!$request->hasFile("custom_fields.{$index}.files")) {
+                        unset($customFields[$index]['files']);
+                    }
+                }
+
+                $request->merge([
+                    'custom_fields' => $customFields,
+                ]);
+            }
+        }
+    }
     private function validatePost(Request $request, bool $isUpdate = false): array
     {
+        $this->cleanEmptyUploadInputs($request);
+
         return $request->validate([
             'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'integer', 'exists:post_types,id'],
             'title' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'excerpt' => ['nullable', 'string'],
             'content' => ['nullable', 'string'],
+
             'featured_image_id' => ['nullable', 'integer'],
             'featured_image' => ['nullable', 'file'],
+
             'gallery_image_ids' => ['nullable', 'array'],
             'gallery_image_ids.*' => ['integer'],
             'gallery_images' => ['nullable', 'array'],
             'gallery_images.*' => ['file'],
+
             'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
             'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
             'author_id' => ['nullable', 'integer', 'exists:users,id'],
@@ -790,11 +825,13 @@ class DynamicPostController extends Controller
             'published_at' => ['nullable', 'date'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'taxonomy_term_ids' => ['nullable'],
+
             'taxonomies' => ['nullable', 'array'],
             'taxonomies.*.taxonomy_id' => ['required_with:taxonomies', 'integer', 'exists:taxonomies,id'],
             'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
             'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
             'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+
             'custom_fields' => ['nullable', 'array'],
             'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
             'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
