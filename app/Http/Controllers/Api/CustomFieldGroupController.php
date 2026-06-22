@@ -193,6 +193,7 @@ class CustomFieldGroupController extends Controller
 
             $group = DB::transaction(function () use ($validated) {
                 $fields = $validated['fields'] ?? [];
+                $locationRules = $validated['location_rules'] ?? [];
 
                 unset($validated['location_rules'], $validated['fields']);
 
@@ -204,16 +205,7 @@ class CustomFieldGroupController extends Controller
                     'created_by' => Auth::id(),
                 ]);
 
-                /*
-            |--------------------------------------------------------------------------
-            | Important:
-            |--------------------------------------------------------------------------
-            | Top-level location_rules ko save nahi karna,
-            | warna custom_field_id NULL save hogi.
-            |
-            | Field-specific location_rules fields array ke andar se save hongi
-            | saveFields() method ke through.
-            */
+                $this->saveLocationRules($group->id, null, $locationRules);
 
                 $this->saveFields($group, $fields);
 
@@ -279,31 +271,17 @@ class CustomFieldGroupController extends Controller
                     $group->update($updateData);
                 }
 
-                /*
-            |--------------------------------------------------------------------------
-            | Important:
-            |--------------------------------------------------------------------------
-            | Top-level location_rules ko save nahi karna,
-            | warna custom_field_id NULL save hoti hai.
-            |
-            | Pehle agar group-level NULL rules save ho chuki hain,
-            | to sirf wahi delete karo.
-            |
-            | Field-level rules ko delete mat karo.
-            */
-
-                if (isset($validated['location_rules'])) {
+                if (array_key_exists('location_rules', $validated)) {
                     $group->locationRules()
                         ->whereNull('custom_field_id')
                         ->delete();
-                }
 
-                /*
-            |--------------------------------------------------------------------------
-            | Field-specific location_rules yahan syncFields() ke andar save hongi.
-            | syncFields() method field id ke saath saveLocationRules() call karta hai.
-            |--------------------------------------------------------------------------
-            */
+                    $this->saveLocationRules(
+                        $group->id,
+                        null,
+                        $validated['location_rules'] ?? []
+                    );
+                }
 
                 if (isset($validated['fields'])) {
                     $this->syncFields($group, $validated['fields']);
