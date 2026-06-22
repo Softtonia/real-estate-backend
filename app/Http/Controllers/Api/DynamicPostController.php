@@ -38,6 +38,18 @@ class DynamicPostController extends Controller
         'meta.customField.options',
     ];
 
+    /**
+     * Old media files are queued and deleted only after DB transaction commits.
+     * This prevents data loss when validation or DB update fails after upload processing.
+     */
+    private array $mediaFileIdsToDeleteAfterCommit = [];
+
+    /**
+     * New MediaFile records created during this request.
+     * If the request fails before saving the post, these files are cleaned up.
+     */
+    private array $storedMediaFileIdsForFailureCleanup = [];
+
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
     {
         $response = array_merge([
@@ -242,9 +254,12 @@ class DynamicPostController extends Controller
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
                 $this->saveCustomFieldValues($post->id, 'post', $customFields);
+                $this->deleteQueuedMediaFilesAfterCommit();
 
                 return $post;
             });
+
+            $this->clearStoredMediaFilesForFailureCleanup();
 
             return $this->successResponse(
                 'Dynamic post created successfully.',
@@ -252,10 +267,13 @@ class DynamicPostController extends Controller
                 201
             );
         } catch (ValidationException $e) {
+            $this->cleanupStoredMediaFilesOnFailure();
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
+            $this->cleanupStoredMediaFilesOnFailure();
             return $this->databaseErrorResponse($e, 'Database error while creating dynamic post.');
         } catch (Throwable $e) {
+            $this->cleanupStoredMediaFilesOnFailure();
             return $this->errorResponse('Unable to create dynamic post.', 500, $e->getMessage());
         }
     }
@@ -369,17 +387,24 @@ class DynamicPostController extends Controller
                 if (is_array($customFields)) {
                     $this->saveCustomFieldValues($post->id, 'post', $customFields);
                 }
+
+                $this->deleteQueuedMediaFilesAfterCommit();
             });
+
+            $this->clearStoredMediaFilesForFailureCleanup();
 
             return $this->successResponse(
                 'Dynamic post updated successfully.',
                 $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations))
             );
         } catch (ValidationException $e) {
+            $this->cleanupStoredMediaFilesOnFailure();
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
+            $this->cleanupStoredMediaFilesOnFailure();
             return $this->databaseErrorResponse($e, 'Database error while updating dynamic post.');
         } catch (Throwable $e) {
+            $this->cleanupStoredMediaFilesOnFailure();
             return $this->errorResponse('Unable to update dynamic post.', 500, $e->getMessage());
         }
     }
@@ -1084,6 +1109,83 @@ class DynamicPostController extends Controller
         $service->saveValues($entityId, $entityType, $fields);
     }
 
+
+    private function queueMediaFileForDeleteAfterCommit(null|int|string $mediaId): void
+    {
+        if (empty($mediaId)) {
+            return;
+        }
+
+        $mediaId = (int) $mediaId;
+
+        if ($mediaId <= 0) {
+            return;
+        }
+
+        $this->mediaFileIdsToDeleteAfterCommit[] = $mediaId;
+        $this->mediaFileIdsToDeleteAfterCommit = collect($this->mediaFileIdsToDeleteAfterCommit)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function queueMediaFilesForDeleteAfterCommit(array $mediaIds): void
+    {
+        foreach ($mediaIds as $mediaId) {
+            $this->queueMediaFileForDeleteAfterCommit($mediaId);
+        }
+    }
+
+    private function deleteQueuedMediaFilesAfterCommit(): void
+    {
+        $mediaIds = collect($this->mediaFileIdsToDeleteAfterCommit)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $this->mediaFileIdsToDeleteAfterCommit = [];
+
+        if (empty($mediaIds)) {
+            return;
+        }
+
+        DB::afterCommit(function () use ($mediaIds) {
+            $this->deleteMediaFilesByIds($mediaIds);
+        });
+    }
+
+    private function trackStoredMediaFileForFailureCleanup(MediaFile $media): void
+    {
+        $this->storedMediaFileIdsForFailureCleanup[] = (int) $media->id;
+        $this->storedMediaFileIdsForFailureCleanup = collect($this->storedMediaFileIdsForFailureCleanup)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function clearStoredMediaFilesForFailureCleanup(): void
+    {
+        $this->storedMediaFileIdsForFailureCleanup = [];
+    }
+
+    private function cleanupStoredMediaFilesOnFailure(): void
+    {
+        $mediaIds = collect($this->storedMediaFileIdsForFailureCleanup)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $this->storedMediaFileIdsForFailureCleanup = [];
+
+        if (!empty($mediaIds)) {
+            $this->deleteMediaFilesByIds($mediaIds);
+        }
+    }
+
     private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
     {
 
@@ -1091,10 +1193,10 @@ class DynamicPostController extends Controller
             $submittedFeaturedId = $validated['featured_image_id'] ?? null;
 
             if (empty($submittedFeaturedId)) {
-                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $this->queueMediaFileForDeleteAfterCommit($existingPost->featured_image_id);
                 $validated['featured_image_id'] = null;
             } elseif ((int) $submittedFeaturedId !== (int) $existingPost->featured_image_id) {
-                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $this->queueMediaFileForDeleteAfterCommit($existingPost->featured_image_id);
                 $validated['featured_image_id'] = (int) $submittedFeaturedId;
             }
         }
@@ -1103,7 +1205,7 @@ class DynamicPostController extends Controller
 
         if ($featuredImage) {
             if ($existingPost && !empty($existingPost->featured_image_id)) {
-                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $this->queueMediaFileForDeleteAfterCommit($existingPost->featured_image_id);
             }
 
             $featuredMedia = $this->storeDynamicPostMediaFile($featuredImage, $postType, 'featured-image');
@@ -1128,7 +1230,7 @@ class DynamicPostController extends Controller
             $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
 
             if (!empty($removedGalleryIds)) {
-                $this->deleteMediaFilesByIds($removedGalleryIds);
+                $this->queueMediaFilesForDeleteAfterCommit($removedGalleryIds);
             }
 
             $validated['gallery_image_ids'] = $submittedGalleryIds;
@@ -1219,7 +1321,7 @@ class DynamicPostController extends Controller
 
         $path = $file->storeAs($directory, $fileName, 'public');
 
-        return MediaFile::create([
+        $media = MediaFile::create([
             'disk' => 'public',
             'context' => 'dynamic-posts',
             'post_type_slug' => $postTypeSlug,
@@ -1233,6 +1335,10 @@ class DynamicPostController extends Controller
             'size' => $file->getSize(),
             'uploaded_by' => Auth::id(),
         ]);
+
+        $this->trackStoredMediaFileForFailureCleanup($media);
+
+        return $media;
     }
 
     private function deleteMediaFileById(null|int|string $mediaId): void
