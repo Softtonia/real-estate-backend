@@ -92,12 +92,25 @@ class DynamicPostController extends Controller
         }
 
         if (is_string($ids)) {
-            $ids = explode(',', $ids);
+            $ids = trim($ids);
+
+            if ($ids === '' || $ids === 'null' || $ids === 'undefined') {
+                return [];
+            }
+
+            $decoded = json_decode($ids, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $ids = $decoded;
+            } else {
+                $ids = explode(',', $ids);
+            }
         }
 
         return collect($ids)
-            ->filter(fn($id) => $id !== null && $id !== '')
+            ->filter(fn($id) => $id !== null && $id !== '' && $id !== 'null' && $id !== 'undefined')
             ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
             ->unique()
             ->values()
             ->toArray();
@@ -779,11 +792,11 @@ class DynamicPostController extends Controller
             'slug' => ['nullable', 'string', 'max:255'],
             'excerpt' => ['nullable', 'string'],
             'content' => ['nullable', 'string'],
-            'featured_image_id' => ['nullable', 'integer'],
+            'featured_image_id' => ['nullable'],
             'featured_image' => ['nullable', 'file'],
-            'gallery_image_ids' => ['nullable', 'array'],
+            'gallery_image_ids' => ['nullable'],
             'gallery_image_ids.*' => ['integer'],
-            'gallery_images' => ['nullable', 'array'],
+            'gallery_images' => ['nullable'],
             'gallery_images.*' => ['file'],
             'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
             'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
@@ -814,22 +827,68 @@ class DynamicPostController extends Controller
 
     private function cleanEmptyUploadInputs(Request $request): void
     {
+        $emptyValues = ['', null, 'null', 'undefined'];
+
         if (!$request->hasFile('featured_image')) {
             $request->request->remove('featured_image');
+            $request->files->remove('featured_image');
         }
 
+        /*
+    |--------------------------------------------------------------------------
+    | Gallery images empty file field fix
+    |--------------------------------------------------------------------------
+    */
         if (!$request->hasFile('gallery_images')) {
             $request->request->remove('gallery_images');
+            $request->files->remove('gallery_images');
         }
 
-        if ($request->has('featured_image_id') && $request->input('featured_image_id') === '') {
-            $request->merge(['featured_image_id' => null]);
+        /*
+    |--------------------------------------------------------------------------
+    | Featured image id normalize
+    |--------------------------------------------------------------------------
+    | Empty bheja to iska matlab featured image remove.
+    */
+        if ($request->has('featured_image_id')) {
+            $featuredImageId = $request->input('featured_image_id');
+
+            if (in_array($featuredImageId, $emptyValues, true)) {
+                $request->merge([
+                    'featured_image_id' => null,
+                ]);
+            }
         }
 
-        if ($request->has('gallery_image_ids') && $request->input('gallery_image_ids') === '') {
-            $request->merge(['gallery_image_ids' => []]);
+        /*
+    |--------------------------------------------------------------------------
+    | Gallery ids normalize
+    |--------------------------------------------------------------------------
+    | [] / null / empty ka matlab gallery empty.
+    */
+        if ($request->has('gallery_image_ids')) {
+            $galleryIds = $request->input('gallery_image_ids');
+
+            if (in_array($galleryIds, $emptyValues, true)) {
+                $request->merge([
+                    'gallery_image_ids' => [],
+                ]);
+            } elseif (is_string($galleryIds)) {
+                $decoded = json_decode($galleryIds, true);
+
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $request->merge([
+                        'gallery_image_ids' => $decoded,
+                    ]);
+                }
+            }
         }
 
+        /*
+    |--------------------------------------------------------------------------
+    | Custom field file cleanup
+    |--------------------------------------------------------------------------
+    */
         if ($request->has('custom_fields')) {
             $customFields = $request->input('custom_fields', []);
 
@@ -843,12 +902,14 @@ class DynamicPostController extends Controller
                         unset($customFields[$index]['files']);
                     }
 
-                    if (array_key_exists('value_json', $fieldData) && $fieldData['value_json'] === '') {
+                    if (array_key_exists('value_json', $fieldData) && in_array($fieldData['value_json'], $emptyValues, true)) {
                         $customFields[$index]['value_json'] = [];
                     }
                 }
 
-                $request->merge(['custom_fields' => $customFields]);
+                $request->merge([
+                    'custom_fields' => $customFields,
+                ]);
             }
         }
     }
@@ -1025,13 +1086,16 @@ class DynamicPostController extends Controller
 
     private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
     {
+
         if ($existingPost && array_key_exists('featured_image_id', $validated)) {
-            if (empty($validated['featured_image_id'])) {
+            $submittedFeaturedId = $validated['featured_image_id'] ?? null;
+
+            if (empty($submittedFeaturedId)) {
                 $this->deleteMediaFileById($existingPost->featured_image_id);
                 $validated['featured_image_id'] = null;
-            } elseif ((int) $validated['featured_image_id'] !== (int) $existingPost->featured_image_id) {
+            } elseif ((int) $submittedFeaturedId !== (int) $existingPost->featured_image_id) {
                 $this->deleteMediaFileById($existingPost->featured_image_id);
-                $validated['featured_image_id'] = (int) $validated['featured_image_id'];
+                $validated['featured_image_id'] = (int) $submittedFeaturedId;
             }
         }
 
@@ -1046,12 +1110,21 @@ class DynamicPostController extends Controller
             $validated['featured_image_id'] = $featuredMedia->id;
         }
 
+        /*
+    |--------------------------------------------------------------------------
+    | Gallery Images
+    |--------------------------------------------------------------------------
+    | Frontend gallery_image_ids me sirf wahi old image ids bhejega jo UI me bachi hain.
+    | Backend old ids - submitted ids = removed ids delete karega.
+    */
+
         $currentGalleryIds = $existingPost
             ? $this->normalizeIds($existingPost->gallery_image_ids ?? [])
             : [];
 
         if ($existingPost && array_key_exists('gallery_image_ids', $validated)) {
             $submittedGalleryIds = $this->normalizeIds($validated['gallery_image_ids']);
+
             $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
 
             if (!empty($removedGalleryIds)) {
@@ -1061,6 +1134,13 @@ class DynamicPostController extends Controller
             $validated['gallery_image_ids'] = $submittedGalleryIds;
             $currentGalleryIds = $submittedGalleryIds;
         }
+
+        /*
+    |--------------------------------------------------------------------------
+    | New Gallery Uploads
+    |--------------------------------------------------------------------------
+    | New uploaded images remaining old ids ke sath merge hongi.
+    */
 
         $galleryFiles = $request->file('gallery_images');
 
