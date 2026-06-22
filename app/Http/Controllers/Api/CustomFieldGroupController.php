@@ -1199,8 +1199,6 @@ class CustomFieldGroupController extends Controller
 
     private function syncFields(CustomFieldGroup $group, array $fields): void
     {
-        $submittedIds = [];
-
         foreach ($fields as $index => $fieldData) {
             $fieldId = $fieldData['id'] ?? null;
 
@@ -1222,13 +1220,31 @@ class CustomFieldGroupController extends Controller
                 $fieldData['conditions']
             );
 
-            if ($fieldId) {
-                $field = CustomField::where('custom_field_group_id', $group->id)->find($fieldId);
+            $field = null;
 
-                if (!$field) {
-                    continue;
+            if ($fieldId) {
+                $field = CustomField::where('custom_field_group_id', $group->id)
+                    ->where('id', $fieldId)
+                    ->first();
+            }
+
+            if (!$field) {
+                $lookupSlug = null;
+
+                if (!empty($fieldData['field_name_slug'])) {
+                    $lookupSlug = Str::slug($fieldData['field_name_slug'], '_');
+                } elseif (!empty($fieldData['field_label'])) {
+                    $lookupSlug = Str::slug($fieldData['field_label'], '_');
                 }
 
+                if ($lookupSlug) {
+                    $field = CustomField::where('custom_field_group_id', $group->id)
+                        ->where('field_name_slug', $lookupSlug)
+                        ->first();
+                }
+            }
+
+            if ($field) {
                 $updateData = $fieldData;
 
                 if (array_key_exists('field_name_slug', $fieldData) || array_key_exists('field_label', $fieldData)) {
@@ -1245,28 +1261,6 @@ class CustomFieldGroupController extends Controller
                 if (!empty($updateData)) {
                     $field->update($updateData);
                 }
-
-                if ($hasLocationRules) {
-                    $field->locationRules()->delete();
-                    $this->saveLocationRules($group->id, $field->id, $locationRules);
-                }
-
-                if ($hasOptions) {
-                    $field->options()->delete();
-                    $this->saveOptions($field, $options);
-                }
-
-                if ($hasRepeaters) {
-                    $field->repeaters()->delete();
-                    $this->saveRepeaters($field, $repeaters);
-                }
-
-                if ($hasConditions) {
-                    $field->conditions()->delete();
-                    $this->saveConditions($field, $conditions);
-                }
-
-                $submittedIds[] = $field->id;
             } else {
                 $field = CustomField::create(array_merge($fieldData, [
                     'custom_field_group_id' => $group->id,
@@ -1275,24 +1269,32 @@ class CustomFieldGroupController extends Controller
                     'status' => $fieldData['status'] ?? true,
                     'created_by' => Auth::id(),
                 ]));
+            }
 
-                if ($hasLocationRules) {
-                    $this->saveLocationRules($group->id, $field->id, $locationRules);
+            if ($hasLocationRules) {
+                $field->locationRules()->delete();
+                $this->saveLocationRules($group->id, $field->id, $locationRules);
+            }
+
+            if ($hasOptions) {
+                $field->options()->delete();
+                $this->saveOptions($field, $options);
+            }
+
+            if ($hasRepeaters) {
+                $repeaterIds = $field->repeaters()->pluck('id')->toArray();
+
+                if (!empty($repeaterIds)) {
+                    CustomFieldRepeaterOption::whereIn('custom_field_repeater_id', $repeaterIds)->delete();
                 }
 
-                if ($hasOptions) {
-                    $this->saveOptions($field, $options);
-                }
+                $field->repeaters()->delete();
+                $this->saveRepeaters($field, $repeaters);
+            }
 
-                if ($hasRepeaters) {
-                    $this->saveRepeaters($field, $repeaters);
-                }
-
-                if ($hasConditions) {
-                    $this->saveConditions($field, $conditions);
-                }
-
-                $submittedIds[] = $field->id;
+            if ($hasConditions) {
+                $field->conditions()->delete();
+                $this->saveConditions($field, $conditions);
             }
         }
     }
