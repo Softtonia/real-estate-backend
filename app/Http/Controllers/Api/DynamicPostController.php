@@ -1019,11 +1019,43 @@ class DynamicPostController extends Controller
 
     private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
     {
+        if ($existingPost && array_key_exists('featured_image_id', $validated)) {
+            $newFeaturedImageId = $validated['featured_image_id'];
+
+            if (empty($newFeaturedImageId)) {
+                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $validated['featured_image_id'] = null;
+            } elseif ((int) $newFeaturedImageId !== (int) $existingPost->featured_image_id) {
+                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $validated['featured_image_id'] = (int) $newFeaturedImageId;
+            }
+        }
+
         $featuredImage = $request->file('featured_image');
 
         if ($featuredImage) {
+            if ($existingPost && !empty($existingPost->featured_image_id)) {
+                $this->deleteMediaFileById($existingPost->featured_image_id);
+            }
+
             $featuredMedia = $this->storeDynamicPostMediaFile($featuredImage, $postType, 'featured-image');
             $validated['featured_image_id'] = $featuredMedia->id;
+        }
+
+        $currentGalleryIds = $existingPost
+            ? $this->normalizeIds($existingPost->gallery_image_ids ?? [])
+            : [];
+
+        if ($existingPost && array_key_exists('gallery_image_ids', $validated)) {
+            $submittedGalleryIds = $this->normalizeIds($validated['gallery_image_ids']);
+            $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
+
+            if (!empty($removedGalleryIds)) {
+                $this->deleteMediaFilesByIds($removedGalleryIds);
+            }
+
+            $validated['gallery_image_ids'] = $submittedGalleryIds;
+            $currentGalleryIds = $submittedGalleryIds;
         }
 
         $galleryFiles = $request->file('gallery_images');
@@ -1045,7 +1077,7 @@ class DynamicPostController extends Controller
             if (!empty($uploadedGalleryIds)) {
                 $existingGalleryIds = array_key_exists('gallery_image_ids', $validated)
                     ? $this->normalizeIds($validated['gallery_image_ids'])
-                    : $this->normalizeIds($existingPost?->gallery_image_ids ?? []);
+                    : $currentGalleryIds;
 
                 $validated['gallery_image_ids'] = collect($existingGalleryIds)
                     ->merge($uploadedGalleryIds)
@@ -1057,7 +1089,40 @@ class DynamicPostController extends Controller
 
         return $validated;
     }
+    private function deleteMediaFileById(null|int|string $mediaId): void
+    {
+        if (empty($mediaId)) {
+            return;
+        }
 
+        $media = MediaFile::find((int) $mediaId);
+
+        if (!$media) {
+            return;
+        }
+
+        $disk = $media->disk ?? 'public';
+
+        if (!empty($media->path) && Storage::disk($disk)->exists($media->path)) {
+            Storage::disk($disk)->delete($media->path);
+        }
+
+        $media->delete();
+    }
+
+    private function deleteMediaFilesByIds(array $mediaIds): void
+    {
+        $mediaIds = collect($mediaIds)
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        foreach ($mediaIds as $mediaId) {
+            $this->deleteMediaFileById($mediaId);
+        }
+    }
     private function storeDynamicPostMediaFile($file, PostType $postType, string $type): MediaFile
     {
         $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
