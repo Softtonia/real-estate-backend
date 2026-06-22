@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CustomField;
 use App\Models\CustomFieldValue;
 use App\Models\DynamicPost;
+use App\Models\MediaFile;
 use App\Models\PostType;
 use App\Models\TaxonomyTerm;
 use App\Services\CustomFieldValueService;
@@ -184,6 +185,8 @@ class DynamicPostController extends Controller
                 return $this->errorResponse('Post type not found.', 404);
             }
 
+            $validated = $this->prepareBaseMediaForSave($request, $validated, $postType);
+
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
             $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
             $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
@@ -212,7 +215,7 @@ class DynamicPostController extends Controller
             }
 
             $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields) {
-                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields']);
+                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields'], $validated['featured_image'], $validated['gallery_images']);
 
                 $validated['slug'] = $slug;
                 $validated['status'] = $validated['status'] ?? 'draft';
@@ -285,6 +288,8 @@ class DynamicPostController extends Controller
                 return $this->errorResponse('Post type not found.', 404);
             }
 
+            $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
+
             $hasTaxonomyPayload = array_key_exists('taxonomies', $validated) || array_key_exists('taxonomy_term_ids', $validated);
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
 
@@ -334,7 +339,7 @@ class DynamicPostController extends Controller
             }
 
             DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields) {
-                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields']);
+                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields'], $validated['featured_image'], $validated['gallery_images']);
 
                 $validated['slug'] = $newSlug;
 
@@ -773,8 +778,11 @@ class DynamicPostController extends Controller
             'excerpt' => ['nullable', 'string'],
             'content' => ['nullable', 'string'],
             'featured_image_id' => ['nullable', 'integer'],
+            'featured_image' => ['nullable', 'file'],
             'gallery_image_ids' => ['nullable', 'array'],
             'gallery_image_ids.*' => ['integer'],
+            'gallery_images' => ['nullable', 'array'],
+            'gallery_images.*' => ['file'],
             'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
             'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
             'author_id' => ['nullable', 'integer', 'exists:users,id'],
@@ -970,6 +978,108 @@ class DynamicPostController extends Controller
 
         $service = app(CustomFieldValueService::class);
         $service->saveValues($entityId, $entityType, $fields);
+    }
+
+    private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
+    {
+        $featuredImage = $request->file('featured_image');
+
+        if ($featuredImage) {
+            $featuredMedia = $this->storeDynamicPostMediaFile($featuredImage, $postType, 'featured-image');
+            $validated['featured_image_id'] = $featuredMedia->id;
+        }
+
+        $galleryFiles = $request->file('gallery_images');
+
+        if ($galleryFiles) {
+            $galleryFiles = is_array($galleryFiles) ? $galleryFiles : [$galleryFiles];
+
+            $uploadedGalleryIds = [];
+
+            foreach ($galleryFiles as $galleryFile) {
+                if (!$galleryFile) {
+                    continue;
+                }
+
+                $galleryMedia = $this->storeDynamicPostMediaFile($galleryFile, $postType, 'gallery');
+                $uploadedGalleryIds[] = (int) $galleryMedia->id;
+            }
+
+            if (!empty($uploadedGalleryIds)) {
+                $existingGalleryIds = array_key_exists('gallery_image_ids', $validated)
+                    ? $this->normalizeIds($validated['gallery_image_ids'])
+                    : $this->normalizeIds($existingPost?->gallery_image_ids ?? []);
+
+                $validated['gallery_image_ids'] = collect($existingGalleryIds)
+                    ->merge($uploadedGalleryIds)
+                    ->unique()
+                    ->values()
+                    ->toArray();
+            }
+        }
+
+        return $validated;
+    }
+
+    private function storeDynamicPostMediaFile($file, PostType $postType, string $type): MediaFile
+    {
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        if (!in_array($extension, $allowedExtensions, true)) {
+            throw ValidationException::withMessages([
+                $type === 'featured-image' ? 'featured_image' : 'gallery_images' => [
+                    'Invalid image format. Allowed formats: ' . implode(', ', $allowedExtensions)
+                ],
+            ]);
+        }
+
+        $maxSizeKb = 5120;
+
+        if (($file->getSize() / 1024) > $maxSizeKb) {
+            throw ValidationException::withMessages([
+                $type === 'featured-image' ? 'featured_image' : 'gallery_images' => [
+                    'Image size must not be greater than 5MB.'
+                ],
+            ]);
+        }
+
+        $postTypeSlug = Str::slug($postType->slug ?? $postType->name ?? 'common', '-');
+        $originalBaseName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+        $safeBaseName = Str::slug($originalBaseName ?: $type, '-');
+
+        if (empty($safeBaseName)) {
+            $safeBaseName = $type;
+        }
+
+        $shortUuid = substr((string) Str::uuid(), 0, 8);
+        $fileName = $safeBaseName . '-' . $shortUuid . '.' . $extension;
+
+        $directory = implode('/', [
+            'uploads',
+            'dynamic-posts',
+            $postTypeSlug,
+            $type,
+            now()->format('Y'),
+            now()->format('m'),
+        ]);
+
+        $path = $file->storeAs($directory, $fileName, 'public');
+
+        return MediaFile::create([
+            'disk' => 'public',
+            'context' => 'dynamic-posts',
+            'post_type_slug' => $postTypeSlug,
+            'field_slug' => $type,
+            'directory' => $directory,
+            'path' => $path,
+            'file_name' => $fileName,
+            'original_name' => $file->getClientOriginalName(),
+            'mime_type' => $file->getMimeType(),
+            'extension' => $extension,
+            'size' => $file->getSize(),
+            'uploaded_by' => Auth::id(),
+        ]);
     }
 
     private function prepareCustomFieldsForSave(Request $request, array $validated, PostType $postType): array
@@ -1775,8 +1885,39 @@ class DynamicPostController extends Controller
 
         $data = $post->toArray();
         $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
+        $data['featured_image'] = $this->formatMediaFileById($post->featured_image_id ?? null);
+        $data['gallery_images'] = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
 
         return $data;
+    }
+
+    private function formatMediaFileById(null|int|string $mediaId): ?array
+    {
+        if (empty($mediaId)) {
+            return null;
+        }
+
+        $media = MediaFile::find((int) $mediaId);
+
+        return $media ? $media->toArray() : null;
+    }
+
+    private function formatMediaFilesByIds(array|string|null $mediaIds): array
+    {
+        $ids = $this->normalizeIds($mediaIds);
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $mediaFiles = MediaFile::whereIn('id', $ids)->get()->keyBy('id');
+
+        return collect($ids)
+            ->map(fn($id) => $mediaFiles->get((int) $id))
+            ->filter()
+            ->map(fn($media) => $media->toArray())
+            ->values()
+            ->toArray();
     }
 
     private function formatSelectedTaxonomies(DynamicPost $post): array
