@@ -1051,21 +1051,20 @@ class CustomFieldGroupController extends Controller
     //  SAVE LOCATION RULES (flat with logic_operator)
     // ──────────────────────────────────────────────
 
-    /**
-     * Save flat location rules with logic_operator support.
-     *
-     * The first rule always has logic_operator = null.
-     * Subsequent rules use logic_operator from payload, default 'and'.
-     * Rules are saved with incrementing sort_order.
-     *
-     * Evaluation: (Rule1 AND Rule2) OR Rule3 ...
-     * Split by 'or' to form blocks. Each block is AND. Any block matching = true.
-     */
+
     private function saveLocationRules(?int $groupId, ?int $fieldId, array $locationRules): void
     {
         $ruleGroup = 1;
 
         foreach ($locationRules as $index => $rule) {
+            $showIf = $rule['show_if'] ?? null;
+
+            if (!$showIf) {
+                continue;
+            }
+
+            $operator = $rule['operator'] ?? 'is_equal_to';
+            $matchType = $rule['match_type'] ?? 'specific';
             $logicOperator = $index === 0 ? null : ($rule['logic_operator'] ?? 'and');
 
             if ($logicOperator === 'or') {
@@ -1077,30 +1076,24 @@ class CustomFieldGroupController extends Controller
                 'custom_field_id' => $fieldId,
                 'logic_operator' => $logicOperator,
                 'rule_group' => $ruleGroup,
-                'show_if' => $rule['show_if'],
-                'operator' => $rule['operator'] ?? 'is_equal_to',
-                'match_type' => $rule['match_type'] ?? 'specific',
-                'post_type_id' => $rule['show_if'] === 'post_type' && $rule['match_type'] === 'specific'
-                    ? ($rule['post_type_id'] ?? null) : null,
-                'taxonomy_id' => $rule['show_if'] === 'taxonomy' && $rule['match_type'] === 'specific'
-                    ? ($rule['taxonomy_id'] ?? null) : null,
-                'taxonomy_term_ids' => $rule['show_if'] === 'taxonomy'
-                    ? ($rule['taxonomy_term_ids'] ?? null) : null,
+                'show_if' => $showIf,
+                'operator' => $operator,
+                'match_type' => $matchType,
+                'post_type_id' => $showIf === 'post_type' && $matchType === 'specific'
+                    ? ($rule['post_type_id'] ?? null)
+                    : null,
+                'taxonomy_id' => $showIf === 'taxonomy' && $matchType === 'specific'
+                    ? ($rule['taxonomy_id'] ?? null)
+                    : null,
+                'taxonomy_term_ids' => $showIf === 'taxonomy'
+                    ? ($rule['taxonomy_term_ids'] ?? [])
+                    : null,
                 'status' => $rule['status'] ?? true,
                 'sort_order' => $index + 1,
             ]);
         }
     }
 
-    /**
-     * Evaluate flat location rules with logic_operator.
-     *
-     * Logic: Split rules by 'or' into blocks.
-     * Inside each block, all rules must match (AND).
-     * If any block matches, return true.
-     *
-     * Example: A AND B OR C  -> (A AND B) OR C
-     */
     private function evaluateLocationRules($rules, array $context): bool
     {
         if ($rules->isEmpty()) {
@@ -1210,29 +1203,70 @@ class CustomFieldGroupController extends Controller
 
         foreach ($fields as $index => $fieldData) {
             $fieldId = $fieldData['id'] ?? null;
+
+            $hasLocationRules = array_key_exists('location_rules', $fieldData);
+            $hasOptions = array_key_exists('options', $fieldData);
+            $hasRepeaters = array_key_exists('repeaters', $fieldData);
+            $hasConditions = array_key_exists('conditions', $fieldData);
+
             $locationRules = $fieldData['location_rules'] ?? [];
             $options = $fieldData['options'] ?? [];
             $repeaters = $fieldData['repeaters'] ?? [];
             $conditions = $fieldData['conditions'] ?? [];
 
-            unset($fieldData['id'], $fieldData['location_rules'], $fieldData['options'], $fieldData['repeaters'], $fieldData['conditions']);
+            unset(
+                $fieldData['id'],
+                $fieldData['location_rules'],
+                $fieldData['options'],
+                $fieldData['repeaters'],
+                $fieldData['conditions']
+            );
 
             if ($fieldId) {
                 $field = CustomField::where('custom_field_group_id', $group->id)->find($fieldId);
-                if ($field) {
-                    $field->update(array_merge($fieldData, [
-                        'field_name_slug' => $this->resolveFieldSlug($group->id, $fieldData, $fieldId),
-                    ]));
+
+                if (!$field) {
+                    continue;
+                }
+
+                $updateData = $fieldData;
+
+                if (array_key_exists('field_name_slug', $fieldData) || array_key_exists('field_label', $fieldData)) {
+                    $updateData['field_name_slug'] = $this->resolveFieldSlug(
+                        $group->id,
+                        [
+                            'field_name_slug' => $fieldData['field_name_slug'] ?? $field->field_name_slug,
+                            'field_label' => $fieldData['field_label'] ?? $field->field_label,
+                        ],
+                        $field->id
+                    );
+                }
+
+                if (!empty($updateData)) {
+                    $field->update($updateData);
+                }
+
+                if ($hasLocationRules) {
                     $field->locationRules()->delete();
                     $this->saveLocationRules($group->id, $field->id, $locationRules);
+                }
+
+                if ($hasOptions) {
                     $field->options()->delete();
                     $this->saveOptions($field, $options);
+                }
+
+                if ($hasRepeaters) {
                     $field->repeaters()->delete();
                     $this->saveRepeaters($field, $repeaters);
+                }
+
+                if ($hasConditions) {
                     $field->conditions()->delete();
                     $this->saveConditions($field, $conditions);
-                    $submittedIds[] = $field->id;
                 }
+
+                $submittedIds[] = $field->id;
             } else {
                 $field = CustomField::create(array_merge($fieldData, [
                     'custom_field_group_id' => $group->id,
@@ -1241,18 +1275,25 @@ class CustomFieldGroupController extends Controller
                     'status' => $fieldData['status'] ?? true,
                     'created_by' => Auth::id(),
                 ]));
-                $this->saveLocationRules($group->id, $field->id, $locationRules);
-                $this->saveOptions($field, $options);
-                $this->saveRepeaters($field, $repeaters);
-                $this->saveConditions($field, $conditions);
+
+                if ($hasLocationRules) {
+                    $this->saveLocationRules($group->id, $field->id, $locationRules);
+                }
+
+                if ($hasOptions) {
+                    $this->saveOptions($field, $options);
+                }
+
+                if ($hasRepeaters) {
+                    $this->saveRepeaters($field, $repeaters);
+                }
+
+                if ($hasConditions) {
+                    $this->saveConditions($field, $conditions);
+                }
+
                 $submittedIds[] = $field->id;
             }
-        }
-
-        if (!empty($submittedIds)) {
-            CustomField::where('custom_field_group_id', $group->id)
-                ->whereNotIn('id', $submittedIds)
-                ->delete();
         }
     }
 
