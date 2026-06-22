@@ -1332,6 +1332,13 @@ class DynamicPostController extends Controller
 
         return CustomField::query()
             ->with([
+                'group.locationRules' => function ($query) {
+                    $query->where('status', true)
+                        ->whereNull('custom_field_id')
+                        ->orderBy('rule_group', 'asc')
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc');
+                },
                 'options' => function ($query) {
                     $query->where('status', true)
                         ->orderBy('sort_order', 'asc')
@@ -1351,6 +1358,7 @@ class DynamicPostController extends Controller
                 },
                 'locationRules' => function ($query) {
                     $query->where('status', true)
+                        ->whereNotNull('custom_field_id')
                         ->orderBy('rule_group', 'asc')
                         ->orderBy('sort_order', 'asc')
                         ->orderBy('id', 'asc');
@@ -1359,24 +1367,70 @@ class DynamicPostController extends Controller
                 'conditions.taxonomyTerm',
             ])
             ->where('status', true)
-            ->whereHas('locationRules', function ($query) {
-                $query->whereNotNull('custom_field_id')
-                    ->where('status', true)
-                    ->where('show_if', 'post_type');
-            })
             ->orderBy('sort_order', 'asc')
             ->orderBy('id', 'asc')
             ->get()
-            ->filter(fn($field) => $this->fieldLocationRulesMatch($field, $postTypeId, $selectedTaxonomyIds, $selectedTermIds))
+            ->filter(function ($field) use ($postTypeId, $selectedTaxonomyIds, $selectedTermIds) {
+                return $this->fieldLocationRulesMatch($field, $postTypeId, $selectedTaxonomyIds, $selectedTermIds)
+                    && $this->fieldConditionsMatch($field, $selectedTermIds);
+            })
             ->values();
     }
+    private function fieldConditionsMatch($field, array $selectedTermIds): bool
+    {
+        $conditions = $field->conditions ?? collect();
 
+        if ($conditions->isEmpty()) {
+            return true;
+        }
+
+        $includeTermIds = $conditions
+            ->filter(fn($condition) => ($condition->operator ?? 'include') === 'include')
+            ->pluck('taxonomy_term_id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->toArray();
+
+        $excludeTermIds = $conditions
+            ->filter(fn($condition) => ($condition->operator ?? 'include') === 'exclude')
+            ->pluck('taxonomy_term_id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->toArray();
+
+        if (!empty($excludeTermIds) && count(array_intersect($excludeTermIds, $selectedTermIds)) > 0) {
+            return false;
+        }
+
+        if (!empty($includeTermIds)) {
+            return count(array_intersect($includeTermIds, $selectedTermIds)) > 0;
+        }
+
+        return true;
+    }
     private function fieldLocationRulesMatch($field, int $postTypeId, array $selectedTaxonomyIds, array $selectedTermIds): bool
     {
-        $rules = $field->locationRules ?? collect();
+        $groupRules = $field->group?->locationRules ?? collect();
+        $fieldRules = $field->locationRules ?? collect();
 
-        if ($rules->isEmpty()) {
+        $groupMatched = $groupRules->isEmpty()
+            ? true
+            : $this->locationRulesCollectionMatch($groupRules, $postTypeId, $selectedTaxonomyIds, $selectedTermIds);
+
+        if (!$groupMatched) {
             return false;
+        }
+
+        if ($fieldRules->isNotEmpty()) {
+            return $this->locationRulesCollectionMatch($fieldRules, $postTypeId, $selectedTaxonomyIds, $selectedTermIds);
+        }
+
+        return true;
+    }
+    private function locationRulesCollectionMatch($rules, int $postTypeId, array $selectedTaxonomyIds, array $selectedTermIds): bool
+    {
+        if ($rules->isEmpty()) {
+            return true;
         }
 
         $groups = $rules->groupBy(fn($rule) => $rule->rule_group ?: 1);
@@ -1398,7 +1452,6 @@ class DynamicPostController extends Controller
 
         return false;
     }
-
     private function locationRuleMatches($rule, int $postTypeId, array $selectedTaxonomyIds, array $selectedTermIds): bool
     {
         $operator = $rule->operator ?: 'is_equal_to';
