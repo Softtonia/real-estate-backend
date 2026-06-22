@@ -185,7 +185,7 @@ class DynamicPostController extends Controller
 
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
             $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
-            $customFields = $validated['custom_fields'] ?? [];
+            $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
 
             $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
@@ -292,7 +292,7 @@ class DynamicPostController extends Controller
                 : null;
 
             $customFields = array_key_exists('custom_fields', $validated)
-                ? $validated['custom_fields']
+                ? $this->prepareCustomFieldsForSave($request, $validated, $postType)
                 : null;
 
             if ($hasTaxonomyPayload) {
@@ -795,6 +795,9 @@ class DynamicPostController extends Controller
             'custom_fields.*.value_date' => ['nullable', 'date'],
             'custom_fields.*.value_datetime' => ['nullable', 'date'],
             'custom_fields.*.value_json' => ['nullable'],
+            'custom_fields.*.file' => ['nullable', 'file'],
+            'custom_fields.*.files' => ['nullable', 'array'],
+            'custom_fields.*.files.*' => ['file'],
         ]);
     }
 
@@ -966,6 +969,218 @@ class DynamicPostController extends Controller
 
         $service = app(CustomFieldValueService::class);
         $service->saveValues($entityId, $entityType, $fields);
+    }
+
+    private function prepareCustomFieldsForSave(Request $request, array $validated, PostType $postType): array
+    {
+        $customFields = $validated['custom_fields'] ?? [];
+
+        foreach ($customFields as $index => $fieldData) {
+            $fieldId = (int) ($fieldData['custom_field_id'] ?? 0);
+
+            if (!$fieldId) {
+                continue;
+            }
+
+            $customField = CustomField::find($fieldId);
+
+            if (!$customField) {
+                continue;
+            }
+
+            if (!in_array($customField->field_type, ['media', 'file'], true)) {
+                continue;
+            }
+
+            $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
+
+            if (!empty($uploadedFiles)) {
+                $customFields[$index]['value_json'] = $this->storeCustomFieldUploadedFiles(
+                    $uploadedFiles,
+                    $customField,
+                    $postType
+                );
+            } else {
+                $valueJson = $fieldData['value_json'] ?? [];
+
+                if ($this->containsTemporaryFilePath($valueJson)) {
+                    throw ValidationException::withMessages([
+                        "custom_fields.{$index}.value_json" => [
+                            'Temporary file path is not allowed. Please upload the file again.'
+                        ],
+                    ]);
+                }
+            }
+
+            unset(
+                $customFields[$index]['file'],
+                $customFields[$index]['files']
+            );
+        }
+
+        return $customFields;
+    }
+
+    private function extractCustomFieldUploadedFiles(Request $request, int $index): array
+    {
+        $files = [];
+
+        $singleFile = $request->file("custom_fields.{$index}.file");
+
+        if ($singleFile) {
+            $files[] = $singleFile;
+        }
+
+        $multipleFiles = $request->file("custom_fields.{$index}.files");
+
+        if ($multipleFiles) {
+            if (is_array($multipleFiles)) {
+                foreach ($multipleFiles as $file) {
+                    if ($file) {
+                        $files[] = $file;
+                    }
+                }
+            } else {
+                $files[] = $multipleFiles;
+            }
+        }
+
+        return $files;
+    }
+
+    private function storeCustomFieldUploadedFiles(array $files, CustomField $field, PostType $postType): array
+    {
+        $mediaLimit = (int) ($field->media_limit ?? 1);
+
+        if ($mediaLimit < 1) {
+            $mediaLimit = 1;
+        }
+
+        if (count($files) > $mediaLimit) {
+            throw ValidationException::withMessages([
+                'custom_fields' => [
+                    'You can upload maximum ' . $mediaLimit . ' file(s) for ' . $field->field_label . '.'
+                ],
+            ]);
+        }
+
+        $allowedExtensions = $this->allowedCustomFieldFileExtensions($field);
+        $maxSizeKb = $this->parseCustomFieldMediaSizeToKb($field->media_size);
+
+        $postTypeSlug = Str::slug($postType->slug ?? $postType->name ?? 'common', '-');
+        $fieldSlug = Str::slug($field->field_name_slug ?? $field->field_label, '-');
+
+        $directory = implode('/', [
+            'uploads',
+            'custom-fields',
+            $postTypeSlug,
+            $fieldSlug,
+            now()->format('Y'),
+            now()->format('m'),
+        ]);
+
+        $uploaded = [];
+
+        foreach ($files as $file) {
+            $extension = strtolower($file->getClientOriginalExtension());
+
+            if (!in_array($extension, $allowedExtensions, true)) {
+                throw ValidationException::withMessages([
+                    'custom_fields' => [
+                        'Invalid file format for ' . $field->field_label . '. Allowed formats: ' . implode(', ', $allowedExtensions)
+                    ],
+                ]);
+            }
+
+            if (($file->getSize() / 1024) > $maxSizeKb) {
+                throw ValidationException::withMessages([
+                    'custom_fields' => [
+                        'File size is too large for ' . $field->field_label . '.'
+                    ],
+                ]);
+            }
+
+            $fileName = Str::uuid()->toString() . '.' . $extension;
+            $path = $file->storeAs($directory, $fileName, 'public');
+
+            $uploaded[] = [
+                'disk' => 'public',
+                'path' => $path,
+                'url' => Storage::disk('public')->url($path),
+                'file_name' => $fileName,
+                'original_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getMimeType(),
+                'extension' => $extension,
+                'size' => $file->getSize(),
+                'size_kb' => round($file->getSize() / 1024, 2),
+            ];
+        }
+
+        return $uploaded;
+    }
+
+    private function allowedCustomFieldFileExtensions(CustomField $field): array
+    {
+        if (!empty($field->media_format)) {
+            return collect(explode(',', $field->media_format))
+                ->map(fn($format) => strtolower(trim($format)))
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        if ($field->field_type === 'media') {
+            return ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+        }
+
+        return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt'];
+    }
+
+    private function parseCustomFieldMediaSizeToKb(?string $size): int
+    {
+        if (empty($size)) {
+            return 10240;
+        }
+
+        $size = strtolower(trim($size));
+
+        if (preg_match('/^(\d+)\s*(kb|mb|gb)?$/', $size, $matches)) {
+            $value = (int) $matches[1];
+            $unit = $matches[2] ?? 'kb';
+
+            return match ($unit) {
+                'gb' => $value * 1024 * 1024,
+                'mb' => $value * 1024,
+                default => $value,
+            };
+        }
+
+        return 10240;
+    }
+
+    private function containsTemporaryFilePath(mixed $value): bool
+    {
+        if (empty($value)) {
+            return false;
+        }
+
+        if (is_string($value)) {
+            return str_contains($value, '/tmp/')
+                || str_contains($value, '\\tmp\\')
+                || str_starts_with($value, 'tmp/')
+                || str_starts_with($value, '/private/var/tmp/');
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                if ($this->containsTemporaryFilePath($item)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function assertTaxonomyTermsExist(array $termIds): void
