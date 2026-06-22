@@ -298,7 +298,7 @@ class DynamicPostController extends Controller
                 : null;
 
             $customFields = array_key_exists('custom_fields', $validated)
-                ? $this->prepareCustomFieldsForSave($request, $validated, $postType)
+                ? $this->prepareCustomFieldsForSave($request, $validated, $postType, $post)
                 : null;
 
             if ($hasTaxonomyPayload) {
@@ -769,6 +769,49 @@ class DynamicPostController extends Controller
         }
     }
 
+    private function validatePost(Request $request, bool $isUpdate = false): array
+    {
+        $this->cleanEmptyUploadInputs($request);
+
+        return $request->validate([
+            'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'integer', 'exists:post_types,id'],
+            'title' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255'],
+            'excerpt' => ['nullable', 'string'],
+            'content' => ['nullable', 'string'],
+            'featured_image_id' => ['nullable', 'integer'],
+            'featured_image' => ['nullable', 'file'],
+            'gallery_image_ids' => ['nullable', 'array'],
+            'gallery_image_ids.*' => ['integer'],
+            'gallery_images' => ['nullable', 'array'],
+            'gallery_images.*' => ['file'],
+            'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
+            'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
+            'author_id' => ['nullable', 'integer', 'exists:users,id'],
+            'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+            'published_at' => ['nullable', 'date'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'taxonomy_term_ids' => ['nullable'],
+            'taxonomies' => ['nullable', 'array'],
+            'taxonomies.*.taxonomy_id' => ['required_with:taxonomies', 'integer', 'exists:taxonomies,id'],
+            'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+            'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
+            'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+            'custom_fields' => ['nullable', 'array'],
+            'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
+            'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
+            'custom_fields.*.value_text' => ['nullable'],
+            'custom_fields.*.value_string' => ['nullable'],
+            'custom_fields.*.value_number' => ['nullable', 'numeric'],
+            'custom_fields.*.value_date' => ['nullable', 'date'],
+            'custom_fields.*.value_datetime' => ['nullable', 'date'],
+            'custom_fields.*.value_json' => ['nullable'],
+            'custom_fields.*.file' => ['nullable', 'file'],
+            'custom_fields.*.files' => ['nullable', 'array'],
+            'custom_fields.*.files.*' => ['file'],
+        ]);
+    }
+
     private function cleanEmptyUploadInputs(Request $request): void
     {
         if (!$request->hasFile('featured_image')) {
@@ -777,6 +820,14 @@ class DynamicPostController extends Controller
 
         if (!$request->hasFile('gallery_images')) {
             $request->request->remove('gallery_images');
+        }
+
+        if ($request->has('featured_image_id') && $request->input('featured_image_id') === '') {
+            $request->merge(['featured_image_id' => null]);
+        }
+
+        if ($request->has('gallery_image_ids') && $request->input('gallery_image_ids') === '') {
+            $request->merge(['gallery_image_ids' => []]);
         }
 
         if ($request->has('custom_fields')) {
@@ -791,60 +842,15 @@ class DynamicPostController extends Controller
                     if (!$request->hasFile("custom_fields.{$index}.files")) {
                         unset($customFields[$index]['files']);
                     }
+
+                    if (array_key_exists('value_json', $fieldData) && $fieldData['value_json'] === '') {
+                        $customFields[$index]['value_json'] = [];
+                    }
                 }
 
-                $request->merge([
-                    'custom_fields' => $customFields,
-                ]);
+                $request->merge(['custom_fields' => $customFields]);
             }
         }
-    }
-    private function validatePost(Request $request, bool $isUpdate = false): array
-    {
-        $this->cleanEmptyUploadInputs($request);
-
-        return $request->validate([
-            'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'integer', 'exists:post_types,id'],
-            'title' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255'],
-            'excerpt' => ['nullable', 'string'],
-            'content' => ['nullable', 'string'],
-
-            'featured_image_id' => ['nullable', 'integer'],
-            'featured_image' => ['nullable', 'file'],
-
-            'gallery_image_ids' => ['nullable', 'array'],
-            'gallery_image_ids.*' => ['integer'],
-            'gallery_images' => ['nullable', 'array'],
-            'gallery_images.*' => ['file'],
-
-            'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
-            'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
-            'author_id' => ['nullable', 'integer', 'exists:users,id'],
-            'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
-            'published_at' => ['nullable', 'date'],
-            'sort_order' => ['nullable', 'integer', 'min:0'],
-            'taxonomy_term_ids' => ['nullable'],
-
-            'taxonomies' => ['nullable', 'array'],
-            'taxonomies.*.taxonomy_id' => ['required_with:taxonomies', 'integer', 'exists:taxonomies,id'],
-            'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
-            'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
-            'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
-
-            'custom_fields' => ['nullable', 'array'],
-            'custom_fields.*.custom_field_id' => ['required_with:custom_fields', 'integer', 'exists:custom_fields,id'],
-            'custom_fields.*.custom_field_option_id' => ['nullable', 'integer', 'exists:custom_field_options,id'],
-            'custom_fields.*.value_text' => ['nullable'],
-            'custom_fields.*.value_string' => ['nullable'],
-            'custom_fields.*.value_number' => ['nullable', 'numeric'],
-            'custom_fields.*.value_date' => ['nullable', 'date'],
-            'custom_fields.*.value_datetime' => ['nullable', 'date'],
-            'custom_fields.*.value_json' => ['nullable'],
-            'custom_fields.*.file' => ['nullable', 'file'],
-            'custom_fields.*.files' => ['nullable', 'array'],
-            'custom_fields.*.files.*' => ['file'],
-        ]);
     }
 
     private function normalizeSubmittedTaxonomyTermIds(array $validated): array
@@ -1020,14 +1026,12 @@ class DynamicPostController extends Controller
     private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
     {
         if ($existingPost && array_key_exists('featured_image_id', $validated)) {
-            $newFeaturedImageId = $validated['featured_image_id'];
-
-            if (empty($newFeaturedImageId)) {
+            if (empty($validated['featured_image_id'])) {
                 $this->deleteMediaFileById($existingPost->featured_image_id);
                 $validated['featured_image_id'] = null;
-            } elseif ((int) $newFeaturedImageId !== (int) $existingPost->featured_image_id) {
+            } elseif ((int) $validated['featured_image_id'] !== (int) $existingPost->featured_image_id) {
                 $this->deleteMediaFileById($existingPost->featured_image_id);
-                $validated['featured_image_id'] = (int) $newFeaturedImageId;
+                $validated['featured_image_id'] = (int) $validated['featured_image_id'];
             }
         }
 
@@ -1089,40 +1093,7 @@ class DynamicPostController extends Controller
 
         return $validated;
     }
-    private function deleteMediaFileById(null|int|string $mediaId): void
-    {
-        if (empty($mediaId)) {
-            return;
-        }
 
-        $media = MediaFile::find((int) $mediaId);
-
-        if (!$media) {
-            return;
-        }
-
-        $disk = $media->disk ?? 'public';
-
-        if (!empty($media->path) && Storage::disk($disk)->exists($media->path)) {
-            Storage::disk($disk)->delete($media->path);
-        }
-
-        $media->delete();
-    }
-
-    private function deleteMediaFilesByIds(array $mediaIds): void
-    {
-        $mediaIds = collect($mediaIds)
-            ->filter()
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
-
-        foreach ($mediaIds as $mediaId) {
-            $this->deleteMediaFileById($mediaId);
-        }
-    }
     private function storeDynamicPostMediaFile($file, PostType $postType, string $type): MediaFile
     {
         $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
@@ -1184,7 +1155,42 @@ class DynamicPostController extends Controller
         ]);
     }
 
-    private function prepareCustomFieldsForSave(Request $request, array $validated, PostType $postType): array
+    private function deleteMediaFileById(null|int|string $mediaId): void
+    {
+        if (empty($mediaId)) {
+            return;
+        }
+
+        $media = MediaFile::find((int) $mediaId);
+
+        if (!$media) {
+            return;
+        }
+
+        $disk = $media->disk ?? 'public';
+
+        if (!empty($media->path) && Storage::disk($disk)->exists($media->path)) {
+            Storage::disk($disk)->delete($media->path);
+        }
+
+        $media->delete();
+    }
+
+    private function deleteMediaFilesByIds(array $mediaIds): void
+    {
+        $mediaIds = collect($mediaIds)
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        foreach ($mediaIds as $mediaId) {
+            $this->deleteMediaFileById($mediaId);
+        }
+    }
+
+    private function prepareCustomFieldsForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
     {
         $customFields = $validated['custom_fields'] ?? [];
 
@@ -1205,14 +1211,33 @@ class DynamicPostController extends Controller
                 continue;
             }
 
+            $oldValueJson = $existingPost
+                ? $this->getExistingCustomFieldValueJson($existingPost->id, $fieldId)
+                : [];
+
             $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
 
             if (!empty($uploadedFiles)) {
+                $this->deleteStoredCustomFieldFiles($oldValueJson);
+
                 $customFields[$index]['value_json'] = $this->storeCustomFieldUploadedFiles(
                     $uploadedFiles,
                     $customField,
                     $postType
                 );
+            } elseif (array_key_exists('value_json', $fieldData)) {
+                $newValueJson = $this->normalizeCustomFieldValueJson($fieldData['value_json']);
+
+                if ($this->containsTemporaryFilePath($newValueJson)) {
+                    throw ValidationException::withMessages([
+                        "custom_fields.{$index}.value_json" => [
+                            'Temporary file path is not allowed. Please upload the file again.'
+                        ],
+                    ]);
+                }
+
+                $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
+                $customFields[$index]['value_json'] = $newValueJson;
             } else {
                 $valueJson = $fieldData['value_json'] ?? [];
 
@@ -1232,6 +1257,78 @@ class DynamicPostController extends Controller
         }
 
         return $customFields;
+    }
+
+    private function getExistingCustomFieldValueJson(int $entityId, int $customFieldId): array
+    {
+        $value = CustomFieldValue::where('entity_type', 'post')
+            ->where('entity_id', $entityId)
+            ->where('custom_field_id', $customFieldId)
+            ->first();
+
+        if (!$value) {
+            return [];
+        }
+
+        return $this->normalizeCustomFieldValueJson($value->value_json ?? []);
+    }
+
+    private function normalizeCustomFieldValueJson(mixed $value): array
+    {
+        if (empty($value)) {
+            return [];
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        if (is_array($value)) {
+            return array_values($value);
+        }
+
+        return [];
+    }
+
+    private function deleteRemovedCustomFieldFiles(array $oldFiles, array $newFiles): void
+    {
+        $newPaths = collect($newFiles)
+            ->pluck('path')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        foreach ($oldFiles as $oldFile) {
+            $oldPath = $oldFile['path'] ?? null;
+
+            if (!$oldPath || in_array($oldPath, $newPaths, true)) {
+                continue;
+            }
+
+            $this->deleteStoredCustomFieldFileItem($oldFile);
+        }
+    }
+
+    private function deleteStoredCustomFieldFiles(array $files): void
+    {
+        foreach ($files as $file) {
+            $this->deleteStoredCustomFieldFileItem($file);
+        }
+    }
+
+    private function deleteStoredCustomFieldFileItem(array $file): void
+    {
+        $path = $file['path'] ?? null;
+        $disk = $file['disk'] ?? 'public';
+
+        if (!$path) {
+            return;
+        }
+
+        if (Storage::disk($disk)->exists($path)) {
+            Storage::disk($disk)->delete($path);
+        }
     }
 
     private function extractCustomFieldUploadedFiles(Request $request, int $index): array
