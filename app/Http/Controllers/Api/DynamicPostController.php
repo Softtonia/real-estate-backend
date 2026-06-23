@@ -700,6 +700,11 @@ class DynamicPostController extends Controller
                 'custom_fields.*.value_date' => ['nullable', 'date'],
                 'custom_fields.*.value_datetime' => ['nullable', 'date'],
                 'custom_fields.*.value_json' => ['nullable'],
+                'custom_fields.*.repeaters' => ['nullable', 'array'],
+                'custom_fields.*.repeaters.*.custom_field_repeater_id' => ['nullable', 'integer', 'exists:custom_field_repeaters,id'],
+                'custom_fields.*.repeaters.*.field_name_slug' => ['nullable', 'string'],
+                'custom_fields.*.repeaters.*.rows' => ['nullable', 'array'],
+                'custom_fields.*.repeaters.*.rows.*' => ['nullable', 'array'],
             ]);
 
             $postType = PostType::with('taxonomies')->find($validated['post_type_id']);
@@ -881,6 +886,11 @@ class DynamicPostController extends Controller
             'custom_fields.*.file' => ['nullable'],
             'custom_fields.*.files' => ['nullable'],
             'custom_fields.*.files.*' => ['nullable'],
+            'custom_fields.*.repeaters' => ['nullable', 'array'],
+            'custom_fields.*.repeaters.*.custom_field_repeater_id' => ['nullable', 'integer', 'exists:custom_field_repeaters,id'],
+            'custom_fields.*.repeaters.*.field_name_slug' => ['nullable', 'string'],
+            'custom_fields.*.repeaters.*.rows' => ['nullable', 'array'],
+            'custom_fields.*.repeaters.*.rows.*' => ['nullable', 'array'],
         ]);
     }
 
@@ -921,6 +931,10 @@ class DynamicPostController extends Controller
 
                     if (array_key_exists('value_text', $fieldData) && $fieldData['value_text'] === null) {
                         $customFields[$index]['value_text'] = '';
+                    }
+
+                    if (array_key_exists('repeaters', $fieldData) && $fieldData['repeaters'] === '') {
+                        $customFields[$index]['repeaters'] = [];
                     }
                 }
 
@@ -1409,67 +1423,76 @@ class DynamicPostController extends Controller
                 continue;
             }
 
-            if (!in_array($customField->field_type, ['media', 'file'], true)) {
-                continue;
-            }
-
             $oldValueJson = $existingPost
                 ? $this->getExistingCustomFieldValueJson($existingPost->id, $fieldId)
                 : [];
 
-            $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
-            $mediaStateSubmitted = $this->customFieldMediaStateWasSubmitted($fieldData);
+            $isMediaField = in_array($customField->field_type, ['media', 'file'], true);
 
-            if (!empty($uploadedFiles) || $mediaStateSubmitted) {
-                $retainedFiles = $mediaStateSubmitted
-                    ? $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson)
-                    : [];
+            if ($isMediaField) {
+                $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
+                $mediaStateSubmitted = $this->customFieldMediaStateWasSubmitted($fieldData);
 
-                $uploaded = [];
+                if (!empty($uploadedFiles) || $mediaStateSubmitted) {
+                    $retainedFiles = $mediaStateSubmitted
+                        ? $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson)
+                        : [];
 
-                if (!empty($uploadedFiles)) {
-                    $uploaded = $this->storeCustomFieldUploadedFiles(
-                        $uploadedFiles,
-                        $customField,
-                        $postType
+                    $uploaded = [];
+
+                    if (!empty($uploadedFiles)) {
+                        $uploaded = $this->storeCustomFieldUploadedFiles(
+                            $uploadedFiles,
+                            $customField,
+                            $postType
+                        );
+                    }
+
+                    $newValueJson = collect($retainedFiles)
+                        ->merge($uploaded)
+                        ->filter(fn($item) => is_array($item) && !empty($item['path']))
+                        ->unique('path')
+                        ->values()
+                        ->toArray();
+
+                    if ($this->containsTemporaryFilePath($newValueJson)) {
+                        throw ValidationException::withMessages([
+                            "custom_fields.{$index}.value_json" => [
+                                'Temporary file path is not allowed. Please upload the file again.'
+                            ],
+                        ]);
+                    }
+
+                    $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
+                    $customFields[$index]['value_json'] = $newValueJson;
+
+                    unset(
+                        $customFields[$index]['value_string'],
+                        $customFields[$index]['value_text'],
+                        $customFields[$index]['value_number'],
+                        $customFields[$index]['value_date'],
+                        $customFields[$index]['value_datetime']
                     );
+                } else {
+                    $valueJson = $fieldData['value_json'] ?? [];
+
+                    if ($this->containsTemporaryFilePath($valueJson)) {
+                        throw ValidationException::withMessages([
+                            "custom_fields.{$index}.value_json" => [
+                                'Temporary file path is not allowed. Please upload the file again.'
+                            ],
+                        ]);
+                    }
                 }
+            }
 
-                $newValueJson = collect($retainedFiles)
-                    ->merge($uploaded)
-                    ->filter(fn($item) => is_array($item) && !empty($item['path']))
-                    ->unique('path')
-                    ->values()
-                    ->toArray();
-
-                if ($this->containsTemporaryFilePath($newValueJson)) {
-                    throw ValidationException::withMessages([
-                        "custom_fields.{$index}.value_json" => [
-                            'Temporary file path is not allowed. Please upload the file again.'
-                        ],
-                    ]);
-                }
-
-                $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
-                $customFields[$index]['value_json'] = $newValueJson;
-
-                unset(
-                    $customFields[$index]['value_string'],
-                    $customFields[$index]['value_text'],
-                    $customFields[$index]['value_number'],
-                    $customFields[$index]['value_date'],
-                    $customFields[$index]['value_datetime']
+            if (array_key_exists('repeaters', $fieldData)) {
+                $customFields[$index]['value_json'] = $this->mergeRepeaterValuesIntoValueJson(
+                    $customFields[$index]['value_json'] ?? ($fieldData['value_json'] ?? []),
+                    $fieldData['repeaters'] ?? []
                 );
-            } else {
-                $valueJson = $fieldData['value_json'] ?? [];
 
-                if ($this->containsTemporaryFilePath($valueJson)) {
-                    throw ValidationException::withMessages([
-                        "custom_fields.{$index}.value_json" => [
-                            'Temporary file path is not allowed. Please upload the file again.'
-                        ],
-                    ]);
-                }
+                unset($customFields[$index]['repeaters']);
             }
 
             unset(
@@ -1479,6 +1502,63 @@ class DynamicPostController extends Controller
         }
 
         return $customFields;
+    }
+
+    private function mergeRepeaterValuesIntoValueJson(mixed $currentValueJson, mixed $repeaters): array
+    {
+        $valueJson = $this->normalizeCustomFieldValueJson($currentValueJson);
+
+        $valueJson['repeaters'] = $this->normalizeRepeaterValuesForSave($repeaters);
+
+        return $valueJson;
+    }
+
+    private function normalizeRepeaterValuesForSave(mixed $repeaters): array
+    {
+        if (empty($repeaters)) {
+            return [];
+        }
+
+        if (is_string($repeaters)) {
+            $decoded = json_decode($repeaters, true);
+            $repeaters = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($repeaters)) {
+            return [];
+        }
+
+        return collect($repeaters)
+            ->map(function ($repeater) {
+                if (!is_array($repeater)) {
+                    return null;
+                }
+
+                $rows = $repeater['rows'] ?? [];
+
+                if (is_string($rows)) {
+                    $decodedRows = json_decode($rows, true);
+                    $rows = is_array($decodedRows) ? $decodedRows : [];
+                }
+
+                if (!is_array($rows)) {
+                    $rows = [];
+                }
+
+                return [
+                    'custom_field_repeater_id' => isset($repeater['custom_field_repeater_id'])
+                        ? (int) $repeater['custom_field_repeater_id']
+                        : null,
+                    'field_name_slug' => $repeater['field_name_slug'] ?? null,
+                    'rows' => collect($rows)
+                        ->filter(fn($row) => is_array($row))
+                        ->values()
+                        ->toArray(),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray();
     }
 
     private function appendMissingMediaCustomFieldDeletes(DynamicPost $post, array $customFields): array
@@ -1678,7 +1758,7 @@ class DynamicPostController extends Controller
         }
 
         if (is_array($value)) {
-            return array_values($value);
+            return $value;
         }
 
         return [];
@@ -2560,15 +2640,26 @@ class DynamicPostController extends Controller
         return collect($meta)
             ->map(function ($item) {
                 $fieldType = $item['custom_field']['field_type'] ?? null;
+                $rawValueJson = $item['value_json'] ?? [];
+                $normalizedValueJson = $this->normalizeCustomFieldValueJson($rawValueJson);
+
+                $item['repeaters'] = $normalizedValueJson['repeaters'] ?? [];
 
                 if (!in_array($fieldType, ['media', 'file'], true)) {
                     return $item;
                 }
 
-                $rawValueJson = $item['value_json'] ?? [];
-                $mediaFiles = $this->normalizeCustomFieldValueJson($rawValueJson);
+                $mediaSource = $normalizedValueJson;
 
-                $mediaFiles = collect($mediaFiles)
+                if (isset($normalizedValueJson['media']) && is_array($normalizedValueJson['media'])) {
+                    $mediaSource = $normalizedValueJson['media'];
+                }
+
+                if (isset($normalizedValueJson['repeaters'])) {
+                    unset($mediaSource['repeaters']);
+                }
+
+                $mediaFiles = collect($mediaSource)
                     ->filter(fn($media) => is_array($media))
                     ->map(function ($media) {
                         $path = $media['path'] ?? null;
@@ -2598,8 +2689,6 @@ class DynamicPostController extends Controller
                 $item['media_urls'] = $mediaUrls;
                 $item['value_json_raw'] = $rawValueJson;
 
-                // Frontend compatibility:
-                // Old React code calls startsWith(), so these values must be strings.
                 $item['value_string'] = $firstUrl;
                 $item['value_text'] = $firstUrl;
                 $item['value_json'] = $firstUrl;
