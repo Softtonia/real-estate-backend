@@ -1755,7 +1755,7 @@ class DynamicPostController extends Controller
             if (($file->getSize() / 1024) > $maxSizeKb) {
                 throw ValidationException::withMessages([
                     'custom_fields' => [
-                        'File size is too large for ' . $field->field_label . '.'
+                        'File size is too large for ' . $field->field_label . '. Maximum allowed size is ' . round($maxSizeKb / 1024, 2) . ' MB.'
                     ],
                 ]);
             }
@@ -1804,15 +1804,21 @@ class DynamicPostController extends Controller
         }
 
         $size = strtolower(trim($size));
+        $size = str_replace(' ', '', $size);
 
-        if (preg_match('/^(\d+)\s*(kb|mb|gb)?$/', $size, $matches)) {
+        if (is_numeric($size)) {
+            return (int) $size * 1024;
+        }
+
+        if (preg_match('/^(\d+)(kb|mb|gb)$/', $size, $matches)) {
             $value = (int) $matches[1];
-            $unit = $matches[2] ?? 'kb';
+            $unit = $matches[2];
 
             return match ($unit) {
                 'gb' => $value * 1024 * 1024,
                 'mb' => $value * 1024,
-                default => $value,
+                'kb' => $value,
+                default => 10240,
             };
         }
 
