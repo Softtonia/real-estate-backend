@@ -95,11 +95,23 @@ class DynamicPostController extends Controller
         }
 
         if (is_string($ids)) {
-            $ids = explode(',', $ids);
+            $ids = trim($ids);
+
+            if ($ids === '') {
+                return [];
+            }
+
+            $decoded = json_decode($ids, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $ids = $decoded;
+            } else {
+                $ids = str_contains($ids, ',') ? explode(',', $ids) : [$ids];
+            }
         }
 
         return collect($ids)
-            ->filter(fn($id) => $id !== null && $id !== '')
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
             ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
@@ -222,18 +234,18 @@ class DynamicPostController extends Controller
             }
 
             $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields, $postType) {
-                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields'], $validated['featured_image'], $validated['gallery_images']);
+                $postData = $this->dynamicPostPayloadForDatabase($validated);
 
-                $validated['slug'] = $slug;
-                $validated['listing_code'] = $this->generateDynamicPostListingCode($postType);
-                $validated['status'] = $validated['status'] ?? 'draft';
-                $validated['author_id'] = $validated['author_id'] ?? Auth::id();
+                $postData['slug'] = $slug;
+                $postData['listing_code'] = $this->generateDynamicPostListingCode($postType);
+                $postData['status'] = $postData['status'] ?? 'draft';
+                $postData['author_id'] = $postData['author_id'] ?? Auth::id();
 
-                if ($validated['status'] === 'published' && empty($validated['published_at'])) {
-                    $validated['published_at'] = now();
+                if ($postData['status'] === 'published' && empty($postData['published_at'])) {
+                    $postData['published_at'] = now();
                 }
 
-                $post = DynamicPost::create($validated);
+                $post = DynamicPost::create($postData);
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
                 $this->saveCustomFieldValues($post->id, 'post', $customFields);
@@ -351,15 +363,15 @@ class DynamicPostController extends Controller
             }
 
             DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields) {
-                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields'], $validated['featured_image'], $validated['gallery_images']);
+                $postData = $this->dynamicPostPayloadForDatabase($validated);
 
-                $validated['slug'] = $newSlug;
+                $postData['slug'] = $newSlug;
 
-                if (($validated['status'] ?? null) === 'published' && empty($validated['published_at']) && empty($post->published_at)) {
-                    $validated['published_at'] = now();
+                if (($postData['status'] ?? null) === 'published' && empty($postData['published_at']) && empty($post->published_at)) {
+                    $postData['published_at'] = now();
                 }
 
-                $post->update($validated);
+                $post->update($postData);
 
                 if (is_array($taxonomyTermIds)) {
                     $this->syncTaxonomyTerms($post, $taxonomyTermIds);
@@ -1077,6 +1089,35 @@ class DynamicPostController extends Controller
         $post->taxonomyTerms()->sync($syncData);
     }
 
+    private function dynamicPostPayloadForDatabase(array $validated): array
+    {
+        unset(
+            $validated['taxonomy_term_ids'],
+            $validated['taxonomies'],
+            $validated['custom_fields'],
+            $validated['featured_image'],
+            $validated['gallery_images'],
+            $validated['post_type']
+        );
+
+        if (array_key_exists('gallery_image_ids', $validated)) {
+            $validated['gallery_image_ids'] = $this->normalizeIds($validated['gallery_image_ids']);
+
+            if (!$this->dynamicPostHasArrayCast('gallery_image_ids')) {
+                $validated['gallery_image_ids'] = json_encode($validated['gallery_image_ids']);
+            }
+        }
+
+        return $validated;
+    }
+
+    private function dynamicPostHasArrayCast(string $field): bool
+    {
+        $casts = (new DynamicPost())->getCasts();
+
+        return isset($casts[$field]) && in_array($casts[$field], ['array', 'json', 'collection', 'object'], true);
+    }
+
     private function saveCustomFieldValues(int $entityId, string $entityType, array $fields): void
     {
         if (empty($fields)) {
@@ -1504,7 +1545,9 @@ class DynamicPostController extends Controller
     {
         return array_key_exists('value_json', $fieldData)
             || array_key_exists('value_string', $fieldData)
-            || array_key_exists('value_text', $fieldData);
+            || array_key_exists('value_text', $fieldData)
+            || array_key_exists('file', $fieldData)
+            || array_key_exists('files', $fieldData);
     }
 
     private function submittedCustomFieldMediaItems(array $fieldData, array $oldValueJson): array
