@@ -41,6 +41,7 @@ class DynamicPost extends Model
             if (empty($post->slug)) {
                 $post->slug = Str::slug($post->title);
             }
+
             if (empty($post->status)) {
                 $post->status = 'draft';
             }
@@ -53,15 +54,15 @@ class DynamicPost extends Model
         });
     }
 
-    // Relations
+    /*
+    |--------------------------------------------------------------------------
+    | Post Type
+    |--------------------------------------------------------------------------
+    */
+
     public function postType()
     {
         return $this->belongsTo(PostType::class, 'post_type_id');
-    }
-
-    public function author()
-    {
-        return $this->belongsTo(User::class, 'author_id');
     }
 
     public function parent()
@@ -74,17 +75,44 @@ class DynamicPost extends Model
         return $this->hasMany(DynamicPost::class, 'parent_id');
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Author
+    |--------------------------------------------------------------------------
+    */
+
+    public function author()
+    {
+        return $this->belongsTo(User::class, 'author_id');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Custom Fields
+    |--------------------------------------------------------------------------
+    */
+
     public function meta()
     {
         return $this->hasMany(CustomFieldValue::class, 'entity_id')
-                    ->where('entity_type', 'post')
-                    ->with(['customField.repeaters.options', 'repeaterValues']);
+            ->where('entity_type', 'post');
     }
 
-    public function customFieldValues()
+ public function customFieldValues()
+{
+    return $this->hasMany(CustomFieldValue::class, 'entity_id')
+        ->where('entity_type', 'post');
+}
+
+    /*
+    |--------------------------------------------------------------------------
+    | Taxonomy Relations
+    |--------------------------------------------------------------------------
+    */
+
+    public function taxonomyRelations()
     {
-        return $this->hasMany(CustomFieldValue::class, 'entity_id')
-                    ->where('entity_type', 'post');
+        return $this->hasMany(PostTaxonomyTerm::class, 'dynamic_post_id');
     }
 
     public function taxonomyTerms()
@@ -94,7 +122,9 @@ class DynamicPost extends Model
             'post_taxonomy_terms',
             'dynamic_post_id',
             'taxonomy_term_id'
-        )->withPivot('taxonomy_id')->withTimestamps();
+        )
+            ->withPivot('taxonomy_id')
+            ->withTimestamps();
     }
 
     public function taxonomies()
@@ -104,43 +134,93 @@ class DynamicPost extends Model
             'post_taxonomy_terms',
             'dynamic_post_id',
             'taxonomy_id'
-        )->withPivot('taxonomy_term_id')->withTimestamps();
+        )
+            ->withPivot('taxonomy_term_id')
+            ->withTimestamps();
     }
 
-    // Scopes
-    public function scopePublished($query) { return $query->where('status', 'published'); }
-    public function scopeDraft($query) { return $query->where('status', 'draft'); }
-    public function scopePrivate($query) { return $query->where('status', 'private'); }
-    public function scopeArchived($query) { return $query->where('status', 'archived'); }
-    public function scopeLiveStatus($query, string $status) { return $query->where('live_status', $status); }
-    public function scopeApproved($query) { return $query->where('live_status', 'approve'); }
-    public function scopeUnderReview($query) { return $query->where('live_status', 'under_review'); }
-    public function scopeByPostType($query, $postTypeId) { return $query->where('post_type_id', $postTypeId); }
+    /*
+    |--------------------------------------------------------------------------
+    | Status Scopes
+    |--------------------------------------------------------------------------
+    */
+
+    public function scopePublished($query)
+    {
+        return $query->where('status', 'published');
+    }
+
+    public function scopeDraft($query)
+    {
+        return $query->where('status', 'draft');
+    }
+
+    public function scopePrivate($query)
+    {
+        return $query->where('status', 'private');
+    }
+
+    public function scopeArchived($query)
+    {
+        return $query->where('status', 'archived');
+    }
+
+    public function scopeLiveStatus($query, string $status)
+    {
+        return $query->where('live_status', $status);
+    }
+
+    public function scopeApproved($query)
+    {
+        return $query->where('live_status', 'approve');
+    }
+
+    public function scopeUnderReview($query)
+    {
+        return $query->where('live_status', 'under_review');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Post Type Scopes
+    |--------------------------------------------------------------------------
+    */
+
+    public function scopeByPostType($query, $postTypeId)
+    {
+        return $query->where('post_type_id', $postTypeId);
+    }
+
     public function scopeByPostTypeSlug($query, string $slug)
     {
-        return $query->whereHas('postType', fn($q) => $q->where('slug', $slug));
+        return $query->whereHas('postType', function ($q) use ($slug) {
+            $q->where('slug', $slug);
+        });
     }
 
-    // Helpers
-    public function isPublished(): bool { return $this->status === 'published'; }
-    public function isDraft(): bool { return $this->status === 'draft'; }
-    public function isApproved(): bool { return $this->live_status === 'approve'; }
-    public function isUnderReview(): bool { return $this->live_status === 'under_review'; }
+    /*
+    |--------------------------------------------------------------------------
+    | Helpers
+    |--------------------------------------------------------------------------
+    */
 
-    // API formatting including repeaters
-    public function toApiArray(): array
+    public function isPublished(): bool
     {
-        return [
-            'id' => $this->id,
-            'title' => $this->title,
-            'slug' => $this->slug,
-            'post_type_id' => $this->post_type_id,
-            'custom_fields' => $this->customFieldValues->map(fn($m) => $m->toApiArray())->values(),
-            'taxonomy_terms' => $this->taxonomyTerms->map(fn($t) => [
-                'taxonomy_id' => $t->pivot->taxonomy_id,
-                'taxonomy_term_id' => $t->id,
-                'name' => $t->name,
-            ])->values(),
-        ];
+        return $this->status === 'published';
+    }
+
+    public function isDraft(): bool
+    {
+        return $this->status === 'draft';
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->live_status === 'approve';
+    }
+
+    public function isUnderReview(): bool
+    {
+        return $this->live_status === 'under_review';
     }
 }
