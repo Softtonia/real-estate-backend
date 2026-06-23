@@ -38,18 +38,6 @@ class DynamicPostController extends Controller
         'meta.customField.options',
     ];
 
-    /**
-     * Old media files are queued and deleted only after DB transaction commits.
-     * This prevents data loss when validation or DB update fails after upload processing.
-     */
-    private array $mediaFileIdsToDeleteAfterCommit = [];
-
-    /**
-     * New MediaFile records created during this request.
-     * If the request fails before saving the post, these files are cleaned up.
-     */
-    private array $storedMediaFileIdsForFailureCleanup = [];
-
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
     {
         $response = array_merge([
@@ -104,25 +92,12 @@ class DynamicPostController extends Controller
         }
 
         if (is_string($ids)) {
-            $ids = trim($ids);
-
-            if ($ids === '' || $ids === 'null' || $ids === 'undefined') {
-                return [];
-            }
-
-            $decoded = json_decode($ids, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $ids = $decoded;
-            } else {
-                $ids = explode(',', $ids);
-            }
+            $ids = explode(',', $ids);
         }
 
         return collect($ids)
-            ->filter(fn($id) => $id !== null && $id !== '' && $id !== 'null' && $id !== 'undefined')
+            ->filter(fn($id) => $id !== null && $id !== '')
             ->map(fn($id) => (int) $id)
-            ->filter(fn($id) => $id > 0)
             ->unique()
             ->values()
             ->toArray();
@@ -254,12 +229,9 @@ class DynamicPostController extends Controller
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
                 $this->saveCustomFieldValues($post->id, 'post', $customFields);
-                $this->deleteQueuedMediaFilesAfterCommit();
 
                 return $post;
             });
-
-            $this->clearStoredMediaFilesForFailureCleanup();
 
             return $this->successResponse(
                 'Dynamic post created successfully.',
@@ -267,13 +239,10 @@ class DynamicPostController extends Controller
                 201
             );
         } catch (ValidationException $e) {
-            $this->cleanupStoredMediaFilesOnFailure();
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
-            $this->cleanupStoredMediaFilesOnFailure();
             return $this->databaseErrorResponse($e, 'Database error while creating dynamic post.');
         } catch (Throwable $e) {
-            $this->cleanupStoredMediaFilesOnFailure();
             return $this->errorResponse('Unable to create dynamic post.', 500, $e->getMessage());
         }
     }
@@ -387,24 +356,17 @@ class DynamicPostController extends Controller
                 if (is_array($customFields)) {
                     $this->saveCustomFieldValues($post->id, 'post', $customFields);
                 }
-
-                $this->deleteQueuedMediaFilesAfterCommit();
             });
-
-            $this->clearStoredMediaFilesForFailureCleanup();
 
             return $this->successResponse(
                 'Dynamic post updated successfully.',
                 $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations))
             );
         } catch (ValidationException $e) {
-            $this->cleanupStoredMediaFilesOnFailure();
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
-            $this->cleanupStoredMediaFilesOnFailure();
             return $this->databaseErrorResponse($e, 'Database error while updating dynamic post.');
         } catch (Throwable $e) {
-            $this->cleanupStoredMediaFilesOnFailure();
             return $this->errorResponse('Unable to update dynamic post.', 500, $e->getMessage());
         }
     }
@@ -817,12 +779,12 @@ class DynamicPostController extends Controller
             'slug' => ['nullable', 'string', 'max:255'],
             'excerpt' => ['nullable', 'string'],
             'content' => ['nullable', 'string'],
-            'featured_image_id' => ['nullable'],
-            'featured_image' => ['nullable', 'file'],
-            'gallery_image_ids' => ['nullable'],
+            'featured_image_id' => ['nullable', 'integer'],
+            'featured_image' => ['nullable'],
+            'gallery_image_ids' => ['nullable', 'array'],
             'gallery_image_ids.*' => ['integer'],
-            'gallery_images' => ['nullable'],
-            'gallery_images.*' => ['file'],
+            'gallery_images' => ['nullable', 'array'],
+            'gallery_images.*' => ['nullable'],
             'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
             'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
             'author_id' => ['nullable', 'integer', 'exists:users,id'],
@@ -852,68 +814,17 @@ class DynamicPostController extends Controller
 
     private function cleanEmptyUploadInputs(Request $request): void
     {
-        $emptyValues = ['', null, 'null', 'undefined'];
+        // featured_image and gallery_images may contain existing URLs during update.
+        // Do not remove them here unless they are completely absent.
 
-        if (!$request->hasFile('featured_image')) {
-            $request->request->remove('featured_image');
-            $request->files->remove('featured_image');
+        if ($request->has('featured_image_id') && $request->input('featured_image_id') === '') {
+            $request->merge(['featured_image_id' => null]);
         }
 
-        /*
-    |--------------------------------------------------------------------------
-    | Gallery images empty file field fix
-    |--------------------------------------------------------------------------
-    */
-        if (!$request->hasFile('gallery_images')) {
-            $request->request->remove('gallery_images');
-            $request->files->remove('gallery_images');
+        if ($request->has('gallery_image_ids') && $request->input('gallery_image_ids') === '') {
+            $request->merge(['gallery_image_ids' => []]);
         }
 
-        /*
-    |--------------------------------------------------------------------------
-    | Featured image id normalize
-    |--------------------------------------------------------------------------
-    | Empty bheja to iska matlab featured image remove.
-    */
-        if ($request->has('featured_image_id')) {
-            $featuredImageId = $request->input('featured_image_id');
-
-            if (in_array($featuredImageId, $emptyValues, true)) {
-                $request->merge([
-                    'featured_image_id' => null,
-                ]);
-            }
-        }
-
-        /*
-    |--------------------------------------------------------------------------
-    | Gallery ids normalize
-    |--------------------------------------------------------------------------
-    | [] / null / empty ka matlab gallery empty.
-    */
-        if ($request->has('gallery_image_ids')) {
-            $galleryIds = $request->input('gallery_image_ids');
-
-            if (in_array($galleryIds, $emptyValues, true)) {
-                $request->merge([
-                    'gallery_image_ids' => [],
-                ]);
-            } elseif (is_string($galleryIds)) {
-                $decoded = json_decode($galleryIds, true);
-
-                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                    $request->merge([
-                        'gallery_image_ids' => $decoded,
-                    ]);
-                }
-            }
-        }
-
-        /*
-    |--------------------------------------------------------------------------
-    | Custom field file cleanup
-    |--------------------------------------------------------------------------
-    */
         if ($request->has('custom_fields')) {
             $customFields = $request->input('custom_fields', []);
 
@@ -927,14 +838,12 @@ class DynamicPostController extends Controller
                         unset($customFields[$index]['files']);
                     }
 
-                    if (array_key_exists('value_json', $fieldData) && in_array($fieldData['value_json'], $emptyValues, true)) {
+                    if (array_key_exists('value_json', $fieldData) && $fieldData['value_json'] === '') {
                         $customFields[$index]['value_json'] = [];
                     }
                 }
 
-                $request->merge([
-                    'custom_fields' => $customFields,
-                ]);
+                $request->merge(['custom_fields' => $customFields]);
             }
         }
     }
@@ -1109,171 +1018,156 @@ class DynamicPostController extends Controller
         $service->saveValues($entityId, $entityType, $fields);
     }
 
-
-    private function queueMediaFileForDeleteAfterCommit(null|int|string $mediaId): void
-    {
-        if (empty($mediaId)) {
-            return;
-        }
-
-        $mediaId = (int) $mediaId;
-
-        if ($mediaId <= 0) {
-            return;
-        }
-
-        $this->mediaFileIdsToDeleteAfterCommit[] = $mediaId;
-        $this->mediaFileIdsToDeleteAfterCommit = collect($this->mediaFileIdsToDeleteAfterCommit)
-            ->unique()
-            ->values()
-            ->toArray();
-    }
-
-    private function queueMediaFilesForDeleteAfterCommit(array $mediaIds): void
-    {
-        foreach ($mediaIds as $mediaId) {
-            $this->queueMediaFileForDeleteAfterCommit($mediaId);
-        }
-    }
-
-    private function deleteQueuedMediaFilesAfterCommit(): void
-    {
-        $mediaIds = collect($this->mediaFileIdsToDeleteAfterCommit)
-            ->filter()
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
-
-        $this->mediaFileIdsToDeleteAfterCommit = [];
-
-        if (empty($mediaIds)) {
-            return;
-        }
-
-        DB::afterCommit(function () use ($mediaIds) {
-            $this->deleteMediaFilesByIds($mediaIds);
-        });
-    }
-
-    private function trackStoredMediaFileForFailureCleanup(MediaFile $media): void
-    {
-        $this->storedMediaFileIdsForFailureCleanup[] = (int) $media->id;
-        $this->storedMediaFileIdsForFailureCleanup = collect($this->storedMediaFileIdsForFailureCleanup)
-            ->unique()
-            ->values()
-            ->toArray();
-    }
-
-    private function clearStoredMediaFilesForFailureCleanup(): void
-    {
-        $this->storedMediaFileIdsForFailureCleanup = [];
-    }
-
-    private function cleanupStoredMediaFilesOnFailure(): void
-    {
-        $mediaIds = collect($this->storedMediaFileIdsForFailureCleanup)
-            ->filter()
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
-
-        $this->storedMediaFileIdsForFailureCleanup = [];
-
-        if (!empty($mediaIds)) {
-            $this->deleteMediaFilesByIds($mediaIds);
-        }
-    }
-
     private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
     {
+        $featuredFile = $request->file('featured_image');
+        $featuredInputExists = $request->request->has('featured_image');
+        $featuredInput = $request->input('featured_image');
 
-        if ($existingPost && array_key_exists('featured_image_id', $validated)) {
-            $submittedFeaturedId = $validated['featured_image_id'] ?? null;
-
-            if (empty($submittedFeaturedId)) {
-                $this->queueMediaFileForDeleteAfterCommit($existingPost->featured_image_id);
-                $validated['featured_image_id'] = null;
-            } elseif ((int) $submittedFeaturedId !== (int) $existingPost->featured_image_id) {
-                $this->queueMediaFileForDeleteAfterCommit($existingPost->featured_image_id);
-                $validated['featured_image_id'] = (int) $submittedFeaturedId;
-            }
-        }
-
-        $featuredImage = $request->file('featured_image');
-
-        if ($featuredImage) {
+        if ($featuredFile) {
             if ($existingPost && !empty($existingPost->featured_image_id)) {
-                $this->queueMediaFileForDeleteAfterCommit($existingPost->featured_image_id);
+                $this->deleteMediaFileById($existingPost->featured_image_id);
             }
 
-            $featuredMedia = $this->storeDynamicPostMediaFile($featuredImage, $postType, 'featured-image');
+            $featuredMedia = $this->storeDynamicPostMediaFile($featuredFile, $postType, 'featured-image');
             $validated['featured_image_id'] = $featuredMedia->id;
-        }
+        } elseif ($existingPost && $featuredInputExists) {
+            if (empty($featuredInput)) {
+                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $validated['featured_image_id'] = null;
+            } else {
+                $submittedFeaturedId = $this->resolveMediaFileIdFromUrl((string) $featuredInput);
 
-        /*
-    |--------------------------------------------------------------------------
-    | Gallery Images
-    |--------------------------------------------------------------------------
-    | Frontend gallery_image_ids me sirf wahi old image ids bhejega jo UI me bachi hain.
-    | Backend old ids - submitted ids = removed ids delete karega.
-    */
+                if ($submittedFeaturedId) {
+                    if ((int) $submittedFeaturedId !== (int) $existingPost->featured_image_id) {
+                        $this->deleteMediaFileById($existingPost->featured_image_id);
+                    }
+
+                    $validated['featured_image_id'] = $submittedFeaturedId;
+                }
+            }
+        } elseif ($existingPost && array_key_exists('featured_image_id', $validated)) {
+            if (empty($validated['featured_image_id'])) {
+                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $validated['featured_image_id'] = null;
+            } elseif ((int) $validated['featured_image_id'] !== (int) $existingPost->featured_image_id) {
+                $this->deleteMediaFileById($existingPost->featured_image_id);
+                $validated['featured_image_id'] = (int) $validated['featured_image_id'];
+            }
+        }
 
         $currentGalleryIds = $existingPost
             ? $this->normalizeIds($existingPost->gallery_image_ids ?? [])
             : [];
 
-        if ($existingPost && array_key_exists('gallery_image_ids', $validated)) {
-            $submittedGalleryIds = $this->normalizeIds($validated['gallery_image_ids']);
+        $galleryInputExists = $request->request->has('gallery_images') || $request->files->has('gallery_images');
 
-            $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
+        if ($galleryInputExists) {
+            $submittedGalleryIds = [];
+            $galleryInputs = $request->input('gallery_images', []);
+            $galleryFiles = $request->file('gallery_images', []);
 
-            if (!empty($removedGalleryIds)) {
-                $this->queueMediaFilesForDeleteAfterCommit($removedGalleryIds);
+            if (!is_array($galleryInputs)) {
+                $galleryInputs = [$galleryInputs];
             }
 
-            $validated['gallery_image_ids'] = $submittedGalleryIds;
-            $currentGalleryIds = $submittedGalleryIds;
-        }
+            if (!is_array($galleryFiles)) {
+                $galleryFiles = $galleryFiles ? [$galleryFiles] : [];
+            }
 
-        /*
-    |--------------------------------------------------------------------------
-    | New Gallery Uploads
-    |--------------------------------------------------------------------------
-    | New uploaded images remaining old ids ke sath merge hongi.
-    */
+            $keys = collect(array_keys($galleryInputs))
+                ->merge(array_keys($galleryFiles))
+                ->unique()
+                ->sort()
+                ->values()
+                ->toArray();
 
-        $galleryFiles = $request->file('gallery_images');
+            foreach ($keys as $key) {
+                $file = $galleryFiles[$key] ?? null;
 
-        if ($galleryFiles) {
-            $galleryFiles = is_array($galleryFiles) ? $galleryFiles : [$galleryFiles];
-
-            $uploadedGalleryIds = [];
-
-            foreach ($galleryFiles as $galleryFile) {
-                if (!$galleryFile) {
+                if ($file) {
+                    $galleryMedia = $this->storeDynamicPostMediaFile($file, $postType, 'gallery');
+                    $submittedGalleryIds[] = (int) $galleryMedia->id;
                     continue;
                 }
 
-                $galleryMedia = $this->storeDynamicPostMediaFile($galleryFile, $postType, 'gallery');
-                $uploadedGalleryIds[] = (int) $galleryMedia->id;
+                $url = $galleryInputs[$key] ?? null;
+
+                if (!empty($url) && is_string($url)) {
+                    $mediaId = $this->resolveMediaFileIdFromUrl($url);
+
+                    if ($mediaId) {
+                        $submittedGalleryIds[] = (int) $mediaId;
+                    }
+                }
             }
 
-            if (!empty($uploadedGalleryIds)) {
-                $existingGalleryIds = array_key_exists('gallery_image_ids', $validated)
-                    ? $this->normalizeIds($validated['gallery_image_ids'])
-                    : $currentGalleryIds;
+            if ($existingPost) {
+                $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
 
-                $validated['gallery_image_ids'] = collect($existingGalleryIds)
-                    ->merge($uploadedGalleryIds)
-                    ->unique()
-                    ->values()
-                    ->toArray();
+                if (!empty($removedGalleryIds)) {
+                    $this->deleteMediaFilesByIds($removedGalleryIds);
+                }
             }
+
+            $validated['gallery_image_ids'] = collect($submittedGalleryIds)
+                ->unique()
+                ->values()
+                ->toArray();
+        } elseif ($existingPost && array_key_exists('gallery_image_ids', $validated)) {
+            $submittedGalleryIds = $this->normalizeIds($validated['gallery_image_ids']);
+            $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
+
+            if (!empty($removedGalleryIds)) {
+                $this->deleteMediaFilesByIds($removedGalleryIds);
+            }
+
+            $validated['gallery_image_ids'] = $submittedGalleryIds;
         }
 
         return $validated;
+    }
+
+    private function resolveMediaFileIdFromUrl(string $url): ?int
+    {
+        $path = $this->storagePathFromUrl($url);
+
+        if (!$path) {
+            return null;
+        }
+
+        return MediaFile::where('path', $path)->value('id');
+    }
+
+    private function storagePathFromUrl(string $url): ?string
+    {
+        $url = trim($url);
+
+        if ($url === '') {
+            return null;
+        }
+
+        $path = parse_url($url, PHP_URL_PATH) ?: $url;
+
+        $storagePosition = strpos($path, '/storage/');
+
+        if ($storagePosition !== false) {
+            return ltrim(substr($path, $storagePosition + strlen('/storage/')), '/');
+        }
+
+        if (str_starts_with($path, 'storage/')) {
+            return ltrim(substr($path, strlen('storage/')), '/');
+        }
+
+        if (str_starts_with($path, '/uploads/')) {
+            return ltrim($path, '/');
+        }
+
+        if (str_starts_with($path, 'uploads/')) {
+            return $path;
+        }
+
+        return null;
     }
 
     private function storeDynamicPostMediaFile($file, PostType $postType, string $type): MediaFile
@@ -1321,7 +1215,7 @@ class DynamicPostController extends Controller
 
         $path = $file->storeAs($directory, $fileName, 'public');
 
-        $media = MediaFile::create([
+        return MediaFile::create([
             'disk' => 'public',
             'context' => 'dynamic-posts',
             'post_type_slug' => $postTypeSlug,
@@ -1335,10 +1229,6 @@ class DynamicPostController extends Controller
             'size' => $file->getSize(),
             'uploaded_by' => Auth::id(),
         ]);
-
-        $this->trackStoredMediaFileForFailureCleanup($media);
-
-        return $media;
     }
 
     private function deleteMediaFileById(null|int|string $mediaId): void
