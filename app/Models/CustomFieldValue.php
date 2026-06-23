@@ -44,125 +44,78 @@ class CustomFieldValue extends Model
     public function post()
     {
         return $this->belongsTo(DynamicPost::class, 'entity_id')
-            ->where('entity_type', 'post');
+                    ->where('entity_type', 'post');
     }
 
     public function taxonomyTerm()
     {
         return $this->belongsTo(TaxonomyTerm::class, 'entity_id')
-            ->where('entity_type', 'taxonomy_term');
+                    ->where('entity_type', 'taxonomy_term');
     }
 
     public function scopeForPost($query, $postId)
     {
         return $query->where('entity_type', 'post')
-            ->where('entity_id', $postId);
+                     ->where('entity_id', $postId);
     }
 
     public function scopeForTaxonomyTerm($query, $termId)
     {
         return $query->where('entity_type', 'taxonomy_term')
-            ->where('entity_id', $termId);
+                     ->where('entity_id', $termId);
     }
 
     public function scopeForUser($query, $userId)
     {
         return $query->where('entity_type', 'user')
-            ->where('entity_id', $userId);
+                     ->where('entity_id', $userId);
     }
 
-    /**
-     * Get the raw value from whichever column has data.
-     * Priority: value_json > value_datetime > value_date > value_number > value_string > value_text
-     */
+    // Raw value access
     public function getValueAttribute()
     {
-        if (!is_null($this->value_json)) {
-            return $this->value_json;
-        }
-
-        if (!is_null($this->value_datetime)) {
-            return $this->value_datetime;
-        }
-
-        if (!is_null($this->value_date)) {
-            return $this->value_date;
-        }
-
-        if (!is_null($this->value_number)) {
-            return $this->value_number;
-        }
-
-        if (!is_null($this->value_string)) {
-            return $this->value_string;
-        }
-
-        return $this->value_text;
+        return $this->value_json ?? $this->value_datetime ?? $this->value_date
+             ?? $this->value_number ?? $this->value_string ?? $this->value_text;
     }
 
-
+    // Formatted value by type
     public function getFormattedValueAttribute()
     {
-        $customField = $this->customField;
+        $field = $this->customField;
+        if (!$field) return $this->value;
 
-        if (!$customField) {
-            return $this->value;
-        }
-
-        $fieldType = $customField->field_type;
-
-        switch ($fieldType) {
+        switch ($field->field_type) {
             case 'boolean':
                 $raw = $this->value_json ?? $this->value_string ?? $this->value;
-                return is_bool($raw) ? $raw : in_array((string) $raw, ['1', 'true', 'yes'], true);
-
+                return is_bool($raw) ? $raw : in_array((string)$raw, ['1','true','yes'], true);
             case 'number':
                 $val = $this->value_json ?? $this->value_number;
-                if (is_numeric($val)) {
-                    return str_contains((string) $val, '.') ? (float) $val : (int) $val;
-                }
-                return $val;
-
+                return is_numeric($val) ? (str_contains((string)$val,'.') ? (float)$val : (int)$val) : $val;
             case 'checkbox':
-                if (is_array($this->value_json)) {
-                    return $this->value_json;
-                }
+                if (is_array($this->value_json)) return $this->value_json;
                 $optionIds = array_filter(explode(',', $this->value_string ?? ''));
-                return array_map(fn($id) => ['custom_field_option_id' => (int) $id], $optionIds);
-
+                return array_map(fn($id) => ['custom_field_option_id'=>(int)$id], $optionIds);
             case 'repeater':
             case 'media':
             case 'file':
                 return $this->value_json ?? [];
-
-            case 'date':
-                return $this->value_date ?? $this->value_string;
-
-            case 'datetime':
-                return $this->value_datetime ?? $this->value_string;
-
+            case 'date': return $this->value_date ?? $this->value_string;
+            case 'datetime': return $this->value_datetime ?? $this->value_string;
             case 'select':
-            case 'radio':
-                return $this->value_string;
-
-            default:
-                return $this->value;
+            case 'radio': return $this->value_string;
+            default: return $this->value;
         }
     }
 
-    /**
-     * Standardized API response format for a custom field value.
-     */
     public function toApiArray(): array
     {
-        $customField = $this->customField;
-
+        $field = $this->customField;
         return [
-            'custom_field_id' => $customField?->id ?? $this->custom_field_id,
-            'field_label' => $customField?->field_label ?? null,
-            'field_name_slug' => $customField?->field_name_slug ?? null,
-            'field_type' => $customField?->field_type ?? null,
-            'field_placeholder' => $customField?->field_placeholder ?? null,
+            'custom_field_id' => $field?->id ?? $this->custom_field_id,
+            'field_label' => $field?->field_label ?? null,
+            'field_name_slug' => $field?->field_name_slug ?? null,
+            'field_type' => $field?->field_type ?? null,
+            'field_placeholder' => $field?->field_placeholder ?? null,
             'value' => $this->formatted_value,
         ];
     }
