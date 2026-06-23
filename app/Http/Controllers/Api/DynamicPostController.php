@@ -13,6 +13,7 @@ use App\Models\TaxonomyTerm;
 use App\Services\CustomFieldValueService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -889,6 +890,8 @@ class DynamicPostController extends Controller
             'custom_fields.*.files' => ['nullable'],
             'custom_fields.*.files.*' => ['nullable'],
             'custom_fields.*.repeaters' => ['nullable', 'array'],
+            'custom_fields.*.repeaters.*' => ['nullable', 'array'],
+            'custom_fields.*.repeaters.*.*' => ['nullable'],
             'custom_fields.*.repeaters.*.custom_field_repeater_id' => ['nullable', 'integer', 'exists:custom_field_repeaters,id'],
             'custom_fields.*.repeaters.*.field_name_slug' => ['nullable', 'string'],
             'custom_fields.*.repeaters.*.rows' => ['nullable', 'array'],
@@ -1690,7 +1693,15 @@ class DynamicPostController extends Controller
             }
 
             if (array_key_exists('repeaters', $fieldData)) {
-                $normalizedRepeaters = $this->normalizeRepeaterValuesForSave($fieldData['repeaters'] ?? []);
+                $repeatersWithUploadedFiles = $this->mergeRepeaterUploadedFilesIntoInput(
+                    $request,
+                    $index,
+                    $fieldData['repeaters'] ?? [],
+                    $customField,
+                    $postType
+                );
+
+                $normalizedRepeaters = $this->normalizeRepeaterValuesForSave($repeatersWithUploadedFiles);
 
                 $customFields[$index]['_repeater_values'] = $normalizedRepeaters;
 
@@ -1709,6 +1720,170 @@ class DynamicPostController extends Controller
         }
 
         return $customFields;
+    }
+
+    private function mergeRepeaterUploadedFilesIntoInput(
+        Request $request,
+        int $customFieldIndex,
+        mixed $repeaters,
+        CustomField $field,
+        PostType $postType
+    ): mixed {
+        $uploadedFiles = $request->file("custom_fields.{$customFieldIndex}.repeaters");
+
+        if (empty($uploadedFiles)) {
+            return $repeaters;
+        }
+
+        if (is_string($repeaters)) {
+            $decoded = json_decode($repeaters, true);
+            $repeaters = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($repeaters)) {
+            $repeaters = [];
+        }
+
+        $this->mergeRepeaterUploadedFilesRecursive(
+            $repeaters,
+            $uploadedFiles,
+            [],
+            $field,
+            $postType
+        );
+
+        return $repeaters;
+    }
+
+    private function mergeRepeaterUploadedFilesRecursive(
+        array &$target,
+        mixed $files,
+        array $path,
+        CustomField $field,
+        PostType $postType
+    ): void {
+        if ($files instanceof UploadedFile) {
+            $fieldSlug = (string) end($path);
+
+            if ($fieldSlug === '') {
+                return;
+            }
+
+            $repeaterDefinition = CustomFieldRepeater::where('custom_field_id', $field->id)
+                ->where('field_name_slug', $fieldSlug)
+                ->first();
+
+            if (!$repeaterDefinition) {
+                return;
+            }
+
+            $storedFile = $this->storeRepeaterUploadedFile($files, $field, $repeaterDefinition, $postType);
+            $this->setNestedArrayValue($target, $path, $storedFile);
+
+            return;
+        }
+
+        if (!is_array($files)) {
+            return;
+        }
+
+        foreach ($files as $key => $childFiles) {
+            $childPath = array_merge($path, [$key]);
+            $this->mergeRepeaterUploadedFilesRecursive($target, $childFiles, $childPath, $field, $postType);
+        }
+    }
+
+    private function setNestedArrayValue(array &$array, array $path, mixed $value): void
+    {
+        $current = &$array;
+
+        foreach ($path as $index => $key) {
+            if ($index === count($path) - 1) {
+                $current[$key] = $value;
+                return;
+            }
+
+            if (!isset($current[$key]) || !is_array($current[$key])) {
+                $current[$key] = [];
+            }
+
+            $current = &$current[$key];
+        }
+    }
+
+    private function storeRepeaterUploadedFile(
+        UploadedFile $file,
+        CustomField $field,
+        CustomFieldRepeater $repeater,
+        PostType $postType
+    ): array {
+        $allowedExtensions = $this->allowedRepeaterFileExtensions($repeater);
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        if (!in_array($extension, $allowedExtensions, true)) {
+            throw ValidationException::withMessages([
+                'custom_fields' => [
+                    'Invalid file format for ' . $repeater->field_label . '. Allowed formats: ' . implode(', ', $allowedExtensions)
+                ],
+            ]);
+        }
+
+        $maxSizeKb = $this->parseCustomFieldMediaSizeToKb($repeater->media_size);
+
+        if (($file->getSize() / 1024) > $maxSizeKb) {
+            throw ValidationException::withMessages([
+                'custom_fields' => [
+                    'File size is too large for ' . $repeater->field_label . '. Maximum allowed size is ' . round($maxSizeKb / 1024, 2) . ' MB.'
+                ],
+            ]);
+        }
+
+        $postTypeSlug = Str::slug($postType->slug ?? $postType->name ?? 'common', '-');
+        $fieldSlug = Str::slug($field->field_name_slug ?? $field->field_label, '-');
+        $repeaterSlug = Str::slug($repeater->field_name_slug ?? $repeater->field_label, '-');
+
+        $directory = implode('/', [
+            'uploads',
+            'custom-field-repeaters',
+            $postTypeSlug,
+            $fieldSlug,
+            $repeaterSlug,
+            now()->format('Y'),
+            now()->format('m'),
+        ]);
+
+        $fileName = Str::uuid()->toString() . '.' . $extension;
+        $path = $file->storeAs($directory, $fileName, 'public');
+
+        return [
+            'disk' => 'public',
+            'path' => $path,
+            'url' => Storage::disk('public')->url($path),
+            'file_name' => $fileName,
+            'original_name' => $file->getClientOriginalName(),
+            'mime_type' => $file->getMimeType(),
+            'extension' => $extension,
+            'size' => $file->getSize(),
+            'size_kb' => round($file->getSize() / 1024, 2),
+        ];
+    }
+
+    private function allowedRepeaterFileExtensions(CustomFieldRepeater $repeater): array
+    {
+        if (!empty($repeater->media_format)) {
+            return collect(explode(',', $repeater->media_format))
+                ->map(fn($format) => strtolower(trim($format)))
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        if ($repeater->field_type === 'media') {
+            return ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+        }
+
+        return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt'];
     }
 
     private function mergeRepeaterValuesIntoValueJson(mixed $currentValueJson, mixed $repeaters): array
