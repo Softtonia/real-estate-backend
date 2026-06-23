@@ -1721,7 +1721,14 @@ class DynamicPostController extends Controller
             return [];
         }
 
-        if ($this->looksLikeRepeaterRows($repeaters)) {
+        if ($this->looksLikeSingleRepeaterRow($repeaters)) {
+            $repeaters = [
+                [
+                    'field_name_slug' => null,
+                    'rows' => [$repeaters],
+                ],
+            ];
+        } elseif ($this->looksLikeRepeaterRows($repeaters)) {
             $repeaters = [
                 [
                     'field_name_slug' => null,
