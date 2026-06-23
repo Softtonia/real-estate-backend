@@ -20,6 +20,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
+use App\Models\SiteSetting;
 
 class DynamicPostController extends Controller
 {
@@ -220,10 +221,11 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields) {
+            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields, $postType) {
                 unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields'], $validated['featured_image'], $validated['gallery_images']);
 
                 $validated['slug'] = $slug;
+                $validated['listing_code'] = $this->generateDynamicPostListingCode($postType);
                 $validated['status'] = $validated['status'] ?? 'draft';
                 $validated['author_id'] = $validated['author_id'] ?? Auth::id();
 
@@ -778,7 +780,55 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to resolve custom fields.', 500, $e->getMessage());
         }
     }
+    private function generateDynamicPostListingCode(PostType $postType): string
+    {
+        $prefix = $this->getDynamicPostPrefix($postType);
 
+        $lastCode = DynamicPost::where('post_type_id', $postType->id)
+            ->whereNotNull('listing_code')
+            ->where('listing_code', 'like', $prefix . '-%')
+            ->lockForUpdate()
+            ->orderByDesc('id')
+            ->value('listing_code');
+
+        $nextNumber = 1;
+
+        if (!empty($lastCode) && preg_match('/-(\d+)$/', $lastCode, $matches)) {
+            $nextNumber = ((int) $matches[1]) + 1;
+        }
+
+        return $prefix . '-' . str_pad((string) $nextNumber, 6, '0', STR_PAD_LEFT);
+    }
+
+    private function getDynamicPostPrefix(PostType $postType): string
+    {
+        $setting = SiteSetting::first();
+
+        $slug = Str::slug($postType->slug ?? $postType->name ?? '', '-');
+        $name = Str::slug($postType->name ?? '', '-');
+
+        if (str_contains($slug, 'property') || str_contains($name, 'property')) {
+            return $this->cleanPrefix($setting?->property_prefix ?: 'PRP');
+        }
+
+        if (str_contains($slug, 'developer') || str_contains($name, 'developer')) {
+            return $this->cleanPrefix($setting?->developer_prefix ?: 'DEV');
+        }
+
+        if (str_contains($slug, 'project') || str_contains($name, 'project')) {
+            return $this->cleanPrefix($setting?->project_prefix ?: 'PRJ');
+        }
+
+        return $this->cleanPrefix(strtoupper(substr(Str::slug($postType->name ?? 'DYN', ''), 0, 4)) ?: 'DYN');
+    }
+
+    private function cleanPrefix(?string $prefix): string
+    {
+        $prefix = strtoupper(trim((string) $prefix));
+        $prefix = preg_replace('/[^A-Z0-9]/', '', $prefix);
+
+        return $prefix ?: 'DYN';
+    }
     private function validatePost(Request $request, bool $isUpdate = false): array
     {
         $this->cleanEmptyUploadInputs($request);
@@ -2385,6 +2435,7 @@ class DynamicPostController extends Controller
 
         $data = $post->toArray();
         $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
+        $data['display_id'] = $post->listing_code ?? null;
         $data['featured_image'] = $this->formatMediaFileById($post->featured_image_id ?? null);
         $data['gallery_images'] = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
 

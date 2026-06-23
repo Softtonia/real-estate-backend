@@ -21,6 +21,7 @@ class DynamicPost extends Model
         'parent_id',
         'published_at',
         'sort_order',
+        'listing_code',
     ];
 
     protected $casts = [
