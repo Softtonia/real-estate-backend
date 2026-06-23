@@ -816,18 +816,14 @@ class DynamicPostController extends Controller
             'custom_fields.*.value_date' => ['nullable', 'date'],
             'custom_fields.*.value_datetime' => ['nullable', 'date'],
             'custom_fields.*.value_json' => ['nullable'],
-            'custom_fields.*.file' => ['nullable', 'file'],
-            'custom_fields.*.files' => ['nullable', 'array'],
-            'custom_fields.*.files.*' => ['file'],
+            'custom_fields.*.file' => ['nullable'],
+            'custom_fields.*.files' => ['nullable'],
+            'custom_fields.*.files.*' => ['nullable'],
         ]);
     }
 
     private function cleanEmptyUploadInputs(Request $request): void
     {
-        if ($request->has('featured_image') && $request->input('featured_image') === '') {
-            $request->merge(['featured_image' => '']);
-        }
-
         if ($request->has('featured_image_id') && $request->input('featured_image_id') === '') {
             $request->merge(['featured_image_id' => null]);
         }
@@ -845,12 +841,12 @@ class DynamicPostController extends Controller
 
             if (is_array($customFields)) {
                 foreach ($customFields as $index => $fieldData) {
-                    if (!$request->hasFile("custom_fields.{$index}.file")) {
+                    if (array_key_exists('file', $fieldData) && $fieldData['file'] === '') {
                         unset($customFields[$index]['file']);
                     }
 
-                    if (!$request->hasFile("custom_fields.{$index}.files")) {
-                        unset($customFields[$index]['files']);
+                    if (array_key_exists('files', $fieldData) && $fieldData['files'] === '') {
+                        $customFields[$index]['files'] = [];
                     }
 
                     if (array_key_exists('value_json', $fieldData) && $fieldData['value_json'] === '') {
@@ -1477,6 +1473,14 @@ class DynamicPostController extends Controller
             $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value_text']));
         }
 
+        if (array_key_exists('file', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['file']));
+        }
+
+        if (array_key_exists('files', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['files']));
+        }
+
         if (empty($references)) {
             return [];
         }
@@ -1530,7 +1534,6 @@ class DynamicPostController extends Controller
             ->values()
             ->toArray();
     }
-
     private function normalizeSubmittedMediaReferences(mixed $value): array
     {
         if (is_null($value)) {
