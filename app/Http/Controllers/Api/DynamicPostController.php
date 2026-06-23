@@ -1292,17 +1292,29 @@ class DynamicPostController extends Controller
                 : [];
 
             $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
+            $mediaStateSubmitted = $this->customFieldMediaStateWasSubmitted($fieldData);
 
-            if (!empty($uploadedFiles)) {
-                $this->deleteStoredCustomFieldFiles($oldValueJson);
+            if (!empty($uploadedFiles) || $mediaStateSubmitted) {
+                $retainedFiles = $mediaStateSubmitted
+                    ? $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson)
+                    : [];
 
-                $customFields[$index]['value_json'] = $this->storeCustomFieldUploadedFiles(
-                    $uploadedFiles,
-                    $customField,
-                    $postType
-                );
-            } elseif (array_key_exists('value_json', $fieldData)) {
-                $newValueJson = $this->normalizeCustomFieldValueJson($fieldData['value_json']);
+                $uploaded = [];
+
+                if (!empty($uploadedFiles)) {
+                    $uploaded = $this->storeCustomFieldUploadedFiles(
+                        $uploadedFiles,
+                        $customField,
+                        $postType
+                    );
+                }
+
+                $newValueJson = collect($retainedFiles)
+                    ->merge($uploaded)
+                    ->filter(fn($item) => is_array($item) && !empty($item['path']))
+                    ->unique('path')
+                    ->values()
+                    ->toArray();
 
                 if ($this->containsTemporaryFilePath($newValueJson)) {
                     throw ValidationException::withMessages([
@@ -1314,6 +1326,14 @@ class DynamicPostController extends Controller
 
                 $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
                 $customFields[$index]['value_json'] = $newValueJson;
+
+                unset(
+                    $customFields[$index]['value_string'],
+                    $customFields[$index]['value_text'],
+                    $customFields[$index]['value_number'],
+                    $customFields[$index]['value_date'],
+                    $customFields[$index]['value_datetime']
+                );
             } else {
                 $valueJson = $fieldData['value_json'] ?? [];
 
@@ -1347,6 +1367,122 @@ class DynamicPostController extends Controller
         }
 
         return $this->normalizeCustomFieldValueJson($value->value_json ?? []);
+    }
+
+    private function customFieldMediaStateWasSubmitted(array $fieldData): bool
+    {
+        return array_key_exists('value_json', $fieldData)
+            || array_key_exists('value_string', $fieldData)
+            || array_key_exists('value_text', $fieldData);
+    }
+
+    private function submittedCustomFieldMediaItems(array $fieldData, array $oldValueJson): array
+    {
+        $references = [];
+
+        if (array_key_exists('value_json', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value_json']));
+        }
+
+        if (array_key_exists('value_string', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value_string']));
+        }
+
+        if (array_key_exists('value_text', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value_text']));
+        }
+
+        if (empty($references)) {
+            return [];
+        }
+
+        $oldFilesByPath = collect($oldValueJson)
+            ->filter(fn($item) => is_array($item) && !empty($item['path']))
+            ->keyBy('path');
+
+        $items = [];
+
+        foreach ($references as $reference) {
+            $path = null;
+            $url = null;
+
+            if (is_array($reference)) {
+                $path = $reference['path'] ?? null;
+                $url = $reference['url'] ?? null;
+
+                if (!$path && $url) {
+                    $path = $this->storagePathFromUrl((string) $url);
+                }
+            } elseif (is_string($reference)) {
+                $url = $reference;
+                $path = $this->storagePathFromUrl($reference);
+            }
+
+            if (!$path) {
+                continue;
+            }
+
+            if ($oldFilesByPath->has($path)) {
+                $items[] = $oldFilesByPath->get($path);
+                continue;
+            }
+
+            $items[] = [
+                'disk' => 'public',
+                'path' => $path,
+                'url' => Storage::disk('public')->url($path),
+                'file_name' => basename($path),
+                'original_name' => basename($path),
+                'mime_type' => null,
+                'extension' => pathinfo($path, PATHINFO_EXTENSION),
+                'size' => null,
+                'size_kb' => null,
+            ];
+        }
+
+        return collect($items)
+            ->unique('path')
+            ->values()
+            ->toArray();
+    }
+
+    private function normalizeSubmittedMediaReferences(mixed $value): array
+    {
+        if (is_null($value)) {
+            return [];
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+
+            if ($value === '') {
+                return [];
+            }
+
+            $decoded = json_decode($value, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $this->normalizeSubmittedMediaReferences($decoded);
+            }
+
+            return [$value];
+        }
+
+        if (is_array($value)) {
+            if (array_key_exists('path', $value) || array_key_exists('url', $value)) {
+                return [$value];
+            }
+
+            $items = [];
+
+            foreach ($value as $item) {
+                $items = array_merge($items, $this->normalizeSubmittedMediaReferences($item));
+            }
+
+            return $items;
+        }
+
+        return [];
     }
 
     private function normalizeCustomFieldValueJson(mixed $value): array
