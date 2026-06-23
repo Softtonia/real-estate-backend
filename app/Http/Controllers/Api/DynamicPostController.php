@@ -1292,34 +1292,38 @@ class DynamicPostController extends Controller
                 : [];
 
             $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
-            $submittedMediaItems = $this->resolveSubmittedCustomFieldMediaItems($fieldData, $oldValueJson);
-            $uploadedMediaItems = [];
 
             if (!empty($uploadedFiles)) {
-                $uploadedMediaItems = $this->storeCustomFieldUploadedFiles(
+                $this->deleteStoredCustomFieldFiles($oldValueJson);
+
+                $customFields[$index]['value_json'] = $this->storeCustomFieldUploadedFiles(
                     $uploadedFiles,
                     $customField,
                     $postType
                 );
-            }
+            } elseif (array_key_exists('value_json', $fieldData)) {
+                $newValueJson = $this->normalizeCustomFieldValueJson($fieldData['value_json']);
 
-            $hasFinalStatePayload = array_key_exists('value_json', $fieldData)
-                || array_key_exists('value_string', $fieldData)
-                || !empty($uploadedFiles)
-                || ($existingPost && array_key_exists('custom_field_id', $fieldData));
+                if ($this->containsTemporaryFilePath($newValueJson)) {
+                    throw ValidationException::withMessages([
+                        "custom_fields.{$index}.value_json" => [
+                            'Temporary file path is not allowed. Please upload the file again.'
+                        ],
+                    ]);
+                }
 
-            if ($hasFinalStatePayload) {
-                $finalValueJson = collect($submittedMediaItems)
-                    ->merge($uploadedMediaItems)
-                    ->unique(fn($item) => $item['path'] ?? $item['url'] ?? json_encode($item))
-                    ->values()
-                    ->toArray();
+                $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
+                $customFields[$index]['value_json'] = $newValueJson;
+            } else {
+                $valueJson = $fieldData['value_json'] ?? [];
 
-                $this->validateCustomFieldMediaLimit($customField, $finalValueJson);
-                $this->deleteRemovedCustomFieldFiles($oldValueJson, $finalValueJson);
-
-                $customFields[$index]['value_json'] = $finalValueJson;
-                unset($customFields[$index]['value_string']);
+                if ($this->containsTemporaryFilePath($valueJson)) {
+                    throw ValidationException::withMessages([
+                        "custom_fields.{$index}.value_json" => [
+                            'Temporary file path is not allowed. Please upload the file again.'
+                        ],
+                    ]);
+                }
             }
 
             unset(
@@ -1329,156 +1333,6 @@ class DynamicPostController extends Controller
         }
 
         return $customFields;
-    }
-
-    private function resolveSubmittedCustomFieldMediaItems(array $fieldData, array $oldFiles): array
-    {
-        $references = [];
-
-        if (array_key_exists('value_json', $fieldData)) {
-            $references = array_merge(
-                $references,
-                $this->normalizeCustomFieldMediaReferences($fieldData['value_json'])
-            );
-        }
-
-        if (array_key_exists('value_string', $fieldData)) {
-            $references = array_merge(
-                $references,
-                $this->normalizeCustomFieldMediaReferences($fieldData['value_string'])
-            );
-        }
-
-        $items = [];
-
-        foreach ($references as $reference) {
-            $item = $this->resolveCustomFieldMediaItem($reference, $oldFiles);
-
-            if ($item) {
-                $items[] = $item;
-            }
-        }
-
-        return collect($items)
-            ->unique(fn($item) => $item['path'] ?? $item['url'] ?? json_encode($item))
-            ->values()
-            ->toArray();
-    }
-
-    private function normalizeCustomFieldMediaReferences(mixed $value): array
-    {
-        if (empty($value)) {
-            return [];
-        }
-
-        if (is_string($value)) {
-            $trimmed = trim($value);
-
-            if ($trimmed === '') {
-                return [];
-            }
-
-            $decoded = json_decode($trimmed, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                return $this->normalizeCustomFieldMediaReferences($decoded);
-            }
-
-            return [$trimmed];
-        }
-
-        if (is_array($value)) {
-            $references = [];
-
-            foreach ($value as $item) {
-                if (is_string($item)) {
-                    $references[] = $item;
-                    continue;
-                }
-
-                if (is_array($item)) {
-                    if (array_key_exists('path', $item) || array_key_exists('url', $item)) {
-                        $references[] = $item;
-                    } else {
-                        $references = array_merge(
-                            $references,
-                            $this->normalizeCustomFieldMediaReferences($item)
-                        );
-                    }
-                }
-            }
-
-            return $references;
-        }
-
-        return [];
-    }
-
-    private function resolveCustomFieldMediaItem(mixed $reference, array $oldFiles): ?array
-    {
-        $path = null;
-        $url = null;
-
-        if (is_string($reference)) {
-            $url = $reference;
-            $path = $this->storagePathFromUrl($reference);
-        }
-
-        if (is_array($reference)) {
-            $path = $reference['path'] ?? null;
-            $url = $reference['url'] ?? null;
-
-            if (!$path && $url) {
-                $path = $this->storagePathFromUrl($url);
-            }
-        }
-
-        if (!$path) {
-            return null;
-        }
-
-        $oldItem = collect($oldFiles)->first(function ($oldFile) use ($path, $url) {
-            $oldPath = $oldFile['path'] ?? null;
-            $oldUrl = $oldFile['url'] ?? null;
-
-            return $oldPath === $path || ($url && $oldUrl === $url);
-        });
-
-        if ($oldItem) {
-            return $oldItem;
-        }
-
-        $exists = Storage::disk('public')->exists($path);
-        $size = $exists ? Storage::disk('public')->size($path) : 0;
-
-        return [
-            'disk' => 'public',
-            'path' => $path,
-            'url' => Storage::disk('public')->url($path),
-            'file_name' => basename($path),
-            'original_name' => basename($path),
-            'mime_type' => null,
-            'extension' => strtolower(pathinfo($path, PATHINFO_EXTENSION)),
-            'size' => $size,
-            'size_kb' => round($size / 1024, 2),
-        ];
-    }
-
-    private function validateCustomFieldMediaLimit(CustomField $field, array $files): void
-    {
-        $mediaLimit = (int) ($field->media_limit ?? 1);
-
-        if ($mediaLimit < 1) {
-            $mediaLimit = 1;
-        }
-
-        if (count($files) > $mediaLimit) {
-            throw ValidationException::withMessages([
-                'custom_fields' => [
-                    'You can upload maximum ' . $mediaLimit . ' file(s) for ' . $field->field_label . '.'
-                ],
-            ]);
-        }
     }
 
     private function getExistingCustomFieldValueJson(int $entityId, int $customFieldId): array
@@ -2295,55 +2149,21 @@ class DynamicPostController extends Controller
         ];
     }
 
-    private function formatDynamicPostResponse(DynamicPost $post)
+    private function formatDynamicPostResponse(DynamicPost $post): array
     {
-        $customFields = $post->meta->map(function ($meta) {
-            $field = $meta->customField;
-            $value = $meta->value_string ?? $meta->value_text ?? $meta->value_number ?? $meta->value_json;
+        $post->loadMissing([
+            'postType',
+            'parent:id,post_type_id,title,slug,status,live_status',
+            'taxonomyTerms.taxonomy',
+            'meta.customField',
+        ]);
 
-            // Include repeaters
-            $repeaters = $field->repeaters->map(function ($repeater) use ($meta) {
-                $repeaterValues = $meta->repeaters
-                    ->where('custom_field_repeater_id', $repeater->id)
-                    ->map(fn($r) => [
-                        'id' => $r->id,
-                        'value_string' => $r->value_string,
-                        'value_number' => $r->value_number,
-                        'value_date' => $r->value_date,
-                        'value_json' => $r->value_json,
-                    ])
-                    ->values();
+        $data = $post->toArray();
+        $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
+        $data['featured_image'] = $this->formatMediaFileById($post->featured_image_id ?? null);
+        $data['gallery_images'] = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
 
-                return [
-                    'id' => $repeater->id,
-                    'field_label' => $repeater->field_label,
-                    'field_name_slug' => $repeater->field_name_slug,
-                    'repeatable_values' => $repeaterValues,
-                ];
-            })->values();
-
-            return [
-                'id' => $field->id,
-                'field_label' => $field->field_label,
-                'field_name_slug' => $field->field_name_slug,
-                'field_type' => $field->field_type,
-                'value' => $value,
-                'repeaters' => $repeaters,
-            ];
-        });
-
-        return [
-            'id' => $post->id,
-            'title' => $post->title,
-            'slug' => $post->slug,
-            'post_type_id' => $post->post_type_id,
-            'custom_fields' => $customFields,
-            'taxonomy_terms' => $post->taxonomyTerms->map(fn($t) => [
-                'taxonomy_id' => $t->taxonomy_id,
-                'taxonomy_term_id' => $t->id,
-                'name' => $t->name,
-            ])->values(),
-        ];
+        return $data;
     }
 
     private function formatMediaFileById(null|int|string $mediaId): ?array
