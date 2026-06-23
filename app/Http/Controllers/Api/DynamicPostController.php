@@ -27,7 +27,8 @@ class DynamicPostController extends Controller
         'postType',
         'parent:id,post_type_id,title,slug,status,live_status',
         'taxonomyTerms.taxonomy',
-        'meta.customField',
+        'meta.customField.options',
+        'meta.customField.repeaters.options',
     ];
 
     private array $singlePostRelations = [
@@ -36,6 +37,7 @@ class DynamicPostController extends Controller
         'children:id,post_type_id,parent_id,title,slug,status,live_status',
         'taxonomyTerms.taxonomy',
         'meta.customField.options',
+        'meta.customField.repeaters.options',
     ];
 
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
@@ -109,8 +111,9 @@ class DynamicPostController extends Controller
             $request->validate([
                 'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
                 'post_type_slug' => ['nullable', 'string', 'exists:post_types,slug'],
-                'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
-                'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
+                'post_type' => ['nullable', 'string'],
+                'status' => ['nullable', 'string'],
+                'live_status' => ['nullable', 'string'],
                 'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
                 'search' => ['nullable', 'string', 'max:255'],
                 'taxonomy_term_ids' => ['nullable'],
@@ -128,15 +131,18 @@ class DynamicPostController extends Controller
                 ->when($request->filled('post_type_id'), function ($q) use ($request) {
                     $q->where('post_type_id', $request->post_type_id);
                 })
-                ->when($request->filled('post_type_slug'), function ($q) use ($request) {
-                    $q->whereHas('postType', function ($postTypeQuery) use ($request) {
-                        $postTypeQuery->where('slug', $request->post_type_slug);
+                ->when($request->filled('post_type_slug') || $request->filled('post_type'), function ($q) use ($request) {
+                    $postTypeValue = $request->post_type_slug ?: $request->post_type;
+
+                    $q->whereHas('postType', function ($postTypeQuery) use ($postTypeValue) {
+                        $postTypeQuery->where('slug', $postTypeValue)
+                            ->orWhere('name', $postTypeValue);
                     });
                 })
-                ->when($request->filled('status'), function ($q) use ($request) {
+                ->when($request->filled('status') && !in_array($request->status, ['all', 'All', '*'], true), function ($q) use ($request) {
                     $q->where('status', $request->status);
                 })
-                ->when($request->filled('live_status'), function ($q) use ($request) {
+                ->when($request->filled('live_status') && !in_array($request->live_status, ['all', 'All', '*'], true), function ($q) use ($request) {
                     $q->where('live_status', $request->live_status);
                 })
                 ->when($request->filled('parent_id'), function ($q) use ($request) {
@@ -455,8 +461,8 @@ class DynamicPostController extends Controller
         try {
             $request->validate([
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-                'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
-                'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
+                'status' => ['nullable', 'string'],
+                'live_status' => ['nullable', 'string'],
             ]);
 
             $postType = PostType::where('slug', $slug)->first();
@@ -471,10 +477,10 @@ class DynamicPostController extends Controller
 
             $posts = DynamicPost::where('post_type_id', $postType->id)
                 ->with($this->postRelations)
-                ->when($request->filled('status'), function ($q) use ($request) {
+                ->when($request->filled('status') && !in_array($request->status, ['all', 'All', '*'], true), function ($q) use ($request) {
                     $q->where('status', $request->status);
                 })
-                ->when($request->filled('live_status'), function ($q) use ($request) {
+                ->when($request->filled('live_status') && !in_array($request->live_status, ['all', 'All', '*'], true), function ($q) use ($request) {
                     $q->where('live_status', $request->live_status);
                 })
                 ->orderBy('sort_order', 'asc')
@@ -2370,7 +2376,8 @@ class DynamicPostController extends Controller
             'postType',
             'parent:id,post_type_id,title,slug,status,live_status',
             'taxonomyTerms.taxonomy',
-            'meta.customField',
+            'meta.customField.options',
+            'meta.customField.repeaters.options',
         ]);
 
         $data = $post->toArray();
