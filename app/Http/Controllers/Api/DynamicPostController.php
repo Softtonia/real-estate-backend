@@ -886,6 +886,8 @@ class DynamicPostController extends Controller
             'custom_fields.*.value_date' => ['nullable', 'date'],
             'custom_fields.*.value_datetime' => ['nullable', 'date'],
             'custom_fields.*.value_json' => ['nullable'],
+            'custom_fields.*.value_repeaters' => ['nullable'],
+            'custom_fields.*.value_repeaters.*' => ['nullable'],
             'custom_fields.*.file' => ['nullable'],
             'custom_fields.*.files' => ['nullable'],
             'custom_fields.*.files.*' => ['nullable'],
@@ -940,6 +942,10 @@ class DynamicPostController extends Controller
 
                     if (array_key_exists('repeaters', $fieldData) && $fieldData['repeaters'] === '') {
                         $customFields[$index]['repeaters'] = [];
+                    }
+
+                    if (array_key_exists('value_repeaters', $fieldData) && $fieldData['value_repeaters'] === '') {
+                        $customFields[$index]['value_repeaters'] = [];
                     }
                 }
 
@@ -1148,9 +1154,19 @@ class DynamicPostController extends Controller
                 if (array_key_exists('_repeater_values', $field)) {
                     unset($field['_repeater_values']);
                     unset($field['repeaters']);
+                    unset($field['value_repeaters']);
+                    unset($field['value_string']);
+                    unset($field['value_text']);
+                    unset($field['value_number']);
+                    unset($field['value_date']);
+                    unset($field['value_datetime']);
 
-                    if (array_key_exists('value_json', $field)) {
-                        $field['value_json'] = null;
+                    $field['value_json'] = null;
+                }
+
+                foreach (['value_string', 'value_text', 'value_number', 'value_date', 'value_datetime'] as $valueKey) {
+                    if (array_key_exists($valueKey, $field) && (is_array($field[$valueKey]) || is_object($field[$valueKey]))) {
+                        $field[$valueKey] = json_encode($field[$valueKey]);
                     }
                 }
 
@@ -1710,7 +1726,15 @@ class DynamicPostController extends Controller
                     $normalizedRepeaters
                 );
 
-                unset($customFields[$index]['repeaters']);
+                unset(
+                    $customFields[$index]['repeaters'],
+                    $customFields[$index]['value_repeaters'],
+                    $customFields[$index]['value_string'],
+                    $customFields[$index]['value_text'],
+                    $customFields[$index]['value_number'],
+                    $customFields[$index]['value_date'],
+                    $customFields[$index]['value_datetime']
+                );
             }
 
             unset(
