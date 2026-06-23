@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CustomField;
 use App\Models\CustomFieldValue;
+use App\Models\CustomFieldRepeater;
 use App\Models\DynamicPost;
 use App\Models\MediaFile;
 use App\Models\PostType;
@@ -19,6 +20,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 use App\Models\SiteSetting;
 
@@ -1138,8 +1140,195 @@ class DynamicPostController extends Controller
             return;
         }
 
+        $serviceFields = collect($fields)
+            ->map(function ($field) {
+                unset($field['_repeater_values']);
+                return $field;
+            })
+            ->values()
+            ->toArray();
+
         $service = app(CustomFieldValueService::class);
-        $service->saveValues($entityId, $entityType, $fields);
+        $service->saveValues($entityId, $entityType, $serviceFields);
+
+        $this->saveCustomFieldRepeaterValues($entityId, $entityType, $fields);
+    }
+
+    private function saveCustomFieldRepeaterValues(int $entityId, string $entityType, array $fields): void
+    {
+        if (!Schema::hasTable('custom_field_repeater_values')) {
+            return;
+        }
+
+        $columns = Schema::getColumnListing('custom_field_repeater_values');
+
+        $fieldsWithRepeaters = collect($fields)
+            ->filter(function ($field) {
+                if (!empty($field['_repeater_values'])) {
+                    return true;
+                }
+
+                $valueJson = $this->normalizeCustomFieldValueJson($field['value_json'] ?? []);
+
+                return !empty($valueJson['repeaters'] ?? []);
+            })
+            ->values();
+
+        if ($fieldsWithRepeaters->isEmpty()) {
+            return;
+        }
+
+        $customFieldIds = $fieldsWithRepeaters
+            ->pluck('custom_field_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($customFieldIds)) {
+            return;
+        }
+
+        DB::table('custom_field_repeater_values')
+            ->where('entity_type', $entityType)
+            ->where('entity_id', $entityId)
+            ->whereIn('custom_field_id', $customFieldIds)
+            ->delete();
+
+        $now = now();
+        $insertRows = [];
+
+        foreach ($fieldsWithRepeaters as $field) {
+            $customFieldId = (int) ($field['custom_field_id'] ?? 0);
+
+            if (!$customFieldId) {
+                continue;
+            }
+
+            $repeaters = $field['_repeater_values'] ?? null;
+
+            if (empty($repeaters)) {
+                $valueJson = $this->normalizeCustomFieldValueJson($field['value_json'] ?? []);
+                $repeaters = $valueJson['repeaters'] ?? [];
+            }
+
+            $repeaters = $this->normalizeRepeaterValuesForSave($repeaters);
+            $repeaterDefinitions = CustomFieldRepeater::where('custom_field_id', $customFieldId)
+                ->get()
+                ->keyBy('field_name_slug');
+
+            foreach ($repeaters as $repeaterBlockIndex => $repeaterBlock) {
+                $rows = $repeaterBlock['rows'] ?? [];
+
+                if (!is_array($rows)) {
+                    continue;
+                }
+
+                foreach ($rows as $rowIndex => $rowData) {
+                    if (!is_array($rowData)) {
+                        continue;
+                    }
+
+                    foreach ($rowData as $fieldSlug => $value) {
+                        if (str_starts_with((string) $fieldSlug, '_')) {
+                            continue;
+                        }
+
+                        $repeaterDefinition = $repeaterDefinitions->get((string) $fieldSlug);
+
+                        if (!$repeaterDefinition && is_numeric($fieldSlug)) {
+                            $repeaterDefinition = CustomFieldRepeater::where('custom_field_id', $customFieldId)
+                                ->where('id', (int) $fieldSlug)
+                                ->first();
+                        }
+
+                        if (!$repeaterDefinition) {
+                            continue;
+                        }
+
+                        $insertRows[] = $this->buildCustomFieldRepeaterValueRow(
+                            $columns,
+                            $entityType,
+                            $entityId,
+                            $customFieldId,
+                            $repeaterDefinition,
+                            $value,
+                            (int) $rowIndex,
+                            (int) $repeaterBlockIndex,
+                            $now
+                        );
+                    }
+                }
+            }
+        }
+
+        if (!empty($insertRows)) {
+            DB::table('custom_field_repeater_values')->insert($insertRows);
+        }
+    }
+
+    private function buildCustomFieldRepeaterValueRow(
+        array $columns,
+        string $entityType,
+        int $entityId,
+        int $customFieldId,
+        CustomFieldRepeater $repeaterDefinition,
+        mixed $value,
+        int $rowIndex,
+        int $repeaterBlockIndex,
+        mixed $now
+    ): array {
+        $row = [];
+
+        $this->setIfColumnExists($row, $columns, 'entity_type', $entityType);
+        $this->setIfColumnExists($row, $columns, 'entity_id', $entityId);
+        $this->setIfColumnExists($row, $columns, 'custom_field_id', $customFieldId);
+        $this->setIfColumnExists($row, $columns, 'custom_field_repeater_id', (int) $repeaterDefinition->id);
+        $this->setIfColumnExists($row, $columns, 'field_type', $repeaterDefinition->field_type);
+        $this->setIfColumnExists($row, $columns, 'field_name_slug', $repeaterDefinition->field_name_slug);
+        $this->setIfColumnExists($row, $columns, 'field_label', $repeaterDefinition->field_label);
+        $this->setIfColumnExists($row, $columns, 'row_index', $rowIndex);
+        $this->setIfColumnExists($row, $columns, 'sort_order', $rowIndex);
+        $this->setIfColumnExists($row, $columns, 'repeater_index', $repeaterBlockIndex);
+
+        $optionId = null;
+
+        if (is_array($value) && array_key_exists('custom_field_repeater_option_id', $value)) {
+            $optionId = $value['custom_field_repeater_option_id'];
+            $value = $value['value'] ?? null;
+        }
+
+        $this->setIfColumnExists($row, $columns, 'custom_field_repeater_option_id', $optionId);
+        $this->setIfColumnExists($row, $columns, 'custom_field_repeater_options_id', $optionId);
+
+        $this->applyRepeaterValueColumns($row, $columns, $repeaterDefinition->field_type, $value);
+
+        $this->setIfColumnExists($row, $columns, 'created_at', $now);
+        $this->setIfColumnExists($row, $columns, 'updated_at', $now);
+
+        return $row;
+    }
+
+    private function applyRepeaterValueColumns(array &$row, array $columns, ?string $fieldType, mixed $value): void
+    {
+        $stringValue = is_array($value) ? json_encode($value) : $value;
+
+        $this->setIfColumnExists($row, $columns, 'value', $stringValue);
+        $this->setIfColumnExists($row, $columns, 'field_value', $stringValue);
+        $this->setIfColumnExists($row, $columns, 'value_string', in_array($fieldType, ['text', 'email', 'url', 'radio', 'select', 'media', 'file', 'boolean'], true) ? $stringValue : null);
+        $this->setIfColumnExists($row, $columns, 'value_text', in_array($fieldType, ['textarea', 'texteditor'], true) ? $stringValue : null);
+        $this->setIfColumnExists($row, $columns, 'value_number', $fieldType === 'number' && is_numeric($value) ? $value : null);
+        $this->setIfColumnExists($row, $columns, 'value_date', $fieldType === 'date' ? $value : null);
+        $this->setIfColumnExists($row, $columns, 'value_datetime', $fieldType === 'datetime' ? $value : null);
+        $this->setIfColumnExists($row, $columns, 'value_json', is_array($value) ? json_encode($value) : null);
+    }
+
+    private function setIfColumnExists(array &$row, array $columns, string $column, mixed $value): void
+    {
+        if (in_array($column, $columns, true)) {
+            $row[$column] = $value;
+        }
     }
 
     private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
@@ -1487,9 +1676,13 @@ class DynamicPostController extends Controller
             }
 
             if (array_key_exists('repeaters', $fieldData)) {
+                $normalizedRepeaters = $this->normalizeRepeaterValuesForSave($fieldData['repeaters'] ?? []);
+
+                $customFields[$index]['_repeater_values'] = $normalizedRepeaters;
+
                 $customFields[$index]['value_json'] = $this->mergeRepeaterValuesIntoValueJson(
                     $customFields[$index]['value_json'] ?? ($fieldData['value_json'] ?? []),
-                    $fieldData['repeaters'] ?? []
+                    $normalizedRepeaters
                 );
 
                 unset($customFields[$index]['repeaters']);
@@ -1528,6 +1721,15 @@ class DynamicPostController extends Controller
             return [];
         }
 
+        if ($this->looksLikeRepeaterRows($repeaters)) {
+            $repeaters = [
+                [
+                    'field_name_slug' => null,
+                    'rows' => $repeaters,
+                ],
+            ];
+        }
+
         return collect($repeaters)
             ->map(function ($repeater) {
                 if (!is_array($repeater)) {
@@ -1535,6 +1737,10 @@ class DynamicPostController extends Controller
                 }
 
                 $rows = $repeater['rows'] ?? [];
+
+                if (empty($rows) && $this->looksLikeSingleRepeaterRow($repeater)) {
+                    $rows = [$repeater];
+                }
 
                 if (is_string($rows)) {
                     $decodedRows = json_decode($rows, true);
@@ -1559,6 +1765,29 @@ class DynamicPostController extends Controller
             ->filter()
             ->values()
             ->toArray();
+    }
+
+    private function looksLikeRepeaterRows(array $repeaters): bool
+    {
+        if (empty($repeaters)) {
+            return false;
+        }
+
+        return collect($repeaters)
+            ->every(fn($row) => is_array($row) && !array_key_exists('rows', $row));
+    }
+
+    private function looksLikeSingleRepeaterRow(array $repeater): bool
+    {
+        if (empty($repeater)) {
+            return false;
+        }
+
+        return !array_key_exists('rows', $repeater)
+            && collect(array_keys($repeater))->contains(fn($key) => !in_array($key, [
+                'custom_field_repeater_id',
+                'field_name_slug',
+            ], true));
     }
 
     private function appendMissingMediaCustomFieldDeletes(DynamicPost $post, array $customFields): array
