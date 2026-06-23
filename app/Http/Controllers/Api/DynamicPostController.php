@@ -783,7 +783,7 @@ class DynamicPostController extends Controller
             'featured_image' => ['nullable'],
             'gallery_image_ids' => ['nullable', 'array'],
             'gallery_image_ids.*' => ['integer'],
-            'gallery_images' => ['nullable', 'array'],
+            'gallery_images' => ['nullable'],
             'gallery_images.*' => ['nullable'],
             'status' => ['nullable', Rule::in(['draft', 'published', 'private', 'archived'])],
             'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
@@ -814,11 +814,16 @@ class DynamicPostController extends Controller
 
     private function cleanEmptyUploadInputs(Request $request): void
     {
-        // featured_image and gallery_images may contain existing URLs during update.
-        // Do not remove them here unless they are completely absent.
+        if ($request->has('featured_image') && $request->input('featured_image') === '') {
+            $request->merge(['featured_image' => '']);
+        }
 
         if ($request->has('featured_image_id') && $request->input('featured_image_id') === '') {
             $request->merge(['featured_image_id' => null]);
+        }
+
+        if ($request->has('gallery_images') && $request->input('gallery_images') === '') {
+            $request->merge(['gallery_images' => []]);
         }
 
         if ($request->has('gallery_image_ids') && $request->input('gallery_image_ids') === '') {
@@ -840,6 +845,14 @@ class DynamicPostController extends Controller
 
                     if (array_key_exists('value_json', $fieldData) && $fieldData['value_json'] === '') {
                         $customFields[$index]['value_json'] = [];
+                    }
+
+                    if (array_key_exists('value_string', $fieldData) && $fieldData['value_string'] === null) {
+                        $customFields[$index]['value_string'] = '';
+                    }
+
+                    if (array_key_exists('value_text', $fieldData) && $fieldData['value_text'] === null) {
+                        $customFields[$index]['value_text'] = '';
                     }
                 }
 
