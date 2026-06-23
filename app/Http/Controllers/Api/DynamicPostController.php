@@ -20,7 +20,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
-
+use App\Models\SiteSetting;
 
 class DynamicPostController extends Controller
 {
@@ -95,11 +95,23 @@ class DynamicPostController extends Controller
         }
 
         if (is_string($ids)) {
-            $ids = explode(',', $ids);
+            $ids = trim($ids);
+
+            if ($ids === '') {
+                return [];
+            }
+
+            $decoded = json_decode($ids, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $ids = $decoded;
+            } else {
+                $ids = str_contains($ids, ',') ? explode(',', $ids) : [$ids];
+            }
         }
 
         return collect($ids)
-            ->filter(fn($id) => $id !== null && $id !== '')
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
             ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
@@ -221,18 +233,19 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields) {
-                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields'], $validated['featured_image'], $validated['gallery_images']);
+            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields, $postType) {
+                $postData = $this->dynamicPostPayloadForDatabase($validated);
 
-                $validated['slug'] = $slug;
-                $validated['status'] = $validated['status'] ?? 'draft';
-                $validated['author_id'] = $validated['author_id'] ?? Auth::id();
+                $postData['slug'] = $slug;
+                $postData['listing_code'] = $this->generateDynamicPostListingCode($postType);
+                $postData['status'] = $postData['status'] ?? 'draft';
+                $postData['author_id'] = $postData['author_id'] ?? Auth::id();
 
-                if ($validated['status'] === 'published' && empty($validated['published_at'])) {
-                    $validated['published_at'] = now();
+                if ($postData['status'] === 'published' && empty($postData['published_at'])) {
+                    $postData['published_at'] = now();
                 }
 
-                $post = DynamicPost::create($validated);
+                $post = DynamicPost::create($postData);
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
                 $this->saveCustomFieldValues($post->id, 'post', $customFields);
@@ -350,15 +363,15 @@ class DynamicPostController extends Controller
             }
 
             DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields) {
-                unset($validated['taxonomy_term_ids'], $validated['taxonomies'], $validated['custom_fields'], $validated['featured_image'], $validated['gallery_images']);
+                $postData = $this->dynamicPostPayloadForDatabase($validated);
 
-                $validated['slug'] = $newSlug;
+                $postData['slug'] = $newSlug;
 
-                if (($validated['status'] ?? null) === 'published' && empty($validated['published_at']) && empty($post->published_at)) {
-                    $validated['published_at'] = now();
+                if (($postData['status'] ?? null) === 'published' && empty($postData['published_at']) && empty($post->published_at)) {
+                    $postData['published_at'] = now();
                 }
 
-                $post->update($validated);
+                $post->update($postData);
 
                 if (is_array($taxonomyTermIds)) {
                     $this->syncTaxonomyTerms($post, $taxonomyTermIds);
@@ -779,7 +792,55 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to resolve custom fields.', 500, $e->getMessage());
         }
     }
+    private function generateDynamicPostListingCode(PostType $postType): string
+    {
+        $prefix = $this->getDynamicPostPrefix($postType);
 
+        $lastCode = DynamicPost::where('post_type_id', $postType->id)
+            ->whereNotNull('listing_code')
+            ->where('listing_code', 'like', $prefix . '-%')
+            ->lockForUpdate()
+            ->orderByDesc('id')
+            ->value('listing_code');
+
+        $nextNumber = 1;
+
+        if (!empty($lastCode) && preg_match('/-(\d+)$/', $lastCode, $matches)) {
+            $nextNumber = ((int) $matches[1]) + 1;
+        }
+
+        return $prefix . '-' . str_pad((string) $nextNumber, 6, '0', STR_PAD_LEFT);
+    }
+
+    private function getDynamicPostPrefix(PostType $postType): string
+    {
+        $setting = SiteSetting::first();
+
+        $slug = Str::slug($postType->slug ?? $postType->name ?? '', '-');
+        $name = Str::slug($postType->name ?? '', '-');
+
+        if (str_contains($slug, 'property') || str_contains($name, 'property')) {
+            return $this->cleanPrefix($setting?->property_prefix ?: 'PRP');
+        }
+
+        if (str_contains($slug, 'developer') || str_contains($name, 'developer')) {
+            return $this->cleanPrefix($setting?->developer_prefix ?: 'DEV');
+        }
+
+        if (str_contains($slug, 'project') || str_contains($name, 'project')) {
+            return $this->cleanPrefix($setting?->project_prefix ?: 'PRJ');
+        }
+
+        return $this->cleanPrefix(strtoupper(substr(Str::slug($postType->name ?? 'DYN', ''), 0, 4)) ?: 'DYN');
+    }
+
+    private function cleanPrefix(?string $prefix): string
+    {
+        $prefix = strtoupper(trim((string) $prefix));
+        $prefix = preg_replace('/[^A-Z0-9]/', '', $prefix);
+
+        return $prefix ?: 'DYN';
+    }
     private function validatePost(Request $request, bool $isUpdate = false): array
     {
         $this->cleanEmptyUploadInputs($request);
@@ -1026,6 +1087,35 @@ class DynamicPostController extends Controller
         }
 
         $post->taxonomyTerms()->sync($syncData);
+    }
+
+    private function dynamicPostPayloadForDatabase(array $validated): array
+    {
+        unset(
+            $validated['taxonomy_term_ids'],
+            $validated['taxonomies'],
+            $validated['custom_fields'],
+            $validated['featured_image'],
+            $validated['gallery_images'],
+            $validated['post_type']
+        );
+
+        if (array_key_exists('gallery_image_ids', $validated)) {
+            $validated['gallery_image_ids'] = $this->normalizeIds($validated['gallery_image_ids']);
+
+            if (!$this->dynamicPostHasArrayCast('gallery_image_ids')) {
+                $validated['gallery_image_ids'] = json_encode($validated['gallery_image_ids']);
+            }
+        }
+
+        return $validated;
+    }
+
+    private function dynamicPostHasArrayCast(string $field): bool
+    {
+        $casts = (new DynamicPost())->getCasts();
+
+        return isset($casts[$field]) && in_array($casts[$field], ['array', 'json', 'collection', 'object'], true);
     }
 
     private function saveCustomFieldValues(int $entityId, string $entityType, array $fields): void
@@ -1455,7 +1545,9 @@ class DynamicPostController extends Controller
     {
         return array_key_exists('value_json', $fieldData)
             || array_key_exists('value_string', $fieldData)
-            || array_key_exists('value_text', $fieldData);
+            || array_key_exists('value_text', $fieldData)
+            || array_key_exists('file', $fieldData)
+            || array_key_exists('files', $fieldData);
     }
 
     private function submittedCustomFieldMediaItems(array $fieldData, array $oldValueJson): array
@@ -1706,7 +1798,7 @@ class DynamicPostController extends Controller
             if (($file->getSize() / 1024) > $maxSizeKb) {
                 throw ValidationException::withMessages([
                     'custom_fields' => [
-                        'File size is too large for ' . $field->field_label . '.'
+                        'File size is too large for ' . $field->field_label . '. Maximum allowed size is ' . round($maxSizeKb / 1024, 2) . ' MB.'
                     ],
                 ]);
             }
@@ -1755,15 +1847,21 @@ class DynamicPostController extends Controller
         }
 
         $size = strtolower(trim($size));
+        $size = str_replace(' ', '', $size);
 
-        if (preg_match('/^(\d+)\s*(kb|mb|gb)?$/', $size, $matches)) {
+        if (is_numeric($size)) {
+            return (int) $size * 1024;
+        }
+
+        if (preg_match('/^(\d+)(kb|mb|gb)$/', $size, $matches)) {
             $value = (int) $matches[1];
-            $unit = $matches[2] ?? 'kb';
+            $unit = $matches[2];
 
             return match ($unit) {
                 'gb' => $value * 1024 * 1024,
                 'mb' => $value * 1024,
-                default => $value,
+                'kb' => $value,
+                default => 10240,
             };
         }
 
@@ -2386,8 +2484,22 @@ class DynamicPostController extends Controller
 
         $data = $post->toArray();
         $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
-        $data['featured_image'] = $this->formatMediaFileById($post->featured_image_id ?? null);
-        $data['gallery_images'] = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
+        $data['display_id'] = $post->listing_code ?? null;
+
+        $featuredMedia = $this->formatMediaFileById($post->featured_image_id ?? null);
+        $galleryMedia = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
+
+        $data['featured_image'] = $featuredMedia['url'] ?? null;
+        $data['featured_image_media'] = $featuredMedia;
+
+        $data['gallery_images'] = collect($galleryMedia)
+            ->pluck('url')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $data['gallery_image_files'] = $galleryMedia;
+        $data['meta'] = $this->formatMetaForFrontend($data['meta'] ?? []);
 
         return $data;
     }
@@ -2400,7 +2512,7 @@ class DynamicPostController extends Controller
 
         $media = MediaFile::find((int) $mediaId);
 
-        return $media ? $media->toArray() : null;
+        return $media ? $this->formatMediaFile($media) : null;
     }
 
     private function formatMediaFilesByIds(array|string|null $mediaIds): array
@@ -2416,7 +2528,84 @@ class DynamicPostController extends Controller
         return collect($ids)
             ->map(fn($id) => $mediaFiles->get((int) $id))
             ->filter()
-            ->map(fn($media) => $media->toArray())
+            ->map(fn($media) => $this->formatMediaFile($media))
+            ->values()
+            ->toArray();
+    }
+
+    private function formatMediaFile(MediaFile $media): array
+    {
+        return [
+            'id' => (int) $media->id,
+            'disk' => $media->disk,
+            'context' => $media->context,
+            'post_type_slug' => $media->post_type_slug,
+            'field_slug' => $media->field_slug,
+            'directory' => $media->directory,
+            'path' => $media->path,
+            'url' => $media->url,
+            'file_name' => $media->file_name,
+            'original_name' => $media->original_name,
+            'mime_type' => $media->mime_type,
+            'extension' => $media->extension,
+            'size' => $media->size,
+            'size_kb' => $media->size ? round($media->size / 1024, 2) : null,
+            'created_at' => optional($media->created_at)->toISOString(),
+            'updated_at' => optional($media->updated_at)->toISOString(),
+        ];
+    }
+
+    private function formatMetaForFrontend(array $meta): array
+    {
+        return collect($meta)
+            ->map(function ($item) {
+                $fieldType = $item['custom_field']['field_type'] ?? null;
+
+                if (!in_array($fieldType, ['media', 'file'], true)) {
+                    return $item;
+                }
+
+                $rawValueJson = $item['value_json'] ?? [];
+                $mediaFiles = $this->normalizeCustomFieldValueJson($rawValueJson);
+
+                $mediaFiles = collect($mediaFiles)
+                    ->filter(fn($media) => is_array($media))
+                    ->map(function ($media) {
+                        $path = $media['path'] ?? null;
+                        $url = $media['url'] ?? null;
+
+                        if (!$url && $path) {
+                            $url = Storage::disk($media['disk'] ?? 'public')->url($path);
+                        }
+
+                        return array_merge($media, [
+                            'url' => $url,
+                        ]);
+                    })
+                    ->filter(fn($media) => !empty($media['url']))
+                    ->values()
+                    ->toArray();
+
+                $mediaUrls = collect($mediaFiles)
+                    ->pluck('url')
+                    ->filter()
+                    ->values()
+                    ->toArray();
+
+                $firstUrl = $mediaUrls[0] ?? null;
+
+                $item['media_files'] = $mediaFiles;
+                $item['media_urls'] = $mediaUrls;
+                $item['value_json_raw'] = $rawValueJson;
+
+                // Frontend compatibility:
+                // Old React code calls startsWith(), so these values must be strings.
+                $item['value_string'] = $firstUrl;
+                $item['value_text'] = $firstUrl;
+                $item['value_json'] = $firstUrl;
+
+                return $item;
+            })
             ->values()
             ->toArray();
     }
