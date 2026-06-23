@@ -1142,7 +1142,15 @@ class DynamicPostController extends Controller
 
         $serviceFields = collect($fields)
             ->map(function ($field) {
-                unset($field['_repeater_values']);
+                if (array_key_exists('_repeater_values', $field)) {
+                    unset($field['_repeater_values']);
+                    unset($field['repeaters']);
+
+                    if (array_key_exists('value_json', $field)) {
+                        $field['value_json'] = null;
+                    }
+                }
+
                 return $field;
             })
             ->values()
@@ -1326,9 +1334,15 @@ class DynamicPostController extends Controller
 
     private function setIfColumnExists(array &$row, array $columns, string $column, mixed $value): void
     {
-        if (in_array($column, $columns, true)) {
-            $row[$column] = $value;
+        if (!in_array($column, $columns, true)) {
+            return;
         }
+
+        if (is_array($value) || is_object($value)) {
+            $value = json_encode($value);
+        }
+
+        $row[$column] = $value;
     }
 
     private function prepareBaseMediaForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
