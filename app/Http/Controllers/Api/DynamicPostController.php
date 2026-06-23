@@ -27,7 +27,8 @@ class DynamicPostController extends Controller
         'postType',
         'parent:id,post_type_id,title,slug,status,live_status',
         'taxonomyTerms.taxonomy',
-        'meta.customField',
+        'meta.customField.options',
+        'meta.customField.repeaters.options',
     ];
 
     private array $singlePostRelations = [
@@ -36,6 +37,7 @@ class DynamicPostController extends Controller
         'children:id,post_type_id,parent_id,title,slug,status,live_status',
         'taxonomyTerms.taxonomy',
         'meta.customField.options',
+        'meta.customField.repeaters.options',
     ];
 
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
@@ -2304,13 +2306,19 @@ class DynamicPostController extends Controller
             'postType',
             'parent:id,post_type_id,title,slug,status,live_status',
             'taxonomyTerms.taxonomy',
-            'meta.customField',
+            'meta.customField.options',
+            'meta.customField.repeaters.options',
         ]);
 
         $data = $post->toArray();
+
         $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
-        $data['featured_image'] = $this->formatMediaFileById($post->featured_image_id ?? null);
-        $data['gallery_images'] = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
+
+        $data['custom_fields'] = $post->meta
+            ->map(fn($value) => $this->formatCustomFieldValue($value))
+            ->values();
+
+        unset($data['meta']);
 
         return $data;
     }
@@ -2416,5 +2424,57 @@ class DynamicPostController extends Controller
         };
 
         return $action === 'hide' ? !$matched : $matched;
+    }
+
+    private function formatCustomFieldValue(CustomFieldValue $value): array
+    {
+        $field = $value->customField;
+
+        if (!$field) {
+            return [
+                'custom_field_id' => $value->custom_field_id,
+                'field_label' => null,
+                'field_name_slug' => null,
+                'field_type' => null,
+                'value' => $value->formatted_value,
+            ];
+        }
+
+        $response = [
+            'custom_field_id' => $field->id,
+            'field_label' => $field->field_label,
+            'field_name_slug' => $field->field_name_slug,
+            'field_type' => $field->field_type,
+            'value' => $value->formatted_value,
+        ];
+
+        if ($field->field_type === 'repeater') {
+            $response['repeater_fields'] = $field->repeaters->map(function ($repeater) {
+                return [
+                    'id' => $repeater->id,
+                    'field_label' => $repeater->field_label,
+                    'field_name_slug' => $repeater->field_name_slug,
+                    'field_placeholder' => $repeater->field_placeholder,
+                    'field_type' => $repeater->field_type,
+                    'media_limit' => $repeater->media_limit,
+                    'media_size' => $repeater->media_size,
+                    'media_format' => $repeater->media_format,
+                    'sort_order' => $repeater->sort_order,
+                    'options' => $repeater->options->map(function ($option) {
+                        return [
+                            'id' => $option->id,
+                            'name' => $option->name,
+                            'value' => $option->value,
+                            'type' => $option->type,
+                            'sort_order' => $option->sort_order,
+                        ];
+                    })->values(),
+                ];
+            })->values();
+
+            $response['rows'] = collect($value->value_json ?? [])->values();
+        }
+
+        return $response;
     }
 }
