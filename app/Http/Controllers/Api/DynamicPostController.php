@@ -1151,6 +1151,9 @@ class DynamicPostController extends Controller
 
         $serviceFields = collect($fields)
             ->map(function ($field) {
+                // If _repeater_values is set, this is a repeater field.
+                // Strip all scalar value columns and set value_json=null so the service doesn't
+                // try to store repeater data directly in custom_field_values.
                 if (array_key_exists('_repeater_values', $field)) {
                     unset($field['_repeater_values']);
                     unset($field['repeaters']);
@@ -1160,14 +1163,32 @@ class DynamicPostController extends Controller
                     unset($field['value_number']);
                     unset($field['value_date']);
                     unset($field['value_datetime']);
-
                     $field['value_json'] = null;
+                    return $field;
                 }
 
+                // If value_json contains a 'repeaters' key (from stored data sent back by frontend),
+                // strip it out so it doesn't get saved into custom_field_values as a raw array.
+                if (array_key_exists('value_json', $field) && is_array($field['value_json'])) {
+                    $valueJson = $field['value_json'];
+                    if (isset($valueJson['repeaters'])) {
+                        unset($valueJson['repeaters']);
+                        $field['value_json'] = !empty($valueJson) ? $valueJson : null;
+                    }
+                }
+
+                // Ensure arrays never reach value_string / value_text / value_number / value_date / value_datetime
                 foreach (['value_string', 'value_text', 'value_number', 'value_date', 'value_datetime'] as $valueKey) {
                     if (array_key_exists($valueKey, $field) && (is_array($field[$valueKey]) || is_object($field[$valueKey]))) {
+                        // If it's an array, encode to JSON.  This prevents "Array to string conversion".
                         $field[$valueKey] = json_encode($field[$valueKey]);
                     }
+                }
+
+                // Also prevent any array from being stored as value_json for non-repeater fields
+                if (array_key_exists('value_json', $field) && is_array($field['value_json'])) {
+                    // Check if any nested values are arrays that would break the service
+                    $field['value_json'] = $this->sanitizeArrayForValueJson($field['value_json']);
                 }
 
                 return $field;
@@ -1179,6 +1200,30 @@ class DynamicPostController extends Controller
         $service->saveValues($entityId, $entityType, $serviceFields);
 
         $this->saveCustomFieldRepeaterValues($entityId, $entityType, $fields);
+    }
+
+    /**
+     * Recursively sanitize an array to be stored in value_json – no objects, no resource types.
+     */
+    private function sanitizeArrayForValueJson(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $result = [];
+            foreach ($value as $k => $v) {
+                $result[$k] = $this->sanitizeArrayForValueJson($v);
+            }
+            return $result;
+        }
+
+        if (is_object($value)) {
+            return (array) $value;
+        }
+
+        if (is_resource($value)) {
+            return null;
+        }
+
+        return $value;
     }
 
     private function saveCustomFieldRepeaterValues(int $entityId, string $entityType, array $fields): void

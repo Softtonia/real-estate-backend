@@ -87,16 +87,23 @@ class CustomFieldValueService
             return $record;
         }
 
+        // Protect against "Array to string conversion" – if an array somehow reaches here,
+        // route it to value_json rather than trying to cast to string.
+        if (is_array($rawValue) && !in_array($fieldType, ['checkbox', 'media', 'file', 'repeater'], true)) {
+            $record['value_json'] = $rawValue;
+            return $record;
+        }
+
         switch ($fieldType) {
             case 'text':
             case 'texteditor':
             case 'textarea':
-                $record['value_text'] = (string) $rawValue;
+                $record['value_text'] = is_array($rawValue) ? json_encode($rawValue) : (string) $rawValue;
                 break;
 
             case 'email':
             case 'url':
-                $record['value_string'] = (string) $rawValue;
+                $record['value_string'] = is_array($rawValue) ? json_encode($rawValue) : (string) $rawValue;
                 break;
 
             case 'number':
@@ -134,14 +141,14 @@ class CustomFieldValueService
                 break;
 
             default:
-                // Fallback: store as text
-                $record['value_text'] = (string) $rawValue;
+                // Fallback: store as text – never cast array to string directly
+                $record['value_text'] = is_array($rawValue) ? json_encode($rawValue) : (string) $rawValue;
                 break;
         }
 
         // Ensure value_json is always set for JSON field types if not already
         if (in_array($fieldType, self::JSON_FIELD_TYPES, true) && $record['value_json'] === null) {
-            $record['value_json'] = $rawValue;
+            $record['value_json'] = is_array($rawValue) ? $rawValue : (is_string($rawValue) && json_decode($rawValue) ? json_decode($rawValue, true) : $rawValue);
         }
 
         return $record;
