@@ -3,18 +3,17 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Str;
 
 class Template extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
+        'template_type',
         'template_name',
         'slug',
-        'created_by',
-        'status',
+        'shortcode',
         'priority',
+        'status',
     ];
 
     public function conditions()
@@ -25,5 +24,28 @@ class Template extends Model
     public function layout()
     {
         return $this->hasOne(TemplateLayout::class);
+    }
+
+    public static function generateUniqueSlug(string $name, ?int $ignoreId = null): string
+    {
+        $base = Str::slug($name);
+        $slug = $base ?: 'template';
+        $count = 1;
+
+        while (
+            self::where('slug', $slug)
+                ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+                ->exists()
+        ) {
+            $slug = $base . '-' . $count;
+            $count++;
+        }
+
+        return $slug;
+    }
+
+    public function generateShortcode(): string
+    {
+        return '[vk_template id="' . $this->id . '"]';
     }
 }

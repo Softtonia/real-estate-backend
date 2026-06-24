@@ -3,16 +3,21 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class TemplateDisplayCondition extends Model
 {
-    use HasFactory;
-
-    protected $guarded = [];
+    protected $fillable = [
+        'template_id',
+        'show_type',
+        'source_type',
+        'post_type_slug',
+        'taxonomy_slug',
+        'taxonomy_term_ids',
+        'relation',
+    ];
 
     protected $casts = [
-        'condition_value' => 'array',
+        'taxonomy_term_ids' => 'array',
     ];
 
     public function template()

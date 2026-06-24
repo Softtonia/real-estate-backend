@@ -666,16 +666,43 @@ class DynamicPostController extends Controller
                 continue;
             }
 
-            $relatedPostTypeId = (int) (
-                $item['post_type_id']
-                ?? $item['related_post_type_id']
-                ?? (is_numeric($key) ? $key : 0)
-            );
+            $relatedPostTypeId = 0;
+            $postIds = [];
 
-            $postIds = $item['post_ids']
-                ?? $item['related_post_ids']
-                ?? $item['ids']
-                ?? [];
+            // Case 1:
+            // relationship_post_types: [
+            //   { post_type_id: 3, post_ids: [18, 19] }
+            // ]
+            if (isset($item['post_type_id']) || isset($item['related_post_type_id'])) {
+                $relatedPostTypeId = (int) ($item['post_type_id'] ?? $item['related_post_type_id']);
+                $postIds = $item['post_ids']
+                    ?? $item['related_post_ids']
+                    ?? $item['ids']
+                    ?? [];
+            }
+
+            // Case 2:
+            // relationship_post_types: {
+            //   "3": { post_ids: [18, 19] },
+            //   "2": { post_ids: [10, 11] }
+            // }
+            elseif (is_numeric($key) && (isset($item['post_ids']) || isset($item['related_post_ids']) || isset($item['ids']))) {
+                $relatedPostTypeId = (int) $key;
+                $postIds = $item['post_ids']
+                    ?? $item['related_post_ids']
+                    ?? $item['ids']
+                    ?? [];
+            }
+
+            // Case 3:
+            // relationship_post_types: {
+            //   "3": [18, 19],
+            //   "2": [10, 11]
+            // }
+            elseif (is_numeric($key)) {
+                $relatedPostTypeId = (int) $key;
+                $postIds = $item;
+            }
 
             if (!empty($item['post_id'])) {
                 $postIds[] = $item['post_id'];
@@ -683,6 +710,7 @@ class DynamicPostController extends Controller
 
             if (is_string($postIds)) {
                 $decodedPostIds = json_decode($postIds, true);
+
                 $postIds = is_array($decodedPostIds)
                     ? $decodedPostIds
                     : (str_contains($postIds, ',') ? explode(',', $postIds) : [$postIds]);
@@ -896,14 +924,18 @@ class DynamicPostController extends Controller
                 'name' => (string) $relatedPostType->name,
                 'slug' => (string) $relatedPostType->slug,
 
-                // UI compatibility
+                // Important for frontend dropdown
                 'id' => (int) $relatedPostType->id,
                 'label' => (string) $relatedPostType->name,
                 'value' => (int) $relatedPostType->id,
 
-                // Field config
                 'field_label' => (string) $relatedPostType->name,
-                'field_name' => 'relationship_post_types',
+
+                // IMPORTANT: unique field_name for each related post type
+                // Example: relationship_post_types.3.post_ids
+                'field_name' => 'relationship_post_types.' . $relatedPostType->id . '.post_ids',
+
+                'post_type_field_name' => 'relationship_post_types.' . $relatedPostType->id . '.post_type_id',
                 'selection_type' => 'multiple',
                 'multiple' => true,
 
@@ -1163,6 +1195,7 @@ class DynamicPostController extends Controller
             'author_id' => ['nullable', 'integer', 'exists:users,id'],
             'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
             'relationship_post_types' => ['nullable', 'array'],
+            'relationship_post_types.*' => ['nullable'],
             'relationship_post_types.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'relationship_post_types.*.related_post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'relationship_post_types.*.post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
@@ -1170,7 +1203,9 @@ class DynamicPostController extends Controller
             'relationship_post_types.*.post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
             'relationship_post_types.*.related_post_ids' => ['nullable', 'array'],
             'relationship_post_types.*.related_post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
+
             'related_posts' => ['nullable', 'array'],
+            'related_posts.*' => ['nullable'],
             'related_posts.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'related_posts.*.related_post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'related_posts.*.post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
