@@ -1191,7 +1191,7 @@ class DynamicPostController extends Controller
             $normalFields[] = $field;
         }
 
-        // Normal custom fields only
+        //Normal custom fields only
         if (!empty($normalFields)) {
             $serviceFields = collect($normalFields)
                 ->map(function ($field) {
