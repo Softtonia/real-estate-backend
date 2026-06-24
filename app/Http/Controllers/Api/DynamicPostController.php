@@ -414,6 +414,13 @@ class DynamicPostController extends Controller
                     ->where('entity_id', $post->id)
                     ->delete();
 
+                if (Schema::hasTable('custom_field_repeater_values')) {
+                    DB::table('custom_field_repeater_values')
+                        ->where('entity_type', 'post')
+                        ->where('entity_id', $post->id)
+                        ->delete();
+                }
+
                 $post->taxonomyTerms()->detach();
                 $post->delete();
             });
@@ -453,6 +460,13 @@ class DynamicPostController extends Controller
                 CustomFieldValue::where('entity_type', 'post')
                     ->whereIn('entity_id', $existingIds)
                     ->delete();
+
+                if (Schema::hasTable('custom_field_repeater_values')) {
+                    DB::table('custom_field_repeater_values')
+                        ->where('entity_type', 'post')
+                        ->whereIn('entity_id', $existingIds)
+                        ->delete();
+                }
 
                 DB::table('post_taxonomy_terms')
                     ->whereIn('dynamic_post_id', $existingIds)
@@ -1213,7 +1227,11 @@ class DynamicPostController extends Controller
     private function saveCustomFieldRepeaterValues(int $entityId, string $entityType, array $fields): void
     {
         if (!Schema::hasTable('custom_field_repeater_values')) {
-            return;
+            throw ValidationException::withMessages([
+                'custom_field_repeater_values' => [
+                    'custom_field_repeater_values table does not exist. Please run migration first.',
+                ],
+            ]);
         }
 
         $columns = Schema::getColumnListing('custom_field_repeater_values');
@@ -1252,7 +1270,7 @@ class DynamicPostController extends Controller
         $now = now();
         $insertRows = [];
 
-        foreach ($fieldsWithRepeaters as $field) {
+        foreach ($fieldsWithRepeaters as $fieldIndex => $field) {
             $customFieldId = (int) ($field['custom_field_id'] ?? 0);
 
             if (!$customFieldId) {
@@ -1267,12 +1285,29 @@ class DynamicPostController extends Controller
             $rows = $this->normalizeRepeaterRowsOnly($repeaters);
 
             if (empty($rows)) {
-                continue;
+                throw ValidationException::withMessages([
+                    "custom_fields.{$fieldIndex}.repeaters" => [
+                        "Repeater rows are empty or invalid for custom_field_id {$customFieldId}.",
+                    ],
+                ]);
             }
 
             $repeaterDefinitions = CustomFieldRepeater::where('custom_field_id', $customFieldId)
-                ->get()
-                ->keyBy('field_name_slug');
+                ->get();
+
+            if ($repeaterDefinitions->isEmpty()) {
+                throw ValidationException::withMessages([
+                    "custom_fields.{$fieldIndex}.repeaters" => [
+                        "No repeater fields found in custom_field_repeaters for custom_field_id {$customFieldId}.",
+                    ],
+                ]);
+            }
+
+            $definitionsBySlug = $repeaterDefinitions->keyBy('field_name_slug');
+            $definitionsById = $repeaterDefinitions->keyBy('id');
+            $definitionsByNormalizedSlug = $repeaterDefinitions->keyBy(function ($definition) {
+                return $this->normalizeRepeaterFieldKey($definition->field_name_slug ?: $definition->field_label);
+            });
 
             foreach ($rows as $rowIndex => $rowData) {
                 if (!is_array($rowData)) {
@@ -1284,16 +1319,26 @@ class DynamicPostController extends Controller
                         continue;
                     }
 
-                    $repeaterDefinition = $repeaterDefinitions->get((string) $fieldSlug);
+                    $fieldSlugString = (string) $fieldSlug;
 
-                    if (!$repeaterDefinition && is_numeric($fieldSlug)) {
-                        $repeaterDefinition = CustomFieldRepeater::where('custom_field_id', $customFieldId)
-                            ->where('id', (int) $fieldSlug)
-                            ->first();
+                    $repeaterDefinition = $definitionsBySlug->get($fieldSlugString);
+
+                    if (!$repeaterDefinition && is_numeric($fieldSlugString)) {
+                        $repeaterDefinition = $definitionsById->get((int) $fieldSlugString);
                     }
 
                     if (!$repeaterDefinition) {
-                        continue;
+                        $repeaterDefinition = $definitionsByNormalizedSlug->get(
+                            $this->normalizeRepeaterFieldKey($fieldSlugString)
+                        );
+                    }
+
+                    if (!$repeaterDefinition) {
+                        throw ValidationException::withMessages([
+                            "custom_fields.{$fieldIndex}.repeaters.{$fieldSlugString}" => [
+                                "Repeater field '{$fieldSlugString}' does not match any field_name_slug in custom_field_repeaters for custom_field_id {$customFieldId}.",
+                            ],
+                        ]);
                     }
 
                     $insertRows[] = $this->buildCustomFieldRepeaterValueRow(
@@ -1311,9 +1356,15 @@ class DynamicPostController extends Controller
             }
         }
 
-        if (!empty($insertRows)) {
-            DB::table('custom_field_repeater_values')->insert($insertRows);
+        if (empty($insertRows)) {
+            throw ValidationException::withMessages([
+                'repeaters' => [
+                    'No repeater values prepared for insert. Please check repeater payload and field_name_slug.',
+                ],
+            ]);
         }
+
+        DB::table('custom_field_repeater_values')->insert($insertRows);
     }
 
     private function buildCustomFieldRepeaterValueRow(
@@ -1751,11 +1802,13 @@ class DynamicPostController extends Controller
                 $normalizedRepeaterRows = $this->normalizeRepeaterRowsForSave($repeatersWithUploadedFiles);
 
                 $customFields[$index]['_repeater_values'] = $normalizedRepeaterRows;
-                $customFields[$index]['value_json'] = $normalizedRepeaterRows;
 
+                // Repeater values are stored only in custom_field_repeater_values.
+                // Do not save repeater rows inside custom_field_values.value_json.
                 unset(
                     $customFields[$index]['repeaters'],
                     $customFields[$index]['value_repeaters'],
+                    $customFields[$index]['value_json'],
                     $customFields[$index]['value_string'],
                     $customFields[$index]['value_text'],
                     $customFields[$index]['value_number'],
@@ -2093,6 +2146,11 @@ class DynamicPostController extends Controller
                 'custom_field_repeater_id',
                 'field_name_slug',
             ], true));
+    }
+
+    private function normalizeRepeaterFieldKey(string $key): string
+    {
+        return Str::slug(trim($key), '_');
     }
 
     private function appendMissingMediaCustomFieldDeletes(DynamicPost $post, array $customFields): array

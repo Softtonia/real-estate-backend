@@ -26,7 +26,6 @@ class CustomFieldValue extends Model
         'value_json' => 'array',
     ];
 
-
     public function customField()
     {
         return $this->belongsTo(CustomField::class, 'custom_field_id');
@@ -101,7 +100,6 @@ class CustomFieldValue extends Model
         return $this->value_text;
     }
 
-
     public function getFormattedValueAttribute()
     {
         $customField = $this->customField;
@@ -128,10 +126,15 @@ class CustomFieldValue extends Model
                 if (is_array($this->value_json)) {
                     return $this->value_json;
                 }
+
                 $optionIds = array_filter(explode(',', $this->value_string ?? ''));
                 return array_map(fn($id) => ['custom_field_option_id' => (int) $id], $optionIds);
 
             case 'repeater':
+                // Repeater rows are stored separately in custom_field_repeater_values.
+                // Controller adds them as `repeaters` in the API response.
+                return null;
+
             case 'media':
             case 'file':
                 return $this->value_json ?? [];
