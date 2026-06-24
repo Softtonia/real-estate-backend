@@ -45,7 +45,10 @@ class CustomFieldRepeater extends Model
     {
         return $this->belongsTo(CustomField::class, 'custom_field_id');
     }
-
+    public function values()
+    {
+        return $this->hasMany(CustomFieldRepeaterValue::class, 'custom_field_repeater_id');
+    }
     public function options()
     {
         return $this->hasMany(CustomFieldRepeaterOption::class, 'custom_field_repeater_id')

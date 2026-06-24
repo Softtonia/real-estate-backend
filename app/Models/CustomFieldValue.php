@@ -26,6 +26,7 @@ class CustomFieldValue extends Model
         'value_json' => 'array',
     ];
 
+
     public function customField()
     {
         return $this->belongsTo(CustomField::class, 'custom_field_id');

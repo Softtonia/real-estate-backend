@@ -9,8 +9,10 @@ class CustomFieldValueService
 {
     /**
      * Field types that store JSON data.
+     * Repeater removed because repeater values are stored separately
+     * in custom_field_repeater_values table.
      */
-    private const JSON_FIELD_TYPES = ['checkbox', 'repeater', 'media', 'file'];
+    private const JSON_FIELD_TYPES = ['checkbox', 'media', 'file'];
 
     /**
      * Main entry point: Save custom field values for an entity.
@@ -32,18 +34,39 @@ class CustomFieldValueService
                 continue;
             }
 
-            $resolved = $this->resolveValue($customField, $field);
-
+            /*
+             |--------------------------------------------------------------------------
+             | Repeater Field
+             |--------------------------------------------------------------------------
+             |
+             | Repeater values should NOT be stored in custom_field_values.value_json.
+             | Only parent field record is created here.
+             | Actual repeater values are saved separately in:
+             | custom_field_repeater_values
+             |
+             */
             if ($customField->field_type === 'repeater') {
-                $this->saveRepeaterValues(
-                    $entityId,
-                    $entityType,
-                    $customField,
-                    $resolved['value_json'] ?? []
+                CustomFieldValue::updateOrCreate(
+                    [
+                        'entity_type' => $entityType,
+                        'entity_id' => $entityId,
+                        'custom_field_id' => $customField->id,
+                    ],
+                    [
+                        'custom_field_option_id' => null,
+                        'value_text' => null,
+                        'value_string' => null,
+                        'value_number' => null,
+                        'value_date' => null,
+                        'value_datetime' => null,
+                        'value_json' => null,
+                    ]
                 );
 
                 continue;
             }
+
+            $resolved = $this->resolveValue($customField, $field);
 
             CustomFieldValue::updateOrCreate(
                 [
@@ -78,7 +101,7 @@ class CustomFieldValueService
             return $record;
         }
 
-        if (is_array($rawValue) && !in_array($fieldType, ['checkbox', 'media', 'file', 'repeater'], true)) {
+        if (is_array($rawValue) && !in_array($fieldType, ['checkbox', 'media', 'file'], true)) {
             $record['value_json'] = $rawValue;
             return $record;
         }
@@ -133,10 +156,6 @@ class CustomFieldValueService
                 $record['value_json'] = $this->normalizeMediaValue($rawValue);
                 break;
 
-            case 'repeater':
-                $record['value_json'] = $rawValue;
-                break;
-
             default:
                 $record['value_text'] = is_array($rawValue)
                     ? json_encode($rawValue, JSON_UNESCAPED_SLASHES)
@@ -163,8 +182,6 @@ class CustomFieldValueService
     private function resolveLegacyValue(array $field): mixed
     {
         return $field['value']
-            ?? $field['repeaters']
-            ?? $field['value_repeaters']
             ?? $field['value_text']
             ?? $field['value_string']
             ?? $field['value_number']
@@ -313,232 +330,6 @@ class CustomFieldValueService
         return [['url' => (string) $rawValue]];
     }
 
-    /**
-     * Save repeater custom field.
-     *
-     * Supported payloads:
-     *
-     * 1. Without rows:
-     * repeaters: [
-     *   { floor_name: "vijay", test: "kumar" },
-     *   { floor_name: "rahul", test: "sharma" }
-     * ]
-     *
-     * 2. With rows:
-     * repeaters: [
-     *   {
-     *     rows: [
-     *       { floor_name: "vijay", test: "kumar" }
-     *     ]
-     *   }
-     * ]
-     *
-     * 3. Already wrapped:
-     * value_json: {
-     *   repeaters: [...]
-     * }
-     */
-    private function saveRepeaterValues(
-        int $entityId,
-        string $entityType,
-        CustomField $customField,
-        mixed $repeaterData
-    ): void {
-        $blocks = $this->normalizeRepeaterBlocks($repeaterData);
-
-        $repeaterFields = $customField->activeRepeaters()
-            ->get()
-            ->keyBy('field_name_slug');
-
-        $normalizedBlocks = [];
-
-        foreach ($blocks as $block) {
-            if (!is_array($block)) {
-                continue;
-            }
-
-            $rows = $block['rows'] ?? [];
-
-            if (empty($rows) && $this->looksLikeSingleRepeaterRow($block)) {
-                $rows = [$block];
-            }
-
-            if (is_string($rows)) {
-                $decodedRows = json_decode($rows, true);
-                $rows = is_array($decodedRows) ? $decodedRows : [];
-            }
-
-            if (!is_array($rows)) {
-                $rows = [];
-            }
-
-            if (!$this->isListArray($rows) && $this->looksLikeSingleRepeaterRow($rows)) {
-                $rows = [$rows];
-            }
-
-            $normalizedRows = [];
-
-            foreach ($rows as $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-
-                $normalizedRow = [];
-
-                foreach ($row as $fieldSlug => $fieldValue) {
-                    if (str_starts_with((string) $fieldSlug, '_')) {
-                        continue;
-                    }
-
-                    $repeaterField = $repeaterFields->get((string) $fieldSlug);
-
-                    if (!$repeaterField) {
-                        $normalizedRow[$fieldSlug] = $fieldValue;
-                        continue;
-                    }
-
-                    $normalizedRow[$fieldSlug] = $this->normalizeRepeaterFieldValue(
-                        $repeaterField,
-                        $fieldValue
-                    );
-                }
-
-                if (!empty($normalizedRow)) {
-                    $normalizedRows[] = $normalizedRow;
-                }
-            }
-
-            $normalizedBlocks[] = [
-                'custom_field_repeater_id' => $block['custom_field_repeater_id'] ?? null,
-                'field_name_slug' => $block['field_name_slug'] ?? null,
-                'rows' => $normalizedRows,
-            ];
-        }
-
-        CustomFieldValue::updateOrCreate(
-            [
-                'entity_type' => $entityType,
-                'entity_id' => $entityId,
-                'custom_field_id' => $customField->id,
-            ],
-            [
-                'custom_field_option_id' => null,
-                'value_text' => null,
-                'value_string' => null,
-                'value_number' => null,
-                'value_date' => null,
-                'value_datetime' => null,
-                'value_json' => [
-                    'repeaters' => $normalizedBlocks,
-                ],
-            ]
-        );
-    }
-
-    private function normalizeRepeaterBlocks(mixed $repeaterData): array
-    {
-        if (is_string($repeaterData)) {
-            $decoded = json_decode($repeaterData, true);
-            $repeaterData = is_array($decoded) ? $decoded : [];
-        }
-
-        if (!is_array($repeaterData)) {
-            return [];
-        }
-
-        if (isset($repeaterData['repeaters']) && is_array($repeaterData['repeaters'])) {
-            return $repeaterData['repeaters'];
-        }
-
-        if (isset($repeaterData['rows']) && is_array($repeaterData['rows'])) {
-            return [$repeaterData];
-        }
-
-        if ($this->isListArray($repeaterData)) {
-            return [
-                [
-                    'custom_field_repeater_id' => null,
-                    'field_name_slug' => null,
-                    'rows' => $repeaterData,
-                ],
-            ];
-        }
-
-        if ($this->looksLikeSingleRepeaterRow($repeaterData)) {
-            return [
-                [
-                    'custom_field_repeater_id' => null,
-                    'field_name_slug' => null,
-                    'rows' => [$repeaterData],
-                ],
-            ];
-        }
-
-        return [];
-    }
-
-    private function normalizeRepeaterFieldValue($repeaterField, mixed $fieldValue): mixed
-    {
-        switch ($repeaterField->field_type) {
-            case 'boolean':
-                return $this->normalizeBoolean($fieldValue);
-
-            case 'number':
-                return is_numeric($fieldValue) ? $fieldValue : null;
-
-            case 'date':
-                return $this->normalizeDate($fieldValue);
-
-            case 'datetime':
-                return $this->normalizeDatetime($fieldValue);
-
-            case 'checkbox':
-                return is_array($fieldValue) ? $fieldValue : [(string) $fieldValue];
-
-            case 'select':
-            case 'radio':
-                $option = $repeaterField->options()
-                    ->where(function ($q) use ($fieldValue) {
-                        $q->where('value', (string) $fieldValue)
-                            ->orWhere('id', is_numeric($fieldValue) ? (int) $fieldValue : 0);
-                    })
-                    ->first();
-
-                return $option ? $option->value : (string) $fieldValue;
-
-            case 'media':
-            case 'file':
-                return $this->normalizeMediaValue($fieldValue);
-
-            default:
-                return is_array($fieldValue) ? $fieldValue : (string) $fieldValue;
-        }
-    }
-
-    private function looksLikeSingleRepeaterRow(array $row): bool
-    {
-        if (empty($row)) {
-            return false;
-        }
-
-        return !array_key_exists('rows', $row)
-            && collect(array_keys($row))->contains(function ($key) {
-                return !in_array($key, [
-                    'custom_field_repeater_id',
-                    'field_name_slug',
-                ], true);
-            });
-    }
-
-    private function isListArray(array $array): bool
-    {
-        if ($array === []) {
-            return true;
-        }
-
-        return array_keys($array) === range(0, count($array) - 1);
-    }
-
     public static function formatValue(CustomFieldValue $value): array
     {
         $customField = $value->customField;
@@ -587,7 +378,17 @@ class CustomFieldValueService
                 break;
 
             case 'repeater':
-                $formattedValue = $value->value_json ?? [];
+                /*
+                 |--------------------------------------------------------------------------
+                 | Repeater values are stored separately
+                 |--------------------------------------------------------------------------
+                 |
+                 | Actual repeater rows are not stored in custom_field_values.value_json.
+                 | They should be fetched from custom_field_repeater_values table
+                 | inside the controller response formatter.
+                 |
+                 */
+                $formattedValue = null;
                 break;
 
             case 'media':

@@ -99,11 +99,11 @@ class DynamicPost extends Model
             ->where('entity_type', 'post');
     }
 
- public function customFieldValues()
-{
-    return $this->hasMany(CustomFieldValue::class, 'entity_id')
-        ->where('entity_type', 'post');
-}
+    public function customFieldValues()
+    {
+        return $this->hasMany(CustomFieldValue::class, 'entity_id')
+            ->where('entity_type', 'post');
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -223,5 +223,10 @@ class DynamicPost extends Model
     public function isUnderReview(): bool
     {
         return $this->live_status === 'under_review';
+    }
+    public function repeaterValues()
+    {
+        return $this->hasMany(CustomFieldRepeaterValue::class, 'entity_id')
+            ->where('entity_type', 'post');
     }
 }
