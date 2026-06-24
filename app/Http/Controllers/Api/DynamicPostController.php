@@ -212,11 +212,13 @@ class DynamicPostController extends Controller
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
             $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
             $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
+            $relationshipPostTypes = $this->normalizeRelationshipPostTypeInputs($validated);
 
             $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
             $this->validateDependentTaxonomySelections($taxonomyTermIds);
             $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
+            $this->validateSubmittedRelationshipPostTypes($postType, $relationshipPostTypes);
 
             $slug = !empty($validated['slug'])
                 ? Str::slug($validated['slug'])
@@ -236,7 +238,7 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields, $postType) {
+            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields, $postType, $relationshipPostTypes) {
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
                 $postData['slug'] = $slug;
@@ -251,6 +253,7 @@ class DynamicPostController extends Controller
                 $post = DynamicPost::create($postData);
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
+                $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
                 $this->saveCustomFieldValues($post->id, 'post', $customFields);
 
                 return $post;
@@ -314,7 +317,11 @@ class DynamicPostController extends Controller
             $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
 
             $hasTaxonomyPayload = array_key_exists('taxonomies', $validated) || array_key_exists('taxonomy_term_ids', $validated);
+            $hasRelationshipPayload = array_key_exists('relationship_post_types', $validated) || array_key_exists('related_posts', $validated);
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
+            $relationshipPostTypes = $hasRelationshipPayload
+                ? $this->normalizeRelationshipPostTypeInputs($validated)
+                : null;
 
             $taxonomyTermIds = $hasTaxonomyPayload
                 ? $this->normalizeSubmittedTaxonomyTermIds($validated)
@@ -342,6 +349,10 @@ class DynamicPostController extends Controller
                 $this->validateSubmittedCustomFieldsForPostType($postType, $effectiveTermIds, $customFields);
             }
 
+            if (is_array($relationshipPostTypes)) {
+                $this->validateSubmittedRelationshipPostTypes($postType, $relationshipPostTypes, $post->id);
+            }
+
             $newSlug = $post->slug;
 
             if (array_key_exists('slug', $validated) && !empty($validated['slug'])) {
@@ -365,7 +376,7 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields) {
+            DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields, $relationshipPostTypes) {
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
                 $postData['slug'] = $newSlug;
@@ -378,6 +389,10 @@ class DynamicPostController extends Controller
 
                 if (is_array($taxonomyTermIds)) {
                     $this->syncTaxonomyTerms($post, $taxonomyTermIds);
+                }
+
+                if (is_array($relationshipPostTypes)) {
+                    $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
                 }
 
                 if (is_array($customFields)) {
@@ -418,6 +433,13 @@ class DynamicPostController extends Controller
                     DB::table('custom_field_repeater_values')
                         ->where('entity_type', 'post')
                         ->where('entity_id', $post->id)
+                        ->delete();
+                }
+
+                if (Schema::hasTable('dynamic_post_relationships')) {
+                    DB::table('dynamic_post_relationships')
+                        ->where('dynamic_post_id', $post->id)
+                        ->orWhere('related_post_id', $post->id)
                         ->delete();
                 }
 
@@ -465,6 +487,13 @@ class DynamicPostController extends Controller
                     DB::table('custom_field_repeater_values')
                         ->where('entity_type', 'post')
                         ->whereIn('entity_id', $existingIds)
+                        ->delete();
+                }
+
+                if (Schema::hasTable('dynamic_post_relationships')) {
+                    DB::table('dynamic_post_relationships')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->orWhereIn('related_post_id', $existingIds)
                         ->delete();
                 }
 
@@ -612,6 +641,240 @@ class DynamicPostController extends Controller
         }
     }
 
+    private function normalizeRelationshipPostTypeInputs(array $validated): array
+    {
+        $input = $validated['relationship_post_types'] ?? $validated['related_posts'] ?? [];
+
+        if (is_string($input)) {
+            $decoded = json_decode($input, true);
+            $input = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($input)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($input as $key => $item) {
+            if (is_string($item)) {
+                $decodedItem = json_decode($item, true);
+                $item = is_array($decodedItem) ? $decodedItem : [];
+            }
+
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $relatedPostTypeId = (int) (
+                $item['post_type_id']
+                ?? $item['related_post_type_id']
+                ?? (is_numeric($key) ? $key : 0)
+            );
+
+            $postIds = $item['post_ids']
+                ?? $item['related_post_ids']
+                ?? $item['ids']
+                ?? [];
+
+            if (!empty($item['post_id'])) {
+                $postIds[] = $item['post_id'];
+            }
+
+            if (is_string($postIds)) {
+                $decodedPostIds = json_decode($postIds, true);
+                $postIds = is_array($decodedPostIds)
+                    ? $decodedPostIds
+                    : (str_contains($postIds, ',') ? explode(',', $postIds) : [$postIds]);
+            }
+
+            $postIds = collect((array) $postIds)
+                ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->toArray();
+
+            if ($relatedPostTypeId && !empty($postIds)) {
+                $normalized[] = [
+                    'post_type_id' => $relatedPostTypeId,
+                    'post_ids' => $postIds,
+                ];
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function validateSubmittedRelationshipPostTypes(PostType $postType, array $relationships, ?int $currentPostId = null): void
+    {
+        if (empty($relationships)) {
+            return;
+        }
+
+        if (!Schema::hasTable('dynamic_post_relationships')) {
+            throw ValidationException::withMessages([
+                'relationship_post_types' => [
+                    'dynamic_post_relationships table does not exist. Please run migration first.',
+                ],
+            ]);
+        }
+
+        $allowedPostTypeIds = $postType->activeRelatedPostTypes()
+            ->pluck('post_types.id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->toArray();
+
+        foreach ($relationships as $index => $relationship) {
+            $relatedPostTypeId = (int) ($relationship['post_type_id'] ?? 0);
+            $postIds = collect($relationship['post_ids'] ?? [])
+                ->filter()
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->toArray();
+
+            if (!$relatedPostTypeId || empty($postIds)) {
+                continue;
+            }
+
+            if (!in_array($relatedPostTypeId, $allowedPostTypeIds, true)) {
+                throw ValidationException::withMessages([
+                    "relationship_post_types.{$index}.post_type_id" => [
+                        'This related post type is not associated with selected post type.',
+                    ],
+                ]);
+            }
+
+            if ($currentPostId && in_array((int) $currentPostId, $postIds, true)) {
+                throw ValidationException::withMessages([
+                    "relationship_post_types.{$index}.post_ids" => [
+                        'A post cannot be related with itself.',
+                    ],
+                ]);
+            }
+
+            $validPostIds = DynamicPost::where('post_type_id', $relatedPostTypeId)
+                ->whereIn('id', $postIds)
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            $invalidPostIds = array_values(array_diff($postIds, $validPostIds));
+
+            if (!empty($invalidPostIds)) {
+                throw ValidationException::withMessages([
+                    "relationship_post_types.{$index}.post_ids" => [
+                        'Some selected posts do not belong to selected related post type: ' . implode(', ', $invalidPostIds),
+                    ],
+                ]);
+            }
+        }
+    }
+
+    private function syncDynamicPostRelationships(DynamicPost $post, array $relationships): void
+    {
+        if (!Schema::hasTable('dynamic_post_relationships')) {
+            return;
+        }
+
+        DB::table('dynamic_post_relationships')
+            ->where('dynamic_post_id', $post->id)
+            ->delete();
+
+        $now = now()->format('Y-m-d H:i:s');
+        $insertRows = [];
+
+        foreach ($relationships as $relationship) {
+            $relatedPostTypeId = (int) ($relationship['post_type_id'] ?? 0);
+            $postIds = collect($relationship['post_ids'] ?? [])
+                ->filter()
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->toArray();
+
+            foreach ($postIds as $relatedPostId) {
+                $insertRows[] = [
+                    'dynamic_post_id' => (int) $post->id,
+                    'related_post_type_id' => $relatedPostTypeId,
+                    'related_post_id' => $relatedPostId,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        if (!empty($insertRows)) {
+            DB::table('dynamic_post_relationships')->insert($insertRows);
+        }
+    }
+
+    private function formatRelationshipPostTypesForFrontend(DynamicPost $post): array
+    {
+        if (!Schema::hasTable('dynamic_post_relationships')) {
+            return [];
+        }
+
+        $relationshipRows = DB::table('dynamic_post_relationships')
+            ->where('dynamic_post_id', $post->id)
+            ->orderBy('related_post_type_id')
+            ->orderBy('related_post_id')
+            ->get();
+
+        if ($relationshipRows->isEmpty()) {
+            return [];
+        }
+
+        $postTypeIds = $relationshipRows->pluck('related_post_type_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $postIds = $relationshipRows->pluck('related_post_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $postTypes = PostType::whereIn('id', $postTypeIds)->get()->keyBy('id');
+        $posts = DynamicPost::query()
+            ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
+            ->whereIn('id', $postIds)
+            ->get()
+            ->keyBy('id');
+
+        return $relationshipRows
+            ->groupBy('related_post_type_id')
+            ->map(function ($rows, $postTypeId) use ($postTypes, $posts) {
+                $postType = $postTypes->get((int) $postTypeId);
+                $selectedPosts = $rows
+                    ->map(fn($row) => $posts->get((int) $row->related_post_id))
+                    ->filter()
+                    ->values();
+
+                return [
+                    'post_type_id' => (int) $postTypeId,
+                    'post_type_name' => $postType?->name,
+                    'post_type_slug' => $postType?->slug,
+                    'selected_post_ids' => $selectedPosts->pluck('id')->map(fn($id) => (int) $id)->values()->toArray(),
+                    'selected_posts' => $selectedPosts->map(fn($relatedPost) => [
+                        'id' => (int) $relatedPost->id,
+                        'title' => $relatedPost->title,
+                        'slug' => $relatedPost->slug,
+                        'status' => $relatedPost->status,
+                        'live_status' => $relatedPost->live_status,
+                    ])->values()->toArray(),
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
     private function buildRelationshipPostTypeFields(PostType $postType)
     {
         $relatedPostTypes = $postType->activeRelatedPostTypes()->get();
@@ -629,15 +892,16 @@ class DynamicPostController extends Controller
                 ->get();
 
             return [
-                'post_type_id' => $relatedPostType->id,
+                'post_type_id' => (int) $relatedPostType->id,
                 'name' => $relatedPostType->name,
                 'slug' => $relatedPostType->slug,
                 'field_label' => $relatedPostType->name,
-                'field_name' => 'parent_id',
-                'selection_type' => 'single',
-                'multiple' => false,
+                'field_name' => 'relationship_post_types',
+                'input_name' => 'relationship_post_types[' . $relatedPostType->id . '][post_ids]',
+                'selection_type' => 'multiple',
+                'multiple' => true,
                 'options' => $options->map(fn($post) => [
-                    'id' => $post->id,
+                    'id' => (int) $post->id,
                     'title' => $post->title,
                     'slug' => $post->slug,
                     'status' => $post->status,
@@ -883,6 +1147,20 @@ class DynamicPostController extends Controller
             'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
             'author_id' => ['nullable', 'integer', 'exists:users,id'],
             'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+            'relationship_post_types' => ['nullable', 'array'],
+            'relationship_post_types.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'relationship_post_types.*.related_post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'relationship_post_types.*.post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+            'relationship_post_types.*.post_ids' => ['nullable', 'array'],
+            'relationship_post_types.*.post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
+            'relationship_post_types.*.related_post_ids' => ['nullable', 'array'],
+            'relationship_post_types.*.related_post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
+            'related_posts' => ['nullable', 'array'],
+            'related_posts.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'related_posts.*.related_post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'related_posts.*.post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+            'related_posts.*.post_ids' => ['nullable', 'array'],
+            'related_posts.*.post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
             'published_at' => ['nullable', 'date'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'taxonomy_term_ids' => ['nullable'],
@@ -1134,6 +1412,8 @@ class DynamicPostController extends Controller
             $validated['taxonomy_term_ids'],
             $validated['taxonomies'],
             $validated['custom_fields'],
+            $validated['relationship_post_types'],
+            $validated['related_posts'],
             $validated['featured_image'],
             $validated['gallery_images'],
             $validated['post_type']
@@ -3222,6 +3502,7 @@ class DynamicPostController extends Controller
 
         $data['gallery_image_files'] = $galleryMedia;
         $data['meta'] = $this->formatMetaForFrontend($data['meta'] ?? []);
+        $data['selected_relationship_post_types'] = $this->formatRelationshipPostTypesForFrontend($post);
 
         return $data;
     }

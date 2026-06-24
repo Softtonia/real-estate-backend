@@ -229,4 +229,20 @@ class DynamicPost extends Model
         return $this->hasMany(CustomFieldRepeaterValue::class, 'entity_id')
             ->where('entity_type', 'post');
     }
+    public function relationships()
+    {
+        return $this->hasMany(DynamicPostRelationship::class, 'dynamic_post_id');
+    }
+
+    public function relatedPosts()
+    {
+        return $this->belongsToMany(
+            DynamicPost::class,
+            'dynamic_post_relationships',
+            'dynamic_post_id',
+            'related_post_id'
+        )
+            ->withPivot('related_post_type_id')
+            ->withTimestamps();
+    }
 }
