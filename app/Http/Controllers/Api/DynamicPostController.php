@@ -1267,7 +1267,7 @@ class DynamicPostController extends Controller
             ->whereIn('custom_field_id', $customFieldIds)
             ->delete();
 
-        $now = now();
+        $now = now()->format('Y-m-d H:i:s');
         $insertRows = [];
 
         foreach ($fieldsWithRepeaters as $fieldIndex => $field) {
