@@ -8,27 +8,43 @@ use Illuminate\Database\Eloquent\Model;
 class CustomFieldRepeaterValues extends Model
 {
     use HasFactory;
-    protected $guarded=[];
-    protected $table='custom_field_repeater_values';
-    
 
-    // Define the relationship with the CustomField model (assuming you have one)
+    protected $table = 'custom_field_repeater_values';
+
+    // Agar tumhari table ka primary key custom_repeater_value_id hai
+    protected $primaryKey = 'custom_repeater_value_id';
+
+    protected $guarded = [];
+
+    protected $casts = [
+        'entity_id' => 'integer',
+        'custom_field_id' => 'integer',
+        'custom_field_repeater_id' => 'integer',
+        'row_index' => 'integer',
+        'repeater_index' => 'integer',
+    ];
+
     public function customField()
     {
         return $this->belongsTo(CustomField::class, 'custom_field_id');
     }
 
-    // Define the relationship with the CustomFieldOption model (assuming you have one)
+    public function repeater()
+    {
+        return $this->belongsTo(CustomFieldRepeater::class, 'custom_field_repeater_id');
+    }
+
+    public function dynamicPost()
+    {
+        return $this->belongsTo(DynamicPost::class, 'entity_id')
+            ->where('entity_type', 'post');
+    }
+
     public function customFieldRepeaterOption()
     {
-        return $this->belongsTo(CustomFieldRepeaterOption::class, 'custom_field_repeater_options_id');
+        return $this->belongsTo(
+            CustomFieldRepeaterOption::class,
+            'custom_field_repeater_options_id'
+        );
     }
-
-    // A custom field value belongs to a developer listing
-    public function developerListing()
-    {
-        return $this->belongsTo(DeveloperListing::class, 'developer_listing_id');
-    }
-
-
 }
