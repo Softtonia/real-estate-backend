@@ -414,7 +414,15 @@ class DynamicPostController extends Controller
                     ->where('entity_id', $post->id)
                     ->delete();
 
+                if (Schema::hasTable('custom_field_repeater_values')) {
+                    DB::table('custom_field_repeater_values')
+                        ->where('entity_type', 'post')
+                        ->where('entity_id', $post->id)
+                        ->delete();
+                }
+
                 $post->taxonomyTerms()->detach();
+
                 $post->delete();
             });
 
@@ -454,6 +462,13 @@ class DynamicPostController extends Controller
                     ->whereIn('entity_id', $existingIds)
                     ->delete();
 
+                if (Schema::hasTable('custom_field_repeater_values')) {
+                    DB::table('custom_field_repeater_values')
+                        ->where('entity_type', 'post')
+                        ->whereIn('entity_id', $existingIds)
+                        ->delete();
+                }
+
                 DB::table('post_taxonomy_terms')
                     ->whereIn('dynamic_post_id', $existingIds)
                     ->delete();
@@ -472,7 +487,6 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to delete selected dynamic posts.', 500, $e->getMessage());
         }
     }
-
     public function byPostType(string $slug, Request $request): JsonResponse
     {
         try {
@@ -1608,8 +1622,12 @@ class DynamicPostController extends Controller
         }
     }
 
-    private function prepareCustomFieldsForSave(Request $request, array $validated, PostType $postType, ?DynamicPost $existingPost = null): array
-    {
+    private function prepareCustomFieldsForSave(
+        Request $request,
+        array $validated,
+        PostType $postType,
+        ?DynamicPost $existingPost = null
+    ): array {
         $customFields = $validated['custom_fields'] ?? [];
 
         foreach ($customFields as $index => $fieldData) {
@@ -1628,6 +1646,12 @@ class DynamicPostController extends Controller
             $oldValueJson = $existingPost
                 ? $this->getExistingCustomFieldValueJson($existingPost->id, $fieldId)
                 : [];
+
+            /*
+        |--------------------------------------------------------------------------
+        | Media / File Custom Field Handling
+        |--------------------------------------------------------------------------
+        */
 
             $isMediaField = in_array($customField->field_type, ['media', 'file'], true);
 
@@ -1666,6 +1690,7 @@ class DynamicPostController extends Controller
                     }
 
                     $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
+
                     $customFields[$index]['value_json'] = $newValueJson;
 
                     unset(
@@ -1688,6 +1713,16 @@ class DynamicPostController extends Controller
                 }
             }
 
+            /*
+        |--------------------------------------------------------------------------
+        | Repeater Custom Field Handling
+        |--------------------------------------------------------------------------
+        | Important:
+        | Repeater data will NOT be saved in custom_field_values.
+        | It will only go into custom_field_repeater_values through _repeater_values.
+        |--------------------------------------------------------------------------
+        */
+
             $repeaterInput = $this->extractRepeaterInputFromFieldData($fieldData, $customField);
 
             if (!is_null($repeaterInput)) {
@@ -1702,13 +1737,11 @@ class DynamicPostController extends Controller
                 $normalizedRepeaters = $this->normalizeRepeaterValuesForSave($repeatersWithUploadedFiles);
 
                 $customFields[$index]['_repeater_values'] = $normalizedRepeaters;
-                $customFields[$index]['value_json'] = [
-                    'repeaters' => $normalizedRepeaters,
-                ];
 
                 unset(
                     $customFields[$index]['repeaters'],
                     $customFields[$index]['value_repeaters'],
+                    $customFields[$index]['value_json'],
                     $customFields[$index]['value_string'],
                     $customFields[$index]['value_text'],
                     $customFields[$index]['value_number'],
@@ -1725,7 +1758,6 @@ class DynamicPostController extends Controller
 
         return $customFields;
     }
-
     private function extractRepeaterInputFromFieldData(array $fieldData, CustomField $customField): mixed
     {
         if (array_key_exists('repeaters', $fieldData)) {

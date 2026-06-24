@@ -19,7 +19,7 @@ class CustomFieldValueService
     /**
      * Field types that store JSON data.
      */
-    private const JSON_FIELD_TYPES = ['checkbox', 'repeater', 'media', 'file'];
+    private const JSON_FIELD_TYPES = ['checkbox', 'media', 'file'];
 
     /**
      * Main entry point: Save custom field values for an entity.
@@ -41,17 +41,25 @@ class CustomFieldValueService
             }
 
             $customField = CustomField::find($field['custom_field_id']);
+
             if (!$customField) {
                 continue;
             }
 
-            // Resolve the value
-            $resolved = $this->resolveValue($customField, $field);
-
+            /*
+        |--------------------------------------------------------------------------
+        | IMPORTANT
+        |--------------------------------------------------------------------------
+        | Repeater fields are not saved here.
+        | Repeater fields are saved separately in custom_field_repeater_values
+        | from DynamicPostController.
+        |--------------------------------------------------------------------------
+        */
             if ($customField->field_type === 'repeater') {
-                $this->saveRepeaterValues($entityId, $entityType, $customField, $resolved['value_json'] ?? []);
                 continue;
             }
+
+            $resolved = $this->resolveValue($customField, $field);
 
             CustomFieldValue::updateOrCreate(
                 [
