@@ -1705,6 +1705,18 @@ class DynamicPostController extends Controller
             return;
         }
 
+        /*
+         |--------------------------------------------------------------------------
+         | Important for update
+         |--------------------------------------------------------------------------
+         |
+         | Frontend often sends existing file objects in FormData as "[object Object]".
+         | Before deleting old repeater rows, keep old media/file values so we can
+         | retain them when user has not selected a new file.
+         |
+         */
+        $oldRepeaterValues = $this->getExistingRepeaterValueMap($entityId, $entityType, $customFieldIds);
+
         DB::table('custom_field_repeater_values')
             ->where('entity_type', $entityType)
             ->where('entity_id', $entityId)
@@ -1785,6 +1797,15 @@ class DynamicPostController extends Controller
                         ]);
                     }
 
+                    $definitionSlug = (string) $repeaterDefinition->field_name_slug;
+                    $oldValue = $oldRepeaterValues[$customFieldId][(int) $rowIndex][$definitionSlug] ?? null;
+
+                    $value = $this->resolveRepeaterSubmittedValue(
+                        $value,
+                        $repeaterDefinition,
+                        $oldValue
+                    );
+
                     $insertRows[] = $this->buildCustomFieldRepeaterValueRow(
                         $columns,
                         $entityType,
@@ -1854,8 +1875,173 @@ class DynamicPostController extends Controller
         return $row;
     }
 
+    private function getExistingRepeaterValueMap(int $entityId, string $entityType, array $customFieldIds): array
+    {
+        if (empty($customFieldIds) || !Schema::hasTable('custom_field_repeater_values')) {
+            return [];
+        }
+
+        $existingRows = DB::table('custom_field_repeater_values')
+            ->where('entity_type', $entityType)
+            ->where('entity_id', $entityId)
+            ->whereIn('custom_field_id', $customFieldIds)
+            ->get();
+
+        $map = [];
+
+        foreach ($existingRows as $row) {
+            $customFieldId = (int) ($row->custom_field_id ?? 0);
+            $rowIndex = (int) ($row->row_index ?? 0);
+            $fieldSlug = (string) ($row->field_name_slug ?? '');
+
+            if (!$customFieldId || $fieldSlug === '') {
+                continue;
+            }
+
+            $decodedValue = $this->decodeStoredRepeaterValue($row);
+
+            if ($this->isInvalidObjectPlaceholder($decodedValue)) {
+                continue;
+            }
+
+            $map[$customFieldId][$rowIndex][$fieldSlug] = $decodedValue;
+        }
+
+        return $map;
+    }
+
+    private function decodeStoredRepeaterValue(object $row): mixed
+    {
+        foreach (['value_json', 'field_meta_value', 'value_string', 'value_text', 'value_number', 'value_date', 'value_datetime'] as $column) {
+            if (!property_exists($row, $column)) {
+                continue;
+            }
+
+            $value = $row->{$column};
+
+            if (is_null($value) || $value === '') {
+                continue;
+            }
+
+            if (is_string($value)) {
+                $value = trim($value);
+
+                if ($value === '' || $this->isInvalidObjectPlaceholder($value)) {
+                    continue;
+                }
+
+                $decoded = json_decode($value, true);
+
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+
+            return $value;
+        }
+
+        return null;
+    }
+
+    private function resolveRepeaterSubmittedValue(mixed $value, CustomFieldRepeater $repeaterDefinition, mixed $oldValue = null): mixed
+    {
+        $fieldType = (string) ($repeaterDefinition->field_type ?? '');
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+
+            if ($this->isInvalidObjectPlaceholder($trimmed)) {
+                $value = null;
+            } else {
+                $decoded = json_decode($trimmed, true);
+
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $value = $decoded;
+                }
+            }
+        }
+
+        if (in_array($fieldType, ['media', 'file'], true)) {
+            if ($this->isEmptySubmittedRepeaterMediaValue($value)) {
+                return $oldValue;
+            }
+
+            if (is_array($value) && array_key_exists('value', $value) && $this->isInvalidObjectPlaceholder($value['value'])) {
+                return $oldValue;
+            }
+        }
+
+        return $value;
+    }
+
+    private function isEmptySubmittedRepeaterMediaValue(mixed $value): bool
+    {
+        if (is_null($value) || $value === '') {
+            return true;
+        }
+
+        if ($this->isInvalidObjectPlaceholder($value)) {
+            return true;
+        }
+
+        if (is_array($value)) {
+            if (empty($value)) {
+                return true;
+            }
+
+            // React Select / frontend can accidentally send objects without real file data.
+            if (array_key_exists('value', $value) && $this->isInvalidObjectPlaceholder($value['value'])) {
+                return true;
+            }
+
+            // A valid stored media object must have at least path/url/id/file_name.
+            $hasMediaReference = !empty($value['path'])
+                || !empty($value['url'])
+                || !empty($value['id'])
+                || !empty($value['file_name']);
+
+            if (!$hasMediaReference && count($value) === 1 && isset($value[0])) {
+                return $this->isEmptySubmittedRepeaterMediaValue($value[0]);
+            }
+        }
+
+        return false;
+    }
+
+    private function isInvalidObjectPlaceholder(mixed $value): bool
+    {
+        if (!is_string($value)) {
+            return false;
+        }
+
+        $value = strtolower(trim($value));
+
+        return in_array($value, [
+            '[object object]',
+            'object object',
+            '[object file]',
+            'undefined',
+            'null',
+            'nan',
+        ], true);
+    }
+
     private function applyRepeaterValueColumns(array &$row, array $columns, ?string $fieldType, mixed $value): void
     {
+        if (is_string($value)) {
+            $trimmed = trim($value);
+
+            if ($this->isInvalidObjectPlaceholder($trimmed)) {
+                $value = null;
+            } else {
+                $decoded = json_decode($trimmed, true);
+
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $value = $decoded;
+                }
+            }
+        }
+
         $jsonValue = (is_array($value) || is_object($value))
             ? json_encode($value, JSON_UNESCAPED_SLASHES)
             : null;
@@ -1863,14 +2049,12 @@ class DynamicPostController extends Controller
         $stringValue = $jsonValue ?? $value;
         $stringValue = is_null($stringValue) ? null : (string) $stringValue;
 
-        // field_meta_value is longText in our migration, so it can safely store
-        // full media/file JSON or long text values.
+        // field_meta_value is longText, so it can safely store media/file JSON.
         $this->setIfColumnExists($row, $columns, 'field_meta_value', $stringValue);
         $this->setIfColumnExists($row, $columns, 'value', $stringValue);
         $this->setIfColumnExists($row, $columns, 'field_value', $stringValue);
 
-        // value_string is usually VARCHAR(255). Do not put media/file JSON or
-        // long strings here, otherwise MySQL throws "Data too long".
+        // value_string is usually VARCHAR(255). Never put media/file JSON here.
         $shortStringValue = (!is_null($stringValue) && mb_strlen($stringValue) <= 255)
             ? $stringValue
             : null;
