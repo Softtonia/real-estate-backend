@@ -893,20 +893,35 @@ class DynamicPostController extends Controller
 
             return [
                 'post_type_id' => (int) $relatedPostType->id,
-                'name' => $relatedPostType->name,
-                'slug' => $relatedPostType->slug,
-                'field_label' => $relatedPostType->name,
+                'name' => (string) $relatedPostType->name,
+                'slug' => (string) $relatedPostType->slug,
+
+                // UI compatibility
+                'id' => (int) $relatedPostType->id,
+                'label' => (string) $relatedPostType->name,
+                'value' => (int) $relatedPostType->id,
+
+                // Field config
+                'field_label' => (string) $relatedPostType->name,
                 'field_name' => 'relationship_post_types',
-                'input_name' => 'relationship_post_types[' . $relatedPostType->id . '][post_ids]',
                 'selection_type' => 'multiple',
                 'multiple' => true,
-                'options' => $options->map(fn($post) => [
-                    'id' => (int) $post->id,
-                    'title' => $post->title,
-                    'slug' => $post->slug,
-                    'status' => $post->status,
-                    'live_status' => $post->live_status,
-                ])->values(),
+
+                'options' => $options->map(function ($post) {
+                    $label = $post->title ?: $post->slug ?: ('Post #' . $post->id);
+
+                    return [
+                        'id' => (int) $post->id,
+                        'value' => (int) $post->id,
+                        'label' => (string) $label,
+                        'name' => (string) $label,
+                        'title' => (string) $label,
+                        'slug' => (string) ($post->slug ?? ''),
+                        'status' => (string) ($post->status ?? ''),
+                        'live_status' => (string) ($post->live_status ?? ''),
+                        'post_type_id' => (int) $post->post_type_id,
+                    ];
+                })->values(),
             ];
         })->values();
     }
