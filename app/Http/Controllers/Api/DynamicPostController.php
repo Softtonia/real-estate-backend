@@ -212,7 +212,7 @@ class DynamicPostController extends Controller
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
             $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
             $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
-            $relationshipPostTypes = $this->normalizeRelationshipPostTypeInputs($validated);
+            $relationshipPostTypes = $this->normalizeRelationshipPostTypeInputs($validated, (int) $postType->id);
 
             $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);

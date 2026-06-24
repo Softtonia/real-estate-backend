@@ -983,6 +983,8 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
 
     // Templates
+    Route::get('template-options', [TemplateController::class, 'options']);
+    Route::get('template-shortcodes', [TemplateController::class, 'shortcodes']);
     Route::get('templates-list', [TemplateController::class, 'index']);
     Route::post('templates-create', [TemplateController::class, 'create']);
     Route::get('templates-show/{id}', [TemplateController::class, 'show']);
