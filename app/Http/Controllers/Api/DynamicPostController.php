@@ -414,6 +414,11 @@ class DynamicPostController extends Controller
                     ->where('entity_id', $post->id)
                     ->delete();
 
+                DB::table('custom_field_repeater_values')
+                    ->where('entity_type', 'post')
+                    ->where('entity_id', $post->id)
+                    ->delete();
+
                 $post->taxonomyTerms()->detach();
                 $post->delete();
             });
@@ -1358,11 +1363,6 @@ class DynamicPostController extends Controller
         $this->setIfColumnExists($row, $columns, 'custom_field_id', $customFieldId);
         $this->setIfColumnExists($row, $columns, 'custom_field_repeater_id', (int) $repeaterDefinition->id);
         $this->setIfColumnExists($row, $columns, 'field_type', $repeaterDefinition->field_type);
-        $this->setIfColumnExists($row, $columns, 'field_name_slug', $repeaterDefinition->field_name_slug);
-        $this->setIfColumnExists($row, $columns, 'field_label', $repeaterDefinition->field_label);
-        $this->setIfColumnExists($row, $columns, 'row_index', $rowIndex);
-        $this->setIfColumnExists($row, $columns, 'sort_order', $rowIndex);
-        $this->setIfColumnExists($row, $columns, 'repeater_index', $repeaterBlockIndex);
 
         $optionId = null;
 
@@ -1371,29 +1371,20 @@ class DynamicPostController extends Controller
             $value = $value['value'] ?? null;
         }
 
-        $this->setIfColumnExists($row, $columns, 'custom_field_repeater_option_id', $optionId);
         $this->setIfColumnExists($row, $columns, 'custom_field_repeater_options_id', $optionId);
 
-        $this->applyRepeaterValueColumns($row, $columns, $repeaterDefinition->field_type, $value);
+        // Store the actual value in field_meta_value – this is the correct column in the table.
+        $fieldMetaValue = is_array($value) ? json_encode($value) : $value;
+        $this->setIfColumnExists($row, $columns, 'field_meta_value', $fieldMetaValue);
+
+        // Generate a unique_id for this row (same format used by CustomFieldValueService)
+        $uniqueId = sprintf('%s_%d_%d_%d_%d', $entityType, $entityId, $customFieldId, $rowIndex, time());
+        $this->setIfColumnExists($row, $columns, 'unique_id', $uniqueId);
 
         $this->setIfColumnExists($row, $columns, 'created_at', $now);
         $this->setIfColumnExists($row, $columns, 'updated_at', $now);
 
         return $row;
-    }
-
-    private function applyRepeaterValueColumns(array &$row, array $columns, ?string $fieldType, mixed $value): void
-    {
-        $stringValue = is_array($value) ? json_encode($value) : $value;
-
-        $this->setIfColumnExists($row, $columns, 'value', $stringValue);
-        $this->setIfColumnExists($row, $columns, 'field_value', $stringValue);
-        $this->setIfColumnExists($row, $columns, 'value_string', in_array($fieldType, ['text', 'email', 'url', 'radio', 'select', 'media', 'file', 'boolean'], true) ? $stringValue : null);
-        $this->setIfColumnExists($row, $columns, 'value_text', in_array($fieldType, ['textarea', 'texteditor'], true) ? $stringValue : null);
-        $this->setIfColumnExists($row, $columns, 'value_number', $fieldType === 'number' && is_numeric($value) ? $value : null);
-        $this->setIfColumnExists($row, $columns, 'value_date', $fieldType === 'date' ? $value : null);
-        $this->setIfColumnExists($row, $columns, 'value_datetime', $fieldType === 'datetime' ? $value : null);
-        $this->setIfColumnExists($row, $columns, 'value_json', is_array($value) ? json_encode($value) : null);
     }
 
     private function setIfColumnExists(array &$row, array $columns, string $column, mixed $value): void
