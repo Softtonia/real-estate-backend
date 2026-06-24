@@ -1412,19 +1412,48 @@ class DynamicPostController extends Controller
 
     private function applyRepeaterValueColumns(array &$row, array $columns, ?string $fieldType, mixed $value): void
     {
-        $stringValue = is_array($value)
+        $jsonValue = (is_array($value) || is_object($value))
             ? json_encode($value, JSON_UNESCAPED_SLASHES)
-            : $value;
+            : null;
 
+        $stringValue = $jsonValue ?? $value;
+        $stringValue = is_null($stringValue) ? null : (string) $stringValue;
+
+        // field_meta_value is longText in our migration, so it can safely store
+        // full media/file JSON or long text values.
         $this->setIfColumnExists($row, $columns, 'field_meta_value', $stringValue);
         $this->setIfColumnExists($row, $columns, 'value', $stringValue);
         $this->setIfColumnExists($row, $columns, 'field_value', $stringValue);
-        $this->setIfColumnExists($row, $columns, 'value_string', in_array($fieldType, ['text', 'email', 'url', 'radio', 'select', 'media', 'file', 'boolean'], true) ? $stringValue : null);
-        $this->setIfColumnExists($row, $columns, 'value_text', in_array($fieldType, ['textarea', 'texteditor'], true) ? $stringValue : null);
+
+        // value_string is usually VARCHAR(255). Do not put media/file JSON or
+        // long strings here, otherwise MySQL throws "Data too long".
+        $shortStringValue = (!is_null($stringValue) && mb_strlen($stringValue) <= 255)
+            ? $stringValue
+            : null;
+
+        $stringFieldTypes = ['text', 'email', 'url', 'radio', 'select', 'boolean'];
+        $textFieldTypes = ['textarea', 'texteditor'];
+
+        $this->setIfColumnExists(
+            $row,
+            $columns,
+            'value_string',
+            in_array($fieldType, $stringFieldTypes, true) ? $shortStringValue : null
+        );
+
+        $this->setIfColumnExists(
+            $row,
+            $columns,
+            'value_text',
+            in_array($fieldType, $textFieldTypes, true) || ($fieldType === 'text' && is_null($shortStringValue))
+                ? $stringValue
+                : null
+        );
+
         $this->setIfColumnExists($row, $columns, 'value_number', $fieldType === 'number' && is_numeric($value) ? $value : null);
         $this->setIfColumnExists($row, $columns, 'value_date', $fieldType === 'date' ? $value : null);
         $this->setIfColumnExists($row, $columns, 'value_datetime', $fieldType === 'datetime' ? $value : null);
-        $this->setIfColumnExists($row, $columns, 'value_json', is_array($value) ? json_encode($value, JSON_UNESCAPED_SLASHES) : null);
+        $this->setIfColumnExists($row, $columns, 'value_json', $jsonValue);
     }
 
     private function setIfColumnExists(array &$row, array $columns, string $column, mixed $value): void
