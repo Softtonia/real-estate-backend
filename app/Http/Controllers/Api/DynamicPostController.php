@@ -2141,11 +2141,32 @@ class DynamicPostController extends Controller
             return false;
         }
 
+        // IMPORTANT:
+        // A repeater row must be an associative array like:
+        // ["floor_name" => "Ground Floor", "test" => "1000 sqft"]
+        //
+        // It must NOT be a list array like:
+        // [0 => ["floor_name" => "Ground Floor"]]
+        // Otherwise numeric key 0 is treated as field slug "0" and insert fails.
+        if ($this->isListArray($repeater)) {
+            return false;
+        }
+
         return !array_key_exists('rows', $repeater)
+            && !array_key_exists('repeaters', $repeater)
             && collect(array_keys($repeater))->contains(fn($key) => !in_array($key, [
                 'custom_field_repeater_id',
                 'field_name_slug',
             ], true));
+    }
+
+    private function isListArray(array $array): bool
+    {
+        if ($array === []) {
+            return true;
+        }
+
+        return array_keys($array) === range(0, count($array) - 1);
     }
 
     private function normalizeRepeaterFieldKey(string $key): string
