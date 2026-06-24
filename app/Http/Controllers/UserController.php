@@ -55,7 +55,7 @@ class UserController extends Controller
         Cache::store('redis')->forget('user_status_list');
         Cache::store('redis')->forget('all_agent_listing_admin');
         Cache::store('redis')->forget('all_consultancy_listing');
-
+        Cache::store('redis')->forget('user_analytics');
         if ($userId) {
             Cache::store('redis')->forget("user_details_admin_{$userId}");
             Cache::store('redis')->forget("user_details_website_{$userId}");
@@ -3378,6 +3378,44 @@ class UserController extends Controller
             DB::rollBack();
             \Log::error($e->getMessage());
             return response()->json(['error' => 'Failed to update profile. ' . $e->getMessage()], 500);
+        }
+    }
+    public function userAnalytics(Request $request)
+    {
+        try {
+            $cacheKey = 'user_analytics';
+
+            $analytics = Cache::store('redis')->remember($cacheKey, 60, function () {
+
+                $data = User::query()
+                    ->where('role_id', '!=', 1) // exclude admin
+                    ->selectRaw("
+                    COUNT(*) as total_users,
+                    SUM(CASE WHEN isapproved = 1 THEN 1 ELSE 0 END) as active_users,
+                    SUM(CASE WHEN isapproved = 2 THEN 1 ELSE 0 END) as inactive_users,
+                    SUM(CASE WHEN isapproved = 3 THEN 1 ELSE 0 END) as pending_invites
+                ")
+                    ->first();
+
+                return [
+                    'total_users' => (int) $data->total_users,
+                    'active_users' => (int) $data->active_users,
+                    'inactive_users' => (int) $data->inactive_users,
+                    'pending_invites' => (int) $data->pending_invites,
+                ];
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'User analytics fetched successfully.',
+                'data' => $analytics,
+            ], 200);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to fetch user analytics.',
+                'error' => $th->getMessage(),
+            ], 500);
         }
     }
 }

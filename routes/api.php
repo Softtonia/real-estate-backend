@@ -169,6 +169,7 @@ Route::middleware(['validate.api.client'])->group(function () {
 
     Route::get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole'])->middleware(['throttle:60,1']);
     Route::get('/get-userdata-by-id', [UserController::class, 'getDataUserDetailsById'])->middleware(['throttle:60,1']);
+    Route::get('/user-analytics', [UserController::class, 'userAnalytics'])->middleware(['throttle:60,1']);
 
 
 
