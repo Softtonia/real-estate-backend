@@ -212,12 +212,24 @@ class DynamicPostController extends Controller
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
             $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
             $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
-            $relationshipPostTypes = $this->normalizeRelationshipPostTypeInputs($validated, (int) $postType->id);
+            $relationshipPayloadPresent = $this->hasRelationshipPayload($request->all());
+            $relationshipPostTypes = $relationshipPayloadPresent
+                ? $this->normalizeRelationshipPostTypeInputs($request->all())
+                : [];
 
             $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
             $this->validateDependentTaxonomySelections($taxonomyTermIds);
             $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
+
+            if ($relationshipPayloadPresent && empty($relationshipPostTypes)) {
+                throw ValidationException::withMessages([
+                    'relationship_post_types' => [
+                        'Relationship payload was received but no valid dynamic post IDs were found. Send dynamic_posts.id values in relationship_post_types, not post_type_id or taxonomy ids.',
+                    ],
+                ]);
+            }
+
             $this->validateSubmittedRelationshipPostTypes($postType, $relationshipPostTypes);
 
             $slug = !empty($validated['slug'])
@@ -317,10 +329,11 @@ class DynamicPostController extends Controller
             $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
 
             $hasTaxonomyPayload = array_key_exists('taxonomies', $validated) || array_key_exists('taxonomy_term_ids', $validated);
-            $hasRelationshipPayload = array_key_exists('relationship_post_types', $validated) || array_key_exists('related_posts', $validated);
+            $rawRequestData = $request->all();
+            $hasRelationshipPayload = $this->hasRelationshipPayload($rawRequestData);
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
             $relationshipPostTypes = $hasRelationshipPayload
-                ? $this->normalizeRelationshipPostTypeInputs($validated)
+                ? $this->normalizeRelationshipPostTypeInputs($rawRequestData)
                 : null;
 
             $taxonomyTermIds = $hasTaxonomyPayload
@@ -641,97 +654,182 @@ class DynamicPostController extends Controller
         }
     }
 
-    private function normalizeRelationshipPostTypeInputs(array $validated): array
+    private function hasRelationshipPayload(array $input): bool
     {
-        $input = $validated['relationship_post_types'] ?? $validated['related_posts'] ?? [];
+        if (array_key_exists('relationship_post_types', $input) || array_key_exists('related_posts', $input)) {
+            return true;
+        }
+
+        foreach (array_keys($input) as $key) {
+            $key = (string) $key;
+
+            if (str_starts_with($key, 'relationship_post_types') || str_starts_with($key, 'related_posts')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizeRelationshipPostTypeInputs(array $inputData): array
+    {
+        $input = $inputData['relationship_post_types'] ?? $inputData['related_posts'] ?? [];
 
         if (is_string($input)) {
             $decoded = json_decode($input, true);
             $input = is_array($decoded) ? $decoded : [];
         }
 
-        if (!is_array($input)) {
-            return [];
-        }
-
-        $normalized = [];
-
-        foreach ($input as $key => $item) {
-            if (is_string($item)) {
-                $decodedItem = json_decode($item, true);
-                $item = is_array($decodedItem) ? $decodedItem : [];
+        $extractIds = function (mixed $value) use (&$extractIds): array {
+            if (is_null($value) || $value === '') {
+                return [];
             }
 
-            if (!is_array($item)) {
+            if (is_numeric($value)) {
+                return [(int) $value];
+            }
+
+            if (is_string($value)) {
+                $decoded = json_decode($value, true);
+
+                if (is_array($decoded)) {
+                    return $extractIds($decoded);
+                }
+
+                return str_contains($value, ',')
+                    ? collect(explode(',', $value))
+                        ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray()
+                    : [];
+            }
+
+            if (!is_array($value)) {
+                return [];
+            }
+
+            // Dropdown selected option object: { id: 18, value: 18, label: "Developer" }
+            if (isset($value['id']) && is_numeric($value['id']) && !isset($value['post_type_id']) && !isset($value['related_post_type_id'])) {
+                return [(int) $value['id']];
+            }
+
+            if (isset($value['value']) && is_numeric($value['value']) && !isset($value['post_type_id']) && !isset($value['related_post_type_id'])) {
+                return [(int) $value['value']];
+            }
+
+            $ids = [];
+
+            foreach ($value as $childKey => $child) {
+                // Never treat post_type_id as related post id.
+                if (in_array((string) $childKey, ['post_type_id', 'related_post_type_id'], true)) {
+                    continue;
+                }
+
+                foreach ($extractIds($child) as $id) {
+                    $ids[] = $id;
+                }
+            }
+
+            return $ids;
+        };
+
+        $rawPostIds = [];
+
+        // Normal JSON / nested array payloads.
+        if (is_array($input)) {
+            foreach ($input as $key => $item) {
+                if (is_string($item)) {
+                    $decodedItem = json_decode($item, true);
+                    $item = is_array($decodedItem) ? $decodedItem : $item;
+                }
+
+                if (is_array($item)) {
+                    foreach (['post_ids', 'related_post_ids', 'ids', 'post_id', 'related_post_id', 'selected_post_ids', 'selected_posts'] as $idKey) {
+                        if (array_key_exists($idKey, $item)) {
+                            $rawPostIds = array_merge($rawPostIds, $extractIds($item[$idKey]));
+                            continue 2;
+                        }
+                    }
+                }
+
+                if (is_numeric($key)) {
+                    $rawPostIds = array_merge($rawPostIds, $extractIds($item));
+                }
+            }
+        }
+
+        // Flat form-data payloads using dot keys, for example:
+        // relationship_post_types.3.post_ids = [18, 19]
+        // relationship_post_types.3.post_ids.0 = 18
+        foreach ($inputData as $flatKey => $flatValue) {
+            $flatKey = (string) $flatKey;
+
+            if (!str_starts_with($flatKey, 'relationship_post_types') && !str_starts_with($flatKey, 'related_posts')) {
                 continue;
             }
 
-            $relatedPostTypeId = 0;
-            $postIds = [];
-
-            // Case 1:
-            // relationship_post_types: [
-            //   { post_type_id: 3, post_ids: [18, 19] }
-            // ]
-            if (isset($item['post_type_id']) || isset($item['related_post_type_id'])) {
-                $relatedPostTypeId = (int) ($item['post_type_id'] ?? $item['related_post_type_id']);
-                $postIds = $item['post_ids']
-                    ?? $item['related_post_ids']
-                    ?? $item['ids']
-                    ?? [];
+            if (str_contains($flatKey, 'post_type_id') || str_contains($flatKey, 'related_post_type_id')) {
+                continue;
             }
 
-            // Case 2:
-            // relationship_post_types: {
-            //   "3": { post_ids: [18, 19] },
-            //   "2": { post_ids: [10, 11] }
-            // }
-            elseif (is_numeric($key) && (isset($item['post_ids']) || isset($item['related_post_ids']) || isset($item['ids']))) {
-                $relatedPostTypeId = (int) $key;
-                $postIds = $item['post_ids']
-                    ?? $item['related_post_ids']
-                    ?? $item['ids']
-                    ?? [];
-            }
+            $looksLikePostIdsKey = str_contains($flatKey, 'post_ids')
+                || str_contains($flatKey, 'related_post_ids')
+                || str_contains($flatKey, 'selected_post_ids')
+                || str_ends_with($flatKey, '.post_id')
+                || str_ends_with($flatKey, '[post_id]')
+                || str_ends_with($flatKey, '.related_post_id')
+                || str_ends_with($flatKey, '[related_post_id]');
 
-            // Case 3:
-            // relationship_post_types: {
-            //   "3": [18, 19],
-            //   "2": [10, 11]
-            // }
-            elseif (is_numeric($key)) {
-                $relatedPostTypeId = (int) $key;
-                $postIds = $item;
-            }
-
-            if (!empty($item['post_id'])) {
-                $postIds[] = $item['post_id'];
-            }
-
-            if (is_string($postIds)) {
-                $decodedPostIds = json_decode($postIds, true);
-
-                $postIds = is_array($decodedPostIds)
-                    ? $decodedPostIds
-                    : (str_contains($postIds, ',') ? explode(',', $postIds) : [$postIds]);
-            }
-
-            $postIds = collect((array) $postIds)
-                ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
-                ->map(fn($id) => (int) $id)
-                ->unique()
-                ->values()
-                ->toArray();
-
-            if ($relatedPostTypeId && !empty($postIds)) {
-                $normalized[] = [
-                    'post_type_id' => $relatedPostTypeId,
-                    'post_ids' => $postIds,
-                ];
+            if ($looksLikePostIdsKey) {
+                $rawPostIds = array_merge($rawPostIds, $extractIds($flatValue));
             }
         }
 
-        return $normalized;
+        $rawPostIds = collect($rawPostIds)
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($rawPostIds)) {
+            return [];
+        }
+
+        // Important: do not trust frontend's post_type_id for relationships.
+        // Always detect actual related post type from dynamic_posts table.
+        $posts = DynamicPost::query()
+            ->select('id', 'post_type_id')
+            ->whereIn('id', $rawPostIds)
+            ->get();
+
+        $existingPostIds = $posts->pluck('id')->map(fn($id) => (int) $id)->toArray();
+        $missingPostIds = array_values(array_diff($rawPostIds, $existingPostIds));
+
+        if (!empty($missingPostIds)) {
+            throw ValidationException::withMessages([
+                'relationship_post_types' => [
+                    'Invalid related post IDs: ' . implode(', ', $missingPostIds),
+                ],
+            ]);
+        }
+
+        return $posts
+            ->groupBy('post_type_id')
+            ->map(function ($posts, $postTypeId) {
+                return [
+                    'post_type_id' => (int) $postTypeId,
+                    'post_ids' => $posts
+                        ->pluck('id')
+                        ->map(fn($id) => (int) $id)
+                        ->unique()
+                        ->values()
+                        ->toArray(),
+                ];
+            })
+            ->values()
+            ->toArray();
     }
 
     private function validateSubmittedRelationshipPostTypes(PostType $postType, array $relationships, ?int $currentPostId = null): void
@@ -768,9 +866,12 @@ class DynamicPostController extends Controller
             }
 
             if (!in_array($relatedPostTypeId, $allowedPostTypeIds, true)) {
+                $relatedPostType = PostType::find($relatedPostTypeId);
+
                 throw ValidationException::withMessages([
                     "relationship_post_types.{$index}.post_type_id" => [
-                        'This related post type is not associated with selected post type.',
+                        ($relatedPostType?->name ?? 'Post type ' . $relatedPostTypeId)
+                        . ' is not associated as a related post type with ' . $postType->name . '.',
                     ],
                 ]);
             }
@@ -783,18 +884,33 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $validPostIds = DynamicPost::where('post_type_id', $relatedPostTypeId)
+            $actualRows = DynamicPost::query()
+                ->select('id', 'post_type_id')
                 ->whereIn('id', $postIds)
-                ->pluck('id')
-                ->map(fn($id) => (int) $id)
-                ->toArray();
+                ->get();
 
-            $invalidPostIds = array_values(array_diff($postIds, $validPostIds));
+            $actualPostIds = $actualRows->pluck('id')->map(fn($id) => (int) $id)->toArray();
+            $missingPostIds = array_values(array_diff($postIds, $actualPostIds));
 
-            if (!empty($invalidPostIds)) {
+            if (!empty($missingPostIds)) {
                 throw ValidationException::withMessages([
                     "relationship_post_types.{$index}.post_ids" => [
-                        'Some selected posts do not belong to selected related post type: ' . implode(', ', $invalidPostIds),
+                        'Invalid related post IDs: ' . implode(', ', $missingPostIds),
+                    ],
+                ]);
+            }
+
+            $wrongTypePostIds = $actualRows
+                ->filter(fn($row) => (int) $row->post_type_id !== $relatedPostTypeId)
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->values()
+                ->toArray();
+
+            if (!empty($wrongTypePostIds)) {
+                throw ValidationException::withMessages([
+                    "relationship_post_types.{$index}.post_ids" => [
+                        'These posts were detected under a different post type: ' . implode(', ', $wrongTypePostIds),
                     ],
                 ]);
             }
@@ -924,18 +1040,19 @@ class DynamicPostController extends Controller
                 'name' => (string) $relatedPostType->name,
                 'slug' => (string) $relatedPostType->slug,
 
-                // Important for frontend dropdown
+                // UI compatibility for dropdown wrappers
                 'id' => (int) $relatedPostType->id,
                 'label' => (string) $relatedPostType->name,
                 'value' => (int) $relatedPostType->id,
 
                 'field_label' => (string) $relatedPostType->name,
 
-                // IMPORTANT: unique field_name for each related post type
+                // Important: every relationship field must have a unique name.
                 // Example: relationship_post_types.3.post_ids
-                'field_name' => 'relationship_post_types.' . $relatedPostType->id . '.post_ids',
-
-                'post_type_field_name' => 'relationship_post_types.' . $relatedPostType->id . '.post_type_id',
+                'field_name' => 'relationship_post_types[' . $relatedPostType->id . '][post_ids]',
+                'field_name_dot' => 'relationship_post_types.' . $relatedPostType->id . '.post_ids',
+                'post_type_field_name' => 'relationship_post_types[' . $relatedPostType->id . '][post_type_id]',
+                'post_type_field_name_dot' => 'relationship_post_types.' . $relatedPostType->id . '.post_type_id',
                 'selection_type' => 'multiple',
                 'multiple' => true,
 
@@ -1195,22 +1312,19 @@ class DynamicPostController extends Controller
             'author_id' => ['nullable', 'integer', 'exists:users,id'],
             'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
             'relationship_post_types' => ['nullable', 'array'],
-            'relationship_post_types.*' => ['nullable'],
             'relationship_post_types.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'relationship_post_types.*.related_post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
-            'relationship_post_types.*.post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+            'relationship_post_types.*.post_id' => ['nullable'],
             'relationship_post_types.*.post_ids' => ['nullable', 'array'],
-            'relationship_post_types.*.post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
+            'relationship_post_types.*.post_ids.*' => ['nullable'],
             'relationship_post_types.*.related_post_ids' => ['nullable', 'array'],
-            'relationship_post_types.*.related_post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
-
+            'relationship_post_types.*.related_post_ids.*' => ['nullable'],
             'related_posts' => ['nullable', 'array'],
-            'related_posts.*' => ['nullable'],
             'related_posts.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'related_posts.*.related_post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
-            'related_posts.*.post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+            'related_posts.*.post_id' => ['nullable'],
             'related_posts.*.post_ids' => ['nullable', 'array'],
-            'related_posts.*.post_ids.*' => ['integer', 'exists:dynamic_posts,id'],
+            'related_posts.*.post_ids.*' => ['nullable'],
             'published_at' => ['nullable', 'date'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'taxonomy_term_ids' => ['nullable'],
