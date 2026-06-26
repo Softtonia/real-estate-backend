@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
+use App\Models\PostType;
+use App\Models\Taxonomy;
 use App\Models\Template;
 use App\Models\TemplateDisplayCondition;
 use Illuminate\Http\Request;
@@ -13,42 +15,17 @@ class TemplateDisplayConditionController extends Controller
 {
     public function index($template_id)
     {
-        $template = Template::with('conditions')->find($template_id);
-
-        if (!$template) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Template not found.',
-            ], 404);
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Template conditions fetched successfully.',
-            'data' => $template->conditions,
-        ]);
+        return $this->templateConditionsResponse(
+            $template_id,
+            'Template conditions fetched successfully.'
+        );
     }
 
     public function create(Request $request)
     {
         $payload = $this->getPayload($request);
 
-        $validator = Validator::make($payload, [
-            'template_id' => 'required|exists:templates,id',
-            'conditions' => 'required|array|min:1',
-
-            'conditions.*.show_type' => 'required|in:include,exclude',
-            'conditions.*.source_type' => 'required|in:post_type,taxonomy',
-            'conditions.*.post_type_slug' => 'required|string|max:255',
-            'conditions.*.taxonomy_slug' => 'nullable|string|max:255',
-            'conditions.*.taxonomy_term_ids' => 'nullable|array',
-            'conditions.*.taxonomy_term_ids.*' => 'integer',
-            'conditions.*.relation' => 'nullable|in:and,or',
-        ]);
-
-        $validator->after(function ($validator) use ($payload) {
-            $this->validateConditions($validator, $payload['conditions'] ?? []);
-        });
+        $validator = $this->makeValidator($payload, true, false);
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator);
@@ -59,22 +36,19 @@ class TemplateDisplayConditionController extends Controller
         try {
             $template = Template::find($payload['template_id']);
 
-            $createdConditions = [];
-
             foreach ($payload['conditions'] as $conditionData) {
-                $createdConditions[] = $this->createCondition(
-                    $template->id,
-                    $conditionData
+                TemplateDisplayCondition::create(
+                    $this->prepareConditionData($template, $conditionData)
                 );
             }
 
             DB::commit();
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Template conditions created successfully.',
-                'data' => $createdConditions,
-            ], 201);
+            return $this->templateConditionsResponse(
+                $template->id,
+                'Template conditions created successfully.',
+                201
+            );
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -90,23 +64,7 @@ class TemplateDisplayConditionController extends Controller
     {
         $payload = $this->getPayload($request);
 
-        $validator = Validator::make($payload, [
-            'template_id' => 'required|exists:templates,id',
-            'conditions' => 'required|array|min:1',
-
-            'conditions.*.id' => 'nullable|exists:template_display_conditions,id',
-            'conditions.*.show_type' => 'required|in:include,exclude',
-            'conditions.*.source_type' => 'required|in:post_type,taxonomy',
-            'conditions.*.post_type_slug' => 'required|string|max:255',
-            'conditions.*.taxonomy_slug' => 'nullable|string|max:255',
-            'conditions.*.taxonomy_term_ids' => 'nullable|array',
-            'conditions.*.taxonomy_term_ids.*' => 'integer',
-            'conditions.*.relation' => 'nullable|in:and,or',
-        ]);
-
-        $validator->after(function ($validator) use ($payload) {
-            $this->validateConditions($validator, $payload['conditions'] ?? []);
-        });
+        $validator = $this->makeValidator($payload, true, true);
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator);
@@ -115,39 +73,34 @@ class TemplateDisplayConditionController extends Controller
         DB::beginTransaction();
 
         try {
-            $savedConditions = [];
+            $template = Template::find($payload['template_id']);
 
             foreach ($payload['conditions'] as $conditionData) {
                 if (!empty($conditionData['id'])) {
                     $condition = TemplateDisplayCondition::where('id', $conditionData['id'])
-                        ->where('template_id', $payload['template_id'])
+                        ->where('template_id', $template->id)
                         ->first();
 
                     if (!$condition) {
                         continue;
                     }
 
-                    $condition->update($this->prepareConditionData(
-                        $payload['template_id'],
-                        $conditionData
-                    ));
-
-                    $savedConditions[] = $condition->fresh();
+                    $condition->update(
+                        $this->prepareConditionData($template, $conditionData)
+                    );
                 } else {
-                    $savedConditions[] = $this->createCondition(
-                        $payload['template_id'],
-                        $conditionData
+                    TemplateDisplayCondition::create(
+                        $this->prepareConditionData($template, $conditionData)
                     );
                 }
             }
 
             DB::commit();
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Template conditions updated successfully.',
-                'data' => $savedConditions,
-            ]);
+            return $this->templateConditionsResponse(
+                $template->id,
+                'Template conditions updated successfully.'
+            );
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -163,22 +116,7 @@ class TemplateDisplayConditionController extends Controller
     {
         $payload = $this->getPayload($request);
 
-        $validator = Validator::make($payload, [
-            'template_id' => 'required|exists:templates,id',
-            'conditions' => 'nullable|array',
-
-            'conditions.*.show_type' => 'required_with:conditions|in:include,exclude',
-            'conditions.*.source_type' => 'required_with:conditions|in:post_type,taxonomy',
-            'conditions.*.post_type_slug' => 'required_with:conditions|string|max:255',
-            'conditions.*.taxonomy_slug' => 'nullable|string|max:255',
-            'conditions.*.taxonomy_term_ids' => 'nullable|array',
-            'conditions.*.taxonomy_term_ids.*' => 'integer',
-            'conditions.*.relation' => 'nullable|in:and,or',
-        ]);
-
-        $validator->after(function ($validator) use ($payload) {
-            $this->validateConditions($validator, $payload['conditions'] ?? []);
-        });
+        $validator = $this->makeValidator($payload, false, false);
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator);
@@ -187,24 +125,22 @@ class TemplateDisplayConditionController extends Controller
         DB::beginTransaction();
 
         try {
-            TemplateDisplayCondition::where('template_id', $payload['template_id'])->delete();
+            $template = Template::find($payload['template_id']);
 
-            $savedConditions = [];
+            TemplateDisplayCondition::where('template_id', $template->id)->delete();
 
             foreach ($payload['conditions'] ?? [] as $conditionData) {
-                $savedConditions[] = $this->createCondition(
-                    $payload['template_id'],
-                    $conditionData
+                TemplateDisplayCondition::create(
+                    $this->prepareConditionData($template, $conditionData)
                 );
             }
 
             DB::commit();
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Template conditions replaced successfully.',
-                'data' => $savedConditions,
-            ]);
+            return $this->templateConditionsResponse(
+                $template->id,
+                'Template conditions replaced successfully.'
+            );
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -227,96 +163,248 @@ class TemplateDisplayConditionController extends Controller
             ], 404);
         }
 
+        $templateId = $condition->template_id;
+
         $condition->delete();
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Template condition deleted successfully.',
-        ]);
-    }
-
-    private function createCondition($templateId, array $conditionData)
-    {
-        return TemplateDisplayCondition::create(
-            $this->prepareConditionData($templateId, $conditionData)
+        return $this->templateConditionsResponse(
+            $templateId,
+            'Template condition deleted successfully.'
         );
     }
 
-    private function prepareConditionData($templateId, array $conditionData): array
+    private function makeValidator(array $payload, bool $conditionsRequired = true, bool $allowId = false)
     {
-        $sourceType = $conditionData['source_type'];
-        $postTypeSlug = $conditionData['post_type_slug'];
-        $taxonomySlug = $sourceType === 'taxonomy'
-            ? ($conditionData['taxonomy_slug'] ?? null)
-            : null;
+        $conditionRule = $conditionsRequired ? 'required|array|min:1' : 'nullable|array';
 
-        $taxonomyTermIds = $sourceType === 'taxonomy'
-            ? ($conditionData['taxonomy_term_ids'] ?? [])
-            : [];
+        $rules = [
+            'template_id' => 'required|exists:templates,id',
+            'conditions' => $conditionRule,
 
-        return [
-            'template_id' => $templateId,
-            'show_type' => $conditionData['show_type'],
+            'conditions.*.logic_operator' => 'nullable|in:and,or',
+            'conditions.*.relation' => 'nullable|in:and,or',
 
-            // new columns
-            'source_type' => $sourceType,
-            'post_type_slug' => $postTypeSlug,
-            'taxonomy_slug' => $taxonomySlug,
-            'taxonomy_term_ids' => $taxonomyTermIds,
-            'relation' => $conditionData['relation'] ?? 'and',
+            'conditions.*.show_if' => 'required_with:conditions|in:post_type,taxonomy',
 
-            // old columns support
-            'post_type' => $postTypeSlug,
-            'condition_type' => $sourceType,
-            'condition_value' => $sourceType === 'taxonomy'
-                ? [
-                    'taxonomy_slug' => $taxonomySlug,
-                    'taxonomy_term_ids' => $taxonomyTermIds,
-                ]
-                : $postTypeSlug,
+            'conditions.*.post_type_id' => 'required_with:conditions|integer|exists:post_types,id',
+
+            'conditions.*.taxonomy_id' => 'nullable|integer|exists:taxonomies,id',
+            'conditions.*.taxonomy_term_ids' => 'nullable|array',
+            'conditions.*.taxonomy_term_ids.*' => 'integer',
+
+            'conditions.*.show_type' => 'nullable|in:include,exclude',
         ];
+
+        if ($allowId) {
+            $rules['conditions.*.id'] = 'nullable|exists:template_display_conditions,id';
+        }
+
+        $validator = Validator::make($payload, $rules);
+
+        $validator->after(function ($validator) use ($payload) {
+            $this->validateConditions($validator, $payload['conditions'] ?? []);
+        });
+
+        return $validator;
     }
 
     private function validateConditions($validator, array $conditions): void
     {
         foreach ($conditions as $index => $condition) {
-            $sourceType = $condition['source_type'] ?? null;
+            $showIf = $condition['show_if'] ?? null;
 
-            if ($sourceType === 'post_type') {
-                if (empty($condition['post_type_slug'])) {
+            if ($showIf === 'taxonomy') {
+                if (empty($condition['taxonomy_id'])) {
                     $validator->errors()->add(
-                        "conditions.$index.post_type_slug",
-                        'Post type is required.'
-                    );
-                }
-            }
-
-            if ($sourceType === 'taxonomy') {
-                if (empty($condition['post_type_slug'])) {
-                    $validator->errors()->add(
-                        "conditions.$index.post_type_slug",
-                        'Post type is required when source type is taxonomy.'
-                    );
-                }
-
-                if (empty($condition['taxonomy_slug'])) {
-                    $validator->errors()->add(
-                        "conditions.$index.taxonomy_slug",
-                        'Taxonomy is required when source type is taxonomy.'
+                        "conditions.$index.taxonomy_id",
+                        'Taxonomy is required when show_if is taxonomy.'
                     );
                 }
 
                 if (
-                    isset($condition['taxonomy_term_ids']) &&
+                    empty($condition['taxonomy_term_ids']) ||
                     !is_array($condition['taxonomy_term_ids'])
                 ) {
                     $validator->errors()->add(
                         "conditions.$index.taxonomy_term_ids",
-                        'Taxonomy terms must be an array.'
+                        'Taxonomy terms are required and must be an array.'
                     );
                 }
             }
         }
+    }
+
+    private function prepareConditionData(Template $template, array $conditionData): array
+    {
+        $showIf = $conditionData['show_if'] ?? $conditionData['source_type'] ?? null;
+
+        $logicOperator = $conditionData['logic_operator']
+            ?? $conditionData['relation']
+            ?? 'and';
+
+        $postType = null;
+        $taxonomy = null;
+
+        if (!empty($conditionData['post_type_id'])) {
+            $postType = PostType::find($conditionData['post_type_id']);
+        }
+
+        if (!$postType && !empty($conditionData['post_type_slug'])) {
+            $postType = PostType::where('slug', $conditionData['post_type_slug'])->first();
+        }
+
+        if ($showIf === 'taxonomy') {
+            if (!empty($conditionData['taxonomy_id'])) {
+                $taxonomy = Taxonomy::find($conditionData['taxonomy_id']);
+            }
+
+            if (!$taxonomy && !empty($conditionData['taxonomy_slug'])) {
+                $taxonomy = Taxonomy::where('slug', $conditionData['taxonomy_slug'])->first();
+            }
+        }
+
+        $taxonomyTermIds = $showIf === 'taxonomy'
+            ? ($conditionData['taxonomy_term_ids'] ?? [])
+            : [];
+
+        return [
+            'template_id' => $template->id,
+
+            'show_type' => $conditionData['show_type'] ?? 'include',
+            'source_type' => $showIf,
+
+            'post_type_id' => $postType?->id,
+            'post_type_slug' => $postType?->slug,
+
+            'taxonomy_id' => $taxonomy?->id,
+            'taxonomy_slug' => $taxonomy?->slug,
+
+            'taxonomy_term_ids' => $taxonomyTermIds,
+
+            'relation' => $logicOperator,
+
+            'condition_value' => [
+                'logic_operator' => $logicOperator,
+                'show_if' => $showIf,
+
+                'post_type_id' => $postType?->id,
+                'post_type_slug' => $postType?->slug,
+
+                'taxonomy_id' => $taxonomy?->id,
+                'taxonomy_slug' => $taxonomy?->slug,
+
+                'taxonomy_term_ids' => $taxonomyTermIds,
+            ],
+        ];
+    }
+
+    private function templateConditionsResponse($templateId, string $message, int $statusCode = 200)
+    {
+        $template = Template::with([
+            'conditions' => function ($query) {
+                $query->orderBy('id', 'asc');
+            },
+            'layout',
+        ])->find($templateId);
+
+        if (!$template) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Template not found.',
+            ], 404);
+        }
+
+        $rules = $this->formatRules($template->conditions);
+
+        return response()->json([
+            'status' => true,
+            'message' => $message,
+            'data' => [
+                'template' => [
+                    'id' => $template->id,
+                    'template_type' => $template->template_type,
+                    'template_name' => $template->template_name,
+                    'post_type_id' => $template->post_type_id,
+                    'post_type_slug' => $template->post_type_slug,
+                    'slug' => $template->slug,
+                    'shortcode' => $template->shortcode,
+                    'status' => $template->status,
+                    'priority' => $template->priority,
+                ],
+                'display_conditions' => [
+                    'expression' => $this->buildExpression($rules),
+                    'rules_count' => count($rules),
+                    'rules' => $rules,
+                ],
+            ],
+        ], $statusCode);
+    }
+
+    private function formatRules($conditions): array
+    {
+        return $conditions->values()->map(function ($condition, $index) {
+            return [
+                'id' => $condition->id,
+
+                /*
+                 * First rule ka logic_operator null rahega.
+                 * Second rule onwards relation with previous rule hoga.
+                 */
+                'logic_operator' => $index === 0 ? null : $condition->relation,
+
+                'show_if' => $condition->source_type,
+
+                'post_type_id' => $condition->post_type_id,
+                'post_type_slug' => $condition->post_type_slug,
+
+                'taxonomy_id' => $condition->taxonomy_id,
+                'taxonomy_slug' => $condition->taxonomy_slug,
+                'taxonomy_term_ids' => $condition->taxonomy_term_ids ?? [],
+
+                'show_type' => $condition->show_type,
+            ];
+        })->toArray();
+    }
+
+    private function buildExpression(array $rules): string
+    {
+        if (empty($rules)) {
+            return '';
+        }
+
+        $parts = [];
+
+        foreach ($rules as $index => $rule) {
+            $ruleLabel = 'Rule ' . ($index + 1);
+
+            if ($index === 0) {
+                $parts[] = $ruleLabel;
+                continue;
+            }
+
+            $operator = strtoupper($rule['logic_operator'] ?? 'and');
+
+            $parts[] = $operator . ' ' . $ruleLabel;
+        }
+
+        $expression = implode(' ', $parts);
+
+        /*
+         * Rule 1 AND Rule 2 OR Rule 3 AND Rule 4
+         * Visual output:
+         * (Rule 1 AND Rule 2) OR (Rule 3 AND Rule 4)
+         */
+        if (str_contains($expression, ' OR ')) {
+            $groups = explode(' OR ', $expression);
+
+            $groups = array_map(function ($group) {
+                return '(' . trim($group) . ')';
+            }, $groups);
+
+            return implode(' OR ', $groups);
+        }
+
+        return $expression;
     }
 
     private function getPayload(Request $request): array

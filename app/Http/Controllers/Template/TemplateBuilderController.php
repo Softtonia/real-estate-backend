@@ -12,7 +12,7 @@ class TemplateBuilderController extends Controller
 {
     public function show($template_id)
     {
-        $template = Template::with('layout')->find($template_id);
+        $template = Template::with(['layout', 'conditions', 'postType'])->find($template_id);
 
         if (!$template) {
             return response()->json([

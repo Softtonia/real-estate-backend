@@ -9,13 +9,19 @@ class Template extends Model
 {
     protected $fillable = [
         'template_type',
+        'post_type_id',
+        'post_type_slug',
         'template_name',
         'slug',
         'shortcode',
-        'priority',
+        'created_by',
         'status',
+        'priority',
     ];
-
+    public function postType()
+    {
+        return $this->belongsTo(PostType::class, 'post_type_id');
+    }
     public function conditions()
     {
         return $this->hasMany(TemplateDisplayCondition::class);
@@ -34,8 +40,8 @@ class Template extends Model
 
         while (
             self::where('slug', $slug)
-                ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
-                ->exists()
+            ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
+            ->exists()
         ) {
             $slug = $base . '-' . $count;
             $count++;

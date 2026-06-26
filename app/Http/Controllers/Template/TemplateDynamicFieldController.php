@@ -11,23 +11,21 @@ class TemplateDynamicFieldController extends Controller
 {
     public function index(Request $request)
     {
-        $payload = $request->all();
-
-        if (empty($payload)) {
-            $payload = $request->json()->all();
-        }
-
-        if (empty($payload) && $request->getContent()) {
-            $decoded = json_decode($request->getContent(), true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $payload = $decoded;
-            }
-        }
+        $payload = $this->getPayload($request);
 
         $validator = Validator::make($payload, [
-            'post_type' => 'required|in:property-listing,project-listing,developer-listing',
+            'post_type_id' => 'nullable|integer|exists:post_types,id',
+            'post_type' => 'nullable|string',
         ]);
+
+        $validator->after(function ($validator) use ($payload) {
+            if (empty($payload['post_type_id']) && empty($payload['post_type'])) {
+                $validator->errors()->add(
+                    'post_type',
+                    'Post type id or post type slug is required.'
+                );
+            }
+        });
 
         if ($validator->fails()) {
             return response()->json([
@@ -37,21 +35,53 @@ class TemplateDynamicFieldController extends Controller
             ], 422);
         }
 
-        $postType = $payload['post_type'];
+        $postTypeRecord = $this->getPostTypeRecord($payload);
+
+        if (!$postTypeRecord) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Post type not found or inactive.',
+            ], 404);
+        }
+
+        $postType = $postTypeRecord->slug;
 
         $systemFields = $this->getSystemFields($postType);
-        $customFields = $this->getCustomFields($postType);
+        $customFields = $this->getCustomFields($postTypeRecord);
 
         return response()->json([
             'status' => true,
             'message' => 'Dynamic fields fetched successfully.',
             'data' => [
-                'post_type' => $postType,
+                'post_type_id' => $postTypeRecord->id,
+                'post_type' => $postTypeRecord->slug,
+                'post_type_name' => $postTypeRecord->name,
                 'system_fields' => $systemFields,
                 'custom_fields' => $customFields,
                 'all_fields' => array_merge($systemFields, $customFields),
             ],
         ]);
+    }
+
+    private function getPostTypeRecord(array $payload)
+    {
+        if (!DB::getSchemaBuilder()->hasTable('post_types')) {
+            return null;
+        }
+
+        $query = DB::table('post_types');
+
+        if (!empty($payload['post_type_id'])) {
+            $query->where('id', $payload['post_type_id']);
+        } elseif (!empty($payload['post_type'])) {
+            $query->where('slug', $payload['post_type']);
+        }
+
+        if (DB::getSchemaBuilder()->hasColumn('post_types', 'status')) {
+            $query->where('status', true);
+        }
+
+        return $query->first();
     }
 
     private function getSystemFields(string $postType): array
@@ -175,7 +205,7 @@ class TemplateDynamicFieldController extends Controller
         return $common;
     }
 
-    private function getCustomFields(string $postType): array
+    private function getCustomFields($postTypeRecord): array
     {
         if (!DB::getSchemaBuilder()->hasTable('custom_fields')) {
             return [];
@@ -183,8 +213,14 @@ class TemplateDynamicFieldController extends Controller
 
         $query = DB::table('custom_fields');
 
-        if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type')) {
-            $query->where('post_type', $postType);
+        if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type_id')) {
+            $query->where('post_type_id', $postTypeRecord->id);
+        } elseif (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type')) {
+            $query->where('post_type', $postTypeRecord->slug);
+        }
+
+        if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'status')) {
+            $query->where('status', true);
         }
 
         return $query->get()->map(function ($field) {
@@ -224,5 +260,24 @@ class TemplateDynamicFieldController extends Controller
             'map', 'location' => 'dynamic_map',
             default => 'dynamic_text',
         };
+    }
+
+    private function getPayload(Request $request): array
+    {
+        $payload = $request->all();
+
+        if (empty($payload)) {
+            $payload = $request->json()->all();
+        }
+
+        if (empty($payload) && $request->getContent()) {
+            $decoded = json_decode($request->getContent(), true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        return is_array($payload) ? $payload : [];
     }
 }

@@ -101,6 +101,7 @@ use App\Http\Controllers\Api\DynamicCustomFieldController;
 use App\Http\Controllers\Api\PostTaxonomyTermController;
 use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
+use App\Http\Controllers\Template\TemplateDynamicFieldController;
 
 /*
 |--------------------------------------------------------------------------
@@ -983,6 +984,9 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
 
     // Templates
+    
+    Route::post('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
+    Route::post('template-resolve', [TemplateApiController::class, 'resolve']);
     Route::get('template-options', [TemplateController::class, 'options']);
     Route::get('template-shortcodes', [TemplateController::class, 'shortcodes']);
     Route::get('templates-list', [TemplateController::class, 'index']);
@@ -994,6 +998,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     // Template Display Conditions
     Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index']);
+    Route::post('template-conditions-replace', [TemplateDisplayConditionController::class, 'replace']);
     Route::post('template-conditions-create', [TemplateDisplayConditionController::class, 'create']);
     Route::post('template-conditions-update', [TemplateDisplayConditionController::class, 'update']);
     Route::delete('template-conditions-delete/{id}', [TemplateDisplayConditionController::class, 'destroy']);

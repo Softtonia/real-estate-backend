@@ -11,9 +11,7 @@ return new class extends Migration
         Schema::create('post_taxonomy_terms', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('dynamic_post_id')
-                ->constrained('dynamic_posts')
-                ->cascadeOnDelete();
+            $table->unsignedBigInteger('dynamic_post_id');
 
             $table->foreignId('taxonomy_id')
                 ->constrained('taxonomies')

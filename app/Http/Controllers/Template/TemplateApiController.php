@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
+use App\Models\PostType;
 use App\Models\Template;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -14,28 +15,50 @@ class TemplateApiController extends Controller
         $payload = $this->getPayload($request);
 
         $validator = Validator::make($payload, [
-            'post_type' => 'required|in:property-listing,project-listing,developer-listing',
-            'purpose' => 'nullable|string',
-            'property' => 'nullable|string',
-            'property_type' => 'nullable|string',
-            'property_status' => 'nullable|string',
-            'project_status' => 'nullable|string',
-            'developer' => 'nullable|string',
+            'template_type' => 'nullable|in:single_post,page,section',
+
+            'post_type_id' => 'nullable|integer|exists:post_types,id',
+            'post_type' => 'nullable|string',
+
+            'taxonomy_term_ids' => 'nullable|array',
+            'taxonomy_term_ids.*' => 'integer',
+
+            'taxonomy_terms' => 'nullable|array',
+
             'id' => 'nullable',
             'slug' => 'nullable|string',
             'content_data' => 'nullable|array',
         ]);
 
+        $validator->after(function ($validator) use ($payload) {
+            $templateType = $payload['template_type'] ?? 'single_post';
+
+            if ($templateType === 'single_post') {
+                if (empty($payload['post_type_id']) && empty($payload['post_type'])) {
+                    $validator->errors()->add(
+                        'post_type',
+                        'Post type id or post type slug is required.'
+                    );
+                }
+            }
+        });
+
         if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => $validator->errors()->first(),
-                'errors' => $validator->errors(),
-            ], 422);
+            return $this->validationErrorResponse($validator);
         }
 
-        $templates = Template::with(['conditions', 'layout'])
+        $payload = $this->normalizePayload($payload);
+
+        $templateType = $payload['template_type'] ?? 'single_post';
+
+        $templates = Template::with([
+                'conditions' => function ($query) {
+                    $query->orderBy('id', 'asc');
+                },
+                'layout',
+            ])
             ->where('status', 'active')
+            ->where('template_type', $templateType)
             ->orderBy('priority', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -59,75 +82,193 @@ class TemplateApiController extends Controller
 
     private function templateMatches($template, array $payload): bool
     {
-        $postType = $payload['post_type'];
-
         $conditions = $template->conditions
-            ->where('post_type', $postType)
+            ->sortBy('id')
             ->values();
 
-        if ($conditions->isEmpty()) {
-            return false;
-        }
+        $excludeConditions = $conditions
+            ->where('show_type', 'exclude')
+            ->values();
 
-        $excludeConditions = $conditions->where('show_type', 'exclude')->values();
-
-        foreach ($excludeConditions as $condition) {
-            if ($this->singleConditionMatches($condition, $payload)) {
+        if ($excludeConditions->isNotEmpty()) {
+            if ($this->evaluateConditionExpression($excludeConditions, $payload)) {
                 return false;
             }
         }
 
-        $includeConditions = $conditions->where('show_type', 'include')->values();
+        $includeConditions = $conditions
+            ->where('show_type', 'include')
+            ->values();
 
-        if ($includeConditions->isEmpty()) {
-            return false;
+        if ($includeConditions->isNotEmpty()) {
+            return $this->evaluateConditionExpression($includeConditions, $payload);
         }
 
-        $hasAllCondition = $includeConditions
-            ->where('condition_type', 'all')
-            ->isNotEmpty();
-
-        if ($hasAllCondition) {
-            return true;
-        }
-
-        foreach ($includeConditions as $condition) {
-            if (!$this->singleConditionMatches($condition, $payload)) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->templateBaseMatches($template, $payload);
     }
 
-    private function singleConditionMatches($condition, array $payload): bool
+    private function templateBaseMatches($template, array $payload): bool
     {
-        if ($condition->condition_type === 'all') {
+        if (($payload['template_type'] ?? 'single_post') !== 'single_post') {
             return true;
         }
 
-        $map = [
-            'purpose' => 'purpose',
-            'property' => 'property',
-            'property-type' => 'property_type',
-            'property-status' => 'property_status',
-            'project-status' => 'project_status',
-            'developer' => 'developer',
-        ];
+        if (!empty($template->post_type_id) && !empty($payload['_post_type_id'])) {
+            return (int) $template->post_type_id === (int) $payload['_post_type_id'];
+        }
 
-        $requestKey = $map[$condition->condition_type] ?? null;
+        if (!empty($template->post_type_slug) && !empty($payload['_post_type_slug'])) {
+            return (string) $template->post_type_slug === (string) $payload['_post_type_slug'];
+        }
 
-        if (!$requestKey) {
+        return false;
+    }
+
+    private function evaluateConditionExpression($conditions, array $payload): bool
+    {
+        /*
+         * Rule 1 AND Rule 2 OR Rule 3 AND Rule 4
+         * =
+         * (Rule 1 AND Rule 2) OR (Rule 3 AND Rule 4)
+         */
+
+        $groups = [];
+        $currentGroup = [];
+
+        foreach ($conditions as $index => $condition) {
+            $relation = strtolower((string) ($condition->relation ?? 'and'));
+
+            if ($index > 0 && $relation === 'or') {
+                $groups[] = $currentGroup;
+                $currentGroup = [];
+            }
+
+            $currentGroup[] = $condition;
+        }
+
+        if (!empty($currentGroup)) {
+            $groups[] = $currentGroup;
+        }
+
+        foreach ($groups as $group) {
+            $groupMatched = true;
+
+            foreach ($group as $condition) {
+                if (!$this->conditionMatches($condition, $payload)) {
+                    $groupMatched = false;
+                    break;
+                }
+            }
+
+            if ($groupMatched) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function conditionMatches($condition, array $payload): bool
+    {
+        if ($condition->source_type === 'post_type') {
+            return $this->postTypeConditionMatches($condition, $payload);
+        }
+
+        if ($condition->source_type === 'taxonomy') {
+            return $this->taxonomyConditionMatches($condition, $payload);
+        }
+
+        return false;
+    }
+
+    private function postTypeConditionMatches($condition, array $payload): bool
+    {
+        if (!empty($condition->post_type_id) && !empty($payload['_post_type_id'])) {
+            return (int) $condition->post_type_id === (int) $payload['_post_type_id'];
+        }
+
+        if (!empty($condition->post_type_slug) && !empty($payload['_post_type_slug'])) {
+            return (string) $condition->post_type_slug === (string) $payload['_post_type_slug'];
+        }
+
+        return false;
+    }
+
+    private function taxonomyConditionMatches($condition, array $payload): bool
+    {
+        if (!$this->postTypeConditionMatches($condition, $payload)) {
             return false;
         }
 
-        $requestValue = $payload[$requestKey] ?? null;
+        $conditionTermIds = $condition->taxonomy_term_ids ?? [];
 
-        if ($requestValue === null) {
+        if (!is_array($conditionTermIds)) {
+            $conditionTermIds = [];
+        }
+
+        if (empty($conditionTermIds)) {
             return false;
         }
 
-        return strtolower((string) $requestValue) === strtolower((string) $condition->condition_value);
+        $requestTermIds = $this->getRequestTermIdsForCondition($condition, $payload);
+
+        if (empty($requestTermIds)) {
+            return false;
+        }
+
+        $conditionTermIds = array_map('intval', $conditionTermIds);
+        $requestTermIds = array_map('intval', $requestTermIds);
+
+        return count(array_intersect($conditionTermIds, $requestTermIds)) > 0;
+    }
+
+    private function getRequestTermIdsForCondition($condition, array $payload): array
+    {
+        $termIds = [];
+
+        if (!empty($payload['taxonomy_term_ids']) && is_array($payload['taxonomy_term_ids'])) {
+            $termIds = array_merge($termIds, $payload['taxonomy_term_ids']);
+        }
+
+        if (!empty($payload['taxonomy_terms']) && is_array($payload['taxonomy_terms'])) {
+            $taxonomyId = (string) ($condition->taxonomy_id ?? '');
+            $taxonomySlug = (string) ($condition->taxonomy_slug ?? '');
+
+            if ($taxonomyId !== '' && isset($payload['taxonomy_terms'][$taxonomyId])) {
+                if (is_array($payload['taxonomy_terms'][$taxonomyId])) {
+                    $termIds = array_merge($termIds, $payload['taxonomy_terms'][$taxonomyId]);
+                }
+            }
+
+            if ($taxonomySlug !== '' && isset($payload['taxonomy_terms'][$taxonomySlug])) {
+                if (is_array($payload['taxonomy_terms'][$taxonomySlug])) {
+                    $termIds = array_merge($termIds, $payload['taxonomy_terms'][$taxonomySlug]);
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($termIds, function ($id) {
+            return $id !== null && $id !== '';
+        })));
+    }
+
+    private function normalizePayload(array $payload): array
+    {
+        $postType = null;
+
+        if (!empty($payload['post_type_id'])) {
+            $postType = PostType::where('id', $payload['post_type_id'])->first();
+        }
+
+        if (!$postType && !empty($payload['post_type'])) {
+            $postType = PostType::where('slug', $payload['post_type'])->first();
+        }
+
+        $payload['_post_type_id'] = $postType?->id ?? ($payload['post_type_id'] ?? null);
+        $payload['_post_type_slug'] = $postType?->slug ?? ($payload['post_type'] ?? null);
+        $payload['_post_type_name'] = $postType?->name ?? null;
+
+        return $payload;
     }
 
     private function makeRenderResponse($template, array $payload): array
@@ -139,19 +280,68 @@ class TemplateApiController extends Controller
         return [
             'template' => [
                 'id' => $template->id,
+                'template_type' => $template->template_type,
                 'template_name' => $template->template_name,
                 'slug' => $template->slug,
+                'shortcode' => $template->shortcode,
+                'post_type_id' => $template->post_type_id,
+                'post_type_slug' => $template->post_type_slug,
                 'priority' => $template->priority ?? 0,
             ],
             'request' => [
-                'post_type' => $payload['post_type'],
+                'template_type' => $payload['template_type'] ?? 'single_post',
+                'post_type_id' => $payload['_post_type_id'] ?? null,
+                'post_type' => $payload['_post_type_slug'] ?? null,
                 'id' => $payload['id'] ?? null,
                 'slug' => $payload['slug'] ?? null,
+                'taxonomy_term_ids' => $payload['taxonomy_term_ids'] ?? [],
+            ],
+            'display_conditions' => [
+                'expression' => $this->buildExpressionFromConditions($template->conditions),
             ],
             'layout_json' => $layoutJson,
             'render_schema' => $this->normalizeLayoutForRender($layoutJson),
             'content_data' => $payload['content_data'] ?? [],
         ];
+    }
+
+    private function buildExpressionFromConditions($conditions): string
+    {
+        $conditions = $conditions
+            ->where('show_type', 'include')
+            ->sortBy('id')
+            ->values();
+
+        if ($conditions->isEmpty()) {
+            return '';
+        }
+
+        $parts = [];
+
+        foreach ($conditions as $index => $condition) {
+            $ruleLabel = 'Rule ' . ($index + 1);
+
+            if ($index === 0) {
+                $parts[] = $ruleLabel;
+                continue;
+            }
+
+            $parts[] = strtoupper($condition->relation ?? 'and') . ' ' . $ruleLabel;
+        }
+
+        $expression = implode(' ', $parts);
+
+        if (str_contains($expression, ' OR ')) {
+            $groups = explode(' OR ', $expression);
+
+            $groups = array_map(function ($group) {
+                return '(' . trim($group) . ')';
+            }, $groups);
+
+            return implode(' OR ', $groups);
+        }
+
+        return $expression;
     }
 
     private function normalizeLayoutForRender($layoutJson): array
@@ -219,5 +409,14 @@ class TemplateApiController extends Controller
         }
 
         return is_array($payload) ? $payload : [];
+    }
+
+    private function validationErrorResponse($validator)
+    {
+        return response()->json([
+            'status' => false,
+            'message' => $validator->errors()->first(),
+            'errors' => $validator->errors(),
+        ], 422);
     }
 }
