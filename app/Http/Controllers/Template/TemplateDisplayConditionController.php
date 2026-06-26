@@ -184,15 +184,19 @@ class TemplateDisplayConditionController extends Controller
             'conditions.*.logic_operator' => 'nullable|in:and,or',
             'conditions.*.relation' => 'nullable|in:and,or',
 
+            'conditions.*.show_type' => 'required_with:conditions|in:include,exclude',
             'conditions.*.show_if' => 'required_with:conditions|in:post_type,taxonomy',
 
-            'conditions.*.post_type_id' => 'required_with:conditions|integer|exists:post_types,id',
+            /*
+             * Important:
+             * post_type_id nullable rakha hai.
+             * Isko manually validateConditions() me only post_type condition ke liye required kiya hai.
+             */
+            'conditions.*.post_type_id' => 'nullable|integer|exists:post_types,id',
 
             'conditions.*.taxonomy_id' => 'nullable|integer|exists:taxonomies,id',
             'conditions.*.taxonomy_term_ids' => 'nullable|array',
             'conditions.*.taxonomy_term_ids.*' => 'integer',
-
-            'conditions.*.show_type' => 'nullable|in:include,exclude',
         ];
 
         if ($allowId) {
@@ -213,6 +217,24 @@ class TemplateDisplayConditionController extends Controller
         foreach ($conditions as $index => $condition) {
             $showIf = $condition['show_if'] ?? null;
 
+            /*
+             * If condition is post_type,
+             * then only post_type_id is required.
+             */
+            if ($showIf === 'post_type') {
+                if (empty($condition['post_type_id'])) {
+                    $validator->errors()->add(
+                        "conditions.$index.post_type_id",
+                        'Post type is required when show_if is post_type.'
+                    );
+                }
+            }
+
+            /*
+             * If condition is taxonomy,
+             * then taxonomy_id and taxonomy_term_ids are required.
+             * post_type_id is NOT required here.
+             */
             if ($showIf === 'taxonomy') {
                 if (empty($condition['taxonomy_id'])) {
                     $validator->errors()->add(
@@ -242,17 +264,28 @@ class TemplateDisplayConditionController extends Controller
             ?? $conditionData['relation']
             ?? 'and';
 
+        $showType = $conditionData['show_type'] ?? 'include';
+
         $postType = null;
         $taxonomy = null;
 
-        if (!empty($conditionData['post_type_id'])) {
-            $postType = PostType::find($conditionData['post_type_id']);
+        /*
+         * Post type should be stored only when show_if is post_type.
+         * Taxonomy condition me post_type_id store nahi hoga.
+         */
+        if ($showIf === 'post_type') {
+            if (!empty($conditionData['post_type_id'])) {
+                $postType = PostType::find($conditionData['post_type_id']);
+            }
+
+            if (!$postType && !empty($conditionData['post_type_slug'])) {
+                $postType = PostType::where('slug', $conditionData['post_type_slug'])->first();
+            }
         }
 
-        if (!$postType && !empty($conditionData['post_type_slug'])) {
-            $postType = PostType::where('slug', $conditionData['post_type_slug'])->first();
-        }
-
+        /*
+         * Taxonomy should be stored only when show_if is taxonomy.
+         */
         if ($showIf === 'taxonomy') {
             if (!empty($conditionData['taxonomy_id'])) {
                 $taxonomy = Taxonomy::find($conditionData['taxonomy_id']);
@@ -270,7 +303,7 @@ class TemplateDisplayConditionController extends Controller
         return [
             'template_id' => $template->id,
 
-            'show_type' => $conditionData['show_type'] ?? 'include',
+            'show_type' => $showType,
             'source_type' => $showIf,
 
             'post_type_id' => $postType?->id,
@@ -284,6 +317,7 @@ class TemplateDisplayConditionController extends Controller
             'relation' => $logicOperator,
 
             'condition_value' => [
+                'show_type' => $showType,
                 'logic_operator' => $logicOperator,
                 'show_if' => $showIf,
 
@@ -352,6 +386,7 @@ class TemplateDisplayConditionController extends Controller
                  */
                 'logic_operator' => $index === 0 ? null : $condition->relation,
 
+                'show_type' => $condition->show_type,
                 'show_if' => $condition->source_type,
 
                 'post_type_id' => $condition->post_type_id,
@@ -360,8 +395,6 @@ class TemplateDisplayConditionController extends Controller
                 'taxonomy_id' => $condition->taxonomy_id,
                 'taxonomy_slug' => $condition->taxonomy_slug,
                 'taxonomy_term_ids' => $condition->taxonomy_term_ids ?? [],
-
-                'show_type' => $condition->show_type,
             ];
         })->toArray();
     }
