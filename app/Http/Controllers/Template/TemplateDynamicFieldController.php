@@ -92,7 +92,7 @@ class TemplateDynamicFieldController extends Controller
     {
         return [
             [
-                'label' => 'Title Widget',
+                'label' => 'Title',
                 'key' => 'title_widget',
                 'source' => 'basic_widget',
                 'type' => 'title',
