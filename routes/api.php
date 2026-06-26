@@ -984,7 +984,6 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
 
     // Templates
-    
     Route::post('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
     Route::post('template-resolve', [TemplateApiController::class, 'resolve']);
     Route::get('template-options', [TemplateController::class, 'options']);
