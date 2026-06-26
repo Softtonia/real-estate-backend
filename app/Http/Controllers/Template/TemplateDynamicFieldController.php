@@ -44,21 +44,25 @@ class TemplateDynamicFieldController extends Controller
             ], 404);
         }
 
-        $postType = $postTypeRecord->slug;
-
-        $systemFields = $this->getSystemFields($postType);
-        $customFields = $this->getCustomFields($postTypeRecord);
+        $basicWidgets = $this->getBasicWidgets();
+        $dynamicCustomFields = $this->getDynamicCustomFields($postTypeRecord);
 
         return response()->json([
             'status' => true,
-            'message' => 'Dynamic fields fetched successfully.',
+            'message' => 'Builder fields fetched successfully.',
             'data' => [
                 'post_type_id' => $postTypeRecord->id,
                 'post_type' => $postTypeRecord->slug,
                 'post_type_name' => $postTypeRecord->name,
-                'system_fields' => $systemFields,
-                'custom_fields' => $customFields,
-                'all_fields' => array_merge($systemFields, $customFields),
+
+                // fixed widgets for all post types
+                'basic_widgets' => $basicWidgets,
+
+                // selected post type ke custom fields
+                'dynamic_custom_fields' => $dynamicCustomFields,
+
+                // optional combined list for frontend builder
+                'builder_items' => array_merge($basicWidgets, $dynamicCustomFields),
             ],
         ]);
     }
@@ -84,128 +88,70 @@ class TemplateDynamicFieldController extends Controller
         return $query->first();
     }
 
-    private function getSystemFields(string $postType): array
+    private function getBasicWidgets(): array
     {
-        $common = [
+        return [
             [
-                'label' => 'Title',
-                'key' => 'title',
-                'source' => 'system',
-                'type' => 'text',
-                'component_key' => 'dynamic_text',
+                'label' => 'Title Widget',
+                'key' => 'title_widget',
+                'source' => 'basic_widget',
+                'type' => 'title',
+                'component_key' => 'title_widget',
+                'settings' => [
+                    'text' => '',
+                    'tag' => 'h2',
+                    'alignment' => 'left',
+                ],
             ],
             [
-                'label' => 'Description',
-                'key' => 'description',
-                'source' => 'system',
-                'type' => 'textarea',
-                'component_key' => 'dynamic_description',
+                'label' => 'Text Editor',
+                'key' => 'text_editor',
+                'source' => 'basic_widget',
+                'type' => 'editor',
+                'component_key' => 'text_editor',
+                'settings' => [
+                    'content' => '',
+                ],
             ],
             [
-                'label' => 'Featured Image',
-                'key' => 'featured_image',
-                'source' => 'system',
+                'label' => 'Button',
+                'key' => 'button',
+                'source' => 'basic_widget',
+                'type' => 'button',
+                'component_key' => 'button',
+                'settings' => [
+                    'text' => 'Click Here',
+                    'url' => '',
+                    'target' => '_self',
+                ],
+            ],
+            [
+                'label' => 'Radio',
+                'key' => 'radio',
+                'source' => 'basic_widget',
+                'type' => 'radio',
+                'component_key' => 'radio',
+                'settings' => [
+                    'label' => '',
+                    'options' => [],
+                    'selected' => null,
+                ],
+            ],
+            [
+                'label' => 'Image',
+                'key' => 'image',
+                'source' => 'basic_widget',
                 'type' => 'image',
-                'component_key' => 'dynamic_image',
-            ],
-            [
-                'label' => 'Gallery',
-                'key' => 'gallery',
-                'source' => 'system',
-                'type' => 'gallery',
-                'component_key' => 'dynamic_gallery',
+                'component_key' => 'image',
+                'settings' => [
+                    'url' => '',
+                    'alt' => '',
+                ],
             ],
         ];
-
-        if ($postType === 'property-listing') {
-            return array_merge($common, [
-                [
-                    'label' => 'Price',
-                    'key' => 'price',
-                    'source' => 'system',
-                    'type' => 'number',
-                    'component_key' => 'dynamic_price',
-                ],
-                [
-                    'label' => 'Purpose',
-                    'key' => 'purpose',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-                [
-                    'label' => 'Property Type',
-                    'key' => 'property_type',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-                [
-                    'label' => 'Property Status',
-                    'key' => 'property_status',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-                [
-                    'label' => 'Location',
-                    'key' => 'location',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-            ]);
-        }
-
-        if ($postType === 'project-listing') {
-            return array_merge($common, [
-                [
-                    'label' => 'Project Status',
-                    'key' => 'project_status',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-                [
-                    'label' => 'Developer',
-                    'key' => 'developer',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-                [
-                    'label' => 'Location',
-                    'key' => 'location',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-            ]);
-        }
-
-        if ($postType === 'developer-listing') {
-            return array_merge($common, [
-                [
-                    'label' => 'Developer Name',
-                    'key' => 'developer_name',
-                    'source' => 'system',
-                    'type' => 'text',
-                    'component_key' => 'dynamic_text',
-                ],
-                [
-                    'label' => 'Logo',
-                    'key' => 'logo',
-                    'source' => 'system',
-                    'type' => 'image',
-                    'component_key' => 'dynamic_image',
-                ],
-            ]);
-        }
-
-        return $common;
     }
 
-    private function getCustomFields($postTypeRecord): array
+    private function getDynamicCustomFields($postTypeRecord): array
     {
         if (!DB::getSchemaBuilder()->hasTable('custom_fields')) {
             return [];
@@ -213,53 +159,136 @@ class TemplateDynamicFieldController extends Controller
 
         $query = DB::table('custom_fields');
 
+        /*
+         * Agar custom_fields table me post_type_id column hai,
+         * to ID se filter karega.
+         */
         if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type_id')) {
             $query->where('post_type_id', $postTypeRecord->id);
-        } elseif (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type')) {
+        }
+
+        /*
+         * Agar custom_fields table me post_type column hai,
+         * to slug se filter karega.
+         */
+        elseif (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type')) {
             $query->where('post_type', $postTypeRecord->slug);
         }
 
+        /*
+         * Agar custom_fields table me post_type_slug column hai,
+         * to slug se filter karega.
+         */
+        elseif (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type_slug')) {
+            $query->where('post_type_slug', $postTypeRecord->slug);
+        }
+
+        /*
+         * Agar status column hai to active fields hi laayega.
+         */
         if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'status')) {
             $query->where('status', true);
         }
 
-        return $query->get()->map(function ($field) {
-            $label = $field->field_label ?? $field->label ?? $field->name ?? 'Custom Field';
-            $key = $field->field_name_slug ?? $field->field_name ?? $field->slug ?? $field->name ?? null;
-            $type = $field->field_type ?? $field->type ?? 'text';
+        if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'sort_order')) {
+            $query->orderBy('sort_order');
+        } else {
+            $query->orderBy('id');
+        }
 
-            return [
-                'id' => $field->id ?? null,
-                'label' => $label,
-                'key' => $key,
-                'source' => 'custom_field',
-                'type' => $type,
-                'required' => (bool) ($field->required ?? false),
-                'component_key' => $this->mapFieldTypeToComponent($type),
-                'meta' => [
-                    'placeholder' => $field->field_placeholder ?? null,
-                    'options' => $field->options ?? null,
-                    'media_limit' => $field->media_limit ?? null,
-                    'media_size' => $field->media_size ?? null,
-                    'media_format' => $field->media_format ?? null,
-                    'repeater' => $field->repeater ?? null,
-                ],
-            ];
-        })->filter(function ($field) {
-            return !empty($field['key']);
-        })->values()->toArray();
+        return $query->get()
+            ->map(function ($field) {
+                $label = $field->field_label
+                    ?? $field->label
+                    ?? $field->name
+                    ?? 'Custom Field';
+
+                $key = $field->field_name_slug
+                    ?? $field->field_name
+                    ?? $field->slug
+                    ?? $field->name
+                    ?? null;
+
+                $type = $field->field_type
+                    ?? $field->type
+                    ?? 'text';
+
+                return [
+                    'id' => $field->id ?? null,
+                    'label' => $label,
+                    'key' => $key,
+                    'source' => 'custom_field',
+                    'type' => $type,
+                    'component_key' => $this->mapFieldTypeToComponent($type),
+
+                    /*
+                     * Builder binding ke liye important.
+                     * Isse frontend ko pata chalega ki ye field dynamic data se bind hoga.
+                     */
+                    'binding' => [
+                        'source' => 'custom_field',
+                        'field_id' => $field->id ?? null,
+                        'field_key' => $key,
+                    ],
+
+                    'meta' => [
+                        'required' => (bool) ($field->required ?? false),
+                        'placeholder' => $field->field_placeholder ?? null,
+                        'options' => $this->decodeMaybeJson($field->options ?? null),
+                        'media_limit' => $field->media_limit ?? null,
+                        'media_size' => $field->media_size ?? null,
+                        'media_format' => $field->media_format ?? null,
+                        'repeater' => $field->repeater ?? null,
+                    ],
+                ];
+            })
+            ->filter(function ($field) {
+                return !empty($field['key']);
+            })
+            ->values()
+            ->toArray();
     }
 
     private function mapFieldTypeToComponent(string $type): string
     {
         return match ($type) {
-            'textarea', 'editor', 'richtext' => 'dynamic_description',
-            'number', 'price' => 'dynamic_price',
+            'textarea', 'editor', 'richtext' => 'dynamic_text_editor',
+            'number', 'price' => 'dynamic_number',
             'image', 'file' => 'dynamic_image',
             'gallery', 'media' => 'dynamic_gallery',
+            'radio' => 'dynamic_radio',
+            'select', 'dropdown' => 'dynamic_select',
+            'checkbox' => 'dynamic_checkbox',
             'map', 'location' => 'dynamic_map',
             default => 'dynamic_text',
         };
+    }
+
+    private function decodeMaybeJson($value)
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_object($value)) {
+            return json_decode(json_encode($value), true);
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $decoded;
+            }
+
+            return $value;
+        }
+
+        return $value;
     }
 
     private function getPayload(Request $request): array
