@@ -39,6 +39,7 @@
     35 => 'App\\Providers\\EventServiceProvider',
     36 => 'App\\Providers\\RouteServiceProvider',
     37 => 'Spatie\\Permission\\PermissionServiceProvider',
+    38 => 'App\\PageBuilder\\Providers\\PageBuilderServiceProvider',
   ),
   'eager' => 
   array (
@@ -65,6 +66,7 @@
     20 => 'App\\Providers\\EventServiceProvider',
     21 => 'App\\Providers\\RouteServiceProvider',
     22 => 'Spatie\\Permission\\PermissionServiceProvider',
+    23 => 'App\\PageBuilder\\Providers\\PageBuilderServiceProvider',
   ),
   'deferred' => 
   array (

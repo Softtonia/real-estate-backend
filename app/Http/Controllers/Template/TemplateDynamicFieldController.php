@@ -1,21 +1,35 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
+use App\Models\PostType;
+use App\PageBuilder\Contracts\DynamicResolverInterface;
+use App\PageBuilder\Foundation\WidgetManager;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 class TemplateDynamicFieldController extends Controller
 {
-    public function index(Request $request)
+    public function __construct(
+        protected WidgetManager $widgetManager,
+        protected DynamicResolverInterface $dynamicResolver
+    ) {}
+
+    public function index(Request $request): JsonResponse
     {
         $payload = $this->getPayload($request);
 
         $validator = Validator::make($payload, [
-            'post_type_id' => 'nullable|integer|exists:post_types,id',
-            'post_type' => 'nullable|string',
+            'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'post_type' => ['nullable', 'string'],
+            'taxonomy_id' => ['nullable', 'integer'],
+            'taxonomy_term_ids' => ['nullable', 'array'],
+            'taxonomy_term_ids.*' => ['integer'],
         ]);
 
         $validator->after(function ($validator) use ($payload) {
@@ -35,268 +49,175 @@ class TemplateDynamicFieldController extends Controller
             ], 422);
         }
 
-        $postTypeRecord = $this->getPostTypeRecord($payload);
+        $postType = $this->getPostTypeRecord($payload);
 
-        if (!$postTypeRecord) {
+        if (! $postType) {
             return response()->json([
                 'status' => false,
                 'message' => 'Post type not found or inactive.',
             ], 404);
         }
 
-        $basicWidgets = $this->getBasicWidgets();
-        $dynamicCustomFields = $this->getDynamicCustomFields($postTypeRecord);
+        $widgets = $this->widgetManager->toApiArray();
+
+        $dynamicFields = $this->dynamicResolver->availableFields(
+            (int) $postType->id,
+            $payload
+        );
 
         return response()->json([
             'status' => true,
             'message' => 'Builder fields fetched successfully.',
             'data' => [
-                'post_type_id' => $postTypeRecord->id,
-                'post_type' => $postTypeRecord->slug,
-                'post_type_name' => $postTypeRecord->name,
+                'post_type_id' => $postType->id,
+                'post_type' => $postType->slug,
+                'post_type_name' => $postType->name,
 
-                // fixed widgets for all post types
-                'basic_widgets' => $basicWidgets,
+                'widgets' => $widgets,
 
-                // selected post type ke custom fields
-                'dynamic_custom_fields' => $dynamicCustomFields,
+                /*
+                 * Backward compatible for old frontend.
+                 */
+                'basic_widgets' => $this->formatWidgetsForOldBuilder($widgets),
 
-                // optional combined list for frontend builder
-                'builder_items' => array_merge($basicWidgets, $dynamicCustomFields),
+                /*
+                 * New full dynamic fields structure.
+                 */
+                'dynamic_fields' => $dynamicFields,
+
+                /*
+                 * Backward compatible for old frontend.
+                 */
+                'dynamic_custom_fields' => $this->formatDynamicFieldsForOldBuilder($dynamicFields),
+
+                /*
+                 * Combined drag items for builder.
+                 */
+                'builder_items' => array_merge(
+                    $this->formatWidgetsForOldBuilder($widgets),
+                    $this->formatDynamicFieldsForOldBuilder($dynamicFields)
+                ),
             ],
         ]);
     }
 
-    private function getPostTypeRecord(array $payload)
+    private function getPostTypeRecord(array $payload): ?PostType
     {
-        if (!DB::getSchemaBuilder()->hasTable('post_types')) {
-            return null;
-        }
+        $query = PostType::query();
 
-        $query = DB::table('post_types');
-
-        if (!empty($payload['post_type_id'])) {
+        if (! empty($payload['post_type_id'])) {
             $query->where('id', $payload['post_type_id']);
-        } elseif (!empty($payload['post_type'])) {
+        } elseif (! empty($payload['post_type'])) {
             $query->where('slug', $payload['post_type']);
         }
 
-        if (DB::getSchemaBuilder()->hasColumn('post_types', 'status')) {
-            $query->where('status', true);
-        }
+        $postType = $query->first();
 
-        return $query->first();
-    }
-
-    private function getBasicWidgets(): array
-    {
-        return [
-            [
-                'label' => 'Title',
-                'key' => 'title_widget',
-                'source' => 'basic_widget',
-                'type' => 'title',
-                'component_key' => 'title_widget',
-                'settings' => [
-                    'text' => '',
-                    'tag' => 'h2',
-                    'alignment' => 'left',
-                ],
-            ],
-            [
-                'label' => 'Text Editor',
-                'key' => 'text_editor',
-                'source' => 'basic_widget',
-                'type' => 'editor',
-                'component_key' => 'text_editor',
-                'settings' => [
-                    'content' => '',
-                ],
-            ],
-            [
-                'label' => 'Button',
-                'key' => 'button',
-                'source' => 'basic_widget',
-                'type' => 'button',
-                'component_key' => 'button',
-                'settings' => [
-                    'text' => 'Click Here',
-                    'url' => '',
-                    'target' => '_self',
-                ],
-            ],
-            [
-                'label' => 'Radio',
-                'key' => 'radio',
-                'source' => 'basic_widget',
-                'type' => 'radio',
-                'component_key' => 'radio',
-                'settings' => [
-                    'label' => '',
-                    'options' => [],
-                    'selected' => null,
-                ],
-            ],
-            [
-                'label' => 'Image',
-                'key' => 'image',
-                'source' => 'basic_widget',
-                'type' => 'image',
-                'component_key' => 'image',
-                'settings' => [
-                    'url' => '',
-                    'alt' => '',
-                ],
-            ],
-        ];
-    }
-
-    private function getDynamicCustomFields($postTypeRecord): array
-    {
-        if (!DB::getSchemaBuilder()->hasTable('custom_fields')) {
-            return [];
-        }
-
-        $query = DB::table('custom_fields');
-
-        /*
-         * Agar custom_fields table me post_type_id column hai,
-         * to ID se filter karega.
-         */
-        if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type_id')) {
-            $query->where('post_type_id', $postTypeRecord->id);
-        }
-
-        /*
-         * Agar custom_fields table me post_type column hai,
-         * to slug se filter karega.
-         */
-        elseif (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type')) {
-            $query->where('post_type', $postTypeRecord->slug);
-        }
-
-        /*
-         * Agar custom_fields table me post_type_slug column hai,
-         * to slug se filter karega.
-         */
-        elseif (DB::getSchemaBuilder()->hasColumn('custom_fields', 'post_type_slug')) {
-            $query->where('post_type_slug', $postTypeRecord->slug);
-        }
-
-        /*
-         * Agar status column hai to active fields hi laayega.
-         */
-        if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'status')) {
-            $query->where('status', true);
-        }
-
-        if (DB::getSchemaBuilder()->hasColumn('custom_fields', 'sort_order')) {
-            $query->orderBy('sort_order');
-        } else {
-            $query->orderBy('id');
-        }
-
-        return $query->get()
-            ->map(function ($field) {
-                $label = $field->field_label
-                    ?? $field->label
-                    ?? $field->name
-                    ?? 'Custom Field';
-
-                $key = $field->field_name_slug
-                    ?? $field->field_name
-                    ?? $field->slug
-                    ?? $field->name
-                    ?? null;
-
-                $type = $field->field_type
-                    ?? $field->type
-                    ?? 'text';
-
-                return [
-                    'id' => $field->id ?? null,
-                    'label' => $label,
-                    'key' => $key,
-                    'source' => 'custom_field',
-                    'type' => $type,
-                    'component_key' => $this->mapFieldTypeToComponent($type),
-
-                    /*
-                     * Builder binding ke liye important.
-                     * Isse frontend ko pata chalega ki ye field dynamic data se bind hoga.
-                     */
-                    'binding' => [
-                        'source' => 'custom_field',
-                        'field_id' => $field->id ?? null,
-                        'field_key' => $key,
-                    ],
-
-                    'meta' => [
-                        'required' => (bool) ($field->required ?? false),
-                        'placeholder' => $field->field_placeholder ?? null,
-                        'options' => $this->decodeMaybeJson($field->options ?? null),
-                        'media_limit' => $field->media_limit ?? null,
-                        'media_size' => $field->media_size ?? null,
-                        'media_format' => $field->media_format ?? null,
-                        'repeater' => $field->repeater ?? null,
-                    ],
-                ];
-            })
-            ->filter(function ($field) {
-                return !empty($field['key']);
-            })
-            ->values()
-            ->toArray();
-    }
-
-    private function mapFieldTypeToComponent(string $type): string
-    {
-        return match ($type) {
-            'textarea', 'editor', 'richtext' => 'dynamic_text_editor',
-            'number', 'price' => 'dynamic_number',
-            'image', 'file' => 'dynamic_image',
-            'gallery', 'media' => 'dynamic_gallery',
-            'radio' => 'dynamic_radio',
-            'select', 'dropdown' => 'dynamic_select',
-            'checkbox' => 'dynamic_checkbox',
-            'map', 'location' => 'dynamic_map',
-            default => 'dynamic_text',
-        };
-    }
-
-    private function decodeMaybeJson($value)
-    {
-        if ($value === null || $value === '') {
+        if (! $postType) {
             return null;
         }
 
-        if (is_array($value)) {
-            return $value;
+        if (
+            Schema::hasColumn($postType->getTable(), 'status')
+            && ! in_array($postType->status, [true, 1, '1', 'active'], true)
+        ) {
+            return null;
         }
 
-        if (is_object($value)) {
-            return json_decode(json_encode($value), true);
-        }
+        return $postType;
+    }
 
-        if (is_string($value)) {
-            $decoded = json_decode($value, true);
+    private function formatWidgetsForOldBuilder(array $widgets): array
+    {
+        return collect($widgets)
+            ->map(function (array $widget) {
+                return [
+                    'label' => $widget['name'],
+                    'key' => $widget['type'],
+                    'source' => 'widget',
+                    'type' => $widget['type'],
+                    'component_key' => $widget['type'],
+                    'icon' => $widget['icon'] ?? null,
+                    'category' => $widget['category'] ?? 'Basic',
+                    'settings' => $widget['default_settings'] ?? [],
+                    'schema' => $widget['schema'] ?? [],
+                    'binding' => null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
 
-            if (json_last_error() === JSON_ERROR_NONE) {
-                return $decoded;
+    private function formatDynamicFieldsForOldBuilder(array $dynamicFields): array
+    {
+        $items = [];
+
+        foreach (['system', 'custom', 'repeaters', 'taxonomies', 'relationships'] as $group) {
+            foreach (($dynamicFields[$group] ?? []) as $field) {
+                if (empty($field['key'])) {
+                    continue;
+                }
+
+                $fieldType = (string) ($field['type'] ?? 'text');
+
+                $items[] = [
+                    'id' => $field['id'] ?? null,
+                    'label' => $field['label'] ?? $field['key'],
+                    'key' => $field['key'],
+                    'source' => $field['source'] ?? $group,
+                    'type' => $fieldType,
+
+                    /*
+                     * Important:
+                     * This now maps to our PageBuilder widgets.
+                     */
+                    'component_key' => $this->mapFieldTypeToWidgetType($fieldType),
+
+                    'settings' => [
+                        'source' => 'dynamic',
+                        'field' => $field['key'],
+                    ],
+
+                    'binding' => [
+                        'source' => $field['source'] ?? $group,
+                        'field_key' => $field['key'],
+                        'field_slug' => $field['slug'] ?? null,
+                    ],
+
+                    'meta' => [
+                        'required' => $field['required'] ?? false,
+                        'options' => $field['options'] ?? [],
+                        'group' => $field['group'] ?? null,
+                        'sub_fields' => $field['sub_fields'] ?? [],
+                        'terms' => $field['terms'] ?? [],
+                    ],
+                ];
             }
-
-            return $value;
         }
 
-        return $value;
+        return $items;
+    }
+
+    private function mapFieldTypeToWidgetType(string $fieldType): string
+    {
+        return match ($fieldType) {
+            'textarea', 'texteditor', 'editor', 'wysiwyg', 'richtext' => 'text',
+            'image', 'media', 'file', 'featured_image' => 'image',
+            'gallery', 'images' => 'gallery',
+            'repeater', 'array', 'json' => 'repeater',
+            'taxonomy', 'terms', 'taxonomy_terms' => 'taxonomy_terms',
+            'html', 'custom_html', 'code' => 'html',
+            'url', 'link' => 'button',
+            default => 'text',
+        };
     }
 
     private function getPayload(Request $request): array
     {
-        $payload = $request->all();
+        $payload = $request->json()->all();
 
         if (empty($payload)) {
-            $payload = $request->json()->all();
+            $payload = $request->all();
         }
 
         if (empty($payload) && $request->getContent()) {

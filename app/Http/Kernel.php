@@ -47,8 +47,8 @@ class Kernel extends HttpKernel
             'throttle:api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
 
-             // ✅ Your custom middleware
-        // \App\Http\Middleware\ValidateApiClient::class,
+            // ✅ Your custom middleware
+            // \App\Http\Middleware\ValidateApiClient::class,
 
         ],
 
@@ -77,8 +77,8 @@ class Kernel extends HttpKernel
         'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
         'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
         'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
-         'admin_or_consultancy' => \App\Http\Middleware\AdminOrConsultancyMiddleware::class,
-         
+        'admin_or_consultancy' => \App\Http\Middleware\AdminOrConsultancyMiddleware::class,
+
     ];
 
     protected $routeMiddleware = [
@@ -102,7 +102,13 @@ class Kernel extends HttpKernel
 
         'OnlyCompany' => \App\Http\Middleware\OnlyCompanyMiddleware::class,
 
-
+        'app.blocked_ip' => \App\Http\Middleware\BlockSuspiciousApiIp::class,
+        'app.password' => \App\Http\Middleware\VerifyApplicationPassword::class,
+        'app.origin' => \App\Http\Middleware\VerifyAllowedOrigin::class,
+        'app.signature' => \App\Http\Middleware\VerifyRequestSignature::class,
+        'app.rate' => \App\Http\Middleware\ApiClientRateLimit::class,
+        'app.log' => \App\Http\Middleware\LogApiRequest::class,
+        'client.permission' => \App\Http\Middleware\CheckClientPermission::class,
 
 
 

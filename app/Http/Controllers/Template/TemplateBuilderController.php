@@ -1,27 +1,39 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 use App\Models\Template;
 use App\Models\TemplateComponent;
+use App\PageBuilder\Services\LayoutValidationService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+use App\PageBuilder\Services\TemplateRevisionService;
 
 class TemplateBuilderController extends Controller
 {
-    public function show($template_id)
+    public function __construct(
+        protected LayoutValidationService $layoutValidationService,
+        protected TemplateRevisionService $templateRevisionService
+    ) {}
+
+    public function show($template_id): JsonResponse
     {
         $template = Template::with(['layout', 'conditions', 'postType'])->find($template_id);
 
-        if (!$template) {
+        if (! $template) {
             return response()->json([
                 'status' => false,
                 'message' => 'Template not found.',
             ], 404);
         }
 
-        $components = TemplateComponent::where('status', true)->get();
+        $components = class_exists(TemplateComponent::class)
+            ? TemplateComponent::where('status', true)->get()
+            : collect();
 
         return response()->json([
             'status' => true,
@@ -30,17 +42,17 @@ class TemplateBuilderController extends Controller
                 'template' => $template,
                 'components' => $components,
                 'layout_json' => $template->layout?->layout_json ?? [
-                    'sections' => []
+                    'sections' => [],
                 ],
             ],
         ]);
     }
 
-    public function save(Request $request, $template_id)
+    public function save(Request $request, $template_id): JsonResponse
     {
         $template = Template::find($template_id);
 
-        if (!$template) {
+        if (! $template) {
             return response()->json([
                 'status' => false,
                 'message' => 'Template not found.',
@@ -48,7 +60,7 @@ class TemplateBuilderController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'layout_json' => 'required',
+            'layout_json' => ['required'],
         ]);
 
         if ($validator->fails()) {
@@ -73,6 +85,33 @@ class TemplateBuilderController extends Controller
 
             $layoutJson = $decoded;
         }
+
+        if (! is_array($layoutJson)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Layout JSON must be an array.',
+            ], 422);
+        }
+
+        $validation = $this->layoutValidationService->validate($layoutJson);
+
+        if (! $validation['valid']) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Layout validation failed.',
+                'errors' => $validation['errors'],
+            ], 422);
+        }
+
+        $layoutJson = $validation['layout_json'];
+
+        $layoutJson = $validation['layout_json'];
+
+        $this->templateRevisionService->createSnapshot(
+            $template->load(['layout', 'conditions']),
+            'layout_save',
+            'Auto snapshot before layout save'
+        );
 
         $template->layout()->updateOrCreate(
             ['template_id' => $template->id],

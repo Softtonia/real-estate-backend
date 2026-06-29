@@ -15,8 +15,14 @@ class EventServiceProvider extends ServiceProvider
      * @var array<class-string, array<int, class-string>>
      */
     protected $listen = [
-        Registered::class => [
-            SendEmailVerificationNotification::class,
+        \App\Events\ApplicationPasswordCreated::class => [
+            \App\Listeners\WriteApplicationPasswordAuditLog::class,
+            \App\Listeners\ClearClientCache::class,
+        ],
+
+        \App\Events\ApplicationPasswordRevoked::class => [
+            \App\Listeners\WriteApplicationPasswordAuditLog::class,
+            \App\Listeners\ClearClientCache::class,
         ],
     ];
 

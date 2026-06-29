@@ -24,14 +24,20 @@ class ValidateApiClient
         $clientId     = $this->firstHeaderValue($request->header('X-Client-ID'));
         $clientSecret = preg_replace('/\s+/', '', $this->firstHeaderValue($request->header('X-Client-Secret')));
         $appType      = $this->firstHeaderValue($request->header('X-App-Type'));
-        $origin       = $this->normalizeOrigin($this->firstHeaderValue($request->headers->get('Origin')));
+
+        /*
+        |--------------------------------------------------------------------------
+        | Resolve Origin
+        |--------------------------------------------------------------------------
+        | First Origin header check karega.
+        | Agar Origin missing hai to Referer se origin resolve karega.
+        */
+        $origin = $this->resolveRequestOrigin($request);
 
         /*
         |--------------------------------------------------------------------------
         | Handle Browser Preflight Request
         |--------------------------------------------------------------------------
-        | Browser OPTIONS request bhejta hai before actual request.
-        | Is request me custom auth headers ka validation fail nahi karna chahiye.
         */
         if ($request->isMethod('OPTIONS')) {
             return $this->corsResponse([], 204, $origin);
@@ -68,6 +74,7 @@ class ValidateApiClient
                 $debugMode,
                 [
                     'received_origin' => $origin,
+                    'received_referer' => $request->headers->get('Referer'),
                     'received_client_id' => $clientId,
                     'received_app_type' => $appType,
                 ]
@@ -165,6 +172,7 @@ class ValidateApiClient
                 $debugMode,
                 [
                     'received_origin' => $origin,
+                    'received_referer' => $request->headers->get('Referer'),
                     'allowed_domains' => $allowedDomains,
                 ]
             );
@@ -174,8 +182,6 @@ class ValidateApiClient
         |--------------------------------------------------------------------------
         | Lock First Origin
         |--------------------------------------------------------------------------
-        | First valid origin ko lock karna hai.
-        | Transaction ke baad client refresh zaroori hai.
         */
         if (empty($client->used_by_origin)) {
             DB::transaction(function () use ($client, $origin) {
@@ -204,6 +210,7 @@ class ValidateApiClient
                 $debugMode,
                 [
                     'received_origin' => $origin,
+                    'received_referer' => $request->headers->get('Referer'),
                     'locked_origin' => $lockedOrigin,
                 ]
             );
@@ -243,6 +250,46 @@ class ValidateApiClient
         return strtolower(rtrim($origin, '/'));
     }
 
+    private function resolveRequestOrigin(Request $request): string
+    {
+        /*
+        |--------------------------------------------------------------------------
+        | 1. First priority: Origin header
+        |--------------------------------------------------------------------------
+        */
+        $origin = $this->firstHeaderValue($request->headers->get('Origin'));
+
+        if (!empty($origin) && strtolower($origin) !== 'null') {
+            return $this->normalizeOrigin($origin);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 2. Fallback: Referer header
+        |--------------------------------------------------------------------------
+        | Example:
+        | Referer: http://localhost:3000/
+        | Resolved origin: http://localhost:3000
+        */
+        $referer = $this->firstHeaderValue($request->headers->get('Referer'));
+
+        if (!empty($referer)) {
+            $parts = parse_url($referer);
+
+            if (!empty($parts['scheme']) && !empty($parts['host'])) {
+                $resolvedOrigin = $parts['scheme'] . '://' . $parts['host'];
+
+                if (!empty($parts['port'])) {
+                    $resolvedOrigin .= ':' . $parts['port'];
+                }
+
+                return $this->normalizeOrigin($resolvedOrigin);
+            }
+        }
+
+        return '';
+    }
+
     private function errorResponse(
         string $message,
         array $errors,
@@ -250,7 +297,7 @@ class ValidateApiClient
         bool $debugMode = false,
         array $debug = []
     ): Response {
-        $origin = $this->normalizeOrigin(request()->headers->get('Origin'));
+        $origin = $this->resolveRequestOrigin(request());
 
         $response = [
             'message' => $message,
@@ -286,7 +333,7 @@ class ValidateApiClient
 
         $response->headers->set(
             'Access-Control-Allow-Headers',
-            'Content-Type, Authorization, X-Requested-With, X-Client-ID, X-Client-Secret, X-App-Type, X-Debug-API-Client'
+            'Content-Type, Authorization, X-Requested-With, X-Client-ID, X-Client-Secret, X-App-Type, X-Debug-API-Client, X-Nextjs-Build-Key, X-Forwarded-For'
         );
 
         $response->headers->set(
@@ -297,6 +344,16 @@ class ValidateApiClient
         $response->headers->set(
             'Access-Control-Max-Age',
             '86400'
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Required only if frontend axios uses withCredentials: true
+        |--------------------------------------------------------------------------
+        */
+        $response->headers->set(
+            'Access-Control-Allow-Credentials',
+            'true'
         );
 
         return $response;

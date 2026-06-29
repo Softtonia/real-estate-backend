@@ -1,395 +1,212 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
-use App\Models\PostType;
 use App\Models\Template;
+use App\PageBuilder\Services\TemplateService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use InvalidArgumentException;
+use Throwable;
 
-class TemplateApiController extends Controller
+class TemplateController extends Controller
 {
-    public function resolve(Request $request)
+    public function __construct(
+        protected TemplateService $templateService
+    ) {
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        $templates = $this->templateService->list($request->all());
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Templates fetched successfully.',
+            'data' => $templates,
+        ]);
+    }
+
+    public function create(Request $request): JsonResponse
     {
         $payload = $this->getPayload($request);
 
         $validator = Validator::make($payload, [
-            'template_type' => 'nullable|in:single_post,page,section',
-
-            'post_type_id' => 'nullable|integer|exists:post_types,id',
-            'post_type' => 'nullable|string',
-
-            'taxonomy_term_ids' => 'nullable|array',
-            'taxonomy_term_ids.*' => 'integer',
-
-            'taxonomy_terms' => 'nullable|array',
-
-            'id' => 'nullable',
-            'slug' => 'nullable|string',
-            'content_data' => 'nullable|array',
+            'template_type' => ['required', 'in:single_post,page,section'],
+            'template_name' => ['required', 'string', 'max:255'],
+            'post_type_id' => ['required_if:template_type,single_post', 'nullable', 'integer', 'exists:post_types,id'],
         ]);
-
-        $validator->after(function ($validator) use ($payload) {
-            $templateType = $payload['template_type'] ?? 'single_post';
-
-            if ($templateType === 'single_post') {
-                if (empty($payload['post_type_id']) && empty($payload['post_type'])) {
-                    $validator->errors()->add(
-                        'post_type',
-                        'Post type id or post type slug is required.'
-                    );
-                }
-            }
-        });
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator);
         }
 
-        $payload = $this->normalizePayload($payload);
+        try {
+            $template = $this->templateService->create($payload);
 
-        $templateType = $payload['template_type'] ?? 'single_post';
+            return response()->json([
+                'status' => true,
+                'message' => 'Template created successfully.',
+                'data' => $template,
+            ], 201);
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to create template.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 
-        $templates = Template::with([
-                'conditions' => function ($query) {
-                    $query->orderBy('id', 'asc');
-                },
-                'layout',
-            ])
-            ->where('status', 'active')
-            ->where('template_type', $templateType)
-            ->orderBy('priority', 'desc')
-            ->orderBy('id', 'desc')
-            ->get();
+    public function show(int $id): JsonResponse
+    {
+        $template = $this->templateService->find($id);
 
-        foreach ($templates as $template) {
-            if ($this->templateMatches($template, $payload)) {
-                return response()->json([
-                    'status' => true,
-                    'message' => 'Matching template found.',
-                    'data' => $this->makeRenderResponse($template, $payload),
-                ]);
-            }
+        if (! $template) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Template not found.',
+            ], 404);
         }
 
         return response()->json([
-            'status' => false,
-            'message' => 'No matching template found.',
-            'data' => null,
-        ], 404);
+            'status' => true,
+            'message' => 'Template fetched successfully.',
+            'data' => $template,
+        ]);
     }
 
-    private function templateMatches($template, array $payload): bool
+    public function update(Request $request, int $id): JsonResponse
     {
-        $conditions = $template->conditions
-            ->sortBy('id')
-            ->values();
+        $template = Template::find($id);
 
-        $excludeConditions = $conditions
-            ->where('show_type', 'exclude')
-            ->values();
-
-        if ($excludeConditions->isNotEmpty()) {
-            if ($this->evaluateConditionExpression($excludeConditions, $payload)) {
-                return false;
-            }
+        if (! $template) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Template not found.',
+            ], 404);
         }
 
-        $includeConditions = $conditions
-            ->where('show_type', 'include')
-            ->values();
+        $payload = $this->getPayload($request);
 
-        if ($includeConditions->isNotEmpty()) {
-            return $this->evaluateConditionExpression($includeConditions, $payload);
+        $validator = Validator::make($payload, [
+            'template_type' => ['required', 'in:single_post,page,section'],
+            'template_name' => ['required', 'string', 'max:255'],
+            'post_type_id' => ['required_if:template_type,single_post', 'nullable', 'integer', 'exists:post_types,id'],
+            'status' => ['nullable', 'in:active,draft'],
+            'regenerate_slug' => ['nullable', 'boolean'],
+            'priority' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationErrorResponse($validator);
         }
 
-        return $this->templateBaseMatches($template, $payload);
+        try {
+            $template = $this->templateService->update($template, $payload);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Template updated successfully.',
+                'data' => $template,
+            ]);
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to update template.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
-    private function templateBaseMatches($template, array $payload): bool
+    public function updateStatus(Request $request, int $id): JsonResponse
     {
-        if (($payload['template_type'] ?? 'single_post') !== 'single_post') {
-            return true;
+        $template = Template::find($id);
+
+        if (! $template) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Template not found.',
+            ], 404);
         }
 
-        if (!empty($template->post_type_id) && !empty($payload['_post_type_id'])) {
-            return (int) $template->post_type_id === (int) $payload['_post_type_id'];
+        $validator = Validator::make($request->all(), [
+            'status' => ['required', 'in:active,draft'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationErrorResponse($validator);
         }
 
-        if (!empty($template->post_type_slug) && !empty($payload['_post_type_slug'])) {
-            return (string) $template->post_type_slug === (string) $payload['_post_type_slug'];
-        }
+        $template = $this->templateService->updateStatus(
+            $template,
+            (string) $request->status
+        );
 
-        return false;
+        return response()->json([
+            'status' => true,
+            'message' => 'Template status updated successfully.',
+            'data' => $template,
+        ]);
     }
 
-    private function evaluateConditionExpression($conditions, array $payload): bool
+    public function destroy(int $id): JsonResponse
     {
-        /*
-         * Rule 1 AND Rule 2 OR Rule 3 AND Rule 4
-         * =
-         * (Rule 1 AND Rule 2) OR (Rule 3 AND Rule 4)
-         */
+        $template = Template::with(['conditions', 'layout'])->find($id);
 
-        $groups = [];
-        $currentGroup = [];
-
-        foreach ($conditions as $index => $condition) {
-            $relation = strtolower((string) ($condition->relation ?? 'and'));
-
-            if ($index > 0 && $relation === 'or') {
-                $groups[] = $currentGroup;
-                $currentGroup = [];
-            }
-
-            $currentGroup[] = $condition;
+        if (! $template) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Template not found.',
+            ], 404);
         }
 
-        if (!empty($currentGroup)) {
-            $groups[] = $currentGroup;
+        try {
+            $this->templateService->delete($template);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Template deleted successfully.',
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to delete template.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        foreach ($groups as $group) {
-            $groupMatched = true;
-
-            foreach ($group as $condition) {
-                if (!$this->conditionMatches($condition, $payload)) {
-                    $groupMatched = false;
-                    break;
-                }
-            }
-
-            if ($groupMatched) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
-    private function conditionMatches($condition, array $payload): bool
+    public function options(): JsonResponse
     {
-        if ($condition->source_type === 'post_type') {
-            return $this->postTypeConditionMatches($condition, $payload);
-        }
-
-        if ($condition->source_type === 'taxonomy') {
-            return $this->taxonomyConditionMatches($condition, $payload);
-        }
-
-        return false;
+        return response()->json([
+            'status' => true,
+            'message' => 'Template options fetched successfully.',
+            'data' => $this->templateService->options(),
+        ]);
     }
 
-    private function postTypeConditionMatches($condition, array $payload): bool
+    public function shortcodes(): JsonResponse
     {
-        if (!empty($condition->post_type_id) && !empty($payload['_post_type_id'])) {
-            return (int) $condition->post_type_id === (int) $payload['_post_type_id'];
-        }
-
-        if (!empty($condition->post_type_slug) && !empty($payload['_post_type_slug'])) {
-            return (string) $condition->post_type_slug === (string) $payload['_post_type_slug'];
-        }
-
-        return false;
-    }
-
-    private function taxonomyConditionMatches($condition, array $payload): bool
-    {
-        if (!$this->postTypeConditionMatches($condition, $payload)) {
-            return false;
-        }
-
-        $conditionTermIds = $condition->taxonomy_term_ids ?? [];
-
-        if (!is_array($conditionTermIds)) {
-            $conditionTermIds = [];
-        }
-
-        if (empty($conditionTermIds)) {
-            return false;
-        }
-
-        $requestTermIds = $this->getRequestTermIdsForCondition($condition, $payload);
-
-        if (empty($requestTermIds)) {
-            return false;
-        }
-
-        $conditionTermIds = array_map('intval', $conditionTermIds);
-        $requestTermIds = array_map('intval', $requestTermIds);
-
-        return count(array_intersect($conditionTermIds, $requestTermIds)) > 0;
-    }
-
-    private function getRequestTermIdsForCondition($condition, array $payload): array
-    {
-        $termIds = [];
-
-        if (!empty($payload['taxonomy_term_ids']) && is_array($payload['taxonomy_term_ids'])) {
-            $termIds = array_merge($termIds, $payload['taxonomy_term_ids']);
-        }
-
-        if (!empty($payload['taxonomy_terms']) && is_array($payload['taxonomy_terms'])) {
-            $taxonomyId = (string) ($condition->taxonomy_id ?? '');
-            $taxonomySlug = (string) ($condition->taxonomy_slug ?? '');
-
-            if ($taxonomyId !== '' && isset($payload['taxonomy_terms'][$taxonomyId])) {
-                if (is_array($payload['taxonomy_terms'][$taxonomyId])) {
-                    $termIds = array_merge($termIds, $payload['taxonomy_terms'][$taxonomyId]);
-                }
-            }
-
-            if ($taxonomySlug !== '' && isset($payload['taxonomy_terms'][$taxonomySlug])) {
-                if (is_array($payload['taxonomy_terms'][$taxonomySlug])) {
-                    $termIds = array_merge($termIds, $payload['taxonomy_terms'][$taxonomySlug]);
-                }
-            }
-        }
-
-        return array_values(array_unique(array_filter($termIds, function ($id) {
-            return $id !== null && $id !== '';
-        })));
-    }
-
-    private function normalizePayload(array $payload): array
-    {
-        $postType = null;
-
-        if (!empty($payload['post_type_id'])) {
-            $postType = PostType::where('id', $payload['post_type_id'])->first();
-        }
-
-        if (!$postType && !empty($payload['post_type'])) {
-            $postType = PostType::where('slug', $payload['post_type'])->first();
-        }
-
-        $payload['_post_type_id'] = $postType?->id ?? ($payload['post_type_id'] ?? null);
-        $payload['_post_type_slug'] = $postType?->slug ?? ($payload['post_type'] ?? null);
-        $payload['_post_type_name'] = $postType?->name ?? null;
-
-        return $payload;
-    }
-
-    private function makeRenderResponse($template, array $payload): array
-    {
-        $layoutJson = $template->layout?->layout_json ?? [
-            'sections' => []
-        ];
-
-        return [
-            'template' => [
-                'id' => $template->id,
-                'template_type' => $template->template_type,
-                'template_name' => $template->template_name,
-                'slug' => $template->slug,
-                'shortcode' => $template->shortcode,
-                'post_type_id' => $template->post_type_id,
-                'post_type_slug' => $template->post_type_slug,
-                'priority' => $template->priority ?? 0,
-            ],
-            'request' => [
-                'template_type' => $payload['template_type'] ?? 'single_post',
-                'post_type_id' => $payload['_post_type_id'] ?? null,
-                'post_type' => $payload['_post_type_slug'] ?? null,
-                'id' => $payload['id'] ?? null,
-                'slug' => $payload['slug'] ?? null,
-                'taxonomy_term_ids' => $payload['taxonomy_term_ids'] ?? [],
-            ],
-            'display_conditions' => [
-                'expression' => $this->buildExpressionFromConditions($template->conditions),
-            ],
-            'layout_json' => $layoutJson,
-            'render_schema' => $this->normalizeLayoutForRender($layoutJson),
-            'content_data' => $payload['content_data'] ?? [],
-        ];
-    }
-
-    private function buildExpressionFromConditions($conditions): string
-    {
-        $conditions = $conditions
-            ->where('show_type', 'include')
-            ->sortBy('id')
-            ->values();
-
-        if ($conditions->isEmpty()) {
-            return '';
-        }
-
-        $parts = [];
-
-        foreach ($conditions as $index => $condition) {
-            $ruleLabel = 'Rule ' . ($index + 1);
-
-            if ($index === 0) {
-                $parts[] = $ruleLabel;
-                continue;
-            }
-
-            $parts[] = strtoupper($condition->relation ?? 'and') . ' ' . $ruleLabel;
-        }
-
-        $expression = implode(' ', $parts);
-
-        if (str_contains($expression, ' OR ')) {
-            $groups = explode(' OR ', $expression);
-
-            $groups = array_map(function ($group) {
-                return '(' . trim($group) . ')';
-            }, $groups);
-
-            return implode(' OR ', $groups);
-        }
-
-        return $expression;
-    }
-
-    private function normalizeLayoutForRender($layoutJson): array
-    {
-        if (is_string($layoutJson)) {
-            $decoded = json_decode($layoutJson, true);
-            $layoutJson = json_last_error() === JSON_ERROR_NONE ? $decoded : [];
-        }
-
-        $sections = $layoutJson['sections'] ?? [];
-
-        return [
-            'sections' => collect($sections)->map(function ($section, $sectionIndex) {
-                return [
-                    'id' => $section['id'] ?? 'section_' . ($sectionIndex + 1),
-                    'name' => $section['name'] ?? 'Section',
-                    'sort_order' => $section['sort_order'] ?? ($sectionIndex + 1),
-                    'settings' => $section['settings'] ?? [],
-                    'rows' => collect($section['rows'] ?? [])->map(function ($row, $rowIndex) {
-                        return [
-                            'id' => $row['id'] ?? 'row_' . ($rowIndex + 1),
-                            'sort_order' => $row['sort_order'] ?? ($rowIndex + 1),
-                            'columns' => collect($row['columns'] ?? [])->map(function ($column, $columnIndex) {
-                                return [
-                                    'id' => $column['id'] ?? 'column_' . ($columnIndex + 1),
-                                    'width' => $column['width'] ?? 12,
-                                    'sort_order' => $column['sort_order'] ?? ($columnIndex + 1),
-                                    'settings' => $column['settings'] ?? [],
-                                    'components' => collect($column['components'] ?? [])->map(function ($component, $componentIndex) {
-                                        return [
-                                            'id' => $component['id'] ?? 'component_' . ($componentIndex + 1),
-                                            'key' => $component['key'] ?? null,
-                                            'name' => $component['name'] ?? null,
-                                            'sort_order' => $component['sort_order'] ?? ($componentIndex + 1),
-                                            'settings' => $component['settings'] ?? [],
-                                            'binding' => $component['binding'] ?? [
-                                                'source' => $component['settings']['source'] ?? null,
-                                                'field' => $component['settings']['field'] ?? null,
-                                            ],
-                                        ];
-                                    })->values()->toArray(),
-                                ];
-                            })->values()->toArray(),
-                        ];
-                    })->values()->toArray(),
-                ];
-            })->values()->toArray(),
-        ];
+        return response()->json([
+            'status' => true,
+            'message' => 'Template shortcodes fetched successfully.',
+            'data' => $this->templateService->shortcodes(),
+        ]);
     }
 
     private function getPayload(Request $request): array
@@ -411,7 +228,7 @@ class TemplateApiController extends Controller
         return is_array($payload) ? $payload : [];
     }
 
-    private function validationErrorResponse($validator)
+    private function validationErrorResponse($validator): JsonResponse
     {
         return response()->json([
             'status' => false,

@@ -3,69 +3,151 @@
 namespace App\Services;
 
 use App\Models\ApiClient;
-use Illuminate\Support\Facades\Cache;
-use Carbon\Carbon;
+use App\Repositories\ApiClientRepository;
+use Illuminate\Support\Str;
 
 class ApiClientService
 {
-    /**
-     * Fetch active client by client_id (with cache)
-     */
-    public function getActiveClientById(string $clientId): ?ApiClient
+    public function __construct(
+        private readonly ApiClientRepository $apiClientRepository
+    ) {}
+
+    public function paginate(int $perPage = 20)
     {
-        return Cache::remember("api_client_{$clientId}", 300, function () use ($clientId) {
-            return ApiClient::where('client_id', $clientId)
-                ->where('status', '1')
-                ->first();
-        });
+        return $this->apiClientRepository->paginate($perPage);
     }
 
-    /**
-     * Get allowed domains from client (cached)
-     */
-    public function getAllowedDomainsCached(ApiClient $client): array
+    public function create(array $data): ApiClient
     {
-        return Cache::remember("api_client_allowed_domains_{$client->client_id}", 300, function () use ($client) {
-            $allowedDomains = $client->allowed_domain;
+        $data = $this->prepareCreatePayload($data);
 
-            if (is_string($allowedDomains)) {
-                $decoded = json_decode($allowedDomains, true);
-                $allowedDomains = is_array($decoded) ? $decoded : [$allowedDomains];
-            }
-
-            if (!is_array($allowedDomains)) $allowedDomains = [];
-
-            return array_values(array_map(fn($d) => rtrim(trim((string)$d), '/'), $allowedDomains));
-        });
+        return $this->apiClientRepository->create($data);
     }
 
-    /**
-     * Update the last used origin for a client
-     */
-    public function updateLastUsedOrigin(ApiClient $client, string $origin)
+    public function update(ApiClient $client, array $data): ApiClient
     {
-        $client->update(['used_by_origin' => $origin]);
-        Cache::forget("api_client_{$client->client_id}");
-        Cache::forget("api_client_allowed_domains_{$client->client_id}");
+        $data = $this->prepareUpdatePayload($client, $data);
+
+        return $this->apiClientRepository->update($client, $data);
     }
 
-    /**
-     * Update last used timestamp
-     */
-    public function updateLastUsedAt(ApiClient $client)
+    public function delete(ApiClient $client): void
     {
-        $client->update(['last_used_at' => Carbon::now()]);
-        Cache::forget("api_client_{$client->client_id}");
+        $this->apiClientRepository->delete($client);
     }
 
-    /**
-     * Invalidate cache manually (for create/update/delete)
-     */
-    public function invalidateCache(ApiClient|string $client)
+    private function prepareCreatePayload(array $data): array
     {
-        $clientId = $client instanceof ApiClient ? $client->client_id : $client;
+        $name = $data['name'];
+        $type = $data['type'];
 
-        Cache::forget("api_client_{$clientId}");
-        Cache::forget("api_client_allowed_domains_{$clientId}");
+        $allowedOrigins = $data['allowed_origins'] ?? [];
+        $permissions = $data['permissions'] ?? ['*'];
+
+        $data['slug'] = $data['slug'] ?? $this->generateUniqueSlug($name);
+
+        $data['status'] = array_key_exists('status', $data)
+            ? ((bool) $data['status'] ? '1' : '0')
+            : '1';
+
+        $data['allowed_origins'] = $allowedOrigins;
+        $data['permissions'] = $permissions;
+
+        $data['rate_limit_per_minute'] = $data['rate_limit_per_minute']
+            ?? config('api_security.default_rate_limit_per_minute', 300);
+
+        $data['requires_signature'] = (bool) ($data['requires_signature'] ?? false);
+
+        /*
+         * Legacy columns required by your existing api_clients table.
+         * These are not used for new secure authentication.
+         */
+        $data['client_name'] = $name;
+        $data['client_id'] = $this->generateLegacyClientId();
+        $data['client_secret'] = $this->generateLegacyClientSecret();
+        $data['app_type'] = $this->mapLegacyAppType($type);
+        $data['allowed_domain'] = json_encode($allowedOrigins);
+
+        return $data;
+    }
+
+    private function prepareUpdatePayload(ApiClient $client, array $data): array
+    {
+        if (isset($data['name'])) {
+            $data['client_name'] = $data['name'];
+        }
+
+        if (isset($data['type'])) {
+            $data['app_type'] = $this->mapLegacyAppType($data['type']);
+        }
+
+        if (array_key_exists('status', $data)) {
+            $data['status'] = (bool) $data['status'] ? '1' : '0';
+        }
+
+        if (array_key_exists('allowed_origins', $data)) {
+            $data['allowed_origins'] = $data['allowed_origins'] ?? [];
+            $data['allowed_domain'] = json_encode($data['allowed_origins']);
+        }
+
+        if (array_key_exists('permissions', $data)) {
+            $data['permissions'] = $data['permissions'] ?? ['*'];
+        }
+
+        if (array_key_exists('requires_signature', $data)) {
+            $data['requires_signature'] = (bool) $data['requires_signature'];
+        }
+
+        if (
+            isset($data['name'])
+            && empty($data['slug'])
+            && empty($client->slug)
+        ) {
+            $data['slug'] = $this->generateUniqueSlug($data['name'], $client->id);
+        }
+
+        return $data;
+    }
+
+    private function generateUniqueSlug(string $name, ?int $ignoreId = null): string
+    {
+        $base = Str::slug($name) ?: 'api-client';
+        $slug = $base;
+        $counter = 1;
+
+        while ($this->apiClientRepository->existsBySlug($slug, $ignoreId)) {
+            $slug = $base . '-' . $counter++;
+        }
+
+        return $slug;
+    }
+
+    private function generateLegacyClientId(): string
+    {
+        do {
+            $value = strtoupper(substr(bin2hex(random_bytes(16)), 0, 30));
+        } while ($this->apiClientRepository->existsByLegacyClientId($value));
+
+        return $value;
+    }
+
+    private function generateLegacyClientSecret(): string
+    {
+        do {
+            $value = 'legacy_' . bin2hex(random_bytes(32));
+        } while ($this->apiClientRepository->existsByLegacyClientSecret($value));
+
+        return $value;
+    }
+
+    private function mapLegacyAppType(string $type): string
+    {
+        return match ($type) {
+            'admin' => 'admin',
+            'business' => 'business',
+            'website' => 'website',
+            'mobile-app' => 'mobile-app',
+            default => 'custom',
+        };
     }
 }

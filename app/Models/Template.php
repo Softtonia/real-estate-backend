@@ -4,9 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Template extends Model
 {
+    use SoftDeletes;
     protected $fillable = [
         'template_type',
         'post_type_id',
@@ -53,5 +55,9 @@ class Template extends Model
     public function generateShortcode(): string
     {
         return '[vk_template id="' . $this->id . '"]';
+    }
+    public function revisions()
+    {
+        return $this->hasMany(TemplateRevision::class);
     }
 }

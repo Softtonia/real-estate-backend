@@ -238,9 +238,9 @@ class TemplateController extends Controller
 
     public function updateStatus(Request $request, $id)
     {
-        $template = Template::find($id);
+        $template = Template::with(['layout', 'conditions', 'postType'])->find($id);
 
-        if (!$template) {
+        if (! $template) {
             return response()->json([
                 'status' => false,
                 'message' => 'Template not found.',
@@ -248,21 +248,71 @@ class TemplateController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'status' => 'required|in:active,draft',
+            'status' => ['required'],
         ]);
 
         if ($validator->fails()) {
-            return $this->validationErrorResponse($validator);
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors()->first(),
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $status = $request->input('status');
+
+        if (is_bool($status)) {
+            $status = $status ? 'active' : 'draft';
+        }
+
+        if ((string) $status === '1') {
+            $status = 'active';
+        }
+
+        if ((string) $status === '0') {
+            $status = 'draft';
+        }
+
+        $isPublishing = in_array($status, ['active', 'published'], true);
+
+        if ($isPublishing) {
+            $validation = app(\App\PageBuilder\Services\TemplatePublishValidationService::class)
+                ->validate($template);
+
+            if (! $validation['can_publish']) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Template cannot be published.',
+                    'errors' => $validation['errors'],
+                    'warnings' => $validation['warnings'],
+                ], 422);
+            }
+
+            $conflictCheck = app(\App\PageBuilder\Services\TemplateConflictService::class)
+                ->check($template);
+
+            if ($conflictCheck['has_conflict']) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Template cannot be published because conflicts were found.',
+                    'errors' => [
+                        'Another active template already targets the same scope with the same priority.',
+                    ],
+                    'conflicts' => $conflictCheck['conflicts'],
+                ], 422);
+            }
         }
 
         $template->update([
-            'status' => $request->status,
+            'status' => $status,
         ]);
 
         return response()->json([
             'status' => true,
-            'message' => 'Template status updated successfully.',
-            'data' => $template->fresh(['conditions', 'layout']),
+            'message' => $isPublishing
+                ? 'Template published successfully.'
+                : 'Template status updated successfully.',
+            'data' => $template->fresh(['layout', 'conditions', 'postType']),
         ]);
     }
 
@@ -390,10 +440,10 @@ class TemplateController extends Controller
 
         while (
             Template::where('slug', $slug)
-                ->when($ignoreId, function ($query) use ($ignoreId) {
-                    $query->where('id', '!=', $ignoreId);
-                })
-                ->exists()
+            ->when($ignoreId, function ($query) use ($ignoreId) {
+                $query->where('id', '!=', $ignoreId);
+            })
+            ->exists()
         ) {
             $slug = $baseSlug . '-' . $counter;
             $counter++;

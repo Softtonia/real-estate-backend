@@ -16,6 +16,8 @@ class Kernel extends ConsoleKernel
         // Run daily at 2:00 AM
         $schedule->command('app:clean')->dailyAt('2:00')
         ->appendOutputTo(storage_path('logs/tokens_clean.log'));
+        $schedule->command('api-security:cleanup')->hourly();
+}
     }
 
     /**

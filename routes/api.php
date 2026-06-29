@@ -38,6 +38,9 @@ use App\Http\Controllers\CustomFieldController;
 use App\Http\Controllers\Status\statuscontroller;
 use App\Http\Controllers\Amenity\AmenitycategoriesController;
 use App\Http\Controllers\Admin\Admincontroller;
+use App\Http\Controllers\Admin\ApiClient\ApiAuthFailureController;
+use App\Http\Controllers\Admin\ApiClient\ApplicationPasswordController;
+use App\Http\Controllers\Admin\ApiClient\BlockedApiIpController;
 use App\Http\Controllers\Rolecontroller;
 use App\Http\Controllers\Permissioncontroller;
 use App\Http\Controllers\GroupController;
@@ -101,7 +104,17 @@ use App\Http\Controllers\Api\DynamicCustomFieldController;
 use App\Http\Controllers\Api\PostTaxonomyTermController;
 use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
+use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
+use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
+use App\Http\Controllers\Template\TemplateConflictController;
+use App\Http\Controllers\Template\TemplateDuplicateController;
 use App\Http\Controllers\Template\TemplateDynamicFieldController;
+use App\Http\Controllers\Template\TemplateExportImportController;
+use App\Http\Controllers\Template\TemplatePreviewController;
+use App\Http\Controllers\Template\TemplatePublishValidationController;
+use App\Http\Controllers\Template\TemplateResolveController;
+use App\Http\Controllers\Template\TemplateRevisionController;
+use App\Http\Controllers\Template\TemplateTrashController;
 
 /*
 |--------------------------------------------------------------------------
@@ -955,6 +968,55 @@ Route::middleware('admin.token')->get('api-client-secrect-app-types', [ApiClient
 Route::middleware('admin.token')->get('api-client-secrect-show-by-app-types/{appType}', [ApiClientController::class, 'showByAppType']);
 Route::middleware('admin.token')->get('api-client-secrect-export-csv/{id}', [ApiClientController::class, 'exportCsvApiClient']);
 
+
+// New Secure Application Password Routes
+Route::middleware(['throttle:60,1', 'admin.token'])
+    ->prefix('admin')
+    ->group(function () {
+        Route::apiResource('api-clients', ApiClientController::class)
+            ->parameters([
+                'api-clients' => 'apiClient',
+            ]);
+
+        Route::get('api-clients/{apiClient}/application-passwords', [ApplicationPasswordController::class, 'index']);
+        Route::post('api-clients/{apiClient}/application-passwords', [ApplicationPasswordController::class, 'store']);
+        Route::delete('api-clients/{apiClient}/application-passwords/{applicationPassword}', [ApplicationPasswordController::class, 'destroy']);
+        Route::post('api-clients/{apiClient}/application-passwords/{applicationPassword}/rotate', [ApplicationPasswordController::class, 'rotate']);
+
+        Route::get('blocked-api-ips', [BlockedApiIpController::class, 'index']);
+        Route::post('blocked-api-ips', [BlockedApiIpController::class, 'store']);
+        Route::delete('blocked-api-ips/{blockedApiIp}', [BlockedApiIpController::class, 'destroy']);
+
+        Route::get('api-auth-failures', [ApiAuthFailureController::class, 'index']);
+        Route::get('api-auth-failures/reasons', [ApiAuthFailureController::class, 'reasons']);
+        Route::get('api-auth-failures/top-ips', [ApiAuthFailureController::class, 'topIps']);
+    });
+
+Route::prefix('v1')
+    ->middleware([
+        'app.blocked_ip',
+        'app.password',
+        'app.origin',
+        'app.signature',
+        'app.rate',
+        'app.log',
+    ])
+    ->group(function () {
+        Route::get('/secure-test', function () {
+            $client = request()->attributes->get('api_client');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Secure API access granted.',
+                'client' => [
+                    'id' => $client->id,
+                    'name' => $client->name,
+                    'type' => $client->type,
+                ],
+            ]);
+        })->middleware('client.permission:*');
+    });
+
 // IpLog
 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/ip-logs', [IpLogController::class, 'index']);
@@ -985,7 +1047,6 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     // Templates
     Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
-    Route::post('template-resolve', [TemplateApiController::class, 'resolve']);
     Route::get('template-options', [TemplateController::class, 'options']);
     Route::get('template-shortcodes', [TemplateController::class, 'shortcodes']);
     Route::get('templates-list', [TemplateController::class, 'index']);
@@ -994,6 +1055,25 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('templates-update/{id}', [TemplateController::class, 'update']);
     Route::post('templates-update-status/{id}', [TemplateController::class, 'updateStatus']);
     Route::delete('templates-delete/{id}', [TemplateController::class, 'destroy']);
+    Route::get('template-export/{id}', [TemplateExportImportController::class, 'export']);
+    Route::get('template-revisions/{template_id}', [TemplateRevisionController::class, 'index']);
+    Route::get('template-revisions/{template_id}/{revision_id}', [TemplateRevisionController::class, 'show']);
+    Route::post('template-revisions/{template_id}/{revision_id}/restore', [TemplateRevisionController::class, 'restore']);
+    Route::get('template-publish-validate/{id}', [TemplatePublishValidationController::class, 'check']);
+    Route::post('template-duplicate/{id}', [TemplateDuplicateController::class, 'duplicate']);
+    Route::get('template-trash', [TemplateTrashController::class, 'trashed']);
+    Route::get('template-conflicts/{id}', [TemplateConflictController::class, 'check']);
+    Route::post('template-trash/{id}', [TemplateTrashController::class, 'trash']);
+    Route::post('template-restore/{id}', [TemplateTrashController::class, 'restore']);
+    Route::delete('template-force-delete/{id}', [TemplateTrashController::class, 'forceDelete']);
+
+    Route::post('template-bulk-trash', [TemplateTrashController::class, 'bulkTrash']);
+    Route::post('template-bulk-restore', [TemplateTrashController::class, 'bulkRestore']);
+    Route::post('template-bulk-force-delete', [TemplateTrashController::class, 'bulkForceDelete']);
+
+    Route::post('template-empty-trash', [TemplateTrashController::class, 'emptyTrash']);
+    Route::post('template-import', [TemplateExportImportController::class, 'import']);
+    Route::post('template-preview/{template_id}', [TemplatePreviewController::class, 'preview']);
 
     // Template Display Conditions
     Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index']);
@@ -1022,7 +1102,6 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('custom-widgets/{id}', [CustomWidgetController::class, 'show']);
     Route::put('custom-widgets/{id}', [CustomWidgetController::class, 'update']);
     Route::delete('custom-widgets/{id}', [CustomWidgetController::class, 'destroy']);
-    Route::post('template-resolve', [TemplateApiController::class, 'resolve']);
 
     // ================= Dynamic Post Type + Taxonomy APIs =================
     // Post Types
@@ -1134,4 +1213,10 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     Route::get('custom-field-groups-by-post-type/{postType}', [CustomFieldGroupController::class, 'groupsByPostType']);
     Route::post('custom-field-groups-by-taxonomy/{taxonomy}', [CustomFieldGroupController::class, 'groupsByTaxonomy']);
+    Route::prefix('page-builder')->group(function () {
+        Route::get('/widgets', [WidgetApiController::class, 'index']);
+        Route::get('/widgets/{type}', [WidgetApiController::class, 'show']);
+        Route::get('/dynamic-fields', [DynamicFieldApiController::class, 'index']);
+    });
+    Route::post('template-resolve', [TemplateResolveController::class, 'resolve']);
 });

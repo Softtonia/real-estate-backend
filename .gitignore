@@ -7,7 +7,6 @@
 /storage/*.crt
 /storage/logs/*
 /storage/framework/*
-/app/PageBuilder/*
 /.env
 .env.*
 main.env
