@@ -142,9 +142,6 @@ Route::get('/check-ip', function (Request $request) {
 });
 
 
-
-Route::middleware(['validate.api.client'])->group(function () {
-
     Route::post('/register', [AuthController::class, 'register'])->middleware(['throttle:60,1']);
 
 
@@ -407,7 +404,7 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::post('store-project-analytics', [frontProjectlistingController::class, 'storeProjectAnalytics'])->middleware(['throttle:60,1']);
     Route::get('list-project-analytics', [frontProjectlistingController::class, 'listProjectAnalytics'])->middleware(['throttle:60,1']);
     Route::get('view-project-analytics', [frontProjectlistingController::class, 'viewProjectAnalytics'])->middleware(['throttle:60,1']);
-});
+
 Route::post('admin/login', [AdminController::class, 'login'])->name('login')->middleware(['throttle:60,1']);
 
 // admin route will start from here
@@ -954,9 +951,9 @@ Route::get('/project-listings-by-featured-type', [TopFeatureController::class, '
 
 // API Client
 
-Route::middleware((['admin.token', 'validate.api.client']))->get('api-client-secrect-list', [ApiClientController::class, 'index']);
+Route::middleware((['admin.token']))->get('api-client-secrect-list', [ApiClientController::class, 'index']);
 Route::middleware('admin.token')->post('api-client-secrect-store', [ApiClientController::class, 'store']);
-Route::middleware((['admin.token', 'validate.api.client']))->get('api-client-secrect-show-by-id/{id}', [ApiClientController::class, 'show']);
+Route::middleware((['admin.token']))->get('api-client-secrect-show-by-id/{id}', [ApiClientController::class, 'show']);
 Route::middleware('admin.token')->post('api-client-secrect-update/{id}', [ApiClientController::class, 'update']);
 Route::middleware('admin.token')->post('api-client-secrect-delete/{id}', [ApiClientController::class, 'destroy']);
 
@@ -1070,7 +1067,7 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 
 
 // ================= VK Admin CRM Builder APIs =================
-Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
+Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
 
     // Templates
     Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
