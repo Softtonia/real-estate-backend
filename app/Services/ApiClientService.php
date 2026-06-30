@@ -9,6 +9,14 @@ use Illuminate\Support\Str;
 
 class ApiClientService
 {
+    private const ALLOWED_TYPES = [
+        'admin',
+        'business',
+        'website',
+        'mobile-app',
+        'custom',
+    ];
+
     public function __construct(
         private readonly ApiClientRepository $apiClientRepository
     ) {}
@@ -46,16 +54,16 @@ class ApiClientService
         $payload = [
             'name' => $data['name'],
             'slug' => $this->uniqueSlug($slug),
-            'type' => $data['type'],
+            'type' => $this->normalizeType($data['type']),
             'status' => array_key_exists('status', $data)
                 ? $this->toBooleanInt($data['status'])
-                :' 1',
+                : 1,
             'allowed_origins' => $data['allowed_origins'] ?? [],
             'permissions' => $data['permissions'] ?? [],
             'rate_limit_per_minute' => $data['rate_limit_per_minute'] ?? config('api_security.default_rate_limit_per_minute', 300),
             'requires_signature' => array_key_exists('requires_signature', $data)
                 ? $this->toBooleanInt($data['requires_signature'])
-                :' 0',
+                : 0,
             'description' => $data['description'] ?? null,
         ];
 
@@ -79,7 +87,7 @@ class ApiClientService
         }
 
         if (array_key_exists('type', $data)) {
-            $payload['type'] = $data['type'];
+            $payload['type'] = $this->normalizeType($data['type']);
         }
 
         if (array_key_exists('status', $data)) {
@@ -138,19 +146,28 @@ class ApiClientService
         return $payload;
     }
 
-    private function toBooleanInt(mixed $value): string
+    private function toBooleanInt(mixed $value): int
     {
         if (is_bool($value)) {
-            return $value ? '1' : '0';
+            return $value ? 1 : 0;
         }
 
         if (is_numeric($value)) {
-            return (int) $value === 1 ? '1' : '0';
+            return (int) $value === 1 ? 1 : 0;
         }
 
-        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true)
-            ? '1'
-            : '0';
+        return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true)
+            ? 1
+            : 0;
+    }
+
+    private function normalizeType(string $type): string
+    {
+        $type = strtolower(trim($type));
+
+        return in_array($type, self::ALLOWED_TYPES, true)
+            ? $type
+            : 'custom';
     }
 
     private function uniqueSlug(string $slug, ?int $ignoreId = null): string

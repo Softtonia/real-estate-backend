@@ -18,7 +18,7 @@ class ApiClientResource extends JsonResource
             'allowed_origins' => $this->allowed_origins ?? [],
             'permissions' => $this->permissions ?? [],
             'rate_limit_per_minute' => $this->rate_limit_per_minute,
-            'requires_signature' => (bool) $this->requires_signature,
+            'requires_signature' => $this->isSignatureRequired(),
             'description' => $this->description,
             'application_passwords_count' => $this->whenCounted('applicationPasswords'),
             'last_used_at' => $this->last_used_at,

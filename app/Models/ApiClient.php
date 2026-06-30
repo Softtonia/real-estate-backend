@@ -41,32 +41,31 @@ class ApiClient extends Model
 
     public function scopeActive($query)
     {
-        return $query->where('status', '1');
+        return $query->where('status', 1);
     }
 
     public function isActive(): bool
     {
-        $value = $this->getRawOriginal('status');
+        return $this->toBooleanInt(
+            $this->getRawOriginal('status') ?? $this->attributes['status'] ?? $this->status
+        ) === 1;
+    }
 
-        if ($value === null && array_key_exists('status', $this->attributes)) {
-            $value = $this->attributes['status'];
-        }
-
-        if ($value === null) {
-            $value = $this->status;
-        }
-
-        return $this->toBoolean($value);
+    public function isSignatureRequired(): bool
+    {
+        return $this->toBooleanInt(
+            $this->getRawOriginal('requires_signature') ?? $this->attributes['requires_signature'] ?? $this->requires_signature
+        ) === 1;
     }
 
     public function setStatusAttribute($value): void
     {
-        $this->attributes['status'] = $this->toEnumBoolean($value);
+        $this->attributes['status'] = $this->toBooleanInt($value);
     }
 
     public function setRequiresSignatureAttribute($value): void
     {
-        $this->attributes['requires_signature'] = $this->toEnumBoolean($value);
+        $this->attributes['requires_signature'] = $this->toBooleanInt($value);
     }
 
     public function hasPermission(string $permission): bool
@@ -77,27 +76,18 @@ class ApiClient extends Model
         );
     }
 
-    private function toEnumBoolean(mixed $value): string
-    {
-        return $this->toBoolean($value) ? '1' : '0';
-    }
-
-    private function toBoolean(mixed $value): bool
+    private function toBooleanInt(mixed $value): int
     {
         if (is_bool($value)) {
-            return $value;
+            return $value ? 1 : 0;
         }
 
-        if (is_int($value)) {
-            return $value === 1;
+        if (is_numeric($value)) {
+            return (int) $value === 1 ? 1 : 0;
         }
 
-        if (is_float($value)) {
-            return (int) $value === 1;
-        }
-
-        $value = strtolower(trim((string) $value));
-
-        return in_array($value, ['1', 'true', 'yes', 'on'], true);
+        return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true)
+            ? 1
+            : 0;
     }
 }
