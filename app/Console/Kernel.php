@@ -12,12 +12,12 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
         // Run daily at 2:00 AM
-        $schedule->command('app:clean')->dailyAt('2:00')
-        ->appendOutputTo(storage_path('logs/tokens_clean.log'));
+        $schedule->command('app:clean')
+            ->dailyAt('2:00')
+            ->appendOutputTo(storage_path('logs/tokens_clean.log'));
+
         $schedule->command('api-security:cleanup')->hourly();
-}
     }
 
     /**
@@ -25,7 +25,7 @@ class Kernel extends ConsoleKernel
      */
     protected function commands(): void
     {
-        $this->load(__DIR__.'/Commands');
+        $this->load(__DIR__ . '/Commands');
 
         require base_path('routes/console.php');
     }
