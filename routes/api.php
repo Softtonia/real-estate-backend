@@ -140,11 +140,7 @@ Route::get('/check-ip', function (Request $request) {
         'remote'    => $_SERVER['REMOTE_ADDR'] ?? null,
     ]);
 });
-
-
     Route::post('/register', [AuthController::class, 'register'])->middleware(['throttle:60,1']);
-
-
     Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData'])->middleware(['throttle:60,1']);
 
     Route::post('login', [AuthController::class, 'login'])->middleware(['throttle:60,1']);
