@@ -412,7 +412,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
 // Route::middleware(['throttle:60,1','auth:sanctum'])->prefix('admin')->group(function () {
 // dd(1);
 
-Route::middleware(['validate.api.client'])->group(function () {
+
 
     Route::middleware(['admin'])->prefix('admin')->group(function () {
         Route::middleware(['throttle:60,1', 'token.expiration'])->group(function () {
@@ -505,7 +505,7 @@ Route::middleware(['validate.api.client'])->group(function () {
 
     // =======Purpose============
 
-    Route::middleware(['validate.api.client'])->group(function () {
+
 
         Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-create', [PurposeController::class, 'store']);
         Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-update', [PurposeController::class, 'update']);
@@ -514,7 +514,6 @@ Route::middleware(['validate.api.client'])->group(function () {
         Route::middleware(['throttle:60,1', 'api.token'])->post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
         Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
         Route::middleware(['throttle:60,1', 'api.token'])->get('purpose-search', [PurposeController::class, 'searchByName'])->name('purposes.search');
-    });
 
 
     // =======Property============
@@ -937,7 +936,7 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::middleware(['throttle:60,1', 'admin.token'])->post('contact-us-leads/bulk-delete', [ContactUsLeadController::class, 'bulkDestroy']); // Delete
     Route::middleware(['throttle:60,1', 'admin.token'])->post('/contact-us-leads/{id}/status', [ContactUsLeadController::class, 'updateStatus']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('contact-us-leads/search', [ContactUsLeadController::class, 'contactUsLeadSearch']);
-});
+
 
 
 
