@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ApiPermission;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -49,10 +50,11 @@ class ApplicationPassword extends Model
         return true;
     }
 
-    public function canAccess(string $ability): bool
+    public function canAccess(string $permission): bool
     {
-        $abilities = $this->abilities ?? ['*'];
-
-        return in_array('*', $abilities, true) || in_array($ability, $abilities, true);
+        return ApiPermission::matches(
+            $this->abilities ?? [],
+            $permission
+        );
     }
 }

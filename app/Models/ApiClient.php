@@ -2,16 +2,16 @@
 
 namespace App\Models;
 
+use App\Support\ApiPermission;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ApiClient extends Model
 {
     use SoftDeletes;
 
     protected $fillable = [
-        // new secure fields
         'name',
         'slug',
         'type',
@@ -21,27 +21,17 @@ class ApiClient extends Model
         'rate_limit_per_minute',
         'requires_signature',
         'description',
-
-        // legacy fields
-        'client_name',
-        'client_id',
-        'app_type',
-        'allowed_domain',
-        'used_by_origin',
         'last_used_at',
     ];
 
-    protected $hidden = [
-        'client_secret',
-        'nextjs_internal_key',
-    ];
-
     protected $casts = [
+        'status' => 'boolean',
         'allowed_origins' => 'array',
         'permissions' => 'array',
         'rate_limit_per_minute' => 'integer',
         'requires_signature' => 'boolean',
         'last_used_at' => 'datetime',
+        'deleted_at' => 'datetime',
     ];
 
     public function applicationPasswords(): HasMany
@@ -56,13 +46,58 @@ class ApiClient extends Model
 
     public function isActive(): bool
     {
-        return (string) $this->status === '1';
+        $value = $this->getRawOriginal('status');
+
+        if ($value === null && array_key_exists('status', $this->attributes)) {
+            $value = $this->attributes['status'];
+        }
+
+        if ($value === null) {
+            $value = $this->status;
+        }
+
+        return $this->toBoolean($value);
+    }
+
+    public function setStatusAttribute($value): void
+    {
+        $this->attributes['status'] = $this->toEnumBoolean($value);
+    }
+
+    public function setRequiresSignatureAttribute($value): void
+    {
+        $this->attributes['requires_signature'] = $this->toEnumBoolean($value);
     }
 
     public function hasPermission(string $permission): bool
     {
-        $permissions = $this->permissions ?? [];
+        return ApiPermission::matches(
+            $this->permissions ?? [],
+            $permission
+        );
+    }
 
-        return in_array('*', $permissions, true) || in_array($permission, $permissions, true);
+    private function toEnumBoolean(mixed $value): string
+    {
+        return $this->toBoolean($value) ? '1' : '0';
+    }
+
+    private function toBoolean(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value)) {
+            return $value === 1;
+        }
+
+        if (is_float($value)) {
+            return (int) $value === 1;
+        }
+
+        $value = strtolower(trim((string) $value));
+
+        return in_array($value, ['1', 'true', 'yes', 'on'], true);
     }
 }

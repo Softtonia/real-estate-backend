@@ -973,6 +973,8 @@ Route::middleware('admin.token')->get('api-client-secrect-export-csv/{id}', [Api
 Route::middleware(['throttle:60,1', 'admin.token'])
     ->prefix('admin')
     ->group(function () {
+        Route::get('api-clients/available-permissions', [ApiClientController::class, 'availablePermissions']);
+
         Route::apiResource('api-clients', ApiClientController::class)
             ->parameters([
                 'api-clients' => 'apiClient',
@@ -1002,7 +1004,7 @@ Route::prefix('v1')
         'app.log',
     ])
     ->group(function () {
-        Route::get('/secure-test', function () {
+        Route::get('secure-test', function () {
             $client = request()->attributes->get('api_client');
 
             return response()->json([
@@ -1015,8 +1017,33 @@ Route::prefix('v1')
                 ],
             ]);
         })->middleware('client.permission:*');
-    });
 
+        Route::prefix('post-types')->group(function () {
+            Route::get('/', [PostTypeController::class, 'index'])
+                ->middleware('client.permission:post_types.*.read');
+
+            Route::get('{postType:slug}', [PostTypeController::class, 'show'])
+                ->middleware('client.permission:post_types.*.read');
+
+            Route::get('{postType:slug}/posts', [DynamicPostController::class, 'index'])
+                ->middleware('client.permission:post_types.{postType.slug}.read');
+
+            Route::get('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'show'])
+                ->middleware('client.permission:post_types.{postType.slug}.read');
+
+            Route::post('{postType:slug}/posts', [DynamicPostController::class, 'store'])
+                ->middleware('client.permission:post_types.{postType.slug}.write');
+
+            Route::put('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'update'])
+                ->middleware('client.permission:post_types.{postType.slug}.write');
+
+            Route::patch('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'update'])
+                ->middleware('client.permission:post_types.{postType.slug}.write');
+
+            Route::delete('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
+                ->middleware('client.permission:post_types.{postType.slug}.write');
+        });
+    });
 // IpLog
 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/ip-logs', [IpLogController::class, 'index']);

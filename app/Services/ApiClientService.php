@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ApiClient;
 use App\Repositories\ApiClientRepository;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class ApiClientService
@@ -19,135 +20,150 @@ class ApiClientService
 
     public function create(array $data): ApiClient
     {
-        $data = $this->prepareCreatePayload($data);
+        $payload = $this->prepareCreatePayload($data);
 
-        return $this->apiClientRepository->create($data);
+        return $this->apiClientRepository
+            ->create($payload)
+            ->loadCount('applicationPasswords');
     }
 
-    public function update(ApiClient $client, array $data): ApiClient
+    public function update(ApiClient $apiClient, array $data): ApiClient
     {
-        $data = $this->prepareUpdatePayload($client, $data);
+        $payload = $this->prepareUpdatePayload($apiClient, $data);
 
-        return $this->apiClientRepository->update($client, $data);
+        return $this->apiClientRepository->update($apiClient, $payload);
     }
 
-    public function delete(ApiClient $client): void
+    public function delete(ApiClient $apiClient): void
     {
-        $this->apiClientRepository->delete($client);
+        $this->apiClientRepository->delete($apiClient);
     }
 
     private function prepareCreatePayload(array $data): array
     {
-        $name = $data['name'];
-        $type = $data['type'];
+        $slug = $data['slug'] ?? Str::slug($data['name']);
 
-        $allowedOrigins = $data['allowed_origins'] ?? [];
-        $permissions = $data['permissions'] ?? ['*'];
+        $payload = [
+            'name' => $data['name'],
+            'slug' => $this->uniqueSlug($slug),
+            'type' => $data['type'],
+            'status' => array_key_exists('status', $data)
+                ? $this->toBooleanInt($data['status'])
+                :' 1',
+            'allowed_origins' => $data['allowed_origins'] ?? [],
+            'permissions' => $data['permissions'] ?? [],
+            'rate_limit_per_minute' => $data['rate_limit_per_minute'] ?? config('api_security.default_rate_limit_per_minute', 300),
+            'requires_signature' => array_key_exists('requires_signature', $data)
+                ? $this->toBooleanInt($data['requires_signature'])
+                :' 0',
+            'description' => $data['description'] ?? null,
+        ];
 
-        $data['slug'] = $data['slug'] ?? $this->generateUniqueSlug($name);
-
-        $data['status'] = array_key_exists('status', $data)
-            ? ((bool) $data['status'] ? '1' : '0')
-            : '1';
-
-        $data['allowed_origins'] = $allowedOrigins;
-        $data['permissions'] = $permissions;
-
-        $data['rate_limit_per_minute'] = $data['rate_limit_per_minute']
-            ?? config('api_security.default_rate_limit_per_minute', 300);
-
-        $data['requires_signature'] = (bool) ($data['requires_signature'] ?? false);
-
-        /*
-         * Legacy columns required by your existing api_clients table.
-         * These are not used for new secure authentication.
-         */
-        $data['client_name'] = $name;
-        $data['client_id'] = $this->generateLegacyClientId();
-        $data['client_secret'] = $this->generateLegacyClientSecret();
-        $data['app_type'] = $this->mapLegacyAppType($type);
-        $data['allowed_domain'] = json_encode($allowedOrigins);
-
-        return $data;
+        return $this->addLegacyColumns($payload, true);
     }
 
-    private function prepareUpdatePayload(ApiClient $client, array $data): array
+    private function prepareUpdatePayload(ApiClient $apiClient, array $data): array
     {
-        if (isset($data['name'])) {
-            $data['client_name'] = $data['name'];
+        $payload = [];
+
+        if (array_key_exists('name', $data)) {
+            $payload['name'] = $data['name'];
         }
 
-        if (isset($data['type'])) {
-            $data['app_type'] = $this->mapLegacyAppType($data['type']);
+        if (array_key_exists('slug', $data)) {
+            $payload['slug'] = $this->uniqueSlug($data['slug'], $apiClient->id);
+        }
+
+        if (!array_key_exists('slug', $data) && array_key_exists('name', $data)) {
+            $payload['slug'] = $this->uniqueSlug(Str::slug($data['name']), $apiClient->id);
+        }
+
+        if (array_key_exists('type', $data)) {
+            $payload['type'] = $data['type'];
         }
 
         if (array_key_exists('status', $data)) {
-            $data['status'] = (bool) $data['status'] ? '1' : '0';
+            $payload['status'] = $this->toBooleanInt($data['status']);
         }
 
         if (array_key_exists('allowed_origins', $data)) {
-            $data['allowed_origins'] = $data['allowed_origins'] ?? [];
-            $data['allowed_domain'] = json_encode($data['allowed_origins']);
+            $payload['allowed_origins'] = $data['allowed_origins'] ?? [];
         }
 
         if (array_key_exists('permissions', $data)) {
-            $data['permissions'] = $data['permissions'] ?? ['*'];
+            $payload['permissions'] = $data['permissions'] ?? [];
+        }
+
+        if (array_key_exists('rate_limit_per_minute', $data)) {
+            $payload['rate_limit_per_minute'] = $data['rate_limit_per_minute'];
         }
 
         if (array_key_exists('requires_signature', $data)) {
-            $data['requires_signature'] = (bool) $data['requires_signature'];
+            $payload['requires_signature'] = $this->toBooleanInt($data['requires_signature']);
         }
 
-        if (
-            isset($data['name'])
-            && empty($data['slug'])
-            && empty($client->slug)
-        ) {
-            $data['slug'] = $this->generateUniqueSlug($data['name'], $client->id);
+        if (array_key_exists('description', $data)) {
+            $payload['description'] = $data['description'];
         }
 
-        return $data;
+        return $this->addLegacyColumns($payload, false);
     }
 
-    private function generateUniqueSlug(string $name, ?int $ignoreId = null): string
+    private function addLegacyColumns(array $payload, bool $isCreate): array
     {
-        $base = Str::slug($name) ?: 'api-client';
-        $slug = $base;
+        if (isset($payload['name']) && Schema::hasColumn('api_clients', 'client_name')) {
+            $payload['client_name'] = $payload['name'];
+        }
+
+        if (isset($payload['type']) && Schema::hasColumn('api_clients', 'app_type')) {
+            $payload['app_type'] = $payload['type'];
+        }
+
+        if (isset($payload['allowed_origins']) && Schema::hasColumn('api_clients', 'allowed_domain')) {
+            $payload['allowed_domain'] = implode(',', $payload['allowed_origins']);
+        }
+
+        if ($isCreate && Schema::hasColumn('api_clients', 'client_id')) {
+            $payload['client_id'] = Str::upper(Str::random(16));
+        }
+
+        if ($isCreate && Schema::hasColumn('api_clients', 'client_secret')) {
+            $payload['client_secret'] = Str::upper(Str::random(32));
+        }
+
+        if ($isCreate && Schema::hasColumn('api_clients', 'nextjs_internal_key')) {
+            $payload['nextjs_internal_key'] = Str::random(48);
+        }
+
+        return $payload;
+    }
+
+    private function toBooleanInt(mixed $value): string
+    {
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1 ? '1' : '0';
+        }
+
+        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true)
+            ? '1'
+            : '0';
+    }
+
+    private function uniqueSlug(string $slug, ?int $ignoreId = null): string
+    {
+        $slug = Str::slug($slug);
+        $originalSlug = $slug;
         $counter = 1;
 
         while ($this->apiClientRepository->existsBySlug($slug, $ignoreId)) {
-            $slug = $base . '-' . $counter++;
+            $slug = $originalSlug . '-' . $counter;
+            $counter++;
         }
 
         return $slug;
-    }
-
-    private function generateLegacyClientId(): string
-    {
-        do {
-            $value = strtoupper(substr(bin2hex(random_bytes(16)), 0, 30));
-        } while ($this->apiClientRepository->existsByLegacyClientId($value));
-
-        return $value;
-    }
-
-    private function generateLegacyClientSecret(): string
-    {
-        do {
-            $value = 'legacy_' . bin2hex(random_bytes(32));
-        } while ($this->apiClientRepository->existsByLegacyClientSecret($value));
-
-        return $value;
-    }
-
-    private function mapLegacyAppType(string $type): string
-    {
-        return match ($type) {
-            'admin' => 'admin',
-            'business' => 'business',
-            'website' => 'website',
-            'mobile-app' => 'mobile-app',
-            default => 'custom',
-        };
     }
 }

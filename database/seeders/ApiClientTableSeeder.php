@@ -2,146 +2,185 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class ApiClientTableSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        // $clients = [
-        //     [
-        //         'client_name'     => 'Admin Panel',
-        //         'client_id'       => 'OPUVVNR3XNCXPDL',
-        //         'client_secret'   => '6CNWWJNWAQFO95D',
-        //         'app_type'        => 'admin',
-        //         'status'         => '1',
-        //         'allowed_domain'  => '["https://www.holiplaces.com","https://holiplaces.com","http://127.0.0.1:8000","https://admin.holiplaces.com","http://admin.holiplaces.com","http://localhost:5173","http://localhost:3000","https://api.holiplaces.com"]',
-        //     ],
-
-
-        // ];
+        $now = Carbon::now();
 
         $clients = [
             [
-                'client_name'     => 'Admin Panel',
-                'client_id'       => 'OPUVVNR3XNCXPDL',
-                'client_secret'   => '6CNWWJNWAQFO95D',
-                'app_type'        => 'admin',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "https://admin.holiplaces.com",
-                    "http://admin.holiplaces.com",
-                ]),
+                'name' => 'Admin Panel',
+                'slug' => 'admin-panel',
+                'type' => 'admin',
+                'status' => true,
+                'allowed_origins' => [
+                    'https://admin.holiplaces.com',
+                    'http://localhost:5173',
+                    'http://127.0.0.1:5173',
+                ],
+                'permissions' => ['*'],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'React admin panel client.',
             ],
             [
-                'client_name'     => 'API Key Port :5173',
-                'client_id'       => '8CTPOXSMXTWDJIK',
-                'client_secret'   => 'EYOY2ERCWHJ4KW7',
-                'app_type'        => 'admin',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "http://localhost:5173"
-                ]),
+                'name' => 'Holiplaces Website',
+                'slug' => 'holiplaces-website',
+                'type' => 'website',
+                'status' => true,
+                'allowed_origins' => [
+                    'https://holiplaces.com',
+                    'https://www.holiplaces.com',
+                ],
+                'permissions' => [
+                    'post_types.*.read',
+                ],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => true,
+                'description' => 'Production Next.js website client with read-only post type access.',
             ],
             [
-                'client_name'     => 'API Key Port : 8000',
-                'client_id'       => 'PX3DUI1NBRQCTGS',
-                'client_secret'   => 'R6LAWNCAACQP27R',
-                'app_type'        => 'admin',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "http://127.0.0.1:8000",
-                ]),
+                'name' => 'Local Next.js Website',
+                'slug' => 'local-nextjs-website',
+                'type' => 'website',
+                'status' => true,
+                'allowed_origins' => [
+                    'http://localhost:3000',
+                    'http://127.0.0.1:3000',
+                ],
+                'permissions' => ['*'],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'Local Next.js development client.',
             ],
             [
-                'client_name'     => 'Business.com',
-                 'client_id'       => 'IFMODQP8ZZOAUU2',   // 15 chars
-                'client_secret'   => 'E9GUFBVPLCTTZRL',
-                'app_type'        => 'business',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "https://business.holiplaces.com",
-                "http://business.holiplaces.com"
-                ]),
-
+                'name' => 'Local React Admin',
+                'slug' => 'local-react-admin',
+                'type' => 'admin',
+                'status' => true,
+                'allowed_origins' => [
+                    'http://localhost:5173',
+                    'http://127.0.0.1:5173',
+                    'http://localhost:5175',
+                    'http://127.0.0.1:5175',
+                ],
+                'permissions' => ['*'],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'Local React admin development client.',
             ],
             [
-                'client_name'     => 'Business Localhost API Key Port :5173',
-                 'client_id'       => 'ZAYYL8IQDWCRAAZ',   // 15 chars
-                'client_secret'   => 'EGFFBPEYXGDHP5R',
-                'app_type'        => 'business',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                   "http://localhost:5173","http://localhost:5175"
-                ]),
-
+                'name' => 'Business Panel',
+                'slug' => 'business-panel',
+                'type' => 'business',
+                'status' => true,
+                'allowed_origins' => [
+                    'https://business.holiplaces.com',
+                    'http://localhost:5173',
+                    'http://localhost:5175',
+                ],
+                'permissions' => [
+                    'post_types.*.read',
+                    'post_types.*.write',
+                ],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'Business panel client with read and write post type access.',
             ],
             [
-                'client_name'     => 'API Key : 3000',
-                'client_id'       => 'LD5TNUNOKREYBI2',
-                'client_secret'   => '8UJIIPRSUJK4NNI',
-                'app_type'        => 'website',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "http://localhost:3000"
-                ]),
-                'nextjs_internal_key' => "XS7N2XMQNAXKMM0XYYWF1EGGZEWHHWXAYQPGX8RV1YNXHHLR1D",
-
+                'name' => 'Mobile Application',
+                'slug' => 'mobile-application',
+                'type' => 'mobile-app',
+                'status' => true,
+                'allowed_origins' => [],
+                'permissions' => [
+                    'post_types.*.read',
+                ],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'Mobile application client with read-only post type access.',
             ],
             [
-                'client_name'     => 'holiplaces.com',
-                'client_id'       => 'KWTWGGSBIZGD7GZ',
-                'client_secret'   => 'DLERJBYZ6QZCW0U',
-                'app_type'        => 'website',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "https://www.holiplaces.com",
-                    "https://holiplaces.com",
-                    "http://holiplaces.com"
-                ]),
-                'nextjs_internal_key' =>"PMCVGOEQZQQUNZODZTNKXAQC10QYLW04HAF316DEDXD7YWD5VR",
-            ],
-            [
-                'client_name'     => 'Mobile Application',
-                'client_id'       => 'MOBILECLI00001',
-                'client_secret'   => 'MOBILESEC00001',
-                'app_type'        => 'mobile-app',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "*" // mobile apps ke liye usually CORS check skip karte hain
-                ]),
-
-            ],
-            [
-                'client_name'     => 'Custom Integration',
-                 'client_id'       => 'CUSTOMCLI00001',   // 15 chars
-                'client_secret'   => 'CUSTOMSEC00001',
-                'app_type'        => 'custom',
-                'status'          => '1',
-                'allowed_domain'  => json_encode([
-                    "https://partner1.com",
-                    "https://partner2.com"
-                ]),
-
+                'name' => 'Custom Integration',
+                'slug' => 'custom-integration',
+                'type' => 'custom',
+                'status' => true,
+                'allowed_origins' => [
+                    'https://partner1.com',
+                    'https://partner2.com',
+                ],
+                'permissions' => [
+                    'post_types.*.read',
+                    'post_types.*.write',
+                ],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => true,
+                'description' => 'External integration client with post type read and write access.',
             ],
         ];
 
         foreach ($clients as $client) {
-            DB::table('api_clients')->updateOrInsert(
-                ['client_id' => $client['client_id']],
-                array_merge($client, [
+            $existing = DB::table('api_clients')
+                ->where('slug', $client['slug'])
+                ->first();
 
-                    'created_at' => Carbon::now(),
-                    'updated_at' => Carbon::now(),
-                ])
-            );
+            $data = [
+                'name' => $client['name'],
+                'slug' => $client['slug'],
+                'type' => $client['type'],
+                'status' => $client['status'] ? '1' : '0',
+                'allowed_origins' => json_encode($client['allowed_origins'], JSON_UNESCAPED_SLASHES),
+                'permissions' => json_encode($client['permissions'], JSON_UNESCAPED_SLASHES),
+                'rate_limit_per_minute' => $client['rate_limit_per_minute'],
+                'requires_signature' => $client['requires_signature'] ? '1' : '0',
+                'description' => $client['description'],
+                'last_used_at' => null,
+                'deleted_at' => null,
+                'updated_at' => $now,
+            ];
+
+            if (!$existing) {
+                $data['created_at'] = $now;
+            }
+
+            if (Schema::hasColumn('api_clients', 'client_name')) {
+                $data['client_name'] = $client['name'];
+            }
+
+            if (Schema::hasColumn('api_clients', 'app_type')) {
+                $data['app_type'] = $client['type'];
+            }
+
+            if (Schema::hasColumn('api_clients', 'allowed_domain')) {
+                $data['allowed_domain'] = implode(',', $client['allowed_origins']);
+            }
+
+            if (!$existing && Schema::hasColumn('api_clients', 'client_id')) {
+                $data['client_id'] = Str::upper(Str::random(16));
+            }
+
+            if (!$existing && Schema::hasColumn('api_clients', 'client_secret')) {
+                $data['client_secret'] = Str::upper(Str::random(32));
+            }
+
+            if (!$existing && Schema::hasColumn('api_clients', 'nextjs_internal_key')) {
+                $data['nextjs_internal_key'] = Str::random(48);
+            }
+
+            if ($existing) {
+                DB::table('api_clients')
+                    ->where('id', $existing->id)
+                    ->update($data);
+            } else {
+                DB::table('api_clients')->insert($data);
+            }
         }
     }
-
 }

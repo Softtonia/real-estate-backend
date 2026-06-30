@@ -3,11 +3,10 @@
 namespace App\Repositories;
 
 use App\Models\ApiClient;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class ApiClientRepository
 {
-    public function paginate(int $perPage = 20): LengthAwarePaginator
+    public function paginate(int $perPage = 20)
     {
         return ApiClient::query()
             ->withCount('applicationPasswords')
@@ -20,16 +19,16 @@ class ApiClientRepository
         return ApiClient::create($data);
     }
 
-    public function update(ApiClient $client, array $data): ApiClient
+    public function update(ApiClient $apiClient, array $data): ApiClient
     {
-        $client->update($data);
+        $apiClient->update($data);
 
-        return $client->fresh();
+        return $apiClient->fresh()->loadCount('applicationPasswords');
     }
 
-    public function delete(ApiClient $client): void
+    public function delete(ApiClient $apiClient): void
     {
-        $client->delete();
+        $apiClient->delete();
     }
 
     public function existsBySlug(string $slug, ?int $ignoreId = null): bool
@@ -39,20 +38,6 @@ class ApiClientRepository
             ->when($ignoreId, function ($query) use ($ignoreId) {
                 $query->where('id', '!=', $ignoreId);
             })
-            ->exists();
-    }
-
-    public function existsByLegacyClientId(string $clientId): bool
-    {
-        return ApiClient::query()
-            ->where('client_id', $clientId)
-            ->exists();
-    }
-
-    public function existsByLegacyClientSecret(string $clientSecret): bool
-    {
-        return ApiClient::query()
-            ->where('client_secret', $clientSecret)
             ->exists();
     }
 }
