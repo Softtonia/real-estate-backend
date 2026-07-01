@@ -28,11 +28,7 @@ class ValidateApiClient
         $plainToken = $this->extractApplicationPassword($request);
 
         if (!$plainToken) {
-            return $this->deny(
-                $request,
-                'missing_application_password',
-                401
-            );
+            return $this->deny($request, 'missing_application_password', 403);
         }
 
         $applicationPassword = ApplicationPassword::query()
@@ -44,7 +40,7 @@ class ValidateApiClient
             return $this->deny(
                 $request,
                 'invalid_or_expired_application_password',
-                401,
+                403,
                 $applicationPassword?->api_client_id,
                 $plainToken
             );
@@ -53,28 +49,15 @@ class ValidateApiClient
         $client = $applicationPassword->apiClient;
 
         if (!$client) {
-            return $this->deny(
-                $request,
-                'api_client_not_found',
-                403,
-                null,
-                $plainToken
-            );
+            return $this->deny($request, 'api_client_not_found', 403, null, $plainToken);
         }
 
         if (!$client->isActive()) {
-            return $this->deny(
-                $request,
-                'inactive_api_client',
-                403,
-                $client->id,
-                $plainToken
-            );
+            return $this->deny($request, 'inactive_api_client', 403, $client->id, $plainToken);
         }
 
-        $requestType = $this->normalizeType(
-            $this->firstHeaderValue($request->header('X-App-Type'))
-        );
+        $requestType = strtolower(trim((string) $request->header('X-App-Type')));
+        $clientType = strtolower(trim((string) $client->type));
 
         if ($requestType === '') {
             return $this->deny(
@@ -82,17 +65,9 @@ class ValidateApiClient
                 'application_type_missing',
                 403,
                 $client->id,
-                $plainToken,
-                [
-                    'received_type' => $request->header('X-App-Type'),
-                    'client_type' => $client->type,
-                ]
+                $plainToken
             );
         }
-
-        $clientType = $this->normalizeType(
-            (string) ($client->type ?: $client->getAttribute('app_type'))
-        );
 
         if ($requestType !== $clientType) {
             return $this->deny(
@@ -136,11 +111,7 @@ class ValidateApiClient
         $request->attributes->set('application_password', $applicationPassword);
         $request->attributes->set('application_password_plain_token', $plainToken);
 
-        $this->updateLastUsed($request, $client, $applicationPassword);
-
-        $response = $next($request);
-
-        return $this->addCorsHeaders($response, $origin);
+        return $next($request);
     }
 
     private function extractBearerToken(Request $request): ?string
