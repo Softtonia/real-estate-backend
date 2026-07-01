@@ -16,13 +16,13 @@ class MailConfigSeeder extends Seeder
     {
         DB::table('mail_configs')->insert([
             'mailer' => 'smtp',
-            'host' => 'mail.holiplaces.com',
+            'host' => 'smtp.zoho.in',
             'port' => 465,
-            'username' => 'developer@holiplaces.com',
-            'password' => 'BGlnjr48(mON',
+            'username' => 'vijay.kumar@softtonia.com',
+            'password' => 'sRVURao1',
             'encryption' => 'ssl',
-            'from_address' => 'developer@holiplaces.com',
-            'from_name' => 'Urban Realities',
+            'from_address' => 'vijay.kumar@softtonia.com',
+            'from_name' => 'Holiplaces',
             'status' => 1, // Set to 1 for active status
             'created_at' => now(),
             'updated_at' => now(),

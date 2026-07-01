@@ -140,7 +140,14 @@ Route::get('/check-ip', function (Request $request) {
         'remote'    => $_SERVER['REMOTE_ADDR'] ?? null,
     ]);
 });
+
+
+
+Route::middleware(['validate.api.client'])->group(function () {
+
     Route::post('/register', [AuthController::class, 'register'])->middleware(['throttle:60,1']);
+
+
     Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData'])->middleware(['throttle:60,1']);
 
     Route::post('login', [AuthController::class, 'login'])->middleware(['throttle:60,1']);
@@ -400,7 +407,7 @@ Route::get('/check-ip', function (Request $request) {
     Route::post('store-project-analytics', [frontProjectlistingController::class, 'storeProjectAnalytics'])->middleware(['throttle:60,1']);
     Route::get('list-project-analytics', [frontProjectlistingController::class, 'listProjectAnalytics'])->middleware(['throttle:60,1']);
     Route::get('view-project-analytics', [frontProjectlistingController::class, 'viewProjectAnalytics'])->middleware(['throttle:60,1']);
-
+});
 Route::post('admin/login', [AdminController::class, 'login'])->name('login')->middleware(['throttle:60,1']);
 
 // admin route will start from here
@@ -412,7 +419,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
 // Route::middleware(['throttle:60,1','auth:sanctum'])->prefix('admin')->group(function () {
 // dd(1);
 
-
+Route::middleware(['validate.api.client'])->group(function () {
 
     Route::middleware(['admin'])->prefix('admin')->group(function () {
         Route::middleware(['throttle:60,1', 'token.expiration'])->group(function () {
@@ -505,7 +512,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
 
     // =======Purpose============
 
-
+    Route::middleware(['validate.api.client'])->group(function () {
 
         Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-create', [PurposeController::class, 'store']);
         Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-update', [PurposeController::class, 'update']);
@@ -514,6 +521,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
         Route::middleware(['throttle:60,1', 'api.token'])->post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
         Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
         Route::middleware(['throttle:60,1', 'api.token'])->get('purpose-search', [PurposeController::class, 'searchByName'])->name('purposes.search');
+    });
 
 
     // =======Property============
@@ -936,7 +944,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
     Route::middleware(['throttle:60,1', 'admin.token'])->post('contact-us-leads/bulk-delete', [ContactUsLeadController::class, 'bulkDestroy']); // Delete
     Route::middleware(['throttle:60,1', 'admin.token'])->post('/contact-us-leads/{id}/status', [ContactUsLeadController::class, 'updateStatus']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('contact-us-leads/search', [ContactUsLeadController::class, 'contactUsLeadSearch']);
-
+});
 
 
 
@@ -946,9 +954,9 @@ Route::get('/project-listings-by-featured-type', [TopFeatureController::class, '
 
 // API Client
 
-Route::middleware((['admin.token']))->get('api-client-secrect-list', [ApiClientController::class, 'index']);
+Route::middleware((['admin.token', 'validate.api.client']))->get('api-client-secrect-list', [ApiClientController::class, 'index']);
 Route::middleware('admin.token')->post('api-client-secrect-store', [ApiClientController::class, 'store']);
-Route::middleware((['admin.token']))->get('api-client-secrect-show-by-id/{id}', [ApiClientController::class, 'show']);
+Route::middleware((['admin.token', 'validate.api.client']))->get('api-client-secrect-show-by-id/{id}', [ApiClientController::class, 'show']);
 Route::middleware('admin.token')->post('api-client-secrect-update/{id}', [ApiClientController::class, 'update']);
 Route::middleware('admin.token')->post('api-client-secrect-delete/{id}', [ApiClientController::class, 'destroy']);
 
@@ -962,7 +970,7 @@ Route::middleware('admin.token')->get('api-client-secrect-export-csv/{id}', [Api
 
 
 // New Secure Application Password Routes
-Route::middleware(['throttle:60,1', 'admin.token'])
+Route::middleware(['throttle:60,1', 'admin.token','validate.api.client'])
     ->prefix('admin')
     ->group(function () {
         Route::get('api-clients/available-permissions', [ApiClientController::class, 'availablePermissions']);
@@ -1062,7 +1070,7 @@ Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCa
 
 
 // ================= VK Admin CRM Builder APIs =================
-Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
+Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
 
     // Templates
     Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);

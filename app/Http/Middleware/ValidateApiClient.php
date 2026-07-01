@@ -2,230 +2,287 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\ApplicationPassword;
+use App\Services\ApiAbuseProtectionService;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
-use App\Services\ApiClientService;
-use Illuminate\Support\Facades\DB;
 
 class ValidateApiClient
 {
-    protected ApiClientService $apiClientService;
-
-    public function __construct(ApiClientService $service)
-    {
-        $this->apiClientService = $service;
-    }
+    public function __construct(
+        private readonly ApiAbuseProtectionService $apiAbuseProtectionService
+    ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
-        $debugMode = $request->header('X-Debug-API-Client') === '1';
-
-        $clientId     = $this->firstHeaderValue($request->header('X-Client-ID'));
-        $clientSecret = preg_replace('/\s+/', '', $this->firstHeaderValue($request->header('X-Client-Secret')));
-        $appType      = $this->firstHeaderValue($request->header('X-App-Type'));
-
-        /*
-        |--------------------------------------------------------------------------
-        | Resolve Origin
-        |--------------------------------------------------------------------------
-        | First Origin header check karega.
-        | Agar Origin missing hai to Referer se origin resolve karega.
-        */
         $origin = $this->resolveRequestOrigin($request);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Handle Browser Preflight Request
-        |--------------------------------------------------------------------------
-        */
         if ($request->isMethod('OPTIONS')) {
             return $this->corsResponse([], 204, $origin);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Required Header Validation
-        |--------------------------------------------------------------------------
-        */
-        $errors = [];
+        $plainToken = $this->extractApplicationPassword($request);
 
-        if ($clientId === '') {
-            $errors['client_id'][] = 'The client id field is required.';
+        if (!$plainToken) {
+            return $this->deny(
+                $request,
+                'missing_application_password',
+                401
+            );
         }
 
-        if ($clientSecret === '') {
-            $errors['client_secret'][] = 'The client secret field is required.';
+        $applicationPassword = ApplicationPassword::query()
+            ->with('apiClient')
+            ->where('token_hash', hash('sha256', $plainToken))
+            ->first();
+
+        if (!$applicationPassword || !$applicationPassword->isValid()) {
+            return $this->deny(
+                $request,
+                'invalid_or_expired_application_password',
+                401,
+                $applicationPassword?->api_client_id,
+                $plainToken
+            );
         }
 
-        if ($appType === '') {
-            $errors['app_type'][] = 'The app type field is required.';
+        $client = $applicationPassword->apiClient;
+
+        if (!$client) {
+            return $this->deny(
+                $request,
+                'api_client_not_found',
+                403,
+                null,
+                $plainToken
+            );
+        }
+
+        if (!$client->isActive()) {
+            return $this->deny(
+                $request,
+                'inactive_api_client',
+                403,
+                $client->id,
+                $plainToken
+            );
+        }
+
+        $requestType = $this->normalizeType(
+            $this->firstHeaderValue($request->header('X-App-Type'))
+        );
+
+        if ($requestType === '') {
+            return $this->deny(
+                $request,
+                'application_type_missing',
+                403,
+                $client->id,
+                $plainToken,
+                [
+                    'received_type' => $request->header('X-App-Type'),
+                    'client_type' => $client->type,
+                ]
+            );
+        }
+
+        $clientType = $this->normalizeType(
+            (string) ($client->type ?: $client->getAttribute('app_type'))
+        );
+
+        if ($requestType !== $clientType) {
+            return $this->deny(
+                $request,
+                'application_type_not_matched',
+                403,
+                $client->id,
+                $plainToken,
+                [
+                    'received_type' => $requestType,
+                    'client_type' => $clientType,
+                ]
+            );
         }
 
         if ($origin === '' || strtolower($origin) === 'null') {
-            $errors['origin'][] = 'The origin field is required.';
-        }
-
-        if (!empty($errors)) {
-            return $this->errorResponse(
-                'Validation failed.',
-                $errors,
-                422,
-                $debugMode,
-                [
-                    'received_origin' => $origin,
-                    'received_referer' => $request->headers->get('Referer'),
-                    'received_client_id' => $clientId,
-                    'received_app_type' => $appType,
-                ]
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Length Validation
-        |--------------------------------------------------------------------------
-        */
-        if (strlen($clientId) !== 15) {
-            $errors['client_id'][] = 'The client id must be 15 characters.';
-        }
-
-        if (strlen($clientSecret) !== 15) {
-            $errors['client_secret'][] = 'The client secret must be 15 characters.';
-        }
-
-        if (!empty($errors)) {
-            return $this->errorResponse(
-                'Validation failed.',
-                $errors,
-                422,
-                $debugMode,
-                [
-                    'received_client_id_length' => strlen($clientId),
-                    'received_client_secret_length' => strlen($clientSecret),
-                ]
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Get Active API Client
-        |--------------------------------------------------------------------------
-        */
-        $client = $this->apiClientService->getActiveClientById($clientId);
-
-        if (!$client) {
-            return $this->errorResponse(
-                'Validation failed.',
-                ['client_id' => ['Invalid client id']],
-                422,
-                $debugMode,
-                [
-                    'received_client_id' => $clientId,
-                ]
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Validate Secret and App Type
-        |--------------------------------------------------------------------------
-        */
-        if (!hash_equals(trim((string) $client->client_secret), $clientSecret)) {
-            return $this->errorResponse(
-                'Validation failed.',
-                ['client_secret' => ['Invalid client secret']],
-                422,
-                $debugMode
-            );
-        }
-
-        if (trim((string) $client->app_type) !== $appType) {
-            return $this->errorResponse(
-                'Validation failed.',
-                ['app_type' => ['Invalid app type']],
-                422,
-                $debugMode,
-                [
-                    'db_app_type' => $client->app_type,
-                    'received_app_type' => $appType,
-                ]
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Allowed Domain Check
-        |--------------------------------------------------------------------------
-        */
-        $allowedDomains = $this->apiClientService->getAllowedDomainsCached($client);
-
-        $allowedDomains = array_map(function ($domain) {
-            return $this->normalizeOrigin($domain);
-        }, $allowedDomains);
-
-        if (!in_array($origin, $allowedDomains, true)) {
-            return $this->errorResponse(
-                'Unauthorized origin',
-                ['origin' => ['Origin not allowed']],
+            return $this->deny(
+                $request,
+                'origin_missing',
                 403,
-                $debugMode,
+                $client->id,
+                $plainToken
+            );
+        }
+
+        if (!$this->originIsAllowed($client, $origin)) {
+            return $this->deny(
+                $request,
+                'origin_not_allowed',
+                403,
+                $client->id,
+                $plainToken,
                 [
                     'received_origin' => $origin,
-                    'received_referer' => $request->headers->get('Referer'),
-                    'allowed_domains' => $allowedDomains,
+                    'allowed_origins' => $this->getAllowedOrigins($client),
                 ]
             );
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Lock First Origin
-        |--------------------------------------------------------------------------
-        */
-        if (empty($client->used_by_origin)) {
-            DB::transaction(function () use ($client, $origin) {
-                $client->refresh();
+        $request->attributes->set('api_client', $client);
+        $request->attributes->set('application_password', $applicationPassword);
+        $request->attributes->set('application_password_plain_token', $plainToken);
 
-                if (empty($client->used_by_origin)) {
-                    $this->apiClientService->updateLastUsedOrigin($client, $origin);
-                }
-            });
-
-            $client->refresh();
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Block Different Origin
-        |--------------------------------------------------------------------------
-        */
-        $lockedOrigin = $this->normalizeOrigin($client->used_by_origin);
-
-        if ($lockedOrigin !== $origin) {
-            return $this->errorResponse(
-                'Client credentials locked to another origin.',
-                ['origin' => ["Locked to {$client->used_by_origin}"]],
-                409,
-                $debugMode,
-                [
-                    'received_origin' => $origin,
-                    'received_referer' => $request->headers->get('Referer'),
-                    'locked_origin' => $lockedOrigin,
-                ]
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Update Last Used
-        |--------------------------------------------------------------------------
-        */
-        $this->apiClientService->updateLastUsedAt($client);
+        $this->updateLastUsed($request, $client, $applicationPassword);
 
         $response = $next($request);
 
         return $this->addCorsHeaders($response, $origin);
+    }
+
+    private function extractBearerToken(Request $request): ?string
+    {
+        $header = $request->header('Authorization');
+
+        if (!$header || !preg_match('/^Bearer\s+(.+)$/i', $header, $matches)) {
+            return null;
+        }
+
+        return trim($matches[1]);
+    }
+    private function extractApplicationPassword(Request $request): ?string
+    {
+        $token = trim((string) $request->header('X-Application-Password'));
+
+        if ($token !== '') {
+            return $token;
+        }
+
+        $header = $request->header('Authorization');
+
+        if ($header && preg_match('/^Bearer\s+(.+)$/i', $header, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return null;
+    }
+    private function originIsAllowed($client, string $origin): bool
+    {
+        $allowedOrigins = $this->getAllowedOrigins($client);
+
+        if (app()->environment('local')) {
+            $devOrigins = config('api_security.allowed_dev_origins', []);
+
+            if (is_string($devOrigins)) {
+                $devOrigins = explode(',', $devOrigins);
+            }
+
+            $allowedOrigins = array_merge($allowedOrigins, $devOrigins);
+        }
+
+        $allowedOrigins = array_map(function ($allowedOrigin) {
+            return $this->normalizeOrigin($allowedOrigin);
+        }, $allowedOrigins);
+
+        $allowedOrigins = array_values(array_filter(array_unique($allowedOrigins)));
+
+        if (in_array('*', $allowedOrigins, true)) {
+            return true;
+        }
+
+        return in_array($origin, $allowedOrigins, true);
+    }
+
+    private function getAllowedOrigins($client): array
+    {
+        $allowedOrigins = $client->allowed_origins ?? [];
+
+        if (is_string($allowedOrigins)) {
+            $decoded = json_decode($allowedOrigins, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $allowedOrigins = $decoded;
+            } else {
+                $allowedOrigins = explode(',', $allowedOrigins);
+            }
+        }
+
+        if (!is_array($allowedOrigins)) {
+            $allowedOrigins = [];
+        }
+
+        if (empty($allowedOrigins) && Schema::hasColumn('api_clients', 'allowed_domain')) {
+            $legacyAllowedDomain = $client->getAttribute('allowed_domain');
+
+            if (!empty($legacyAllowedDomain)) {
+                $allowedOrigins = explode(',', $legacyAllowedDomain);
+            }
+        }
+
+        return array_values(array_filter(array_map('trim', $allowedOrigins)));
+    }
+
+    private function resolveRequestOrigin(Request $request): string
+    {
+        $origin = $this->firstHeaderValue($request->headers->get('Origin'));
+
+        if (!empty($origin) && strtolower($origin) !== 'null') {
+            return $this->normalizeOrigin($origin);
+        }
+
+        $appOrigin = $this->firstHeaderValue($request->headers->get('X-App-Origin'));
+
+        if (!empty($appOrigin) && strtolower($appOrigin) !== 'null') {
+            return $this->normalizeOrigin($appOrigin);
+        }
+
+        $referer = $this->firstHeaderValue($request->headers->get('Referer'));
+
+        if (!empty($referer)) {
+            return $this->normalizeOrigin($referer);
+        }
+
+        return '';
+    }
+
+    private function normalizeOrigin(?string $origin): string
+    {
+        $origin = trim((string) $origin);
+
+        if ($origin === '') {
+            return '';
+        }
+
+        $origin = rtrim($origin, '/');
+
+        $parts = parse_url($origin);
+
+        if (!$parts || empty($parts['scheme']) || empty($parts['host'])) {
+            return strtolower($origin);
+        }
+
+        $scheme = strtolower($parts['scheme']);
+        $host = strtolower($parts['host']);
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+        return "{$scheme}://{$host}{$port}";
+    }
+
+    private function normalizeType(?string $type): string
+    {
+        $type = strtolower(trim((string) $type));
+
+        $allowedTypes = [
+            'admin',
+            'business',
+            'website',
+            'custom',
+        ];
+
+        return in_array($type, $allowedTypes, true) ? $type : '';
     }
 
     private function firstHeaderValue($value): string
@@ -239,76 +296,61 @@ class ValidateApiClient
         return $value;
     }
 
-    private function normalizeOrigin($origin): string
+    private function updateLastUsed(Request $request, $client, ApplicationPassword $applicationPassword): void
     {
-        $origin = trim((string) $origin);
+        $cacheKey = 'application-password-last-used:' . $applicationPassword->id;
 
-        if ($origin === '') {
-            return '';
+        if (!Cache::add($cacheKey, true, now()->addMinutes(10))) {
+            return;
         }
 
-        return strtolower(rtrim($origin, '/'));
+        $applicationPassword->forceFill([
+            'last_used_at' => now(),
+            'last_used_ip' => $request->ip(),
+            'last_user_agent' => Str::limit((string) $request->userAgent(), 255, ''),
+        ])->saveQuietly();
+
+        if (Schema::hasColumn('api_clients', 'last_used_at')) {
+            $client->forceFill([
+                'last_used_at' => now(),
+            ])->saveQuietly();
+        }
     }
 
-    private function resolveRequestOrigin(Request $request): string
-    {
-        /*
-        |--------------------------------------------------------------------------
-        | 1. First priority: Origin header
-        |--------------------------------------------------------------------------
-        */
-        $origin = $this->firstHeaderValue($request->headers->get('Origin'));
-
-        if (!empty($origin) && strtolower($origin) !== 'null') {
-            return $this->normalizeOrigin($origin);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 2. Fallback: Referer header
-        |--------------------------------------------------------------------------
-        | Example:
-        | Referer: http://localhost:3000/
-        | Resolved origin: http://localhost:3000
-        */
-        $referer = $this->firstHeaderValue($request->headers->get('Referer'));
-
-        if (!empty($referer)) {
-            $parts = parse_url($referer);
-
-            if (!empty($parts['scheme']) && !empty($parts['host'])) {
-                $resolvedOrigin = $parts['scheme'] . '://' . $parts['host'];
-
-                if (!empty($parts['port'])) {
-                    $resolvedOrigin .= ':' . $parts['port'];
-                }
-
-                return $this->normalizeOrigin($resolvedOrigin);
-            }
-        }
-
-        return '';
-    }
-
-    private function errorResponse(
-        string $message,
-        array $errors,
-        int $status,
-        bool $debugMode = false,
+    private function deny(
+        Request $request,
+        string $reason,
+        int $status = 403,
+        ?int $clientId = null,
+        ?string $plainToken = null,
         array $debug = []
     ): Response {
-        $origin = $this->resolveRequestOrigin(request());
-
-        $response = [
-            'message' => $message,
-            'errors' => $errors,
-        ];
-
-        if ($debugMode) {
-            $response['debug'] = $debug;
+        try {
+            $this->apiAbuseProtectionService->logFailure(
+                $request,
+                $reason,
+                $clientId,
+                $plainToken
+            );
+        } catch (\Throwable) {
+            //
         }
 
-        return $this->corsResponse($response, $status, $origin);
+        $payload = [
+            'success' => false,
+            'message' => 'No access to API. Please contact administrator.',
+        ];
+
+        if (app()->environment('local') || $request->header('X-Debug-API-Client') === '1') {
+            $payload['reason'] = $reason;
+            $payload['debug'] = $debug;
+        }
+
+        return $this->corsResponse(
+            $payload,
+            $status,
+            $this->resolveRequestOrigin($request)
+        );
     }
 
     private function corsResponse(array $data, int $status, string $origin): Response
@@ -333,7 +375,7 @@ class ValidateApiClient
 
         $response->headers->set(
             'Access-Control-Allow-Headers',
-            'Content-Type, Authorization, X-Requested-With, X-Client-ID, X-Client-Secret, X-App-Type, X-Debug-API-Client, X-Nextjs-Build-Key, X-Forwarded-For'
+            'Accept, Content-Type, Authorization, Origin, Referer, X-Requested-With, X-App-Type, X-App-Origin, X-Debug-API-Client, X-Timestamp, X-Nonce, X-Signature'
         );
 
         $response->headers->set(
@@ -346,11 +388,6 @@ class ValidateApiClient
             '86400'
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | Required only if frontend axios uses withCredentials: true
-        |--------------------------------------------------------------------------
-        */
         $response->headers->set(
             'Access-Control-Allow-Credentials',
             'true'

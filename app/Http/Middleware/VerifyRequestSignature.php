@@ -25,8 +25,14 @@ class VerifyRequestSignature
         }
 
         // Signature is enforced only for clients where requires_signature = 1
-        if (!$client->requires_signature) {
-            return $next($request);
+        if (method_exists($client, 'isSignatureRequired')) {
+            if (!$client->isSignatureRequired()) {
+                return $next($request);
+            }
+        } else {
+            if (!$client->requires_signature) {
+                return $next($request);
+            }
         }
 
         $plainToken = $request->attributes->get('application_password_plain_token');

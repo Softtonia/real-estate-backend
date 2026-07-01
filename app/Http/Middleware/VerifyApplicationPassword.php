@@ -18,7 +18,7 @@ class VerifyApplicationPassword
 
     public function handle(Request $request, Closure $next): Response
     {
-        $plainToken = $this->extractBearerToken($request);
+        $plainToken = $this->extractApplicationPassword($request);
 
         if (!$plainToken) {
             $this->apiAbuseProtectionService->logFailure(
@@ -86,7 +86,22 @@ class VerifyApplicationPassword
 
         return trim($matches[1]);
     }
+    private function extractApplicationPassword(Request $request): ?string
+    {
+        $token = trim((string) $request->header('X-Application-Password'));
 
+        if ($token !== '') {
+            return $token;
+        }
+
+        $header = $request->header('Authorization');
+
+        if ($header && preg_match('/^Bearer\s+(.+)$/i', $header, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return null;
+    }
     private function updateLastUsed(Request $request, ApplicationPassword $password): void
     {
         $cacheKey = 'application-password-last-used:' . $password->id;
