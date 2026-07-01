@@ -970,7 +970,7 @@ Route::middleware('admin.token')->get('api-client-secrect-export-csv/{id}', [Api
 
 
 // New Secure Application Password Routes
-Route::middleware(['throttle:60,1', 'admin.token','validate.api.client'])
+Route::middleware(['throttle:60,1', 'admin.token'])
     ->prefix('admin')
     ->group(function () {
         Route::get('api-clients/available-permissions', [ApiClientController::class, 'availablePermissions']);
@@ -996,6 +996,7 @@ Route::middleware(['throttle:60,1', 'admin.token','validate.api.client'])
 
 Route::prefix('v1')
     ->middleware([
+        'validate.api.client',
         'app.blocked_ip',
         'app.password',
         'app.origin',
