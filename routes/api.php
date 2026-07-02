@@ -110,6 +110,7 @@ use App\Http\Controllers\Template\TemplateConflictController;
 use App\Http\Controllers\Template\TemplateDuplicateController;
 use App\Http\Controllers\Template\TemplateDynamicFieldController;
 use App\Http\Controllers\Template\TemplateExportImportController;
+use App\Http\Controllers\Template\TemplateListController;
 use App\Http\Controllers\Template\TemplatePreviewController;
 use App\Http\Controllers\Template\TemplatePublishValidationController;
 use App\Http\Controllers\Template\TemplateResolveController;
@@ -141,7 +142,40 @@ Route::get('/check-ip', function (Request $request) {
     ]);
 });
 
+Route::middleware(['validate.api.client'])
+    ->get('/app-access-check', function (Request $request) {
+        $client = $request->attributes->get('api_client');
+        $applicationPassword = $request->attributes->get('application_password');
 
+        return response()->json([
+            'success' => true,
+            'message' => 'Application access verified successfully.',
+            'data' => [
+                'api_client' => [
+                    'id' => $client->id,
+                    'name' => $client->name,
+                    'slug' => $client->slug,
+                    'type' => $client->type,
+                    'status' => $client->isActive(),
+                    'allowed_origins' => $client->allowed_origins ?? [],
+                    'permissions' => $client->permissions ?? [],
+                    'requires_signature' => method_exists($client, 'isSignatureRequired')
+                        ? $client->isSignatureRequired()
+                        : (bool) $client->requires_signature,
+                ],
+                'application_password' => [
+                    'id' => $applicationPassword->id,
+                    'name' => $applicationPassword->name,
+                    'permissions' => $applicationPassword->permissions ?? [],
+                ],
+                'request' => [
+                    'app_type' => $request->header('X-App-Type'),
+                    'origin' => $request->header('Origin') ?: $request->header('X-App-Origin'),
+                    'ip' => $request->ip(),
+                ],
+            ],
+        ]);
+    });
 
 Route::middleware(['validate.api.client'])->group(function () {
 
@@ -1247,4 +1281,6 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
         Route::get('/dynamic-fields', [DynamicFieldApiController::class, 'index']);
     });
     Route::post('template-resolve', [TemplateResolveController::class, 'resolve']);
+    Route::get('templates-list', [TemplateListController::class, 'index']);
+    Route::get('templates-stats', [TemplateListController::class, 'stats']);
 });
