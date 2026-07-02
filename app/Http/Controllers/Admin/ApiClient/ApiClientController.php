@@ -22,14 +22,32 @@ class ApiClientController extends Controller
         private readonly ApiClientService $apiClientService
     ) {}
 
-    public function index(): AnonymousResourceCollection
-    {
-        Gate::authorize('viewAny', ApiClient::class);
+public function index(): AnonymousResourceCollection
+{
+    Gate::authorize('viewAny', ApiClient::class);
 
-        $clients = $this->apiClientService->paginate(20);
+    $clients = $this->apiClientService->paginate(20);
 
-        return ApiClientResource::collection($clients);
-    }
+    $clients->getCollection()->load([
+        'applicationPasswords' => function ($query) {
+            $query->select([
+                'id',
+                'api_client_id',
+                'name',
+                'token_prefix',
+                'abilities',
+                'last_used_at',
+                'expires_at',
+                'revoked_at',
+                'created_at',
+            ])->latest();
+        },
+    ]);
+
+    $clients->getCollection()->loadCount('applicationPasswords');
+
+    return ApiClientResource::collection($clients);
+}
 
     public function store(StoreApiClientRequest $request): JsonResponse
     {
@@ -46,17 +64,33 @@ class ApiClientController extends Controller
         ], 201);
     }
 
-    public function show(ApiClient $apiClient): JsonResponse
-    {
-        Gate::authorize('view', $apiClient);
+public function show(ApiClient $apiClient): JsonResponse
+{
+    Gate::authorize('view', $apiClient);
 
-        return response()->json([
-            'success' => true,
-            'data' => new ApiClientResource(
-                $apiClient->loadCount('applicationPasswords')
-            ),
-        ]);
-    }
+    $apiClient->load([
+        'applicationPasswords' => function ($query) {
+            $query->select([
+                'id',
+                'api_client_id',
+                'name',
+                'token_prefix',
+                'abilities',
+                'last_used_at',
+                'expires_at',
+                'revoked_at',
+                'created_at',
+            ])->latest();
+        },
+    ]);
+
+    $apiClient->loadCount('applicationPasswords');
+
+    return response()->json([
+        'success' => true,
+        'data' => new ApiClientResource($apiClient),
+    ]);
+}
 
     public function update(UpdateApiClientRequest $request, ApiClient $apiClient): JsonResponse
     {

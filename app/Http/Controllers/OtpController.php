@@ -6,25 +6,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\Otp;
-use App\Mail\OTPMail;
 use App\Jobs\SendOtpMailJob;
 
 class OtpController extends Controller
 {
-    /**
-     * Verify email OTP
-     */
     public function emailVerifyOtp(Request $request)
     {
         $authUser = Auth::user();
+
         if (!$authUser) {
             return response()->json([
-                'status' => 'error',
+                'status' => false,
                 'message' => 'User not authenticated.',
             ], 401);
         }
@@ -33,62 +28,74 @@ class OtpController extends Controller
             'email_otp' => 'required|numeric',
         ]);
 
-        // Use Eloquent for OTP
-        $otpRecord = Otp::where('user_id', $authUser->id)->latest()->first();
+        $otpRecord = Otp::where('user_id', $authUser->id)
+            ->latest()
+            ->first();
 
         if (!$otpRecord) {
             return response()->json([
-                'status' => 'error',
-                'message' => 'No OTP record found for the user.',
+                'status' => false,
+                'message' => 'No OTP record found for this user.',
+            ], 404);
+        }
+
+        if ($otpRecord->isOTPVerified) {
+            return response()->json([
+                'status' => true,
+                'message' => 'OTP already verified.',
             ], 200);
         }
 
         if ($otpRecord->otp != $request->email_otp) {
             return response()->json([
-                'status' => 'error',
+                'status' => false,
                 'message' => 'Invalid OTP.',
             ], 400);
         }
 
         if (Carbon::now()->greaterThan($otpRecord->expire_date_time)) {
             return response()->json([
-                'status' => 'error',
+                'status' => false,
                 'message' => 'OTP has expired.',
             ], 400);
         }
 
-        // Atomic update using transaction
-        DB::transaction(function () use ($authUser) {
-            Otp::where('user_id', $authUser->id)->update(['isOTPVerified' => true]);
+        DB::transaction(function () use ($authUser, $otpRecord) {
+            $otpRecord->update([
+                'isOTPVerified' => true,
+            ]);
+
             User::where('id', $authUser->id)->update([
-                'is_otp_verified' => true,
+                'is_otp_verified' => 1,
                 'isapproved' => 1,
             ]);
         });
 
         return response()->json([
-            'status' => 'success',
+            'status' => true,
             'message' => 'OTP verified successfully and user approved.',
-            'user_id' => $authUser->id,
-            'role' => $authUser->role->name ?? null,
-            'api_token' => $authUser->api_token,
+            'data' => [
+                'user_id' => $authUser->id,
+                'role' => $authUser->role->name ?? null,
+                'api_token' => $authUser->api_token,
+            ]
         ], 200);
     }
 
-    /**
-     * Resend OTP to user email
-     */
     public function resendOtp(Request $request)
     {
         $user = Auth::user();
+
         if (!$user) {
             return response()->json([
                 'status' => false,
-                'message' => 'User not authenticated',
+                'message' => 'User not authenticated.',
             ], 401);
         }
 
-        $latestOtp = Otp::where('user_id', $user->id)->latest()->first();
+        $latestOtp = Otp::where('user_id', $user->id)
+            ->latest()
+            ->first();
 
         if ($latestOtp && $latestOtp->created_at->diffInSeconds(now()) < 60) {
             return response()->json([
@@ -115,30 +122,8 @@ class OtpController extends Controller
             ]);
         }
 
-        // Cache OTP request for throttling
-        Cache::put("otp_request_{$user->id}", true, 60);
-
         $fullName = trim($user->first_name . ' ' . $user->last_name);
 
-        // Dynamic mail config
-        $settings = DB::table('mail_configs')->where('status', 1)->first();
-        if (!$settings) {
-            return response()->json([
-                'message' => 'Mail settings are not configured.',
-            ], 500);
-        }
-
-        config([
-            'mail.mailers.smtp.host' => $settings->host,
-            'mail.mailers.smtp.port' => $settings->port,
-            'mail.mailers.smtp.username' => $settings->username,
-            'mail.mailers.smtp.password' => $settings->password,
-            'mail.mailers.smtp.encryption' => $settings->encryption,
-            'mail.from.address' => $settings->from_address,
-            'mail.from.name' => $settings->from_name,
-        ]);
-
-        // Async email dispatch
         try {
             SendOtpMailJob::dispatch($otp, $user->email, $fullName);
         } catch (\Exception $e) {

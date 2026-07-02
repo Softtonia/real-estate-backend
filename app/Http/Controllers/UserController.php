@@ -344,47 +344,38 @@ class UserController extends Controller
     // for store otp verification
     public function storeOtpVerificationData(Request $request)
     {
+        // Validate request data
         $request->validate([
             'otp' => 'required',
             'phone' => 'required',
             'uid' => 'required'
         ]);
 
-        $otpRecord = OTP::where('phone', $request->phone)
+        // Find the OTP record based on the provided phone number and OTP
+        $otpRecord = Otp::where('phone', $request->phone)
             ->where('otp', $request->otp)
             ->first();
 
+        // Check if OTP record exists and if it's valid
         if (!$otpRecord) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid OTP.'
-            ], 400);
+            return response()->json(['error' => 'Invalid OTP.'], 400);
         }
 
+        // Assuming the OTP is valid, now we update the user's uid in the users table
         $user = User::where('phone', $request->phone)->latest()->first();
 
         if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'User not found.'
-            ], 404);
+            return response()->json(['error' => 'User not found.'], 404);
         }
 
+        // Update the uid
         $user->uid = $request->uid;
-        $user->is_otp_verified = 1;
         $user->save();
 
+        // Optionally, you can delete the OTP record if it's no longer needed
         $otpRecord->delete();
 
-        return response()->json([
-            'status' => true,
-            'message' => 'OTP verified successfully.',
-            'data' => [
-                'user_id' => $user->id,
-                'phone' => $user->phone,
-                'is_otp_verified' => $user->is_otp_verified
-            ]
-        ], 200);
+        return response()->json(['message' => 'User registered successfully.']);
     }
 
     // for all user list
