@@ -7,11 +7,12 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Log;
 use Spatie\Permission\Models\Role;
-use DB;
+// use DB;
 use Illuminate\Validation\Rule;
 use App\Models\RolePrefixReapeater;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class Rolecontroller extends Controller
 {
@@ -74,7 +75,6 @@ class Rolecontroller extends Controller
                 'message' => 'Role Added Successfully',
                 'data' => $role
             ], 201);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             // Return validation error response
             return response()->json(['error' => $e->errors()], 422);
@@ -321,7 +321,7 @@ class Rolecontroller extends Controller
             }
 
             // Fetch all roles including admin
-            $roles = Role::all();
+            $roles = Role::where('name', '!=', 'admin')->get();
 
             return response()->json(['roles' => $roles]);
         } catch (\Exception $e) {
@@ -341,12 +341,15 @@ class Rolecontroller extends Controller
     {
         $allowedRoles = ['owner', 'agent', 'company', 'consultancy', 'developer'];
 
-        // Fetch roles where is_default is 1 and the name is in the allowed roles
-        $roles = Role::whereIn('name', $allowedRoles)
-            ->where('is_default', 1)  // Check if the role is default
+        $roles = Role::whereIn(DB::raw('LOWER(name)'), $allowedRoles)
+            ->where('is_default', 1)
+            ->orderByRaw("FIELD(LOWER(name), 'owner', 'agent', 'company', 'consultancy', 'developer')")
             ->get();
 
-        return response()->json($roles);
+        return response()->json([
+            'status' => true,
+            'data' => $roles
+        ]);
     }
 
 
@@ -503,5 +506,4 @@ class Rolecontroller extends Controller
             'data' => $role
         ], 200);
     }
-
 }

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
@@ -7,6 +9,7 @@ use App\Models\PostType;
 use App\Models\Taxonomy;
 use App\Models\Template;
 use App\Models\TemplateDisplayCondition;
+use App\PageBuilder\Services\TemplateRenderCacheService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -44,6 +47,8 @@ class TemplateDisplayConditionController extends Controller
 
             DB::commit();
 
+            $this->clearTemplateCache((int) $template->id);
+
             return $this->templateConditionsResponse(
                 $template->id,
                 'Template conditions created successfully.',
@@ -76,12 +81,12 @@ class TemplateDisplayConditionController extends Controller
             $template = Template::find($payload['template_id']);
 
             foreach ($payload['conditions'] as $conditionData) {
-                if (!empty($conditionData['id'])) {
+                if (! empty($conditionData['id'])) {
                     $condition = TemplateDisplayCondition::where('id', $conditionData['id'])
                         ->where('template_id', $template->id)
                         ->first();
 
-                    if (!$condition) {
+                    if (! $condition) {
                         continue;
                     }
 
@@ -96,6 +101,8 @@ class TemplateDisplayConditionController extends Controller
             }
 
             DB::commit();
+
+            $this->clearTemplateCache((int) $template->id);
 
             return $this->templateConditionsResponse(
                 $template->id,
@@ -137,6 +144,8 @@ class TemplateDisplayConditionController extends Controller
 
             DB::commit();
 
+            $this->clearTemplateCache((int) $template->id);
+
             return $this->templateConditionsResponse(
                 $template->id,
                 'Template conditions replaced successfully.'
@@ -156,16 +165,18 @@ class TemplateDisplayConditionController extends Controller
     {
         $condition = TemplateDisplayCondition::find($id);
 
-        if (!$condition) {
+        if (! $condition) {
             return response()->json([
                 'status' => false,
                 'message' => 'Template condition not found.',
             ], 404);
         }
 
-        $templateId = $condition->template_id;
+        $templateId = (int) $condition->template_id;
 
         $condition->delete();
+
+        $this->clearTemplateCache($templateId);
 
         return $this->templateConditionsResponse(
             $templateId,
@@ -185,16 +196,13 @@ class TemplateDisplayConditionController extends Controller
             'conditions.*.relation' => 'nullable|in:and,or',
 
             'conditions.*.show_type' => 'required_with:conditions|in:include,exclude',
-            'conditions.*.show_if' => 'required_with:conditions|in:post_type,taxonomy',
+            'conditions.*.source_type' => 'required_with:conditions|in:post_type,taxonomy',
 
-            /*
-             * Important:
-             * post_type_id nullable rakha hai.
-             * Isko manually validateConditions() me only post_type condition ke liye required kiya hai.
-             */
             'conditions.*.post_type_id' => 'nullable|integer|exists:post_types,id',
+            'conditions.*.post_type_slug' => 'nullable|string',
 
             'conditions.*.taxonomy_id' => 'nullable|integer|exists:taxonomies,id',
+            'conditions.*.taxonomy_slug' => 'nullable|string',
             'conditions.*.taxonomy_term_ids' => 'nullable|array',
             'conditions.*.taxonomy_term_ids.*' => 'integer',
         ];
@@ -215,41 +223,50 @@ class TemplateDisplayConditionController extends Controller
     private function validateConditions($validator, array $conditions): void
     {
         foreach ($conditions as $index => $condition) {
-            $showIf = $condition['show_if'] ?? null;
+            $sourceType = $condition['source_type'] ?? null;
 
-            /*
-             * If condition is post_type,
-             * then only post_type_id is required.
-             */
-            if ($showIf === 'post_type') {
-                if (empty($condition['post_type_id'])) {
+            if ($sourceType === 'post_type') {
+                if (
+                    empty($condition['post_type_id'])
+                    && empty($condition['post_type_slug'])
+                ) {
                     $validator->errors()->add(
-                        "conditions.$index.post_type_id",
-                        'Post type is required when show_if is post_type.'
-                    );
-                }
-            }
-
-            /*
-             * If condition is taxonomy,
-             * then taxonomy_id and taxonomy_term_ids are required.
-             * post_type_id is NOT required here.
-             */
-            if ($showIf === 'taxonomy') {
-                if (empty($condition['taxonomy_id'])) {
-                    $validator->errors()->add(
-                        "conditions.$index.taxonomy_id",
-                        'Taxonomy is required when show_if is taxonomy.'
+                        "conditions.$index.post_type",
+                        'Post type id or post type slug is required when source_type is post_type.'
                     );
                 }
 
                 if (
-                    empty($condition['taxonomy_term_ids']) ||
-                    !is_array($condition['taxonomy_term_ids'])
+                    empty($condition['post_type_id'])
+                    && ! empty($condition['post_type_slug'])
+                    && ! PostType::where('slug', $condition['post_type_slug'])->exists()
                 ) {
                     $validator->errors()->add(
-                        "conditions.$index.taxonomy_term_ids",
-                        'Taxonomy terms are required and must be an array.'
+                        "conditions.$index.post_type_slug",
+                        'Selected post type slug is invalid.'
+                    );
+                }
+            }
+
+            if ($sourceType === 'taxonomy') {
+                if (
+                    empty($condition['taxonomy_id'])
+                    && empty($condition['taxonomy_slug'])
+                ) {
+                    $validator->errors()->add(
+                        "conditions.$index.taxonomy",
+                        'Taxonomy id or taxonomy slug is required when source_type is taxonomy.'
+                    );
+                }
+
+                if (
+                    empty($condition['taxonomy_id'])
+                    && ! empty($condition['taxonomy_slug'])
+                    && ! Taxonomy::where('slug', $condition['taxonomy_slug'])->exists()
+                ) {
+                    $validator->errors()->add(
+                        "conditions.$index.taxonomy_slug",
+                        'Selected taxonomy slug is invalid.'
                     );
                 }
             }
@@ -258,7 +275,7 @@ class TemplateDisplayConditionController extends Controller
 
     private function prepareConditionData(Template $template, array $conditionData): array
     {
-        $showIf = $conditionData['show_if'] ?? $conditionData['source_type'] ?? null;
+        $sourceType = $conditionData['source_type'] ?? null;
 
         $logicOperator = $conditionData['logic_operator']
             ?? $conditionData['relation']
@@ -269,34 +286,27 @@ class TemplateDisplayConditionController extends Controller
         $postType = null;
         $taxonomy = null;
 
-        /*
-         * Post type should be stored only when show_if is post_type.
-         * Taxonomy condition me post_type_id store nahi hoga.
-         */
-        if ($showIf === 'post_type') {
-            if (!empty($conditionData['post_type_id'])) {
+        if ($sourceType === 'post_type') {
+            if (! empty($conditionData['post_type_id'])) {
                 $postType = PostType::find($conditionData['post_type_id']);
             }
 
-            if (!$postType && !empty($conditionData['post_type_slug'])) {
+            if (! $postType && ! empty($conditionData['post_type_slug'])) {
                 $postType = PostType::where('slug', $conditionData['post_type_slug'])->first();
             }
         }
 
-        /*
-         * Taxonomy should be stored only when show_if is taxonomy.
-         */
-        if ($showIf === 'taxonomy') {
-            if (!empty($conditionData['taxonomy_id'])) {
+        if ($sourceType === 'taxonomy') {
+            if (! empty($conditionData['taxonomy_id'])) {
                 $taxonomy = Taxonomy::find($conditionData['taxonomy_id']);
             }
 
-            if (!$taxonomy && !empty($conditionData['taxonomy_slug'])) {
+            if (! $taxonomy && ! empty($conditionData['taxonomy_slug'])) {
                 $taxonomy = Taxonomy::where('slug', $conditionData['taxonomy_slug'])->first();
             }
         }
 
-        $taxonomyTermIds = $showIf === 'taxonomy'
+        $taxonomyTermIds = $sourceType === 'taxonomy'
             ? ($conditionData['taxonomy_term_ids'] ?? [])
             : [];
 
@@ -304,7 +314,7 @@ class TemplateDisplayConditionController extends Controller
             'template_id' => $template->id,
 
             'show_type' => $showType,
-            'source_type' => $showIf,
+            'source_type' => $sourceType,
 
             'post_type_id' => $postType?->id,
             'post_type_slug' => $postType?->slug,
@@ -318,8 +328,8 @@ class TemplateDisplayConditionController extends Controller
 
             'condition_value' => [
                 'show_type' => $showType,
+                'source_type' => $sourceType,
                 'logic_operator' => $logicOperator,
-                'show_if' => $showIf,
 
                 'post_type_id' => $postType?->id,
                 'post_type_slug' => $postType?->slug,
@@ -341,7 +351,7 @@ class TemplateDisplayConditionController extends Controller
             'layout',
         ])->find($templateId);
 
-        if (!$template) {
+        if (! $template) {
             return response()->json([
                 'status' => false,
                 'message' => 'Template not found.',
@@ -380,14 +390,10 @@ class TemplateDisplayConditionController extends Controller
             return [
                 'id' => $condition->id,
 
-                /*
-                 * First rule ka logic_operator null rahega.
-                 * Second rule onwards relation with previous rule hoga.
-                 */
                 'logic_operator' => $index === 0 ? null : $condition->relation,
 
                 'show_type' => $condition->show_type,
-                'show_if' => $condition->source_type,
+                'source_type' => $condition->source_type,
 
                 'post_type_id' => $condition->post_type_id,
                 'post_type_slug' => $condition->post_type_slug,
@@ -422,11 +428,6 @@ class TemplateDisplayConditionController extends Controller
 
         $expression = implode(' ', $parts);
 
-        /*
-         * Rule 1 AND Rule 2 OR Rule 3 AND Rule 4
-         * Visual output:
-         * (Rule 1 AND Rule 2) OR (Rule 3 AND Rule 4)
-         */
         if (str_contains($expression, ' OR ')) {
             $groups = explode(' OR ', $expression);
 
@@ -438,6 +439,13 @@ class TemplateDisplayConditionController extends Controller
         }
 
         return $expression;
+    }
+
+    private function clearTemplateCache(int $templateId): void
+    {
+        if (class_exists(TemplateRenderCacheService::class)) {
+            app(TemplateRenderCacheService::class)->clearTemplate($templateId);
+        }
     }
 
     private function getPayload(Request $request): array
