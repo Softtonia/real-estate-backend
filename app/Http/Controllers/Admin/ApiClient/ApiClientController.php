@@ -310,4 +310,97 @@ class ApiClientController extends Controller
             })->values(),
         ];
     }
+    public function getAppTypes(): JsonResponse
+    {
+        $table = collect([
+            'app_types',
+            'api_client_app_types',
+            'application_types',
+        ])->first(function (string $table) {
+            return Schema::hasTable($table);
+        });
+
+        /*
+     * Fallback response if app type table does not exist.
+     */
+        if (! $table) {
+            return response()->json([
+                'status' => true,
+                'message' => 'App types fetched successfully.',
+                'data' => [
+                    [
+                        'id' => 'web',
+                        'name' => 'Web App',
+                        'slug' => 'web',
+                        'key' => 'web',
+                        'status' => true,
+                    ],
+                    [
+                        'id' => 'mobile',
+                        'name' => 'Mobile App',
+                        'slug' => 'mobile',
+                        'key' => 'mobile',
+                        'status' => true,
+                    ],
+                    [
+                        'id' => 'server',
+                        'name' => 'Server App',
+                        'slug' => 'server',
+                        'key' => 'server',
+                        'status' => true,
+                    ],
+                ],
+            ]);
+        }
+
+        $query = DB::table($table);
+
+        if (Schema::hasColumn($table, 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', true)
+                    ->orWhere('status', 1)
+                    ->orWhere('status', '1')
+                    ->orWhere('status', 'active');
+            });
+        }
+
+        if (Schema::hasColumn($table, 'sort_order')) {
+            $query->orderBy('sort_order');
+        } elseif (Schema::hasColumn($table, 'name')) {
+            $query->orderBy('name');
+        } else {
+            $query->orderBy('id');
+        }
+
+        $items = $query->get()->map(function ($row) {
+            $name = $row->name
+                ?? $row->title
+                ?? $row->label
+                ?? $row->slug
+                ?? $row->key
+                ?? $row->code
+                ?? 'App Type';
+
+            $slug = $row->slug
+                ?? $row->key
+                ?? $row->code
+                ?? strtolower(str_replace(' ', '_', (string) $name));
+
+            return [
+                'id' => $row->id ?? $slug,
+                'name' => $name,
+                'slug' => $slug,
+                'key' => $row->key ?? $slug,
+                'code' => $row->code ?? $slug,
+                'description' => $row->description ?? null,
+                'status' => $row->status ?? true,
+            ];
+        })->values();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'App types fetched successfully.',
+            'data' => $items,
+        ]);
+    }
 }

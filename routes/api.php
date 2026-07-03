@@ -106,6 +106,7 @@ use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
+use App\Http\Controllers\Template\DynamicContextController;
 use App\Http\Controllers\Template\TemplateConflictController;
 use App\Http\Controllers\Template\TemplateDuplicateController;
 use App\Http\Controllers\Template\TemplateDynamicFieldController;
@@ -1136,7 +1137,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('template-empty-trash', [TemplateTrashController::class, 'emptyTrash']);
     Route::post('template-import', [TemplateExportImportController::class, 'import']);
     Route::match(['get', 'post'], 'template-preview/{template_id}', [TemplatePreviewController::class, 'preview']);
-
+    Route::get('page-builder/dynamic-context', [DynamicContextController::class, 'show']);
     // Template Display Conditions
     Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index']);
     Route::post('template-conditions-replace', [TemplateDisplayConditionController::class, 'replace']);
