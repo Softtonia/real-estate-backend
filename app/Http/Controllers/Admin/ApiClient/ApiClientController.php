@@ -22,32 +22,32 @@ class ApiClientController extends Controller
         private readonly ApiClientService $apiClientService
     ) {}
 
-public function index(): AnonymousResourceCollection
-{
-    Gate::authorize('viewAny', ApiClient::class);
+    public function index(): AnonymousResourceCollection
+    {
+        Gate::authorize('viewAny', ApiClient::class);
 
-    $clients = $this->apiClientService->paginate(20);
+        $clients = $this->apiClientService->paginate(20);
 
-    $clients->getCollection()->load([
-        'applicationPasswords' => function ($query) {
-            $query->select([
-                'id',
-                'api_client_id',
-                'name',
-                'token_prefix',
-                'abilities',
-                'last_used_at',
-                'expires_at',
-                'revoked_at',
-                'created_at',
-            ])->latest();
-        },
-    ]);
+        $clients->getCollection()->load([
+            'applicationPasswords' => function ($query) {
+                $query->select([
+                    'id',
+                    'api_client_id',
+                    'name',
+                    'token_prefix',
+                    'abilities',
+                    'last_used_at',
+                    'expires_at',
+                    'revoked_at',
+                    'created_at',
+                ])->latest();
+            },
+        ]);
 
-    $clients->getCollection()->loadCount('applicationPasswords');
+        $clients->getCollection()->loadCount('applicationPasswords');
 
-    return ApiClientResource::collection($clients);
-}
+        return ApiClientResource::collection($clients);
+    }
 
     public function store(StoreApiClientRequest $request): JsonResponse
     {
@@ -64,33 +64,33 @@ public function index(): AnonymousResourceCollection
         ], 201);
     }
 
-public function show(ApiClient $apiClient): JsonResponse
-{
-    Gate::authorize('view', $apiClient);
+    public function show(ApiClient $apiClient): JsonResponse
+    {
+        Gate::authorize('view', $apiClient);
 
-    $apiClient->load([
-        'applicationPasswords' => function ($query) {
-            $query->select([
-                'id',
-                'api_client_id',
-                'name',
-                'token_prefix',
-                'abilities',
-                'last_used_at',
-                'expires_at',
-                'revoked_at',
-                'created_at',
-            ])->latest();
-        },
-    ]);
+        $apiClient->load([
+            'applicationPasswords' => function ($query) {
+                $query->select([
+                    'id',
+                    'api_client_id',
+                    'name',
+                    'token_prefix',
+                    'abilities',
+                    'last_used_at',
+                    'expires_at',
+                    'revoked_at',
+                    'created_at',
+                ])->latest();
+            },
+        ]);
 
-    $apiClient->loadCount('applicationPasswords');
+        $apiClient->loadCount('applicationPasswords');
 
-    return response()->json([
-        'success' => true,
-        'data' => new ApiClientResource($apiClient),
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'data' => new ApiClientResource($apiClient),
+        ]);
+    }
 
     public function update(UpdateApiClientRequest $request, ApiClient $apiClient): JsonResponse
     {
@@ -114,11 +114,50 @@ public function show(ApiClient $apiClient): JsonResponse
     {
         Gate::authorize('delete', $apiClient);
 
+        $apiClient->load([
+            'applicationPasswords' => function ($query) {
+                $query->select([
+                    'id',
+                    'api_client_id',
+                    'name',
+                    'token_prefix',
+                    'abilities',
+                    'last_used_at',
+                    'expires_at',
+                    'revoked_at',
+                    'created_at',
+                ])->latest();
+            },
+        ]);
+
+        $deletedData = [
+            'api_client_id' => $apiClient->id,
+            'api_client_name' => $apiClient->name,
+            'api_client_slug' => $apiClient->slug,
+            'api_client_type' => $apiClient->type,
+            'application_passwords_count' => $apiClient->applicationPasswords->count(),
+            'application_passwords' => $apiClient->applicationPasswords->map(function ($password) {
+                return [
+                    'application_password_id' => $password->id,
+                    'application_token_id' => $password->id,
+                    'application_password_name' => $password->name,
+                    'token_prefix' => $password->token_prefix,
+                    'abilities' => $password->abilities ?? [],
+                    'is_valid' => $password->isValid(),
+                    'last_used_at' => $password->last_used_at,
+                    'expires_at' => $password->expires_at,
+                    'revoked_at' => $password->revoked_at,
+                    'created_at' => $password->created_at,
+                ];
+            })->values(),
+        ];
+
         $this->apiClientService->delete($apiClient);
 
         return response()->json([
             'success' => true,
             'message' => 'API client deleted successfully.',
+            'data' => $deletedData,
         ]);
     }
     public function availablePermissions(): JsonResponse
@@ -228,5 +267,47 @@ public function show(ApiClient $apiClient): JsonResponse
                 'permissions' => $permissions,
             ],
         ]);
+    }
+    private function formatApiClientWithPasswords(ApiClient $apiClient): array
+    {
+        $apiClient->load([
+            'applicationPasswords' => function ($query) {
+                $query->select([
+                    'id',
+                    'api_client_id',
+                    'name',
+                    'token_prefix',
+                    'abilities',
+                    'last_used_at',
+                    'expires_at',
+                    'revoked_at',
+                    'created_at',
+                ])->latest();
+            },
+        ]);
+
+        return [
+            'api_client_id' => $apiClient->id,
+            'api_client_name' => $apiClient->name,
+            'api_client_slug' => $apiClient->slug,
+            'api_client_type' => $apiClient->type,
+
+            'application_passwords_count' => $apiClient->applicationPasswords->count(),
+
+            'application_passwords' => $apiClient->applicationPasswords->map(function ($password) {
+                return [
+                    'application_password_id' => $password->id,
+                    'application_token_id' => $password->id,
+                    'application_password_name' => $password->name,
+                    'token_prefix' => $password->token_prefix,
+                    'abilities' => $password->abilities ?? [],
+                    'is_valid' => $password->isValid(),
+                    'last_used_at' => $password->last_used_at,
+                    'expires_at' => $password->expires_at,
+                    'revoked_at' => $password->revoked_at,
+                    'created_at' => $password->created_at,
+                ];
+            })->values(),
+        ];
     }
 }

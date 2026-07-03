@@ -1135,7 +1135,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     Route::post('template-empty-trash', [TemplateTrashController::class, 'emptyTrash']);
     Route::post('template-import', [TemplateExportImportController::class, 'import']);
-    Route::post('template-preview/{template_id}', [TemplatePreviewController::class, 'preview']);
+    Route::match(['get', 'post'], 'template-preview/{template_id}', [TemplatePreviewController::class, 'preview']);
 
     // Template Display Conditions
     Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index']);
