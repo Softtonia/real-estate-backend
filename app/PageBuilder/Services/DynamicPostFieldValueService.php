@@ -40,7 +40,7 @@ class DynamicPostFieldValueService
 
         $assignedTermIds = collect($taxonomyData['taxonomy_term_ids'] ?? [])
             ->filter()
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
@@ -241,16 +241,18 @@ class DynamicPostFieldValueService
         $row = $this->rowToArray($post);
         $custom = [];
 
-        foreach ([
-            'content_data',
-            'custom_fields',
-            'field_values',
-            'fields',
-            'meta',
-            'metadata',
-            'data',
-            'json_data',
-        ] as $jsonColumn) {
+        foreach (
+            [
+                'content_data',
+                'custom_fields',
+                'field_values',
+                'fields',
+                'meta',
+                'metadata',
+                'data',
+                'json_data',
+            ] as $jsonColumn
+        ) {
             if (! array_key_exists($jsonColumn, $row)) {
                 continue;
             }
@@ -401,7 +403,7 @@ class DynamicPostFieldValueService
             ->where($fieldIdColumn, $field->id)
             ->pluck($termIdColumn)
             ->filter()
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
@@ -409,12 +411,14 @@ class DynamicPostFieldValueService
 
     protected function termIdsFromFieldColumns(object $field): array
     {
-        foreach ([
-            'taxonomy_term_ids',
-            'term_ids',
-            'assigned_term_ids',
-            'taxonomy_terms',
-        ] as $column) {
+        foreach (
+            [
+                'taxonomy_term_ids',
+                'term_ids',
+                'assigned_term_ids',
+                'taxonomy_terms',
+            ] as $column
+        ) {
             if (! isset($field->{$column})) {
                 continue;
             }
@@ -440,17 +444,28 @@ class DynamicPostFieldValueService
             config('page_builder_dynamic.columns.post_id', [])
         );
 
-        $valueColumn = $this->firstExistingColumn(
-            $valueTable,
-            config('page_builder_dynamic.columns.field_value', [])
-        );
-
-        if (! $postIdColumn || ! $valueColumn) {
+        if (! $postIdColumn) {
             return null;
         }
 
         $query = DB::table($valueTable)
             ->where($postIdColumn, $postId);
+
+        /*
+     * If entity_type exists, restrict to dynamic_post where possible.
+     */
+        $entityTypeColumn = $this->firstExistingColumn(
+            $valueTable,
+            config('page_builder_dynamic.columns.entity_type', [])
+        );
+
+        if ($entityTypeColumn) {
+            $query->where(function ($q) use ($entityTypeColumn) {
+                $q->where($entityTypeColumn, 'dynamic_post')
+                    ->orWhere($entityTypeColumn, 'dynamic_posts')
+                    ->orWhereNull($entityTypeColumn);
+            });
+        }
 
         $query->where(function ($q) use ($valueTable, $field, $fieldKey) {
             $added = false;
@@ -480,7 +495,26 @@ class DynamicPostFieldValueService
 
         $row = $query->first();
 
-        return $row->{$valueColumn} ?? null;
+        if (! $row) {
+            return null;
+        }
+
+        /*
+     * Important:
+     * custom_field_values can have value_text, value_number, value_json, etc.
+     * We must return first non-null value, not only the first existing column.
+     */
+        foreach (config('page_builder_dynamic.columns.field_value', []) as $column) {
+            if (! Schema::hasColumn($valueTable, $column)) {
+                continue;
+            }
+
+            if (property_exists($row, $column) && $row->{$column} !== null && $row->{$column} !== '') {
+                return $row->{$column};
+            }
+        }
+
+        return null;
     }
 
     protected function taxonomyData(object $post): array
@@ -528,7 +562,7 @@ class DynamicPostFieldValueService
 
         $termIds = collect($termIds)
             ->filter()
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
@@ -614,7 +648,7 @@ class DynamicPostFieldValueService
         foreach ($grouped as $key => $ids) {
             $grouped[$key] = collect($ids)
                 ->filter()
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->unique()
                 ->values()
                 ->all();
@@ -714,7 +748,7 @@ class DynamicPostFieldValueService
 
                 return null;
             })
-            ->filter(fn ($item) => is_array($item) && ! empty($item['url']))
+            ->filter(fn($item) => is_array($item) && ! empty($item['url']))
             ->values()
             ->all();
     }
@@ -793,8 +827,8 @@ class DynamicPostFieldValueService
 
         return collect($value)
             ->flatten()
-            ->filter(fn ($id) => $id !== null && $id !== '')
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '')
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
