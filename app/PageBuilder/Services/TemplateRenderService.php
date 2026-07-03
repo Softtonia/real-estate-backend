@@ -102,9 +102,9 @@ class TemplateRenderService
 
     protected function renderSection(array $section, WidgetContext $context, int $index): string
     {
-        $rows = $section['rows'] ?? [];
+        $rows = $this->extractSectionRows($section);
 
-        if (is_array($rows) && ! empty($rows)) {
+        if (! empty($rows)) {
             $content = collect($rows)
                 ->filter(fn($row) => is_array($row))
                 ->map(fn(array $row, int $rowIndex) => $this->renderRow($row, $context, $rowIndex))
@@ -137,7 +137,22 @@ class TemplateRenderService
             $content
         );
     }
+    protected function extractSectionRows(array $section): array
+    {
+        $rows = $section['rows'] ?? [];
 
+        if (is_array($rows) && ! empty($rows)) {
+            return $rows;
+        }
+
+        $containerRows = data_get($section, 'container.rows', []);
+
+        if (is_array($containerRows) && ! empty($containerRows)) {
+            return $containerRows;
+        }
+
+        return [];
+    }
     protected function renderRow(array $row, WidgetContext $context, int $index): string
     {
         $columns = $row['columns'] ?? [];
@@ -190,8 +205,12 @@ class TemplateRenderService
             ?? null;
 
         if ($width !== null && $width !== '') {
-            $styleData['width'] = $this->cssLength($width);
-            $styleData['flex-basis'] = $this->cssLength($width);
+            $columnWidth = $this->columnWidth($width);
+
+            if ($columnWidth !== '') {
+                $styleData['width'] = $columnWidth;
+                $styleData['flex-basis'] = $columnWidth;
+            }
         }
 
         $style = $this->buildStyleAttribute($styleData);
@@ -203,7 +222,32 @@ class TemplateRenderService
             $content
         );
     }
+    protected function columnWidth(mixed $value): string
+    {
+        $value = trim((string) $value);
 
+        if ($value === '') {
+            return '';
+        }
+
+        if (is_numeric($value)) {
+            $number = (float) $value;
+
+            /*
+         * Frontend grid width:
+         * 6 = 50%
+         * 12 = 100%
+         * 4 = 33.33%
+         */
+            if ($number > 0 && $number <= 12) {
+                return rtrim(rtrim((string) (($number / 12) * 100), '0'), '.') . '%';
+            }
+
+            return $number . 'px';
+        }
+
+        return $this->cssLength($value);
+    }
     protected function renderNodeChildren(array $node, WidgetContext $context): string
     {
         $children = [];
