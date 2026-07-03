@@ -13,7 +13,8 @@ class LayoutValidationService
 
     public function __construct(
         protected WidgetManager $widgetManager
-    ) {}
+    ) {
+    }
 
     public function validate(array $layoutJson): array
     {
@@ -43,8 +44,8 @@ class LayoutValidationService
         }
 
         $layoutJson['sections'] = collect($layoutJson['sections'])
-            ->filter(fn($section) => is_array($section))
-            ->map(fn(array $section, int $index) => $this->validateSection($section, $index))
+            ->filter(fn ($section) => is_array($section))
+            ->map(fn (array $section, int $index) => $this->validateSection($section, $index))
             ->values()
             ->all();
 
@@ -63,17 +64,13 @@ class LayoutValidationService
             $section['settings'] = [];
         }
 
-        if (
-            (empty($section['rows']) || ! is_array($section['rows']))
-            && ! empty(data_get($section, 'container.rows'))
-            && is_array(data_get($section, 'container.rows'))
-        ) {
-            $section['rows'] = data_get($section, 'container.rows');
+        if (! isset($section['rows']) || ! is_array($section['rows'])) {
+            $section['rows'] = [];
         }
 
         $section['rows'] = collect($section['rows'])
-            ->filter(fn($row) => is_array($row))
-            ->map(fn(array $row, int $rowIndex) => $this->validateRow($row, $rowIndex, $index))
+            ->filter(fn ($row) => is_array($row))
+            ->map(fn (array $row, int $rowIndex) => $this->validateRow($row, $rowIndex, $index))
             ->values()
             ->all();
 
@@ -93,8 +90,8 @@ class LayoutValidationService
         }
 
         $row['columns'] = collect($row['columns'])
-            ->filter(fn($column) => is_array($column))
-            ->map(fn(array $column, int $columnIndex) => $this->validateColumn(
+            ->filter(fn ($column) => is_array($column))
+            ->map(fn (array $column, int $columnIndex) => $this->validateColumn(
                 $column,
                 $columnIndex,
                 $rowIndex,
@@ -131,8 +128,8 @@ class LayoutValidationService
             }
 
             $column[$childKey] = collect($column[$childKey])
-                ->filter(fn($node) => is_array($node))
-                ->map(fn(array $node, int $nodeIndex) => $this->validateWidgetNode(
+                ->filter(fn ($node) => is_array($node))
+                ->map(fn (array $node, int $nodeIndex) => $this->validateWidgetNode(
                     $node,
                     $nodeIndex,
                     $column['id']
