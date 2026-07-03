@@ -13,12 +13,15 @@ class TemplateResolveService
     public function __construct(
         protected TemplateRenderService $templateRenderService,
         protected DynamicPostDataService $dynamicPostDataService
-    ) {}
+    ) {
+    }
 
     public function resolve(array $payload): ?array
     {
         $payload = $this->normalizePayload($payload);
         $payload = $this->mergeDynamicPostData($payload);
+        $payload = $this->normalizePayload($payload);
+
         $templateType = $payload['template_type'] ?? 'single_post';
 
         $templates = Template::with([
@@ -35,31 +38,36 @@ class TemplateResolveService
             ->get();
 
         foreach ($templates as $template) {
-            if ($this->templateMatches($template, $payload)) {
-                $renderPayload = $this->prepareRenderPayload($payload);
-
-                $rendered = $this->templateRenderService->preview(
-                    $template,
-                    $renderPayload
-                );
-
-                return [
-                    'matched' => true,
-                    'match' => [
-                        'template_id' => $template->id,
-                        'template_name' => $template->template_name,
-                        'template_type' => $template->template_type,
-                        'post_type_id' => $template->post_type_id,
-                        'post_type_slug' => $template->post_type_slug,
-                        'priority' => $template->priority,
-                    ],
-                    'rendered' => $rendered,
-                ];
+            if (! $this->templateMatches($template, $payload)) {
+                continue;
             }
+
+            $renderPayload = $this->prepareRenderPayload($payload);
+
+            $rendered = $this->templateRenderService->preview(
+                $template,
+                $renderPayload
+            );
+
+            return [
+                'matched' => true,
+                'match' => [
+                    'template_id' => $template->id,
+                    'template_name' => $template->template_name,
+                    'template_type' => $template->template_type,
+                    'post_type_id' => $template->post_type_id,
+                    'post_type_slug' => $template->post_type_slug,
+                    'priority' => $template->priority,
+                ],
+                'post' => $payload['post'] ?? null,
+                'fields' => $renderPayload['fields'] ?? [],
+                'rendered' => $rendered,
+            ];
         }
 
         return null;
     }
+
     private function mergeDynamicPostData(array $payload): array
     {
         $loaded = $this->dynamicPostDataService->loadForResolvePayload($payload);
@@ -68,16 +76,26 @@ class TemplateResolveService
             return $payload;
         }
 
-        $loadedFields = $loaded['content_data'] ?? [];
+        $loadedFields = $loaded['content_data']
+            ?? $loaded['fields']
+            ?? [];
+
         $requestFields = $payload['content_data']
             ?? $payload['fields']
             ?? [];
+
+        if (! is_array($loadedFields)) {
+            $loadedFields = [];
+        }
 
         if (! is_array($requestFields)) {
             $requestFields = [];
         }
 
-        $payload = array_replace_recursive($loaded, $payload);
+        /*
+         * Keep resolved DB data, but allow request preview data to override.
+         */
+        $payload = array_replace_recursive($payload, $loaded);
 
         $payload['content_data'] = array_replace_recursive(
             $loadedFields,
@@ -94,13 +112,19 @@ class TemplateResolveService
             $payload['taxonomy_terms'] = $loaded['taxonomy_terms'];
         }
 
-        return $this->normalizePayload($payload);
+        if (empty($payload['taxonomies']) && ! empty($loaded['taxonomies'])) {
+            $payload['taxonomies'] = $loaded['taxonomies'];
+        }
+
+        if (empty($payload['terms']) && ! empty($loaded['terms'])) {
+            $payload['terms'] = $loaded['terms'];
+        }
+
+        return $payload;
     }
+
     private function templateMatches(Template $template, array $payload): bool
     {
-        /*
-         * First base post type match is required for single_post templates.
-         */
         if (! $this->templateBaseMatches($template, $payload)) {
             return false;
         }
@@ -113,10 +137,6 @@ class TemplateResolveService
 
         $conditions = $conditions->sortBy('id')->values();
 
-        /*
-         * Exclude rules get first priority.
-         * If exclude condition matches, template should not render.
-         */
         $excludeConditions = $conditions
             ->where('show_type', 'exclude')
             ->values();
@@ -127,9 +147,6 @@ class TemplateResolveService
             }
         }
 
-        /*
-         * If include rules exist, at least include expression must match.
-         */
         $includeConditions = $conditions
             ->where('show_type', 'include')
             ->values();
@@ -138,9 +155,6 @@ class TemplateResolveService
             return $this->evaluateConditionExpression($includeConditions, $payload);
         }
 
-        /*
-         * If no include rules exist, base post type match is enough.
-         */
         return true;
     }
 
@@ -163,12 +177,6 @@ class TemplateResolveService
 
     private function evaluateConditionExpression(Collection $conditions, array $payload): bool
     {
-        /*
-         * Rule 1 AND Rule 2 OR Rule 3
-         * means:
-         * (Rule 1 AND Rule 2) OR Rule 3
-         */
-
         $groups = [];
         $currentGroup = [];
 
@@ -264,21 +272,10 @@ class TemplateResolveService
     {
         $termIds = [];
 
-        /*
-         * Global taxonomy_term_ids support.
-         */
         if (! empty($payload['taxonomy_term_ids']) && is_array($payload['taxonomy_term_ids'])) {
             $termIds = array_merge($termIds, $payload['taxonomy_term_ids']);
         }
 
-        /*
-         * Grouped taxonomy_terms support:
-         *
-         * taxonomy_terms: {
-         *   "1": [2, 3],
-         *   "purpose": [5]
-         * }
-         */
         if (! empty($payload['taxonomy_terms']) && is_array($payload['taxonomy_terms'])) {
             $taxonomyId = (string) ($condition->taxonomy_id ?? '');
             $taxonomySlug = (string) ($condition->taxonomy_slug ?? '');
@@ -338,8 +335,12 @@ class TemplateResolveService
                 ->first();
         }
 
-        $payload['_post_type_id'] = $postType?->id ?? ($payload['post_type_id'] ?? null);
-        $payload['_post_type_slug'] = $postType?->slug ?? ($payload['post_type'] ?? null);
+        $payload['_post_type_id'] = $postType?->id
+            ?? ($payload['post_type_id'] ?? null);
+
+        $payload['_post_type_slug'] = $postType?->slug
+            ?? ($payload['post_type'] ?? null);
+
         $payload['_post_type_name'] = $postType?->name ?? null;
 
         return $payload;
@@ -359,7 +360,14 @@ class TemplateResolveService
             $fields['system'] = [];
         }
 
-        foreach (['id', 'title', 'slug', 'status', 'created_at', 'updated_at'] as $key) {
+        foreach ([
+            'id',
+            'title',
+            'slug',
+            'status',
+            'created_at',
+            'updated_at',
+        ] as $key) {
             if (isset($payload[$key]) && ! isset($fields['system'][$key])) {
                 $fields['system'][$key] = $payload[$key];
             }
@@ -368,7 +376,7 @@ class TemplateResolveService
         return array_merge($payload, [
             'content_data' => $fields,
             'fields' => $fields,
-            'taxonomies' => $payload['taxonomies'] ?? [],
+            'taxonomies' => $payload['taxonomies'] ?? ($fields['taxonomies'] ?? []),
             'terms' => $payload['terms'] ?? [],
         ]);
     }
