@@ -316,21 +316,6 @@ Route::middleware(['validate.api.client'])->group(function () {
     // frontend site
     // =======Front Property Listing============
 
-
-    Route::post('store-property-analytics', [frontPropertylistingController::class, 'storePropertyAnalytics'])->middleware(['throttle:60,1']);
-    Route::get('list-property-analytics', [frontPropertylistingController::class, 'listPropertyAnalytics'])->middleware(['throttle:60,1']);
-    Route::get('view-property-analytics', [frontPropertylistingController::class, 'viewPropertyAnalytics'])->middleware(['throttle:60,1']);
-    // frontend side
-    // =======Front Project Listing============
-    Route::post('add-website-project-listing', [frontProjectlistingController::class, 'store'])->middleware(['throttle:60,1']);
-    Route::post('edit-website-project-listing', [frontProjectlistingController::class, 'update'])->middleware(['throttle:60,1']);
-    Route::post('delete-website-project-listing', [frontProjectlistingController::class, 'destroy'])->middleware(['throttle:60,1']);
-    Route::get('get-all-website-project-listing', [frontProjectlistingController::class, 'index'])->middleware(['throttle:60,1']);
-    Route::get('get-data-website-project/{id}', [frontProjectlistingController::class, 'getdatabyId'])->middleware(['throttle:60,1']);
-    Route::post('update-website-project-status', [frontProjectlistingController::class, 'updateProjectStatus'])->middleware(['throttle:60,1']);
-    Route::post('store-project-analytics', [frontProjectlistingController::class, 'storeProjectAnalytics'])->middleware(['throttle:60,1']);
-    Route::get('list-project-analytics', [frontProjectlistingController::class, 'listProjectAnalytics'])->middleware(['throttle:60,1']);
-    Route::get('view-project-analytics', [frontProjectlistingController::class, 'viewProjectAnalytics'])->middleware(['throttle:60,1']);
 });
 Route::post('admin/login', [AdminController::class, 'login'])->name('login')->middleware(['throttle:60,1']);
 
@@ -647,16 +632,6 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::post('services-create', [servicescontroller::class, 'store'])->middleware(['throttle:60,1']);
     Route::post('services-update', [servicescontroller::class, 'update'])->middleware(['throttle:60,1']);
     Route::post('services', [servicescontroller::class, 'delete'])->middleware(['throttle:60,1']);
-
-    // =========Project=======
-    Route::middleware(['auth.api.token'])->group(function () {
-        Route::get('projects-list', [Projectcontroller::class, 'index'])->middleware(['throttle:60,1']);
-        Route::post('get-projectdata-byid', [Projectcontroller::class, 'show'])->middleware(['throttle:60,1']);
-        Route::post('projects-create', [Projectcontroller::class, 'store'])->middleware(['throttle:60,1']);
-        Route::post('projects-update', [Projectcontroller::class, 'update'])->middleware(['throttle:60,1']);
-        Route::post('projects-delete', [Projectcontroller::class, 'destroy'])->middleware(['throttle:60,1']);
-    });
-
 
 
     // =========Profile=======

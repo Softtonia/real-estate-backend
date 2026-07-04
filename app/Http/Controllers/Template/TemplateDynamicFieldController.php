@@ -55,16 +55,26 @@ class TemplateDynamicFieldController extends Controller
             ?? $payload['post_id']
             ?? null;
 
+        $entityId = $entityId ? (int) $entityId : null;
+
+        $postPreviewData = $this->getPostPreviewData($entityId, $postTypeRecord);
+
         $selectedTermIds = $this->resolveSelectedTermIds($payload, $entityId);
 
         $basicWidgets = $this->getBasicWidgets();
-        $systemFields = $this->getSystemFields();
+
+        $systemFields = $this->getSystemFields($postPreviewData);
+
         $customFields = $this->getDynamicCustomFields(
             $postTypeRecord,
-            $entityId ? (int) $entityId : null,
+            $entityId,
             $selectedTermIds
         );
-        $taxonomyFields = $this->getTaxonomyFields($postTypeRecord);
+
+        $taxonomyFields = $this->getTaxonomyFields(
+            $postTypeRecord,
+            $selectedTermIds
+        );
 
         $builderItems = array_merge(
             $basicWidgets,
@@ -92,17 +102,18 @@ class TemplateDynamicFieldController extends Controller
                     'taxonomies' => $taxonomyFields,
                 ],
 
-                /*
-                 * Backward compatibility for your current React code.
-                 */
                 'dynamic_custom_fields' => $customFields,
+
                 'builder_items' => $builderItems,
 
                 /*
-                 * Only available when post_id / entity_id is passed.
+                 * React team requested this key.
+                 * Same data as builder_items, but every item has field_value.
                  */
+                'builder_value' => $builderItems,
+
                 'preview_values' => $entityId
-                    ? $this->previewValuesFromCustomFields($customFields)
+                    ? $this->previewValues($systemFields, $customFields, $taxonomyFields)
                     : null,
             ],
         ]);
@@ -132,6 +143,62 @@ class TemplateDynamicFieldController extends Controller
         }
 
         return $query->first();
+    }
+
+    private function getPostPreviewData(?int $entityId, object $postTypeRecord): array
+    {
+        if (! $entityId || ! Schema::hasTable('dynamic_posts')) {
+            return [];
+        }
+
+        $query = DB::table('dynamic_posts')->where('id', $entityId);
+
+        if (Schema::hasColumn('dynamic_posts', 'post_type_id')) {
+            $query->where('post_type_id', $postTypeRecord->id);
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'post_type_slug')) {
+            $query->where('post_type_slug', $postTypeRecord->slug);
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'post_type')) {
+            $query->where('post_type', $postTypeRecord->slug);
+        }
+
+        $post = $query->first();
+
+        if (! $post) {
+            return [];
+        }
+
+        $row = $this->rowToArray($post);
+
+        return [
+            'id' => $row['id'] ?? null,
+            'title' => $row['title']
+                ?? $row['post_title']
+                ?? $row['name']
+                ?? $row['property_title']
+                ?? $row['project_name']
+                ?? $row['developer_name']
+                ?? null,
+            'slug' => $row['slug'] ?? $row['post_slug'] ?? null,
+            'content' => $row['content']
+                ?? $row['description']
+                ?? $row['post_content']
+                ?? null,
+            'excerpt' => $row['excerpt']
+                ?? $row['short_description']
+                ?? null,
+            'featured_image' => $row['featured_image']
+                ?? $row['thumbnail']
+                ?? $row['image']
+                ?? $row['banner_image']
+                ?? null,
+            'status' => $row['status'] ?? null,
+            'created_at' => $row['created_at'] ?? null,
+            'updated_at' => $row['updated_at'] ?? null,
+        ];
     }
 
     private function getDynamicCustomFields(object $postTypeRecord, ?int $entityId, array $selectedTermIds): array
@@ -192,18 +259,18 @@ class TemplateDynamicFieldController extends Controller
                     return null;
                 }
 
-                $fieldType = $field->field_type ?? $field->type ?? 'text';
+                $fieldType = strtolower((string) ($field->field_type ?? $field->type ?? 'text'));
 
-                $value = null;
+                $fieldValue = null;
 
                 if ($entityId) {
                     if ($fieldType === 'repeater') {
-                        $value = $this->getRepeaterValue(
+                        $fieldValue = $this->getRepeaterValue(
                             $entityId,
                             (int) $field->id
                         );
                     } else {
-                        $value = $this->getCustomFieldValue(
+                        $fieldValue = $this->getCustomFieldValue(
                             $entityId,
                             (int) $field->id
                         );
@@ -244,8 +311,16 @@ class TemplateDynamicFieldController extends Controller
                     'options' => $this->getFieldOptions((int) $field->id),
                     'repeaters' => $this->getFieldRepeaters((int) $field->id),
 
-                    'value' => $value,
-                    'has_value' => $entityId ? $value !== null : false,
+                    /*
+                     * Main value for React.
+                     */
+                    'field_value' => $fieldValue,
+
+                    /*
+                     * Backward compatibility.
+                     */
+                    'value' => $fieldValue,
+                    'has_value' => $entityId ? $this->hasRealValue($fieldValue) : false,
                 ];
             })
             ->filter()
@@ -255,9 +330,6 @@ class TemplateDynamicFieldController extends Controller
 
     private function fieldMatchesLocationRules(object $field, object $postTypeRecord, array $selectedTermIds): bool
     {
-        /*
-         * Field-level rules have priority.
-         */
         $fieldRules = $this->getFieldLocationRules((int) $field->id);
 
         if (! empty($fieldRules)) {
@@ -268,9 +340,6 @@ class TemplateDynamicFieldController extends Controller
             );
         }
 
-        /*
-         * Otherwise use group-level rules.
-         */
         $groupId = $field->custom_field_group_id ?? null;
 
         if ($groupId) {
@@ -285,9 +354,6 @@ class TemplateDynamicFieldController extends Controller
             }
         }
 
-        /*
-         * No rules means global field.
-         */
         return true;
     }
 
@@ -382,7 +448,7 @@ class TemplateDynamicFieldController extends Controller
         $matchType = $rule->match_type ?? 'specific';
 
         if ($matchType === 'all') {
-            return true;
+            return $operator === 'is_not_equal_to' ? false : true;
         }
 
         $matches = false;
@@ -396,9 +462,8 @@ class TemplateDynamicFieldController extends Controller
             $ruleTermIds = $this->normalizeIds($rule->taxonomy_term_ids ?? []);
 
             /*
-             * Important:
-             * For only post_type_id request, no listing/term is selected yet.
-             * In builder sidebar we still show taxonomy-based fields.
+             * When only post_type_id is passed, show taxonomy-based fields in builder.
+             * When post_id is passed, match with selected listing terms.
              */
             if (empty($selectedTermIds)) {
                 $matches = true;
@@ -512,21 +577,40 @@ class TemplateDynamicFieldController extends Controller
 
     private function extractStoredValue(object $row): mixed
     {
+        /*
+         * Your price is stored in value_json, so check value_json first.
+         */
         if (property_exists($row, 'value_json') && $row->value_json !== null) {
-            return $this->decodeMaybeJson($row->value_json);
-        }
+            $value = $this->decodeMaybeJson($row->value_json);
 
-        if (property_exists($row, 'value_datetime') && $row->value_datetime !== null) {
-            return $row->value_datetime;
-        }
+            if (is_array($value) && array_key_exists('value', $value)) {
+                return $value['value'];
+            }
 
-        if (property_exists($row, 'value_date') && $row->value_date !== null) {
-            return $row->value_date;
+            if (is_array($value) && array_key_exists('amount', $value)) {
+                return $value['amount'];
+            }
+
+            if (is_array($value) && array_key_exists('price', $value)) {
+                return $value['price'];
+            }
+
+            if (is_array($value) && count($value) === 1) {
+                $first = reset($value);
+
+                if (! is_array($first) && ! is_object($first)) {
+                    return $first;
+                }
+            }
+
+            return $value;
         }
 
         if (property_exists($row, 'value_number') && $row->value_number !== null) {
             return is_numeric($row->value_number)
-                ? (float) $row->value_number
+                ? (str_contains((string) $row->value_number, '.')
+                    ? (float) $row->value_number
+                    : (int) $row->value_number)
                 : $row->value_number;
         }
 
@@ -536,6 +620,14 @@ class TemplateDynamicFieldController extends Controller
 
         if (property_exists($row, 'value_text') && $row->value_text !== null) {
             return $row->value_text;
+        }
+
+        if (property_exists($row, 'value_date') && $row->value_date !== null) {
+            return $row->value_date;
+        }
+
+        if (property_exists($row, 'value_datetime') && $row->value_datetime !== null) {
+            return $row->value_datetime;
         }
 
         if (property_exists($row, 'field_meta_value') && $row->field_meta_value !== null) {
@@ -641,7 +733,7 @@ class TemplateDynamicFieldController extends Controller
             ->all();
     }
 
-    private function getSystemFields(): array
+    private function getSystemFields(array $postPreviewData = []): array
     {
         return [
             [
@@ -651,6 +743,9 @@ class TemplateDynamicFieldController extends Controller
                 'source' => 'system',
                 'type' => 'text',
                 'component_key' => 'heading',
+                'field_value' => $postPreviewData['title'] ?? null,
+                'value' => $postPreviewData['title'] ?? null,
+                'has_value' => $this->hasRealValue($postPreviewData['title'] ?? null),
                 'settings' => [
                     'source' => 'dynamic',
                     'field' => 'system.title',
@@ -664,6 +759,9 @@ class TemplateDynamicFieldController extends Controller
                 'source' => 'system',
                 'type' => 'texteditor',
                 'component_key' => 'text',
+                'field_value' => $postPreviewData['content'] ?? null,
+                'value' => $postPreviewData['content'] ?? null,
+                'has_value' => $this->hasRealValue($postPreviewData['content'] ?? null),
                 'settings' => [
                     'source' => 'dynamic',
                     'field' => 'system.content',
@@ -676,6 +774,9 @@ class TemplateDynamicFieldController extends Controller
                 'source' => 'system',
                 'type' => 'image',
                 'component_key' => 'image',
+                'field_value' => $postPreviewData['featured_image'] ?? null,
+                'value' => $postPreviewData['featured_image'] ?? null,
+                'has_value' => $this->hasRealValue($postPreviewData['featured_image'] ?? null),
                 'settings' => [
                     'source' => 'dynamic',
                     'field' => 'system.featured_image',
@@ -684,7 +785,7 @@ class TemplateDynamicFieldController extends Controller
         ];
     }
 
-    private function getTaxonomyFields(object $postTypeRecord): array
+    private function getTaxonomyFields(object $postTypeRecord, array $selectedTermIds = []): array
     {
         if (! Schema::hasTable('taxonomies')) {
             return [];
@@ -712,8 +813,17 @@ class TemplateDynamicFieldController extends Controller
         return $query
             ->orderBy('id')
             ->get()
-            ->map(function ($taxonomy) {
+            ->map(function ($taxonomy) use ($selectedTermIds) {
                 $slug = $taxonomy->slug ?? ('taxonomy_' . $taxonomy->id);
+
+                $terms = $this->getTaxonomyTerms((int) $taxonomy->id);
+
+                $selectedTerms = collect($terms)
+                    ->filter(function ($term) use ($selectedTermIds) {
+                        return in_array((int) $term['id'], $selectedTermIds, true);
+                    })
+                    ->values()
+                    ->all();
 
                 return [
                     'id' => $taxonomy->id,
@@ -723,7 +833,15 @@ class TemplateDynamicFieldController extends Controller
                     'source' => 'taxonomy',
                     'type' => 'taxonomy_terms',
                     'component_key' => 'taxonomy_terms',
-                    'terms' => $this->getTaxonomyTerms((int) $taxonomy->id),
+                    'terms' => $terms,
+
+                    /*
+                     * Selected listing taxonomy value.
+                     */
+                    'field_value' => $selectedTerms,
+                    'value' => $selectedTerms,
+                    'has_value' => ! empty($selectedTerms),
+
                     'settings' => [
                         'source' => 'dynamic',
                         'field' => 'taxonomies.' . $slug . '.terms',
@@ -789,10 +907,14 @@ class TemplateDynamicFieldController extends Controller
             return $termIds;
         }
 
-        $storedTermIds = DB::table('post_taxonomy_terms')
-            ->where($postColumn, $entityId)
-            ->pluck($termColumn)
-            ->all();
+        $query = DB::table('post_taxonomy_terms')
+            ->where($postColumn, $entityId);
+
+        if (Schema::hasColumn('post_taxonomy_terms', 'entity_type')) {
+            $query->where('entity_type', 'post');
+        }
+
+        $storedTermIds = $query->pluck($termColumn)->all();
 
         return array_values(array_unique(array_merge(
             $termIds,
@@ -800,20 +922,40 @@ class TemplateDynamicFieldController extends Controller
         )));
     }
 
-    private function previewValuesFromCustomFields(array $customFields): array
+    private function previewValues(array $systemFields, array $customFields, array $taxonomyFields): array
     {
+        $system = [];
         $custom = [];
+        $taxonomies = [];
+
+        foreach ($systemFields as $field) {
+            if (! isset($field['key'])) {
+                continue;
+            }
+
+            $system[$field['key']] = $field['field_value'] ?? null;
+        }
 
         foreach ($customFields as $field) {
             if (! isset($field['key'])) {
                 continue;
             }
 
-            $custom[$field['key']] = $field['value'] ?? null;
+            $custom[$field['key']] = $field['field_value'] ?? null;
+        }
+
+        foreach ($taxonomyFields as $field) {
+            if (! isset($field['key'])) {
+                continue;
+            }
+
+            $taxonomies[$field['key']] = $field['field_value'] ?? [];
         }
 
         return [
+            'system' => $system,
             'custom' => $custom,
+            'taxonomies' => $taxonomies,
         ];
     }
 
@@ -826,6 +968,9 @@ class TemplateDynamicFieldController extends Controller
                 'source' => 'basic_widget',
                 'type' => 'heading',
                 'component_key' => 'heading',
+                'field_value' => '',
+                'value' => '',
+                'has_value' => false,
                 'settings' => [
                     'text' => '',
                     'tag' => 'h2',
@@ -838,6 +983,9 @@ class TemplateDynamicFieldController extends Controller
                 'source' => 'basic_widget',
                 'type' => 'text',
                 'component_key' => 'text',
+                'field_value' => '',
+                'value' => '',
+                'has_value' => false,
                 'settings' => [
                     'content' => '',
                 ],
@@ -848,6 +996,9 @@ class TemplateDynamicFieldController extends Controller
                 'source' => 'basic_widget',
                 'type' => 'image',
                 'component_key' => 'image',
+                'field_value' => '',
+                'value' => '',
+                'has_value' => false,
                 'settings' => [
                     'url' => '',
                     'alt' => '',
@@ -859,6 +1010,9 @@ class TemplateDynamicFieldController extends Controller
                 'source' => 'basic_widget',
                 'type' => 'button',
                 'component_key' => 'button',
+                'field_value' => '',
+                'value' => '',
+                'has_value' => false,
                 'settings' => [
                     'text' => 'Click Here',
                     'url' => '',
@@ -924,6 +1078,28 @@ class TemplateDynamicFieldController extends Controller
         }
 
         return $value;
+    }
+
+    private function hasRealValue(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        if ($value === '') {
+            return false;
+        }
+
+        if (is_array($value) && empty($value)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function rowToArray(object $row): array
+    {
+        return json_decode(json_encode($row), true) ?: [];
     }
 
     private function firstExistingColumn(string $table, array $columns): ?string
