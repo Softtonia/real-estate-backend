@@ -951,22 +951,6 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('template-builder-show/{template_id}', [TemplateBuilderController::class, 'show']);
     Route::post('template-builder-save/{template_id}', [TemplateBuilderController::class, 'save']);
 
-    // Builder Draggable Components
-    Route::get('template-components-list', [TemplateComponentController::class, 'index']);
-    Route::post('template-components-create', [TemplateComponentController::class, 'create']);
-    Route::post('template-components-update/{id}', [TemplateComponentController::class, 'update']);
-    Route::delete('template-components-delete/{id}', [TemplateComponentController::class, 'destroy']);
-
-    // Custom Widgets
-    Route::get('custom-widgets/fields/{post_type}', [CustomWidgetController::class, 'fields']);
-    Route::post('custom-widgets/configuration/save', [CustomWidgetController::class, 'saveConfiguration']);
-    Route::get('custom-widgets-by-post-type', [CustomWidgetController::class, 'widgetsByPostType']);
-
-    Route::get('custom-widgets', [CustomWidgetController::class, 'index']);
-    Route::post('custom-widgets', [CustomWidgetController::class, 'store']);
-    Route::get('custom-widgets/{id}', [CustomWidgetController::class, 'show']);
-    Route::put('custom-widgets/{id}', [CustomWidgetController::class, 'update']);
-    Route::delete('custom-widgets/{id}', [CustomWidgetController::class, 'destroy']);
 
     // ================= Dynamic Post Type + Taxonomy APIs =================
     // Post Types
@@ -1005,7 +989,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show']);
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update']);
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
-
+    Route::get('dynamic-posts/dropdown', [DynamicPostController::class, 'dropdownByPostType']);
     // Taxonomies
     Route::get('taxonomies', [TaxonomyController::class, 'index']);
     Route::post('taxonomies', [TaxonomyController::class, 'store']);

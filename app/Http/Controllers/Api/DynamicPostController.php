@@ -90,7 +90,157 @@ class DynamicPostController extends Controller
     {
         return DynamicPost::where('id', $id)->first();
     }
+    public function dropdownByPostType(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+                'post_type' => ['nullable', 'string'],
+                'post_type_slug' => ['nullable', 'string'],
+                'search' => ['nullable', 'string', 'max:255'],
+                'status' => ['nullable', 'string'],
+                'live_status' => ['nullable', 'string'],
+                'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+            ]);
 
+            if (
+                !$request->filled('post_type_id')
+                && !$request->filled('post_type')
+                && !$request->filled('post_type_slug')
+            ) {
+                throw ValidationException::withMessages([
+                    'post_type_id' => ['post_type_id or post_type slug is required.'],
+                ]);
+            }
+
+            $postType = PostType::query()
+                ->where(function ($q) use ($request) {
+                    if ($request->filled('post_type_id')) {
+                        $q->where('id', (int) $request->post_type_id);
+                    }
+
+                    if ($request->filled('post_type_slug')) {
+                        $q->orWhere('slug', $request->post_type_slug);
+                    }
+
+                    if ($request->filled('post_type')) {
+                        $q->orWhere('slug', $request->post_type)
+                            ->orWhere('name', $request->post_type);
+                    }
+                })
+                ->first();
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
+
+            $limit = (int) $request->get('limit', 100);
+            $limit = max(1, min($limit, 500));
+
+            $columns = ['id', 'post_type_id'];
+
+            foreach (
+                [
+                    'title',
+                    'slug',
+                    'status',
+                    'live_status',
+                    'listing_code',
+                    'parent_id',
+                    'created_at',
+                    'updated_at',
+                ] as $column
+            ) {
+                if (Schema::hasColumn('dynamic_posts', $column)) {
+                    $columns[] = $column;
+                }
+            }
+
+            $query = DynamicPost::query()
+                ->select($columns)
+                ->where('post_type_id', $postType->id);
+
+            if ($request->filled('status') && !in_array($request->status, ['all', 'All', '*'], true)) {
+                $query->where('status', $request->status);
+            }
+
+            if ($request->filled('live_status') && !in_array($request->live_status, ['all', 'All', '*'], true)) {
+                $query->where('live_status', $request->live_status);
+            }
+
+            if ($request->filled('search')) {
+                $search = $request->search;
+
+                $query->where(function ($q) use ($search) {
+                    if (Schema::hasColumn('dynamic_posts', 'title')) {
+                        $q->where('title', 'like', "%{$search}%");
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'slug')) {
+                        $q->orWhere('slug', 'like', "%{$search}%");
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
+                        $q->orWhere('listing_code', 'like', "%{$search}%");
+                    }
+                });
+            }
+
+            if (Schema::hasColumn('dynamic_posts', 'sort_order')) {
+                $query->orderBy('sort_order', 'asc');
+            }
+
+            if (Schema::hasColumn('dynamic_posts', 'title')) {
+                $query->orderBy('title', 'asc');
+            } else {
+                $query->orderBy('id', 'desc');
+            }
+
+            $posts = $query
+                ->limit($limit)
+                ->get();
+
+            $options = $posts->map(function ($post) {
+                $label = $post->title
+                    ?? $post->slug
+                    ?? ('Post #' . $post->id);
+
+                if (!empty($post->listing_code)) {
+                    $label = $post->listing_code . ' - ' . $label;
+                }
+
+                return [
+                    'id' => (int) $post->id,
+                    'value' => (int) $post->id,
+                    'label' => (string) $label,
+
+                    'title' => $post->title ?? null,
+                    'slug' => $post->slug ?? null,
+                    'listing_code' => $post->listing_code ?? null,
+                    'display_id' => $post->listing_code ?? null,
+                    'post_type_id' => (int) $post->post_type_id,
+                    'status' => $post->status ?? null,
+                    'live_status' => $post->live_status ?? null,
+                ];
+            })->values();
+
+            return $this->successResponse('Dynamic post dropdown options fetched successfully.', [
+                'post_type' => [
+                    'id' => (int) $postType->id,
+                    'name' => $postType->name,
+                    'slug' => $postType->slug,
+                ],
+                'count' => $options->count(),
+                'options' => $options,
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while fetching dynamic post dropdown options.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch dynamic post dropdown options.', 500, $e->getMessage());
+        }
+    }
     private function normalizeIds(array|string|null $ids): array
     {
         if (is_null($ids) || $ids === '') {
@@ -698,10 +848,10 @@ class DynamicPostController extends Controller
 
                 return str_contains($value, ',')
                     ? collect(explode(',', $value))
-                        ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
-                        ->map(fn($id) => (int) $id)
-                        ->values()
-                        ->toArray()
+                    ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+                    ->map(fn($id) => (int) $id)
+                    ->values()
+                    ->toArray()
                     : [];
             }
 
@@ -871,7 +1021,7 @@ class DynamicPostController extends Controller
                 throw ValidationException::withMessages([
                     "relationship_post_types.{$index}.post_type_id" => [
                         ($relatedPostType?->name ?? 'Post type ' . $relatedPostTypeId)
-                        . ' is not associated as a related post type with ' . $postType->name . '.',
+                            . ' is not associated as a related post type with ' . $postType->name . '.',
                     ],
                 ]);
             }
