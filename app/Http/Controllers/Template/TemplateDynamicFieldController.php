@@ -1,35 +1,27 @@
 <?php
 
-declare(strict_types=1);
-
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
-use App\Models\PostType;
-use App\PageBuilder\Contracts\DynamicResolverInterface;
-use App\PageBuilder\Foundation\WidgetManager;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 class TemplateDynamicFieldController extends Controller
 {
-    public function __construct(
-        protected WidgetManager $widgetManager,
-        protected DynamicResolverInterface $dynamicResolver
-    ) {}
-
-    public function index(Request $request): JsonResponse
+    public function index(Request $request)
     {
         $payload = $this->getPayload($request);
 
         $validator = Validator::make($payload, [
-            'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
-            'post_type' => ['nullable', 'string'],
-            'taxonomy_id' => ['nullable', 'integer'],
-            'taxonomy_term_ids' => ['nullable', 'array'],
-            'taxonomy_term_ids.*' => ['integer'],
+            'post_type_id' => 'nullable|integer|exists:post_types,id',
+            'post_type' => 'nullable|string',
+            'post_id' => 'nullable|integer',
+            'dynamic_post_id' => 'nullable|integer',
+            'entity_id' => 'nullable|integer',
+            'taxonomy_term_ids' => 'nullable|array',
+            'taxonomy_term_ids.*' => 'integer',
         ]);
 
         $validator->after(function ($validator) use ($payload) {
@@ -49,61 +41,80 @@ class TemplateDynamicFieldController extends Controller
             ], 422);
         }
 
-        $postType = $this->getPostTypeRecord($payload);
+        $postTypeRecord = $this->getPostTypeRecord($payload);
 
-        if (! $postType) {
+        if (! $postTypeRecord) {
             return response()->json([
                 'status' => false,
                 'message' => 'Post type not found or inactive.',
             ], 404);
         }
 
-        $widgets = $this->widgetManager->toApiArray();
+        $entityId = $payload['entity_id']
+            ?? $payload['dynamic_post_id']
+            ?? $payload['post_id']
+            ?? null;
 
-        $dynamicFields = $this->dynamicResolver->availableFields(
-            (int) $postType->id,
-            $payload
+        $selectedTermIds = $this->resolveSelectedTermIds($payload, $entityId);
+
+        $basicWidgets = $this->getBasicWidgets();
+        $systemFields = $this->getSystemFields();
+        $customFields = $this->getDynamicCustomFields(
+            $postTypeRecord,
+            $entityId ? (int) $entityId : null,
+            $selectedTermIds
+        );
+        $taxonomyFields = $this->getTaxonomyFields($postTypeRecord);
+
+        $builderItems = array_merge(
+            $basicWidgets,
+            $systemFields,
+            $customFields,
+            $taxonomyFields
         );
 
         return response()->json([
             'status' => true,
-            'message' => 'Builder fields fetched successfully.',
+            'message' => 'Builder dynamic fields fetched successfully.',
             'data' => [
-                'post_type_id' => $postType->id,
-                'post_type' => $postType->slug,
-                'post_type_name' => $postType->name,
+                'post_type_id' => $postTypeRecord->id,
+                'post_type' => $postTypeRecord->slug,
+                'post_type_name' => $postTypeRecord->name,
 
-                'widgets' => $widgets,
+                'entity_id' => $entityId,
+                'selected_taxonomy_term_ids' => $selectedTermIds,
 
-                /*
-                 * Backward compatible for old frontend.
-                 */
-                'basic_widgets' => $this->formatWidgetsForOldBuilder($widgets),
+                'basic_widgets' => $basicWidgets,
 
-                /*
-                 * New full dynamic fields structure.
-                 */
-                'dynamic_fields' => $dynamicFields,
-
-                /*
-                 * Backward compatible for old frontend.
-                 */
-                'dynamic_custom_fields' => $this->formatDynamicFieldsForOldBuilder($dynamicFields),
+                'dynamic_fields' => [
+                    'system' => $systemFields,
+                    'custom' => $customFields,
+                    'taxonomies' => $taxonomyFields,
+                ],
 
                 /*
-                 * Combined drag items for builder.
+                 * Backward compatibility for your current React code.
                  */
-                'builder_items' => array_merge(
-                    $this->formatWidgetsForOldBuilder($widgets),
-                    $this->formatDynamicFieldsForOldBuilder($dynamicFields)
-                ),
+                'dynamic_custom_fields' => $customFields,
+                'builder_items' => $builderItems,
+
+                /*
+                 * Only available when post_id / entity_id is passed.
+                 */
+                'preview_values' => $entityId
+                    ? $this->previewValuesFromCustomFields($customFields)
+                    : null,
             ],
         ]);
     }
 
-    private function getPostTypeRecord(array $payload): ?PostType
+    private function getPostTypeRecord(array $payload): ?object
     {
-        $query = PostType::query();
+        if (! Schema::hasTable('post_types')) {
+            return null;
+        }
+
+        $query = DB::table('post_types');
 
         if (! empty($payload['post_type_id'])) {
             $query->where('id', $payload['post_type_id']);
@@ -111,105 +122,819 @@ class TemplateDynamicFieldController extends Controller
             $query->where('slug', $payload['post_type']);
         }
 
-        $postType = $query->first();
-
-        if (! $postType) {
-            return null;
+        if (Schema::hasColumn('post_types', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', true)
+                    ->orWhere('status', 1)
+                    ->orWhere('status', '1')
+                    ->orWhere('status', 'active');
+            });
         }
 
-        if (
-            Schema::hasColumn($postType->getTable(), 'status')
-            && ! in_array($postType->status, [true, 1, '1', 'active'], true)
-        ) {
-            return null;
-        }
-
-        return $postType;
+        return $query->first();
     }
 
-    private function formatWidgetsForOldBuilder(array $widgets): array
+    private function getDynamicCustomFields(object $postTypeRecord, ?int $entityId, array $selectedTermIds): array
     {
-        return collect($widgets)
-            ->map(function (array $widget) {
+        if (! Schema::hasTable('custom_fields')) {
+            return [];
+        }
+
+        $query = DB::table('custom_fields as cf');
+
+        if (Schema::hasTable('custom_field_groups')) {
+            $query->leftJoin(
+                'custom_field_groups as cfg',
+                'cfg.id',
+                '=',
+                'cf.custom_field_group_id'
+            );
+
+            $query->addSelect([
+                'cfg.group_name',
+                'cfg.group_slug',
+            ]);
+        }
+
+        $query->addSelect('cf.*');
+
+        if (Schema::hasColumn('custom_fields', 'status')) {
+            $query->where(function ($q) {
+                $q->where('cf.status', true)
+                    ->orWhere('cf.status', 1)
+                    ->orWhere('cf.status', '1')
+                    ->orWhere('cf.status', 'active');
+            });
+        }
+
+        if (Schema::hasColumn('custom_fields', 'sort_order')) {
+            $query->orderBy('cf.sort_order');
+        }
+
+        $query->orderBy('cf.id');
+
+        return $query->get()
+            ->filter(function ($field) use ($postTypeRecord, $selectedTermIds) {
+                return $this->fieldMatchesLocationRules(
+                    $field,
+                    $postTypeRecord,
+                    $selectedTermIds
+                );
+            })
+            ->map(function ($field) use ($entityId) {
+                $fieldKey = $field->field_name_slug
+                    ?? $field->field_name
+                    ?? $field->slug
+                    ?? $field->name
+                    ?? null;
+
+                if (! $fieldKey) {
+                    return null;
+                }
+
+                $fieldType = $field->field_type ?? $field->type ?? 'text';
+
+                $value = null;
+
+                if ($entityId) {
+                    if ($fieldType === 'repeater') {
+                        $value = $this->getRepeaterValue(
+                            $entityId,
+                            (int) $field->id
+                        );
+                    } else {
+                        $value = $this->getCustomFieldValue(
+                            $entityId,
+                            (int) $field->id
+                        );
+                    }
+                }
+
                 return [
-                    'label' => $widget['name'],
-                    'key' => $widget['type'],
-                    'source' => 'widget',
-                    'type' => $widget['type'],
-                    'component_key' => $widget['type'],
-                    'icon' => $widget['icon'] ?? null,
-                    'category' => $widget['category'] ?? 'Basic',
-                    'settings' => $widget['default_settings'] ?? [],
-                    'schema' => $widget['schema'] ?? [],
-                    'binding' => null,
+                    'id' => $field->id,
+                    'custom_field_group_id' => $field->custom_field_group_id ?? null,
+                    'group_name' => $field->group_name ?? null,
+                    'group_slug' => $field->group_slug ?? null,
+
+                    'label' => $field->field_label
+                        ?? $field->label
+                        ?? $field->name
+                        ?? $fieldKey,
+
+                    'key' => $fieldKey,
+                    'field_key' => $fieldKey,
+                    'field_path' => 'custom.' . $fieldKey,
+
+                    'source' => 'custom_field',
+                    'type' => $fieldType,
+                    'component_key' => $this->mapFieldTypeToComponent($fieldType),
+
+                    'binding' => [
+                        'source' => 'custom_field',
+                        'field_id' => $field->id,
+                        'field_key' => $fieldKey,
+                        'path' => 'custom.' . $fieldKey,
+                    ],
+
+                    'settings' => [
+                        'source' => 'dynamic',
+                        'field' => 'custom.' . $fieldKey,
+                    ],
+
+                    'options' => $this->getFieldOptions((int) $field->id),
+                    'repeaters' => $this->getFieldRepeaters((int) $field->id),
+
+                    'value' => $value,
+                    'has_value' => $entityId ? $value !== null : false,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function fieldMatchesLocationRules(object $field, object $postTypeRecord, array $selectedTermIds): bool
+    {
+        /*
+         * Field-level rules have priority.
+         */
+        $fieldRules = $this->getFieldLocationRules((int) $field->id);
+
+        if (! empty($fieldRules)) {
+            return $this->evaluateLocationRules(
+                $fieldRules,
+                $postTypeRecord,
+                $selectedTermIds
+            );
+        }
+
+        /*
+         * Otherwise use group-level rules.
+         */
+        $groupId = $field->custom_field_group_id ?? null;
+
+        if ($groupId) {
+            $groupRules = $this->getGroupLocationRules((int) $groupId);
+
+            if (! empty($groupRules)) {
+                return $this->evaluateLocationRules(
+                    $groupRules,
+                    $postTypeRecord,
+                    $selectedTermIds
+                );
+            }
+        }
+
+        /*
+         * No rules means global field.
+         */
+        return true;
+    }
+
+    private function getFieldLocationRules(int $fieldId): array
+    {
+        if (! Schema::hasTable('custom_field_group_location_rules')) {
+            return [];
+        }
+
+        $query = DB::table('custom_field_group_location_rules')
+            ->where('custom_field_id', $fieldId);
+
+        if (Schema::hasColumn('custom_field_group_location_rules', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', true)
+                    ->orWhere('status', 1)
+                    ->orWhere('status', '1')
+                    ->orWhere('status', 'active');
+            });
+        }
+
+        return $query
+            ->orderBy('rule_group')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->all();
+    }
+
+    private function getGroupLocationRules(int $groupId): array
+    {
+        if (! Schema::hasTable('custom_field_group_location_rules')) {
+            return [];
+        }
+
+        $query = DB::table('custom_field_group_location_rules')
+            ->where('custom_field_group_id', $groupId)
+            ->whereNull('custom_field_id');
+
+        if (Schema::hasColumn('custom_field_group_location_rules', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', true)
+                    ->orWhere('status', 1)
+                    ->orWhere('status', '1')
+                    ->orWhere('status', 'active');
+            });
+        }
+
+        return $query
+            ->orderBy('rule_group')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->all();
+    }
+
+    private function evaluateLocationRules(array $rules, object $postTypeRecord, array $selectedTermIds): bool
+    {
+        if (empty($rules)) {
+            return true;
+        }
+
+        $groups = [];
+
+        foreach ($rules as $rule) {
+            $group = $rule->rule_group ?? 1;
+            $groups[$group][] = $rule;
+        }
+
+        foreach ($groups as $groupRules) {
+            $groupMatched = true;
+
+            foreach ($groupRules as $rule) {
+                if (! $this->singleRuleMatches($rule, $postTypeRecord, $selectedTermIds)) {
+                    $groupMatched = false;
+                    break;
+                }
+            }
+
+            if ($groupMatched) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function singleRuleMatches(object $rule, object $postTypeRecord, array $selectedTermIds): bool
+    {
+        $showIf = $rule->show_if ?? null;
+        $operator = $rule->operator ?? 'is_equal_to';
+        $matchType = $rule->match_type ?? 'specific';
+
+        if ($matchType === 'all') {
+            return true;
+        }
+
+        $matches = false;
+
+        if ($showIf === 'post_type') {
+            $matches = ! empty($rule->post_type_id)
+                && (int) $rule->post_type_id === (int) $postTypeRecord->id;
+        }
+
+        if ($showIf === 'taxonomy') {
+            $ruleTermIds = $this->normalizeIds($rule->taxonomy_term_ids ?? []);
+
+            /*
+             * Important:
+             * For only post_type_id request, no listing/term is selected yet.
+             * In builder sidebar we still show taxonomy-based fields.
+             */
+            if (empty($selectedTermIds)) {
+                $matches = true;
+            } elseif (empty($ruleTermIds)) {
+                $matches = true;
+            } else {
+                $matches = ! empty(array_intersect($ruleTermIds, $selectedTermIds));
+            }
+        }
+
+        return $operator === 'is_not_equal_to' ? ! $matches : $matches;
+    }
+
+    private function getCustomFieldValue(int $entityId, int $customFieldId): mixed
+    {
+        if (! Schema::hasTable('custom_field_values')) {
+            return null;
+        }
+
+        $query = DB::table('custom_field_values')
+            ->where('entity_id', $entityId)
+            ->where('custom_field_id', $customFieldId);
+
+        if (Schema::hasColumn('custom_field_values', 'entity_type')) {
+            $query->where('entity_type', 'post');
+        }
+
+        $row = $query->orderByDesc('id')->first();
+
+        if (! $row) {
+            return null;
+        }
+
+        return $this->extractStoredValue($row);
+    }
+
+    private function getRepeaterValue(int $entityId, int $customFieldId): array
+    {
+        if (! Schema::hasTable('custom_field_repeater_values')) {
+            return [];
+        }
+
+        $query = DB::table('custom_field_repeater_values as rv')
+            ->where('rv.entity_id', $entityId)
+            ->where('rv.custom_field_id', $customFieldId);
+
+        if (Schema::hasColumn('custom_field_repeater_values', 'entity_type')) {
+            $query->where('rv.entity_type', 'post');
+        }
+
+        if (Schema::hasTable('custom_field_repeaters')) {
+            $query->leftJoin(
+                'custom_field_repeaters as r',
+                'r.id',
+                '=',
+                'rv.custom_field_repeater_id'
+            );
+
+            $query->addSelect([
+                'r.field_label as repeater_field_label',
+                'r.field_name_slug as repeater_field_name_slug',
+                'r.field_type as repeater_field_type',
+            ]);
+        }
+
+        if (Schema::hasTable('custom_field_repeater_options')) {
+            $query->leftJoin(
+                'custom_field_repeater_options as ro',
+                'ro.id',
+                '=',
+                'rv.custom_field_repeater_option_id'
+            );
+
+            $query->addSelect([
+                'ro.name as repeater_option_name',
+                'ro.value as repeater_option_value',
+            ]);
+        }
+
+        $rows = $query
+            ->addSelect('rv.*')
+            ->orderBy('rv.row_index')
+            ->orderBy('rv.sort_order')
+            ->orderBy('rv.id')
+            ->get();
+
+        $formatted = [];
+
+        foreach ($rows as $row) {
+            $rowIndex = (int) ($row->row_index ?? 0);
+
+            $key = $row->field_name_slug
+                ?? $row->repeater_field_name_slug
+                ?? ('field_' . ($row->custom_field_repeater_id ?? $row->id));
+
+            $value = $this->extractStoredValue($row);
+
+            if (! empty($row->repeater_option_value)) {
+                $value = $row->repeater_option_value;
+            }
+
+            if (! isset($formatted[$rowIndex])) {
+                $formatted[$rowIndex] = [];
+            }
+
+            $formatted[$rowIndex][$key] = $value;
+        }
+
+        return array_values($formatted);
+    }
+
+    private function extractStoredValue(object $row): mixed
+    {
+        if (property_exists($row, 'value_json') && $row->value_json !== null) {
+            return $this->decodeMaybeJson($row->value_json);
+        }
+
+        if (property_exists($row, 'value_datetime') && $row->value_datetime !== null) {
+            return $row->value_datetime;
+        }
+
+        if (property_exists($row, 'value_date') && $row->value_date !== null) {
+            return $row->value_date;
+        }
+
+        if (property_exists($row, 'value_number') && $row->value_number !== null) {
+            return is_numeric($row->value_number)
+                ? (float) $row->value_number
+                : $row->value_number;
+        }
+
+        if (property_exists($row, 'value_string') && $row->value_string !== null) {
+            return $row->value_string;
+        }
+
+        if (property_exists($row, 'value_text') && $row->value_text !== null) {
+            return $row->value_text;
+        }
+
+        if (property_exists($row, 'field_meta_value') && $row->field_meta_value !== null) {
+            return $this->decodeMaybeJson($row->field_meta_value);
+        }
+
+        return null;
+    }
+
+    private function getFieldOptions(int $customFieldId): array
+    {
+        if (! Schema::hasTable('custom_field_options')) {
+            return [];
+        }
+
+        return DB::table('custom_field_options')
+            ->where('custom_field_id', $customFieldId)
+            ->when(Schema::hasColumn('custom_field_options', 'status'), function ($q) {
+                $q->where(function ($sub) {
+                    $sub->where('status', true)
+                        ->orWhere('status', 1)
+                        ->orWhere('status', '1')
+                        ->orWhere('status', 'active');
+                });
+            })
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($option) {
+                return [
+                    'id' => $option->id,
+                    'name' => $option->name ?? null,
+                    'value' => $option->value ?? null,
+                    'type' => $option->type ?? null,
                 ];
             })
             ->values()
             ->all();
     }
 
-    private function formatDynamicFieldsForOldBuilder(array $dynamicFields): array
+    private function getFieldRepeaters(int $customFieldId): array
     {
-        $items = [];
-
-        foreach (['system', 'custom', 'repeaters', 'taxonomies', 'relationships'] as $group) {
-            foreach (($dynamicFields[$group] ?? []) as $field) {
-                if (empty($field['key'])) {
-                    continue;
-                }
-
-                $fieldType = (string) ($field['type'] ?? 'text');
-
-                $items[] = [
-                    'id' => $field['id'] ?? null,
-                    'label' => $field['label'] ?? $field['key'],
-                    'key' => $field['key'],
-                    'source' => $field['source'] ?? $group,
-                    'type' => $fieldType,
-
-                    /*
-                     * Important:
-                     * This now maps to our PageBuilder widgets.
-                     */
-                    'component_key' => $this->mapFieldTypeToWidgetType($fieldType),
-
-                    'settings' => [
-                        'source' => 'dynamic',
-                        'field' => $field['key'],
-                    ],
-
-                    'binding' => [
-                        'source' => $field['source'] ?? $group,
-                        'field_key' => $field['key'],
-                        'field_slug' => $field['slug'] ?? null,
-                    ],
-
-                    'meta' => [
-                        'required' => $field['required'] ?? false,
-                        'options' => $field['options'] ?? [],
-                        'group' => $field['group'] ?? null,
-                        'sub_fields' => $field['sub_fields'] ?? [],
-                        'terms' => $field['terms'] ?? [],
-                    ],
-                ];
-            }
+        if (! Schema::hasTable('custom_field_repeaters')) {
+            return [];
         }
 
-        return $items;
+        $repeaters = DB::table('custom_field_repeaters')
+            ->where('custom_field_id', $customFieldId)
+            ->when(Schema::hasColumn('custom_field_repeaters', 'status'), function ($q) {
+                $q->where(function ($sub) {
+                    $sub->where('status', true)
+                        ->orWhere('status', 1)
+                        ->orWhere('status', '1')
+                        ->orWhere('status', 'active');
+                });
+            })
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+        return $repeaters
+            ->map(function ($repeater) {
+                return [
+                    'id' => $repeater->id,
+                    'label' => $repeater->field_label ?? null,
+                    'key' => $repeater->field_name_slug ?? null,
+                    'type' => $repeater->field_type ?? 'text',
+                    'options' => $this->getRepeaterOptions((int) $repeater->id),
+                ];
+            })
+            ->values()
+            ->all();
     }
 
-    private function mapFieldTypeToWidgetType(string $fieldType): string
+    private function getRepeaterOptions(int $repeaterId): array
     {
-        return match ($fieldType) {
-            'textarea', 'texteditor', 'editor', 'wysiwyg', 'richtext' => 'text',
-            'image', 'media', 'file', 'featured_image' => 'image',
-            'gallery', 'images' => 'gallery',
-            'repeater', 'array', 'json' => 'repeater',
-            'taxonomy', 'terms', 'taxonomy_terms' => 'taxonomy_terms',
-            'html', 'custom_html', 'code' => 'html',
+        if (! Schema::hasTable('custom_field_repeater_options')) {
+            return [];
+        }
+
+        return DB::table('custom_field_repeater_options')
+            ->where('custom_field_repeater_id', $repeaterId)
+            ->when(Schema::hasColumn('custom_field_repeater_options', 'status'), function ($q) {
+                $q->where(function ($sub) {
+                    $sub->where('status', true)
+                        ->orWhere('status', 1)
+                        ->orWhere('status', '1')
+                        ->orWhere('status', 'active');
+                });
+            })
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($option) {
+                return [
+                    'id' => $option->id,
+                    'name' => $option->name ?? null,
+                    'value' => $option->value ?? null,
+                    'type' => $option->type ?? null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function getSystemFields(): array
+    {
+        return [
+            [
+                'label' => 'Title',
+                'key' => 'title',
+                'field_path' => 'system.title',
+                'source' => 'system',
+                'type' => 'text',
+                'component_key' => 'heading',
+                'settings' => [
+                    'source' => 'dynamic',
+                    'field' => 'system.title',
+                    'tag' => 'h1',
+                ],
+            ],
+            [
+                'label' => 'Content',
+                'key' => 'content',
+                'field_path' => 'system.content',
+                'source' => 'system',
+                'type' => 'texteditor',
+                'component_key' => 'text',
+                'settings' => [
+                    'source' => 'dynamic',
+                    'field' => 'system.content',
+                ],
+            ],
+            [
+                'label' => 'Featured Image',
+                'key' => 'featured_image',
+                'field_path' => 'system.featured_image',
+                'source' => 'system',
+                'type' => 'image',
+                'component_key' => 'image',
+                'settings' => [
+                    'source' => 'dynamic',
+                    'field' => 'system.featured_image',
+                ],
+            ],
+        ];
+    }
+
+    private function getTaxonomyFields(object $postTypeRecord): array
+    {
+        if (! Schema::hasTable('taxonomies')) {
+            return [];
+        }
+
+        $query = DB::table('taxonomies');
+
+        if (Schema::hasColumn('taxonomies', 'post_type_id')) {
+            $query->where('post_type_id', $postTypeRecord->id);
+        }
+
+        if (Schema::hasColumn('taxonomies', 'post_type_slug')) {
+            $query->where('post_type_slug', $postTypeRecord->slug);
+        }
+
+        if (Schema::hasColumn('taxonomies', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', true)
+                    ->orWhere('status', 1)
+                    ->orWhere('status', '1')
+                    ->orWhere('status', 'active');
+            });
+        }
+
+        return $query
+            ->orderBy('id')
+            ->get()
+            ->map(function ($taxonomy) {
+                $slug = $taxonomy->slug ?? ('taxonomy_' . $taxonomy->id);
+
+                return [
+                    'id' => $taxonomy->id,
+                    'label' => $taxonomy->name ?? $slug,
+                    'key' => $slug,
+                    'field_path' => 'taxonomies.' . $slug . '.terms',
+                    'source' => 'taxonomy',
+                    'type' => 'taxonomy_terms',
+                    'component_key' => 'taxonomy_terms',
+                    'terms' => $this->getTaxonomyTerms((int) $taxonomy->id),
+                    'settings' => [
+                        'source' => 'dynamic',
+                        'field' => 'taxonomies.' . $slug . '.terms',
+                    ],
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function getTaxonomyTerms(int $taxonomyId): array
+    {
+        if (! Schema::hasTable('taxonomy_terms')) {
+            return [];
+        }
+
+        return DB::table('taxonomy_terms')
+            ->where('taxonomy_id', $taxonomyId)
+            ->when(Schema::hasColumn('taxonomy_terms', 'status'), function ($q) {
+                $q->where(function ($sub) {
+                    $sub->where('status', true)
+                        ->orWhere('status', 1)
+                        ->orWhere('status', '1')
+                        ->orWhere('status', 'active');
+                });
+            })
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($term) {
+                return [
+                    'id' => $term->id,
+                    'name' => $term->name ?? null,
+                    'slug' => $term->slug ?? null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function resolveSelectedTermIds(array $payload, ?int $entityId): array
+    {
+        $termIds = $this->normalizeIds($payload['taxonomy_term_ids'] ?? []);
+
+        if (! $entityId || ! Schema::hasTable('post_taxonomy_terms')) {
+            return $termIds;
+        }
+
+        $postColumn = $this->firstExistingColumn('post_taxonomy_terms', [
+            'dynamic_post_id',
+            'post_id',
+            'entity_id',
+            'content_id',
+            'object_id',
+        ]);
+
+        $termColumn = $this->firstExistingColumn('post_taxonomy_terms', [
+            'taxonomy_term_id',
+            'term_id',
+        ]);
+
+        if (! $postColumn || ! $termColumn) {
+            return $termIds;
+        }
+
+        $storedTermIds = DB::table('post_taxonomy_terms')
+            ->where($postColumn, $entityId)
+            ->pluck($termColumn)
+            ->all();
+
+        return array_values(array_unique(array_merge(
+            $termIds,
+            $this->normalizeIds($storedTermIds)
+        )));
+    }
+
+    private function previewValuesFromCustomFields(array $customFields): array
+    {
+        $custom = [];
+
+        foreach ($customFields as $field) {
+            if (! isset($field['key'])) {
+                continue;
+            }
+
+            $custom[$field['key']] = $field['value'] ?? null;
+        }
+
+        return [
+            'custom' => $custom,
+        ];
+    }
+
+    private function getBasicWidgets(): array
+    {
+        return [
+            [
+                'label' => 'Heading',
+                'key' => 'heading',
+                'source' => 'basic_widget',
+                'type' => 'heading',
+                'component_key' => 'heading',
+                'settings' => [
+                    'text' => '',
+                    'tag' => 'h2',
+                    'alignment' => 'left',
+                ],
+            ],
+            [
+                'label' => 'Text Editor',
+                'key' => 'text',
+                'source' => 'basic_widget',
+                'type' => 'text',
+                'component_key' => 'text',
+                'settings' => [
+                    'content' => '',
+                ],
+            ],
+            [
+                'label' => 'Image',
+                'key' => 'image',
+                'source' => 'basic_widget',
+                'type' => 'image',
+                'component_key' => 'image',
+                'settings' => [
+                    'url' => '',
+                    'alt' => '',
+                ],
+            ],
+            [
+                'label' => 'Button',
+                'key' => 'button',
+                'source' => 'basic_widget',
+                'type' => 'button',
+                'component_key' => 'button',
+                'settings' => [
+                    'text' => 'Click Here',
+                    'url' => '',
+                    'target' => '_self',
+                ],
+            ],
+        ];
+    }
+
+    private function mapFieldTypeToComponent(string $type): string
+    {
+        return match (strtolower($type)) {
+            'image', 'media', 'file' => 'image',
+            'gallery' => 'gallery',
+            'repeater' => 'repeater',
+            'textarea', 'texteditor', 'editor', 'wysiwyg' => 'text',
             'url', 'link' => 'button',
             default => 'text',
         };
+    }
+
+    private function normalizeIds(mixed $value): array
+    {
+        $value = $this->decodeMaybeJson($value);
+
+        if (is_string($value)) {
+            $value = explode(',', $value);
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return collect($value)
+            ->flatten()
+            ->filter(fn ($id) => $id !== null && $id !== '')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function decodeMaybeJson(mixed $value): mixed
+    {
+        if ($value === null || $value === '') {
+            return $value;
+        }
+
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_object($value)) {
+            return json_decode(json_encode($value), true);
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $decoded;
+            }
+        }
+
+        return $value;
+    }
+
+    private function firstExistingColumn(string $table, array $columns): ?string
+    {
+        foreach ($columns as $column) {
+            if (Schema::hasColumn($table, $column)) {
+                return $column;
+            }
+        }
+
+        return null;
     }
 
     private function getPayload(Request $request): array
