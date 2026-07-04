@@ -22,7 +22,6 @@ class DatabaseSeeder extends Seeder
         $this->call(AdminSeeder::class);
         $this->call(MailConfigSeeder::class);
         $this->call(ModelsTableSeeder::class);
-        $this->call(StatusSeeder::class);
         $this->call(MediaSeeder::class);
         $this->call(ImportKeywordsSeeder::class);
         $this->call(TicketDepartmentsSeeder::class);
@@ -32,7 +31,7 @@ class DatabaseSeeder extends Seeder
         $this->call(HelpCategorySeeder::class);
         $this->call(HelpSubcategorySeeder::class);
          $this->call(HelpChildcategorySeeder::class);
-         $this->call([ApiClientTableSeeder::class]);
+         $this->call([ApiClientTableSeeder::class,]);
          $this->call(SiteSettingsSeeder::class);
         //  $this->call(GroupNameSeeder::class);
         //  $this->call(TemplateSeeder::class);
@@ -45,6 +44,6 @@ class DatabaseSeeder extends Seeder
         $this->call(TaxonomySeeder::class);
         $this->call(PostTypeTaxonomySeeder::class);
         $this->call(TaxonomyTermSeeder::class);
-        $this->call(DynamicPostSeeder::class);
+        // $this->call(DynamicPostSeeder::class);
     }
 }
