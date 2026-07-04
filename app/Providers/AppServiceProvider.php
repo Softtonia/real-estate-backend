@@ -39,12 +39,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Property::observe(PropertyObserver::class);
-        Amenity::observe(AmenityObserver::class);
-        Purpose::observe(PurposeObserver::class);
-        PropertyType::observe(PropertyTypeObserver::class);
-        Status::observe(StatusObserver::class);
-        AmenitiesCategory::observe(AmenitiesCategoryObserver::class);
 
         try {
             if (Schema::hasTable('mail_configs')) {

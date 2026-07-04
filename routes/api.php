@@ -30,13 +30,8 @@ use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\PropertyListing\PropertylistingController;
 use App\Http\Controllers\Location\Locationcontroller;
-use App\Http\Controllers\Amenity\Amenitycontroller;
-use App\Http\Controllers\Property\Propertytypecontroller;
-use App\Http\Controllers\Purpose\PurposeController;
-use App\Http\Controllers\Property\Propertycontroller;
 use App\Http\Controllers\CustomFieldController;
 use App\Http\Controllers\Status\statuscontroller;
-use App\Http\Controllers\Amenity\AmenitycategoriesController;
 use App\Http\Controllers\Admin\Admincontroller;
 use App\Http\Controllers\Admin\ApiClient\ApiAuthFailureController;
 use App\Http\Controllers\Admin\ApiClient\ApplicationPasswordController;
@@ -404,32 +399,6 @@ Route::middleware(['validate.api.client'])->group(function () {
 
     Route::middleware(['throttle:60,1', 'admin.token'])->post('bulk-upload-location-csv', [Locationcontroller::class, 'bulkUploadCSC']);
 
-    // =======Amenity============
-
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('amenity-create', [Amenitycontroller::class, 'store']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('amenity-update', [Amenitycontroller::class, 'update']);
-    Route::middleware(['throttle:60,1', 'api.token'])->get('amenity-listing', [Amenitycontroller::class, 'index']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('amenity', [Amenitycontroller::class, 'destroy']);
-    Route::middleware(['throttle:60,1', 'api.token'])->post('getdatabyId-amenity', [Amenitycontroller::class, 'getdatabyId']);
-    Route::middleware(['throttle:60,1', 'api.token'])->get('search-amenity-listing', [Amenitycontroller::class, 'searchByName']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('amenity-bulk-delete', [Amenitycontroller::class, 'bulkDelete']);
-
-
-    // =======Property Type============
-
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('property-type-create', [Propertytypecontroller::class, 'store']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('property-type-update', [Propertytypecontroller::class, 'update']);
-    Route::get('property-type-listing', [Propertytypecontroller::class, 'index'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('property-type-delete', [Propertytypecontroller::class, 'destroy']);
-    Route::middleware(['throttle:60,1', 'api.token'])->post('getdatabyId-property-type', [Propertytypecontroller::class, 'getdatabyId']);
-
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('property-type-bulk-delete', [Propertytypecontroller::class, 'bulkDelete']);
-    Route::middleware(['throttle:60,1', 'api.token'])->get('property-type-search', [Propertytypecontroller::class, 'searchByName'])->name('propertytype.search');
-
-
     // =======Status============
     Route::middleware(['throttle:60,1', 'admin.token'])->post('status-create', [statuscontroller::class, 'store']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('status-update', [statuscontroller::class, 'update']);
@@ -438,31 +407,6 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::middleware(['throttle:60,1', 'api.token'])->get('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
     Route::middleware(['throttle:60,1', 'api.token'])->get('status-search', [statuscontroller::class, 'searchByName'])->name('status.search');
-
-    // =======Purpose============
-
-    Route::middleware(['validate.api.client'])->group(function () {
-
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-create', [PurposeController::class, 'store']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-update', [PurposeController::class, 'update']);
-        Route::get('purpose-listing', [PurposeController::class, 'index'])->middleware(['throttle:60,1']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-delete', [PurposeController::class, 'destroy']);
-        Route::middleware(['throttle:60,1', 'api.token'])->post('getdatabyId-purpose', [PurposeController::class, 'getdatabyId']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('purpose-bulk-delete', [PurposeController::class, 'bulkDelete']);
-        Route::middleware(['throttle:60,1', 'api.token'])->get('purpose-search', [PurposeController::class, 'searchByName'])->name('purposes.search');
-    });
-
-
-    // =======Amenity Categories============
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('add-amenities-categories', [AmenitycategoriesController::class, 'store']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('edit-amenities-categories', [AmenitycategoriesController::class, 'update']);
-    Route::middleware(['throttle:60,1', 'api.token'])->get('list-amenities-categories', [AmenitycategoriesController::class, 'index']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('delete-amenities-categories', [AmenitycategoriesController::class, 'destroy']);
-    Route::middleware(['throttle:60,1', 'api.token'])->post('getdatabyId-amenitycategories', [AmenitycategoriesController::class, 'getdatabyId']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('amenities-categories-bulk-delete', [AmenitycategoriesController::class, 'bulkDelete']);
-
-    Route::middleware(['throttle:60,1', 'api.token'])->get('search-amenities-categories', [AmenitycategoriesController::class, 'searchByName']);
 
     // admin route will end from here
 
