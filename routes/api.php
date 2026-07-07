@@ -379,51 +379,6 @@ Route::middleware(['validate.api.client'])->group(function () {
 
 
 
-
-    // ======= Bulk Upload Country , State, City in CSV Format ===========
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('bulk-upload-location-csv', [Locationcontroller::class, 'bulkUploadCSC']);
-
-    // =======Status============
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('status-create', [statuscontroller::class, 'store']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('status-update', [statuscontroller::class, 'update']);
-    Route::get('status-listing', [statuscontroller::class, 'index'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('status', [statuscontroller::class, 'destroy']);
-    Route::middleware(['throttle:60,1', 'api.token'])->get('getdatabyId-status', [statuscontroller::class, 'getdatabyId']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('status-bulk-delete', [statuscontroller::class, 'bulkDelete']);
-    Route::middleware(['throttle:60,1', 'api.token'])->get('status-search', [statuscontroller::class, 'searchByName'])->name('status.search');
-
-    // admin route will end from here
-
-
-    // custom field will start from here
-    Route::get('custom-field-listing-by-type', [CustomFieldController::class, 'customFieldListingByType'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('add-custom-fields', [CustomFieldController::class, 'store']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('edit-custom-fields-by-group-id', [CustomFieldController::class, 'updateCustomFieldByGroupId']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('delete-custom-fields', [CustomFieldController::class, 'delete']);
-    Route::post('get-custom-fields-by-group-id', [CustomFieldController::class, 'getCustomFieldByGroupId'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->get('model-listing', [CustomFieldController::class, 'modelListing']);
-    Route::get('all_template_id_listings', [CustomFieldController::class, 'customFieldUniqueCode'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->get('condition-listing', [CustomFieldController::class, 'conditionListing']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->get('custom-field-listing', [CustomFieldController::class, 'customFieldListing']);
-    Route::get('property-type-listing-by-propertyid', [CustomFieldController::class, 'propertyTypeListingByPropertyId'])->middleware(['throttle:60,1']);
-    Route::get('property-status-listing-by-propertytype', [CustomFieldController::class, 'propertyStatusListingByPropertyType'])->middleware(['throttle:60,1']);
-    Route::get('get-amenities-data', [CustomFieldController::class, 'GetAmenitiesData'])->middleware(['throttle:60,1']);
-    Route::post('get-custom-filded-list', [CustomFieldController::class, 'GetCustomFields'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('update-custom-field/{id}', [CustomFieldController::class, 'updateCustomField']);
-    Route::post('custom-fields/search-and-filter', [CustomFieldController::class, 'searchAndFilter'])->middleware(['throttle:60,1']);
-    Route::post('custom-fields/delete-custom-field', [CustomFieldController::class, 'deleteCustomField'])->middleware(['throttle:60,1']);
-    Route::post('slug-uniqueness-check', [CustomFieldController::class, 'slugUniquesCheck'])->middleware(['throttle:60,1']);
-    Route::get('get-model-condition-record', [CustomFieldController::class, 'getAllModelConditionRecords'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->get('get-custom-field-model-multi-condition', [CustomFieldController::class, 'getCustomFieldModelMultiCondition']);
-    Route::post('custom-field-listing-by-model-conditionid', [CustomFieldController::class, 'customFieldListingByModelConditionId'])->middleware(['throttle:60,1']);
-
-    Route::get('get-custom-field-by-id/{id}', [CustomFieldController::class, 'getCustomFieldById'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('edit-custom-fields-by-id/{id}', [CustomFieldController::class, 'updateCustomFieldById']);
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('delete-custom-fields-by-id', [CustomFieldController::class, 'deleteCustomFieldById']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('bulk-delete-custom-fields-by-id', [CustomFieldController::class, 'bulkDeleteCustomFieldByIds']);
-
     // custom field exaport / import
 
     Route::middleware(['throttle:60,1', 'admin.token'])->get('/export-custom-fields-csv', [CustomFieldExportImportController::class, 'exportToCsv']);
@@ -831,58 +786,49 @@ Route::middleware(['throttle:60,1', 'admin.token'])
         Route::get('api-auth-failures/top-ips', [ApiAuthFailureController::class, 'topIps']);
     });
 
-Route::prefix('v1')
-    ->middleware([
-        'validate.api.client',
-        'app.blocked_ip',
-        'app.password',
-        'app.origin',
-        'app.signature',
-        'app.rate',
-        'app.log',
-    ])
-    ->group(function () {
-        Route::get('secure-test', function () {
-            $client = request()->attributes->get('api_client');
+// Route::prefix('v1')
+//     ->middleware([
+//         'validate.api.client',
+//         'app.blocked_ip',
+//         'app.password',
+//         'app.origin',
+//         'app.signature',
+//         'app.rate',
+//         'app.log',
+//     ])
+//     ->group(function () {
+//         Route::get('secure-test', function () {
+//             $client = request()->attributes->get('api_client');
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Secure API access granted.',
-                'client' => [
-                    'id' => $client->id,
-                    'name' => $client->name,
-                    'type' => $client->type,
-                ],
-            ]);
-        })->middleware('client.permission:*');
+//             return response()->json([
+//                 'success' => true,
+//                 'message' => 'Secure API access granted.',
+//                 'client' => [
+//                     'id' => $client->id,
+//                     'name' => $client->name,
+//                     'type' => $client->type,
+//                 ],
+//             ]);
+//         })->middleware('client.permission:*');
 
-        Route::prefix('post-types')->group(function () {
-            Route::get('/', [PostTypeController::class, 'index'])
-                ->middleware('client.permission:post_types.*.read');
+//         Route::prefix('post-types')->group(function () {
+//             Route::get('/', [PostTypeController::class, 'index']);
 
-            Route::get('{postType:slug}', [PostTypeController::class, 'show'])
-                ->middleware('client.permission:post_types.*.read');
+//             Route::get('{postType:slug}', [PostTypeController::class, 'show']);
 
-            Route::get('{postType:slug}/posts', [DynamicPostController::class, 'index'])
-                ->middleware('client.permission:post_types.{postType.slug}.read');
+//             Route::get('{postType:slug}/posts', [DynamicPostController::class, 'index']);
 
-            Route::get('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'show'])
-                ->middleware('client.permission:post_types.{postType.slug}.read');
+//             Route::get('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'show']);
 
-            Route::post('{postType:slug}/posts', [DynamicPostController::class, 'store'])
-                ->middleware('client.permission:post_types.{postType.slug}.write');
+//             Route::post('{postType:slug}/posts', [DynamicPostController::class, 'store']);
 
-            Route::put('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'update'])
-                ->middleware('client.permission:post_types.{postType.slug}.write');
+//             Route::put('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'update']);
 
-            Route::patch('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'update'])
-                ->middleware('client.permission:post_types.{postType.slug}.write');
+//             Route::delete('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
+//         });
+//     });
 
-            Route::delete('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
-                ->middleware('client.permission:post_types.{postType.slug}.write');
-        });
-    });
-// IpLog
+    // IpLog
 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/ip-logs', [IpLogController::class, 'index']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/ip-logs-update-status', [IpLogController::class, 'updateIpStatus']);
