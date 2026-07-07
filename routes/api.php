@@ -975,6 +975,9 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
 
     // Dynamic Posts
+    Route::get('dynamic-posts/dropdown', [DynamicPostController::class, 'dropdownByPostType']);
+    Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
+        ->whereNumber('dynamicPost');
     Route::get('dynamic-post-form/{postType}', [DynamicPostController::class, 'formOptions']);
 
     Route::post('resolve-custom-fields', [DynamicPostController::class, 'resolveCustomFieldsForCreate']);
@@ -989,7 +992,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show']);
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update']);
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
-    Route::get('dynamic-posts/dropdown', [DynamicPostController::class, 'dropdownByPostType']);
+
     // Taxonomies
     Route::get('taxonomies', [TaxonomyController::class, 'index']);
     Route::post('taxonomies', [TaxonomyController::class, 'store']);
