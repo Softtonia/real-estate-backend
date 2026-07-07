@@ -7,6 +7,8 @@ use App\Models\PostType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class PostTypeController extends Controller
 {
@@ -42,7 +44,6 @@ class PostTypeController extends Controller
 
     public function store(Request $request)
     {
-        DB::beginTransaction();
         try {
             $validated = $request->validate([
                 'name' => ['required', 'string', 'max:150'],
@@ -53,51 +54,75 @@ class PostTypeController extends Controller
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
-                'menu_order' => ['nullable', 'integer', 'min:6'],
+
+                // Important: menu_order is required now
+                'menu_order' => ['required', 'integer', 'min:6'],
+
                 'post_type_ids' => ['nullable', 'array'],
                 'post_type_ids.*' => ['integer', 'exists:post_types,id'],
                 'taxonomies' => ['nullable', 'array'],
                 'taxonomies.*' => ['integer', 'exists:taxonomies,id'],
             ]);
 
-            $slug = !empty($validated['slug']) ? $validated['slug'] : $validated['name'];
-            $slug = PostType::generateUniqueSlug($slug);
-            $menuOrder = $validated['menu_order'] ?? $this->getNextAvailableMenuOrder();
-            if (PostType::menuOrderExists($menuOrder)) {
-                DB::rollBack();
-                return response()->json(['status' => false, 'message' => 'Menu order already exists.', 'errors' => ['menu_order' => ["Menu order {$menuOrder} is already assigned to another post type."]]], 422);
+            if (PostType::menuOrderExists((int) $validated['menu_order'])) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Menu order already exists.',
+                    'errors' => [
+                        'menu_order' => [
+                            "Menu order {$validated['menu_order']} is already assigned to another post type."
+                        ],
+                    ],
+                ], 422);
             }
 
-            $postType = PostType::create([
-                'name' => $validated['name'],
-                'slug' => $slug,
-                'description' => $validated['description'] ?? null,
-                'is_default' => $validated['is_default'] ?? false,
-                'is_relationship' => $validated['is_relationship'] ?? false,
-                'status' => $validated['status'] ?? true,
-                'supports' => $validated['supports'] ?? ['title', 'excerpt', 'featured_image', 'editor'],
-                'created_by' => Auth::id(),
-                'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
-                'menu_order' => $menuOrder,
-            ]);
+            $postType = DB::transaction(function () use ($validated) {
+                $slug = !empty($validated['slug']) ? $validated['slug'] : $validated['name'];
+                $slug = PostType::generateUniqueSlug($slug);
 
-            // Sync related post types
-            if (!empty($validated['is_relationship']) && !empty($validated['post_type_ids'])) {
-                $this->syncRelatedPostTypes($postType, $validated['post_type_ids']);
-            } elseif (isset($validated['is_relationship']) && !$validated['is_relationship']) {
-                $postType->relatedPostTypes()->detach();
-            }
+                $postType = PostType::create([
+                    'name' => $validated['name'],
+                    'slug' => $slug,
+                    'description' => $validated['description'] ?? null,
+                    'is_default' => $validated['is_default'] ?? false,
+                    'is_relationship' => $validated['is_relationship'] ?? false,
+                    'status' => $validated['status'] ?? true,
+                    'supports' => $validated['supports'] ?? ['title', 'excerpt', 'featured_image', 'editor'],
+                    'created_by' => Auth::id(),
+                    'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
+                    'menu_order' => (int) $validated['menu_order'],
+                ]);
 
-            if (!empty($validated['taxonomies'])) {
-                $this->syncTaxonomies($postType, $validated['taxonomies']);
-            }
+                if (!empty($validated['is_relationship']) && !empty($validated['post_type_ids'])) {
+                    $this->syncRelatedPostTypes($postType, $validated['post_type_ids']);
+                }
 
-            DB::commit();
+                if (!empty($validated['taxonomies'])) {
+                    $this->syncTaxonomies($postType, $validated['taxonomies']);
+                }
+
+                return $postType;
+            });
+
             $postType->load(['creator', 'taxonomies', 'relatedPostTypes']);
-            return response()->json(['status' => true, 'message' => 'Post type created successfully.', 'data' => $this->formatPostType($postType)], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['status' => false, 'message' => 'Unable to create post type.', 'error' => $e->getMessage()], 500);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Post type created successfully.',
+                'data' => $this->formatPostType($postType),
+            ], 201);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to create post type.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 
@@ -111,9 +136,18 @@ class PostTypeController extends Controller
     public function update(Request $request, $id)
     {
         DB::beginTransaction();
+
         try {
             $postType = PostType::find($id);
-            if (!$postType) return response()->json(['status' => false, 'message' => 'Post type not found.'], 404);
+
+            if (!$postType) {
+                DB::rollBack();
+
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Post type not found.',
+                ], 404);
+            }
 
             $validated = $request->validate([
                 'name' => ['sometimes', 'required', 'string', 'max:150'],
@@ -124,7 +158,10 @@ class PostTypeController extends Controller
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
-                'menu_order' => ['nullable', 'integer', 'min:6'],
+
+                // If sent, it cannot be empty/null
+                'menu_order' => ['sometimes', 'required', 'integer', 'min:6'],
+
                 'post_type_ids' => ['nullable', 'array'],
                 'post_type_ids.*' => ['integer', 'exists:post_types,id'],
                 'taxonomies' => ['nullable', 'array'],
@@ -132,40 +169,86 @@ class PostTypeController extends Controller
             ]);
 
             $updateData = [];
-            if (isset($validated['name'])) {
+
+            if (array_key_exists('name', $validated)) {
                 $updateData['name'] = $validated['name'];
-                if (!$request->filled('slug')) $updateData['slug'] = PostType::generateUniqueSlug($validated['name'], $postType->id);
+
+                if (!$request->filled('slug')) {
+                    $updateData['slug'] = PostType::generateUniqueSlug($validated['name'], $postType->id);
+                }
             }
-            if ($request->filled('slug')) $updateData['slug'] = PostType::generateUniqueSlug($validated['slug'], $postType->id);
+
+            if ($request->filled('slug')) {
+                $updateData['slug'] = PostType::generateUniqueSlug($validated['slug'], $postType->id);
+            }
+
             foreach (['description', 'is_default', 'is_relationship', 'status', 'supports', 'sort_order'] as $key) {
-                if (isset($validated[$key])) $updateData[$key] = $validated[$key];
+                if (array_key_exists($key, $validated)) {
+                    $updateData[$key] = $validated[$key];
+                }
             }
-            if (isset($validated['menu_order'])) {
-                $menuOrder = $validated['menu_order'] ?? $this->getNextAvailableMenuOrder($postType->id);
+
+            if (array_key_exists('menu_order', $validated)) {
+                $menuOrder = (int) $validated['menu_order'];
+
                 if (PostType::menuOrderExists($menuOrder, $postType->id)) {
                     DB::rollBack();
-                    return response()->json(['status' => false, 'message' => 'Menu order already exists.', 'errors' => ['menu_order' => ["Menu order {$menuOrder} is already assigned to another post type."]]], 422);
+
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Menu order already exists.',
+                        'errors' => [
+                            'menu_order' => [
+                                "Menu order {$menuOrder} is already assigned to another post type.",
+                            ],
+                        ],
+                    ], 422);
                 }
+
                 $updateData['menu_order'] = $menuOrder;
             }
 
             $postType->update($updateData);
 
-            // Sync related post types
-            if (isset($validated['is_relationship']) && !empty($validated['is_relationship']) && isset($validated['post_type_ids'])) {
-                $this->syncRelatedPostTypes($postType, $validated['post_type_ids']);
-            } elseif (isset($validated['is_relationship']) && !$validated['is_relationship']) {
-                $postType->relatedPostTypes()->detach();
+            if (array_key_exists('is_relationship', $validated)) {
+                if (!empty($validated['is_relationship'])) {
+                    $this->syncRelatedPostTypes($postType, $validated['post_type_ids'] ?? []);
+                } else {
+                    $postType->relatedPostTypes()->detach();
+                }
+            } elseif (array_key_exists('post_type_ids', $validated) && !empty($postType->is_relationship)) {
+                $this->syncRelatedPostTypes($postType, $validated['post_type_ids'] ?? []);
             }
 
-            if (isset($validated['taxonomies'])) $this->syncTaxonomies($postType, $validated['taxonomies']);
+            if (array_key_exists('taxonomies', $validated)) {
+                $this->syncTaxonomies($postType, $validated['taxonomies']);
+            }
+
             DB::commit();
 
             $postType->refresh()->load(['creator', 'taxonomies', 'relatedPostTypes']);
-            return response()->json(['status' => true, 'message' => 'Post type updated successfully.', 'data' => $this->formatPostType($postType)], 200);
-        } catch (\Exception $e) {
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Post type updated successfully.',
+                'data' => $this->formatPostType($postType),
+            ], 200);
+        } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
-            return response()->json(['status' => false, 'message' => 'Unable to update post type.', 'error' => $e->getMessage()], 500);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to update post type.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 
