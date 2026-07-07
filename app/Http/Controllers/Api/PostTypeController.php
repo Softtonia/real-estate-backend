@@ -54,10 +54,7 @@ class PostTypeController extends Controller
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
-
-                // Important: menu_order is required now
                 'menu_order' => ['required', 'integer', 'min:6'],
-
                 'post_type_ids' => ['nullable', 'array'],
                 'post_type_ids.*' => ['integer', 'exists:post_types,id'],
                 'taxonomies' => ['nullable', 'array'],
@@ -70,13 +67,17 @@ class PostTypeController extends Controller
                     'message' => 'Menu order already exists.',
                     'errors' => [
                         'menu_order' => [
-                            "Menu order {$validated['menu_order']} is already assigned to another post type."
+                            "Menu order {$validated['menu_order']} is already assigned to another post type.",
                         ],
                     ],
                 ], 422);
             }
 
-            $postType = DB::transaction(function () use ($validated) {
+            $isDefault = $request->boolean('is_default', false) ? 1 : 0;
+            $isRelationship = $request->boolean('is_relationship', false) ? 1 : 0;
+            $status = $request->has('status') ? ($request->boolean('status') ? 1 : 0) : 1;
+
+            $postType = DB::transaction(function () use ($validated, $isDefault, $isRelationship, $status) {
                 $slug = !empty($validated['slug']) ? $validated['slug'] : $validated['name'];
                 $slug = PostType::generateUniqueSlug($slug);
 
@@ -84,16 +85,16 @@ class PostTypeController extends Controller
                     'name' => $validated['name'],
                     'slug' => $slug,
                     'description' => $validated['description'] ?? null,
-                    'is_default' => $validated['is_default'] ?? false,
-                    'is_relationship' => $validated['is_relationship'] ?? false,
-                    'status' => $validated['status'] ?? true,
+                    'is_default' => $isDefault,
+                    'is_relationship' => $isRelationship,
+                    'status' => $status,
                     'supports' => $validated['supports'] ?? ['title', 'excerpt', 'featured_image', 'editor'],
                     'created_by' => Auth::id(),
                     'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
                     'menu_order' => (int) $validated['menu_order'],
                 ]);
 
-                if (!empty($validated['is_relationship']) && !empty($validated['post_type_ids'])) {
+                if ($isRelationship === 1 && !empty($validated['post_type_ids'])) {
                     $this->syncRelatedPostTypes($postType, $validated['post_type_ids']);
                 }
 
