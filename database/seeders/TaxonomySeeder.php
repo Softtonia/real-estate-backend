@@ -37,19 +37,6 @@ class TaxonomySeeder extends Seeder
                 'created_by' => null,
             ]);
 
-            $listing = $this->createOrUpdateTaxonomy([
-                'name' => 'Listing',
-                'slug' => 'listing',
-                'description' => 'Listing taxonomy for property listing records.',
-                'is_relationship' => true,
-                'is_parent' => true,
-                'is_default' => true,
-                'hierarchical' => true,
-                'status' => true,
-                'sort_order' => 3,
-                'created_by' => null,
-            ]);
-
             $propertyType = $this->createOrUpdateTaxonomy([
                 'name' => 'Property Type',
                 'slug' => 'property-type',
@@ -93,22 +80,14 @@ class TaxonomySeeder extends Seeder
                 $property->id => [
                     'sort_order' => 1,
                     'status' => true,
-                ],
-                $listing->id => [
-                    'sort_order' => 2,
-                    'status' => true,
-                ],
+                ]
             ]);
 
             $propertyStatus->parents()->sync([
                 $property->id => [
                     'sort_order' => 1,
                     'status' => true,
-                ],
-                $listing->id => [
-                    'sort_order' => 2,
-                    'status' => true,
-                ],
+                ]
             ]);
 
             $amenity->parents()->sync([

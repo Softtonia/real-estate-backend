@@ -28,10 +28,6 @@ class PostTypeTaxonomySeeder extends Seeder
                 'developer-type',
                 'location',
             ],
-            'blog' => [
-                'blog-category',
-                'blog-tag',
-            ],
         ];
 
         foreach ($mapping as $postTypeSlug => $taxonomySlugs) {

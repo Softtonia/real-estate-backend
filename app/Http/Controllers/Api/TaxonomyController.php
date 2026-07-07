@@ -106,7 +106,6 @@ class TaxonomyController extends Controller
 
             if ($response = $this->validateRelationshipData($validated)) {
                 DB::rollBack();
-
                 return $response;
             }
 
@@ -124,8 +123,11 @@ class TaxonomyController extends Controller
                 ], 422);
             }
 
-            $isRelationship = (bool) ($validated['is_relationship'] ?? false);
-            $isParent = $isRelationship ? (bool) ($validated['is_parent'] ?? false) : false;
+            $isRelationship = $request->boolean('is_relationship', false) ? 1 : 0;
+            $isParent = $isRelationship ? ($request->boolean('is_parent', false) ? 1 : 0) : 0;
+            $isDefault = $request->boolean('is_default', false) ? 1 : 0;
+            $hierarchical = $request->boolean('hierarchical', false) ? 1 : 0;
+            $status = $request->has('status') ? ($request->boolean('status') ? 1 : 0) : 1;
 
             $taxonomy = Taxonomy::create([
                 'name' => $validated['name'],
@@ -133,9 +135,9 @@ class TaxonomyController extends Controller
                 'description' => $validated['description'] ?? null,
                 'is_relationship' => $isRelationship,
                 'is_parent' => $isParent,
-                'is_default' => $validated['is_default'] ?? false,
-                'hierarchical' => $validated['hierarchical'] ?? false,
-                'status' => $validated['status'] ?? true,
+                'is_default' => $isDefault,
+                'hierarchical' => $hierarchical,
+                'status' => $status,
                 'created_by' => Auth::id(),
                 'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
             ]);
@@ -207,12 +209,12 @@ class TaxonomyController extends Controller
 
             $relationshipPayload = [
                 'is_relationship' => array_key_exists('is_relationship', $validated)
-                    ? (bool) $validated['is_relationship']
-                    : (bool) $taxonomy->is_relationship,
+                    ? ($request->boolean('is_relationship') ? 1 : 0)
+                    : ((bool) $taxonomy->is_relationship ? 1 : 0),
 
                 'is_parent' => array_key_exists('is_parent', $validated)
-                    ? (bool) $validated['is_parent']
-                    : (bool) $taxonomy->is_parent,
+                    ? ($request->boolean('is_parent') ? 1 : 0)
+                    : ((bool) $taxonomy->is_parent ? 1 : 0),
 
                 'parent_ids' => array_key_exists('parent_ids', $validated)
                     ? $validated['parent_ids']
@@ -225,25 +227,27 @@ class TaxonomyController extends Controller
 
             if ($response = $this->validateRelationshipData($relationshipPayload, $taxonomy)) {
                 DB::rollBack();
-
                 return $response;
             }
 
             $updateData = [];
 
-            foreach (
-                [
-                    'name',
-                    'description',
-                    'is_default',
-                    'hierarchical',
-                    'status',
-                    'sort_order',
-                ] as $field
-            ) {
+            foreach (['name', 'description', 'sort_order'] as $field) {
                 if (array_key_exists($field, $validated)) {
                     $updateData[$field] = $validated[$field];
                 }
+            }
+
+            if (array_key_exists('is_default', $validated)) {
+                $updateData['is_default'] = $request->boolean('is_default') ? 1 : 0;
+            }
+
+            if (array_key_exists('hierarchical', $validated)) {
+                $updateData['hierarchical'] = $request->boolean('hierarchical') ? 1 : 0;
+            }
+
+            if (array_key_exists('status', $validated)) {
+                $updateData['status'] = $request->boolean('status') ? 1 : 0;
             }
 
             if (array_key_exists('slug', $validated) && !empty($validated['slug'])) {
@@ -271,7 +275,7 @@ class TaxonomyController extends Controller
             $updateData['is_relationship'] = $relationshipPayload['is_relationship'];
             $updateData['is_parent'] = $relationshipPayload['is_relationship']
                 ? $relationshipPayload['is_parent']
-                : false;
+                : 0;
 
             $taxonomy->update($updateData);
             $taxonomy = $taxonomy->fresh();

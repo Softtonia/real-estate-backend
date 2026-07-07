@@ -54,20 +54,27 @@ class PostTypeController extends Controller
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
-                'menu_order' => ['required', 'integer', 'min:6'],
+
+                // Optional. If not sent, system assigns 6 or next available.
+                'menu_order' => ['nullable', 'integer', 'min:6'],
+
                 'post_type_ids' => ['nullable', 'array'],
                 'post_type_ids.*' => ['integer', 'exists:post_types,id'],
                 'taxonomies' => ['nullable', 'array'],
                 'taxonomies.*' => ['integer', 'exists:taxonomies,id'],
             ]);
 
-            if (PostType::menuOrderExists((int) $validated['menu_order'])) {
+            $menuOrder = !empty($validated['menu_order'])
+                ? (int) $validated['menu_order']
+                : $this->getNextAvailableMenuOrder();
+
+            if (PostType::menuOrderExists($menuOrder)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Menu order already exists.',
                     'errors' => [
                         'menu_order' => [
-                            "Menu order {$validated['menu_order']} is already assigned to another post type.",
+                            "Menu order {$menuOrder} is already assigned to another post type.",
                         ],
                     ],
                 ], 422);
@@ -77,7 +84,7 @@ class PostTypeController extends Controller
             $isRelationship = $request->boolean('is_relationship', false) ? 1 : 0;
             $status = $request->has('status') ? ($request->boolean('status') ? 1 : 0) : 1;
 
-            $postType = DB::transaction(function () use ($validated, $isDefault, $isRelationship, $status) {
+            $postType = DB::transaction(function () use ($validated, $menuOrder, $isDefault, $isRelationship, $status) {
                 $slug = !empty($validated['slug']) ? $validated['slug'] : $validated['name'];
                 $slug = PostType::generateUniqueSlug($slug);
 
@@ -91,7 +98,7 @@ class PostTypeController extends Controller
                     'supports' => $validated['supports'] ?? ['title', 'excerpt', 'featured_image', 'editor'],
                     'created_by' => Auth::id(),
                     'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
-                    'menu_order' => (int) $validated['menu_order'],
+                    'menu_order' => $menuOrder,
                 ]);
 
                 if ($isRelationship === 1 && !empty($validated['post_type_ids'])) {
@@ -126,7 +133,29 @@ class PostTypeController extends Controller
             ], 500);
         }
     }
+    private function getNextAvailableMenuOrder(?int $ignoreId = null): int
+    {
+        $usedOrders = PostType::withTrashed()
+            ->whereNotNull('menu_order')
+            ->where('menu_order', '>=', 6)
+            ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
+            ->orderBy('menu_order')
+            ->pluck('menu_order')
+            ->map(fn($o) => (int)$o)
+            ->toArray();
 
+        $nextOrder = 6;
+
+        foreach ($usedOrders as $order) {
+            if ($order === $nextOrder) {
+                $nextOrder++;
+            } elseif ($order > $nextOrder) {
+                break;
+            }
+        }
+
+        return $nextOrder;
+    }
     public function show($id)
     {
         $postType = PostType::with(['creator', 'taxonomies', 'relatedPostTypes'])->find($id);
@@ -160,8 +189,8 @@ class PostTypeController extends Controller
                 'supports' => ['nullable', 'array'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
 
-                // If sent, it cannot be empty/null
-                'menu_order' => ['sometimes', 'required', 'integer', 'min:6'],
+                // Optional on update. If sent, must be 6 or above.
+                'menu_order' => ['nullable', 'integer', 'min:6'],
 
                 'post_type_ids' => ['nullable', 'array'],
                 'post_type_ids.*' => ['integer', 'exists:post_types,id'],
@@ -183,13 +212,31 @@ class PostTypeController extends Controller
                 $updateData['slug'] = PostType::generateUniqueSlug($validated['slug'], $postType->id);
             }
 
-            foreach (['description', 'is_default', 'is_relationship', 'status', 'supports', 'sort_order'] as $key) {
-                if (array_key_exists($key, $validated)) {
-                    $updateData[$key] = $validated[$key];
-                }
+            if (array_key_exists('description', $validated)) {
+                $updateData['description'] = $validated['description'];
             }
 
-            if (array_key_exists('menu_order', $validated)) {
+            if (array_key_exists('is_default', $validated)) {
+                $updateData['is_default'] = $request->boolean('is_default') ? 1 : 0;
+            }
+
+            if (array_key_exists('is_relationship', $validated)) {
+                $updateData['is_relationship'] = $request->boolean('is_relationship') ? 1 : 0;
+            }
+
+            if (array_key_exists('status', $validated)) {
+                $updateData['status'] = $request->boolean('status') ? 1 : 0;
+            }
+
+            if (array_key_exists('supports', $validated)) {
+                $updateData['supports'] = $validated['supports'];
+            }
+
+            if (array_key_exists('sort_order', $validated)) {
+                $updateData['sort_order'] = $validated['sort_order'];
+            }
+
+            if (array_key_exists('menu_order', $validated) && !is_null($validated['menu_order'])) {
                 $menuOrder = (int) $validated['menu_order'];
 
                 if (PostType::menuOrderExists($menuOrder, $postType->id)) {
@@ -212,7 +259,7 @@ class PostTypeController extends Controller
             $postType->update($updateData);
 
             if (array_key_exists('is_relationship', $validated)) {
-                if (!empty($validated['is_relationship'])) {
+                if ($request->boolean('is_relationship')) {
                     $this->syncRelatedPostTypes($postType, $validated['post_type_ids'] ?? []);
                 } else {
                     $postType->relatedPostTypes()->detach();
@@ -234,7 +281,7 @@ class PostTypeController extends Controller
                 'message' => 'Post type updated successfully.',
                 'data' => $this->formatPostType($postType),
             ], 200);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             DB::rollBack();
 
             return response()->json([
@@ -242,7 +289,7 @@ class PostTypeController extends Controller
                 'message' => 'Validation failed.',
                 'errors' => $e->errors(),
             ], 422);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             DB::rollBack();
 
             return response()->json([
