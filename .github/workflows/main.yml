@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - dev
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
 jobs:
   deploy-dev:
-    name: Deploy to Dev Server
+    name: Deploy Laravel Backend To Dev
     runs-on: ubuntu-latest
     environment: dev
 
@@ -17,166 +19,141 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v5
 
-      - name: Setup PHP on GitHub Runner
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, zip, bcmath, gd, curl, redis
-          tools: composer:v2
-
-      - name: Install Composer Dependencies
-        run: |
-          composer install --no-interaction --prefer-dist --no-scripts
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: '20'
-
-      - name: Build Frontend Assets
-        run: |
-          if [ -f package.json ]; then
-            if [ -f package-lock.json ]; then
-              npm ci
-            else
-              npm install
-            fi
-
-            npm run build
-          fi
-
-      - name: Create Release Archive
+      - name: Set Release Name
         run: |
           RELEASE_NAME="$(date +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
-          echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
+          echo "RELEASE_NAME=$RELEASE_NAME" >> "$GITHUB_ENV"
 
-          rm -f release.tar.gz
-          rm -f /tmp/release.tar.gz
+      - name: Setup SSH
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEV_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.DEV_PORT }}" "${{ secrets.DEV_HOST }}" >> ~/.ssh/known_hosts
 
-          tar \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='.env' \
-            --exclude='release.tar.gz' \
-            --exclude='storage/logs/*' \
-            --exclude='storage/framework/cache/*' \
-            --exclude='storage/framework/sessions/*' \
-            --exclude='storage/framework/views/*' \
-            -czf /tmp/release.tar.gz .
+      - name: Prepare Server
+        run: |
+          set -e
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEV_PORT }}" "${{ secrets.DEV_USER }}@${{ secrets.DEV_HOST }}" "
+            set -e
+            BASE_PATH='${{ secrets.DEV_BASE_PATH }}'
+            RELEASE_NAME='${{ env.RELEASE_NAME }}'
+            RELEASE_PATH=\"\$BASE_PATH/releases/\$RELEASE_NAME\"
 
-          mv /tmp/release.tar.gz release.tar.gz
+            command -v rsync >/dev/null 2>&1 || { echo 'ERROR: rsync missing on server'; exit 1; }
+            command -v composer >/dev/null 2>&1 || { echo 'ERROR: composer missing on server'; exit 1; }
 
-      - name: Upload Release Archive
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DEV_HOST }}
-          username: ${{ secrets.DEV_USER }}
-          key: ${{ secrets.DEV_SSH_KEY }}
-          port: ${{ secrets.DEV_PORT }}
-          source: "release.tar.gz"
-          target: "/tmp"
-
-      - name: Activate New Release
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEV_HOST }}
-          username: ${{ secrets.DEV_USER }}
-          key: ${{ secrets.DEV_SSH_KEY }}
-          port: ${{ secrets.DEV_PORT }}
-          script_stop: true
-          script: |
-            BASE_PATH="${{ secrets.DEV_BASE_PATH }}"
-            RELEASE_NAME="${{ env.RELEASE_NAME }}"
-            RELEASE_PATH="$BASE_PATH/releases/$RELEASE_NAME"
-
-            PHP_BIN="php8.2"
-
-            if ! command -v php8.2 >/dev/null 2>&1; then
-              PHP_BIN="php"
-            fi
-
-            echo "Base path: $BASE_PATH"
-            echo "Release path: $RELEASE_PATH"
-            echo "Using PHP: $PHP_BIN"
-
-            mkdir -p "$BASE_PATH/releases"
-            mkdir -p "$BASE_PATH/shared/storage/app/public"
-            mkdir -p "$BASE_PATH/shared/storage/framework/cache"
-            mkdir -p "$BASE_PATH/shared/storage/framework/sessions"
-            mkdir -p "$BASE_PATH/shared/storage/framework/views"
-            mkdir -p "$BASE_PATH/shared/storage/logs"
-            mkdir -p "$RELEASE_PATH"
-
-            if [ ! -f "/tmp/release.tar.gz" ]; then
-              echo "ERROR: release.tar.gz not found in /tmp"
+            if command -v php8.2 >/dev/null 2>&1; then
+              PHP_BIN='php8.2'
+            elif command -v php >/dev/null 2>&1; then
+              PHP_BIN='php'
+            else
+              echo 'ERROR: PHP missing on server'
               exit 1
             fi
 
-            tar -xzf /tmp/release.tar.gz -C "$RELEASE_PATH"
+            mkdir -p \"\$BASE_PATH/releases\"
+            mkdir -p \"\$BASE_PATH/shared/storage/app/public\"
+            mkdir -p \"\$BASE_PATH/shared/storage/framework/cache\"
+            mkdir -p \"\$BASE_PATH/shared/storage/framework/sessions\"
+            mkdir -p \"\$BASE_PATH/shared/storage/framework/views\"
+            mkdir -p \"\$BASE_PATH/shared/storage/logs\"
+            mkdir -p \"\$BASE_PATH/shared/backups\"
+            mkdir -p \"\$RELEASE_PATH\"
+          "
 
-            if [ ! -f "$BASE_PATH/shared/.env" ]; then
-              if [ -f "$BASE_PATH/.env" ]; then
-                cp "$BASE_PATH/.env" "$BASE_PATH/shared/.env"
-              else
-                echo "ERROR: shared .env missing at $BASE_PATH/shared/.env"
-                exit 1
-              fi
+      - name: Upload Files With Rsync
+        run: |
+          set -e
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEV_PORT }}" \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude=".env" \
+            --exclude="node_modules" \
+            --exclude="vendor" \
+            --exclude="release.tar.gz" \
+            --exclude="bootstrap/cache/*.php" \
+            --exclude="storage/logs/*" \
+            --exclude="storage/framework/cache/*" \
+            --exclude="storage/framework/sessions/*" \
+            --exclude="storage/framework/views/*" \
+            --exclude="storage/framework/testing/*" \
+            --exclude="tests" \
+            ./ "${{ secrets.DEV_USER }}@${{ secrets.DEV_HOST }}:${{ secrets.DEV_BASE_PATH }}/releases/${{ env.RELEASE_NAME }}/"
+
+      - name: Activate Release
+        run: |
+          set -e
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEV_PORT }}" "${{ secrets.DEV_USER }}@${{ secrets.DEV_HOST }}" << 'EOF'
+          set -e
+
+          BASE_PATH="${{ secrets.DEV_BASE_PATH }}"
+          RELEASE_NAME="${{ env.RELEASE_NAME }}"
+          RELEASE_PATH="$BASE_PATH/releases/$RELEASE_NAME"
+
+          if command -v php8.2 >/dev/null 2>&1; then
+            PHP_BIN="php8.2"
+          else
+            PHP_BIN="php"
+          fi
+
+          echo "Release path: $RELEASE_PATH"
+
+          if [ ! -f "$BASE_PATH/shared/.env" ]; then
+            if [ -f "$BASE_PATH/.env" ]; then
+              cp "$BASE_PATH/.env" "$BASE_PATH/shared/.env"
+            else
+              echo "ERROR: shared .env missing at $BASE_PATH/shared/.env"
+              exit 1
             fi
+          fi
 
-            if [ -d "$BASE_PATH/storage" ] && [ ! -f "$BASE_PATH/shared/.storage_copied" ]; then
-              cp -a "$BASE_PATH/storage/." "$BASE_PATH/shared/storage/" || true
-              touch "$BASE_PATH/shared/.storage_copied"
-            fi
+          if [ -d "$BASE_PATH/storage" ] && [ ! -f "$BASE_PATH/shared/.storage_copied" ]; then
+            cp -a "$BASE_PATH/storage/." "$BASE_PATH/shared/storage/" || true
+            touch "$BASE_PATH/shared/.storage_copied"
+          fi
 
-            rm -f "$RELEASE_PATH/.env"
-            ln -sfn "$BASE_PATH/shared/.env" "$RELEASE_PATH/.env"
+          rm -f "$RELEASE_PATH/.env"
+          ln -sfn "$BASE_PATH/shared/.env" "$RELEASE_PATH/.env"
 
-            rm -rf "$RELEASE_PATH/storage"
-            ln -sfn "$BASE_PATH/shared/storage" "$RELEASE_PATH/storage"
+          rm -rf "$RELEASE_PATH/storage"
+          ln -sfn "$BASE_PATH/shared/storage" "$RELEASE_PATH/storage"
 
-            mkdir -p "$RELEASE_PATH/public"
+          mkdir -p "$RELEASE_PATH/public"
+          rm -rf "$RELEASE_PATH/public/storage"
+          ln -sfn "$BASE_PATH/shared/storage/app/public" "$RELEASE_PATH/public/storage"
 
-            rm -rf "$RELEASE_PATH/public/storage"
-            ln -sfn "$BASE_PATH/shared/storage/app/public" "$RELEASE_PATH/public/storage"
+          cd "$RELEASE_PATH"
 
-            cd "$RELEASE_PATH"
+          test -f artisan
+          test -f composer.json
+          test -d public
 
-            echo "Checking Laravel files"
-            test -f artisan
-            test -f composer.json
-            test -d vendor
-            test -d public
+          rm -f bootstrap/cache/*.php
 
-            echo "Fixing permissions before artisan commands"
-            chown -R ftpuser:www-data "$RELEASE_PATH"
-            chown -R ftpuser:www-data "$BASE_PATH/shared"
-            chmod -R 775 "$BASE_PATH/shared/storage"
+          composer install \
+            --no-dev \
+            --no-interaction \
+            --prefer-dist \
+            --optimize-autoloader \
+            --no-scripts
 
-            if [ -d "$RELEASE_PATH/bootstrap/cache" ]; then
-              chmod -R 775 "$RELEASE_PATH/bootstrap/cache"
-            fi
+          chmod -R 775 "$BASE_PATH/shared/storage" || true
+          chmod -R 775 "$RELEASE_PATH/bootstrap/cache" || true
 
-            echo "Clearing Laravel cache"
-            $PHP_BIN artisan optimize:clear || true
+          $PHP_BIN artisan package:discover --ansi
+          $PHP_BIN artisan optimize:clear || true
 
-            echo "Running package discovery"
-            $PHP_BIN artisan package:discover --ansi
+          export RELEASE_PATH
 
-            echo "Backing up database before migration"
-            
-            export RELEASE_PATH
-            
-            DB_NAME=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.database");')
-            
-            DB_USER=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.username");')
-            
-            DB_PASS=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.password");')
-            
-            DB_HOST=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.host");')
-            
-            mkdir -p "$BASE_PATH/shared/backups"
-            
+          DB_NAME=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.database");')
+          DB_USER=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.username");')
+          DB_PASS=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.password");')
+          DB_HOST=$($PHP_BIN -r 'require getenv("RELEASE_PATH")."/vendor/autoload.php"; $app = require getenv("RELEASE_PATH")."/bootstrap/app.php"; $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo config("database.connections.mysql.host");')
+
+          if command -v mysqldump >/dev/null 2>&1; then
             mysqldump \
               --single-transaction \
               --quick \
@@ -186,37 +163,25 @@ jobs:
               -u "$DB_USER" \
               -p"$DB_PASS" \
               "$DB_NAME" > "$BASE_PATH/shared/backups/db-backup-before-migrate-$RELEASE_NAME.sql"
-            
-            echo "Running Laravel migrations safely"
-            $PHP_BIN artisan migrate --force
-            
-            echo "Caching Laravel config"
-            $PHP_BIN artisan config:cache
+          else
+            echo "WARNING: mysqldump not found, skipping database backup"
+          fi
 
-            echo "Caching Laravel routes"
-            $PHP_BIN artisan route:cache
+          $PHP_BIN artisan migrate --force
 
-            echo "Caching Laravel views"
-            $PHP_BIN artisan view:cache
+          $PHP_BIN artisan config:cache
+          $PHP_BIN artisan route:cache
+          $PHP_BIN artisan view:cache
 
-            echo "$RELEASE_NAME" > "$RELEASE_PATH/public/deploy-version.txt"
+          echo "$RELEASE_NAME" > "$RELEASE_PATH/public/deploy-version.txt"
 
-            echo "Switching current symlink"
-            ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
-            mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
-            
-            echo "Switching current symlink"
-            ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
-            mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
+          ln -sfn "$RELEASE_PATH" "$BASE_PATH/current_tmp"
+          mv -Tf "$BASE_PATH/current_tmp" "$BASE_PATH/current"
 
-            cd "$BASE_PATH/current"
+          cd "$BASE_PATH/current"
+          $PHP_BIN artisan queue:restart || true
 
-            echo "Restarting queue workers"
-            $PHP_BIN artisan queue:restart || true
+          ls -dt "$BASE_PATH"/releases/* 2>/dev/null | tail -n +6 | xargs -r rm -rf
 
-            echo "Keeping last 5 releases only"
-            ls -dt "$BASE_PATH"/releases/* | tail -n +6 | xargs -r rm -rf
-
-            rm -f /tmp/release.tar.gz
-
-            echo "Dev deployment completed successfully"
+          echo "Dev deployment completed successfully"
+          EOF
