@@ -66,6 +66,14 @@ class DynamicPost extends Model
         return $this->belongsTo(PostType::class, 'post_type_id');
     }
 
+    /**
+     * Keyword groups attached to this specific dynamic post / listing (keyword_type = 'listing').
+     */
+    public function keywords()
+    {
+        return $this->hasMany(Keyword::class, 'dynamic_post_id');
+    }
+
     public function parent()
     {
         return $this->belongsTo(DynamicPost::class, 'parent_id');

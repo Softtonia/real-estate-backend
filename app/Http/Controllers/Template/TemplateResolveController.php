@@ -10,13 +10,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
+use App\Models\DynamicPost;
 
 class TemplateResolveController extends Controller
 {
     public function __construct(
         protected TemplateResolveService $templateResolveService
-    ) {
-    }
+    ) {}
 
     public function resolve(Request $request): JsonResponse
     {
@@ -107,5 +107,16 @@ class TemplateResolveController extends Controller
         }
 
         return is_array($payload) ? $payload : [];
+    }
+    public function showDynamicPostTemplate(Request $request, DynamicPost $dynamicPost): JsonResponse
+    {
+        $request->merge([
+            'post_type_id' => $dynamicPost->post_type_id,
+            'post_id' => $dynamicPost->id,
+            'dynamic_post_id' => $dynamicPost->id,
+            'render_for' => 'frontend',
+        ]);
+
+        return $this->resolve($request);
     }
 }

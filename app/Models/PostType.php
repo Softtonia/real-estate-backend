@@ -94,6 +94,14 @@ class PostType extends Model
         return $this->hasMany(DynamicPost::class, 'post_type_id');
     }
 
+    /**
+     * Keyword groups that target this post type (keyword_type = 'posttype').
+     */
+    public function keywords()
+    {
+        return $this->hasMany(Keyword::class, 'post_type_id');
+    }
+
     public function customFields()
     {
         return $this->hasMany(CustomField::class, 'post_type_id')

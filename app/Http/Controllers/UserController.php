@@ -19,7 +19,6 @@ use App\Models\Property;
 use App\Models\Purpose;
 use App\Models\Customfieldvalue;
 use App\Models\CustomField;
-use App\Models\Keyword;
 use App\Models\CompanyConsultancyProject;
 use App\Models\SiteSetting;
 use App\Models\SubscribedEmail;

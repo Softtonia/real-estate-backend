@@ -30,7 +30,6 @@ use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\PropertyListing\PropertylistingController;
 use App\Http\Controllers\Location\Locationcontroller;
-use App\Http\Controllers\CustomFieldController;
 use App\Http\Controllers\Status\statuscontroller;
 use App\Http\Controllers\Admin\Admincontroller;
 use App\Http\Controllers\Admin\ApiClient\ApiAuthFailureController;
@@ -81,7 +80,6 @@ use App\Http\Controllers\Connections\UserAssociationController;
 
 use App\Http\Controllers\Auth\Kyc\KycController;
 
-use App\Http\Controllers\Keyword\KeywordController;
 use App\Http\Controllers\BusinessEnquiry\BusinessEnquiryController;
 use App\Http\Controllers\Template\CustomWidgetController;
 use App\Http\Controllers\Template\TemplateController;
@@ -90,6 +88,7 @@ use App\Http\Controllers\Template\TemplateDisplayConditionController;
 use App\Http\Controllers\Template\TemplateComponentController;
 use App\Http\Controllers\Template\TemplateApiController;
 
+use App\Http\Controllers\Api\KeywordController;
 use App\Http\Controllers\Api\PostTypeController;
 use App\Http\Controllers\Api\PostTypeExportImportController;
 use App\Http\Controllers\Api\TaxonomyController;
@@ -360,12 +359,6 @@ Route::middleware(['validate.api.client'])->group(function () {
         Route::post('roles/bulk-delete', [RoleController::class, 'bulkDeleteRoles'])->middleware(['throttle:60,1']);
         Route::post('roles/search', [RoleController::class, 'searchRole'])->middleware(['throttle:60,1']);
     });
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('import-keywords', [KeywordController::class, 'import']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('export-keywords', [KeywordController::class, 'export']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('search-keywords', [KeywordController::class, 'searchKeywordList']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('fetch-keywords', [KeywordController::class, 'fetchKeywordList']);
-
 
     Route::middleware(['throttle:60,1', 'api.token'])->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
     // ======= Analytics =========
@@ -659,17 +652,6 @@ Route::middleware(['validate.api.client'])->group(function () {
 
     // Template  Id
 
-    // CustomFieldUniqueCode
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('export-template-id-listings', [CustomFieldController::class, 'exportCustomFieldUniqueCode']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('import-template-id-listings', [CustomFieldController::class, 'importCustomFieldUniqueCode']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('template-id-listings-search', [CustomFieldController::class, 'searchCustomFieldUniqueCode']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('template-id-listings-filter', [CustomFieldController::class, 'filterCustomFieldUniqueCodeByType']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('template-id-listings-by-type', [CustomFieldController::class, 'customFieldUniqueCodeByType']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('add-template-id-listings', [CustomFieldController::class, 'storeCustomFieldUniqueCode']);
-    Route::get('/get-template-id-listings-by-id', [CustomFieldController::class, 'showCustomFieldUniqueCodeById'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('update-template-id-listings', [CustomFieldController::class, 'updateCustomFieldUniqueCode']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->delete('delete-template-id-listings', [CustomFieldController::class, 'destroyCustomFieldUniqueCode']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('bulk-delete-template-id-listings', [CustomFieldController::class, 'bulkDeleteCustomFieldUniqueCode']);
 
 
 
@@ -1026,4 +1008,17 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     Route::post('template-resolve', [TemplateResolveController::class, 'resolve']);
     Route::get('templates-stats', [TemplateListController::class, 'stats']);
+
+    // Keywords
+    Route::get('keywords', [KeywordController::class, 'index']);
+    Route::post('keywords', [KeywordController::class, 'store']);
+    Route::get('keywords/{id}', [KeywordController::class, 'show'])->whereNumber('id');
+    Route::put('keywords/{id}', [KeywordController::class, 'update'])->whereNumber('id');
+    Route::delete('keywords/{id}', [KeywordController::class, 'destroy'])->whereNumber('id');
+    Route::post('keywords/import', [KeywordController::class, 'import']);
+    Route::get('keywords/export', [KeywordController::class, 'export']);
+});
+Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
+    Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
+        ->whereNumber('dynamicPost');
 });

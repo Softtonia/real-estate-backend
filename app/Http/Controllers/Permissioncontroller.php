@@ -211,7 +211,6 @@ public function getModelNames()
         'Custom Field',
         'Ticket',
         'Icon Library',
-        'Keyword',
         'CMS',
         'Review',
         'FAQ',

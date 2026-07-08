@@ -464,18 +464,6 @@ class PostTypeController extends Controller
         return $maxSortOrder ? ((int)$maxSortOrder + 1) : 1;
     }
 
-    private function getNextAvailableMenuOrder(?int $ignoreId = null): int
-    {
-        $usedOrders = PostType::withTrashed()->whereNotNull('menu_order')->where('menu_order', '>=', 6)
-            ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))->orderBy('menu_order')->pluck('menu_order')->map(fn($o) => (int)$o)->toArray();
-        $nextOrder = 6;
-        foreach ($usedOrders as $order) {
-            if ($order === $nextOrder) $nextOrder++;
-            elseif ($order > $nextOrder) break;
-        }
-        return $nextOrder;
-    }
-
     private function formatPostType($pt): array
     {
         $creator = $pt->creator;
