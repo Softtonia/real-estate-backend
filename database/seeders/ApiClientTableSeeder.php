@@ -15,6 +15,12 @@ class ApiClientTableSeeder extends Seeder
     {
         $now = Carbon::now();
 
+        /*
+         * Important:
+         * Keep old names and old slugs same.
+         * Only local allowed_origins are changed to wildcard ports.
+         */
+
         $clients = [
             [
                 'name' => 'Admin Panel',
@@ -171,7 +177,7 @@ class ApiClientTableSeeder extends Seeder
     private function normalizeArray(array $items): array
     {
         return collect($items)
-            ->map(fn($item) => rtrim(strtolower(trim((string) $item)), '/'))
+            ->map(fn ($item) => rtrim(strtolower(trim((string) $item)), '/'))
             ->filter()
             ->unique()
             ->values()
