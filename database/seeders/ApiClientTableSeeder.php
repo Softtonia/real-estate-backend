@@ -23,15 +23,16 @@ class ApiClientTableSeeder extends Seeder
                 'status' => true,
                 'allowed_origins' => [
                     'https://admin.holiplaces.com',
+                    'http://admin.holiplaces.com',
                 ],
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'Production admin panel client.',
+                'description' => 'React admin panel client.',
             ],
             [
-                'name' => 'Local Admin',
-                'slug' => 'local-admin',
+                'name' => 'API Key Port :5173',
+                'slug' => 'api-key-port-5173',
                 'type' => 'admin',
                 'status' => true,
                 'allowed_origins' => [
@@ -41,24 +42,39 @@ class ApiClientTableSeeder extends Seeder
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'Local admin development client.',
+                'description' => 'Local React admin client.',
             ],
             [
-                'name' => 'Business Panel',
-                'slug' => 'business-panel',
-                'type' => 'business',
+                'name' => 'API Key Port :8000',
+                'slug' => 'api-key-port-8000',
+                'type' => 'custom',
                 'status' => true,
                 'allowed_origins' => [
-                    'https://business.holiplaces.com',
+                    'http://localhost:*',
+                    'http://127.0.0.1:*',
                 ],
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'Production business panel client.',
+                'description' => 'Local API testing client.',
             ],
             [
-                'name' => 'Local Business',
-                'slug' => 'local-business',
+                'name' => 'Business.com',
+                'slug' => 'businesscom',
+                'type' => 'business',
+                'status' => true,
+                'allowed_origins' => [
+                    'https://business.holiplaces.com',
+                    'http://business.holiplaces.com',
+                ],
+                'permissions' => ['*'],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'Business production client.',
+            ],
+            [
+                'name' => 'Business Localhost API Key Port :5173',
+                'slug' => 'business-localhost-api-key-port-5173',
                 'type' => 'business',
                 'status' => true,
                 'allowed_origins' => [
@@ -68,35 +84,35 @@ class ApiClientTableSeeder extends Seeder
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'Local business development client.',
+                'description' => 'Business localhost client.',
             ],
             [
-                'name' => 'Holiplaces Website',
-                'slug' => 'holiplaces-website',
+                'name' => 'Local Next.js Website',
+                'slug' => 'local-sagar',
                 'type' => 'website',
                 'status' => true,
                 'allowed_origins' => [
-                    'https://holiplaces.com',
+                    'http://localhost:*',
+                    'http://127.0.0.1:*',
+                ],
+                'permissions' => ['*'],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'Local Next.js website client.',
+            ],
+            [
+                'name' => 'holiplaces.com',
+                'slug' => 'holiplacescom',
+                'type' => 'website',
+                'status' => true,
+                'allowed_origins' => [
                     'https://www.holiplaces.com',
+                    'https://holiplaces.com',
                 ],
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
                 'description' => 'Production Next.js website client.',
-            ],
-            [
-                'name' => 'Local Website',
-                'slug' => 'local-website',
-                'type' => 'website',
-                'status' => true,
-                'allowed_origins' => [
-                    'http://localhost:*',
-                    'http://127.0.0.1:*',
-                ],
-                'permissions' => ['*'],
-                'rate_limit_per_minute' => 300,
-                'requires_signature' => false,
-                'description' => 'Local website development client.',
             ],
             [
                 'name' => 'Mobile Application',
@@ -155,7 +171,7 @@ class ApiClientTableSeeder extends Seeder
     private function normalizeArray(array $items): array
     {
         return collect($items)
-            ->map(fn ($item) => rtrim(strtolower(trim((string) $item)), '/'))
+            ->map(fn($item) => rtrim(strtolower(trim((string) $item)), '/'))
             ->filter()
             ->unique()
             ->values()
