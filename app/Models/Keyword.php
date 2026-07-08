@@ -2,98 +2,70 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Keyword extends Model
 {
-    use HasFactory;
-
-    protected $table = 'keywords';
-
     protected $fillable = [
         'slug',
         'keyword_type',
         'post_type_id',
         'dynamic_post_id',
         'keyword_list',
-        'source_row_number',
-    ];
-
-    protected $hidden = [
-        'source_row_number',
+        'import_uid',
+        'import_file_key',
+        'import_row_number',
+        'last_import_batch_id',
     ];
 
     protected $casts = [
-        'keyword_type' => 'string',
+        'keyword_list' => 'array',
         'post_type_id' => 'integer',
         'dynamic_post_id' => 'integer',
-        'keyword_list' => 'array',
-        'source_row_number' => 'integer',
+        'import_row_number' => 'integer',
     ];
 
-    /**
-     * A keyword group belongs to a post type (when keyword_type = 'posttype').
-     */
-    public function postType()
+    public function postType(): BelongsTo
     {
-        return $this->belongsTo(PostType::class, 'post_type_id');
+        return $this->belongsTo(PostType::class);
     }
 
-    /**
-     * A keyword group belongs to a specific dynamic post / listing (when keyword_type = 'listing').
-     */
-    public function dynamicPost()
+    public function dynamicPost(): BelongsTo
     {
-        return $this->belongsTo(DynamicPost::class, 'dynamic_post_id');
+        return $this->belongsTo(DynamicPost::class);
     }
 
-    public function scopeForPostType($query, int $postTypeId)
+    public function setKeywordListAttribute(mixed $value): void
     {
-        return $query->where('keyword_type', 'posttype')
-            ->where('post_type_id', $postTypeId);
+        $this->attributes['keyword_list'] = json_encode(
+            self::normalizeKeywords($value),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
     }
 
-    public function scopeForListing($query, int $dynamicPostId)
+    public static function normalizeKeywords(mixed $value): array
     {
-        return $query->where('keyword_type', 'listing')
-            ->where('dynamic_post_id', $dynamicPostId);
-    }
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
 
-    /**
-     * Normalize keyword_list: trim spaces, remove empties, remove duplicates.
-     */
-    public static function normalizeKeywordList(mixed $input): array
-    {
-        if (is_string($input)) {
-            $items = explode(',', $input);
-        } elseif (is_array($input)) {
-            $items = $input;
-        } else {
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $value = $decoded;
+            } else {
+                $value = explode(',', $value);
+            }
+        }
+
+        if (! is_array($value)) {
             return [];
         }
 
-        $items = array_map('trim', $items);
-        $items = array_filter($items, fn($v) => $v !== '');
-        $items = array_unique($items);
-
-        return array_values($items);
-    }
-
-    /**
-     * Generate a unique slug from post_type + source_row_number.
-     */
-    public static function generateSlugFromPostType(string $postType, int $sourceRowNumber): string
-    {
-        $base = Str::slug($postType) . '-' . $sourceRowNumber;
-        $slug = $base;
-        $counter = 1;
-
-        while (static::where('slug', $slug)->exists()) {
-            $slug = $base . '-' . $counter++;
-        }
-
-        return $slug;
+        return collect($value)
+            ->flatten()
+            ->map(fn ($item) => trim((string) $item))
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
     }
 }

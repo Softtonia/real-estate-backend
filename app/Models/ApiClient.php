@@ -86,8 +86,13 @@ class ApiClient extends Model
             return (int) $value === 1 ? 1 : 0;
         }
 
-        return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true)
-            ? 1
-            : 0;
+        return in_array(strtolower(trim((string) $value)), [
+            '1',
+            'true',
+            'yes',
+            'on',
+            'active',
+            'enabled',
+        ], true) ? 1 : 0;
     }
 }

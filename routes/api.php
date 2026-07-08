@@ -98,6 +98,8 @@ use App\Http\Controllers\Api\DynamicCustomFieldController;
 use App\Http\Controllers\Api\PostTaxonomyTermController;
 use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
+use App\Http\Controllers\Api\KeywordExportController;
+use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
 use App\Http\Controllers\Template\PageBuilderContextController;
@@ -1010,15 +1012,17 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('templates-stats', [TemplateListController::class, 'stats']);
 
     // Keywords
-    Route::get('keywords', [KeywordController::class, 'index']);
-    Route::post('keywords', [KeywordController::class, 'store']);
-    Route::get('keywords/{id}', [KeywordController::class, 'show'])->whereNumber('id');
-    Route::put('keywords/{id}', [KeywordController::class, 'update'])->whereNumber('id');
-    Route::delete('keywords/{id}', [KeywordController::class, 'destroy'])->whereNumber('id');
-    Route::post('keywords/import', [KeywordController::class, 'import']);
-    Route::get('keywords/export', [KeywordController::class, 'export']);
+    Route::post('keywords/import', [KeywordImportController::class, 'start']);
+    Route::get('keywords/import-progress/{batchId}', [KeywordImportController::class, 'progress']);
+
+    Route::get('keywords/export', [KeywordExportController::class, 'export']);
+    Route::get('keywords/template', [KeywordExportController::class, 'template']);
+
+    Route::apiResource('keywords', KeywordController::class)
+        ->where(['keyword' => '[0-9]+']);
 });
-Route::middleware(['throttle:60,1'])->group(function () {
+Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
         ->whereNumber('dynamicPost');
+    Route::get('dynamic-posts/template/{slug}', [TemplateResolveController::class, 'showDynamicPostTemplateBySlug']);
 });

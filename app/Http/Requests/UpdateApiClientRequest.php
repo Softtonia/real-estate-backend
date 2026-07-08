@@ -40,6 +40,7 @@ class UpdateApiClientRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:255'],
 
             'slug' => [
+                'sometimes',
                 'nullable',
                 'string',
                 'max:255',
@@ -52,15 +53,29 @@ class UpdateApiClientRequest extends FormRequest
                 'sometimes',
                 'required',
                 'string',
-                Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom']),
+                Rule::in([
+                    'admin',
+                    'business',
+                    'website',
+                    'mobile',
+                    'mobile-app',
+                    'server',
+                    'custom',
+                ]),
             ],
 
             'status' => ['sometimes', 'boolean'],
 
-            'allowed_origins' => ['nullable', 'array'],
-            'allowed_origins.*' => ['required', 'string', 'max:255'],
+            'allowed_origins' => ['sometimes', 'nullable', 'array'],
 
-            'permissions' => ['nullable', 'array'],
+            'allowed_origins.*' => [
+                'required',
+                'string',
+                'max:255',
+                'regex:#^(https?)://([^/\s:]+|\*\.[^/\s:]+)(?::(\d+|\*))?$#i',
+            ],
+
+            'permissions' => ['sometimes', 'nullable', 'array'],
             'permissions.*' => [
                 'required',
                 'string',
@@ -68,11 +83,19 @@ class UpdateApiClientRequest extends FormRequest
                 'regex:/^(\*|[a-z0-9_-]+|\*)(\.([a-z0-9_-]+|\*))*$/i',
             ],
 
-            'rate_limit_per_minute' => ['nullable', 'integer', 'min:1', 'max:10000'],
+            'rate_limit_per_minute' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:10000'],
 
             'requires_signature' => ['sometimes', 'boolean'],
 
-            'description' => ['nullable', 'string', 'max:1000'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'allowed_origins.*.regex' => 'Allowed origin must be valid, for example https://example.com, https://*.example.com, http://localhost:* or http://localhost:5173.',
+            'permissions.*.regex' => 'Permission format is invalid. Use formats like *, post_types.*.read, post_types.properties.write.',
         ];
     }
 
@@ -86,6 +109,13 @@ class UpdateApiClientRequest extends FormRequest
             return (int) $value === 1;
         }
 
-        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
+        return in_array(strtolower(trim((string) $value)), [
+            '1',
+            'true',
+            'yes',
+            'on',
+            'active',
+            'enabled',
+        ], true);
     }
 }

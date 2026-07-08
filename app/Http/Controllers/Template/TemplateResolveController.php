@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Template;
 
 use App\Http\Controllers\Controller;
+use App\Models\DynamicPost;
+use App\Models\PostType;
 use App\PageBuilder\Services\TemplateResolveService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
-use App\Models\DynamicPost;
 
 class TemplateResolveController extends Controller
 {
@@ -29,6 +30,9 @@ class TemplateResolveController extends Controller
             'post_type' => ['nullable', 'string'],
 
             'id' => ['nullable'],
+            'post_id' => ['nullable', 'integer'],
+            'dynamic_post_id' => ['nullable', 'integer'],
+
             'title' => ['nullable', 'string'],
             'slug' => ['nullable', 'string'],
             'status' => ['nullable', 'string'],
@@ -65,6 +69,56 @@ class TemplateResolveController extends Controller
             ], 422);
         }
 
+        return $this->resolvePayload($payload);
+    }
+
+    public function showDynamicPostTemplate(Request $request, DynamicPost $dynamicPost): JsonResponse
+    {
+        $payload = [
+            'template_type' => 'single_post',
+            'post_type_id' => (int) $dynamicPost->post_type_id,
+            'post_id' => (int) $dynamicPost->id,
+            'dynamic_post_id' => (int) $dynamicPost->id,
+            'id' => (int) $dynamicPost->id,
+            'render_for' => 'frontend',
+        ];
+
+        return $this->resolvePayload($payload);
+    }
+
+    public function showDynamicPostTemplateBySlug(Request $request, string $slug): JsonResponse
+    {
+        $query = DynamicPost::query()
+            ->where('slug', $slug);
+
+        if ($request->filled('post_type_id')) {
+            $query->where('post_type_id', (int) $request->post_type_id);
+        }
+
+        if ($request->filled('post_type')) {
+            $postType = PostType::where('slug', $request->post_type)
+                ->orWhere('name', $request->post_type)
+                ->first();
+
+            if ($postType) {
+                $query->where('post_type_id', $postType->id);
+            }
+        }
+
+        $dynamicPost = $query->first();
+
+        if (! $dynamicPost) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Dynamic post not found.',
+            ], 404);
+        }
+
+        return $this->showDynamicPostTemplate($request, $dynamicPost);
+    }
+
+    private function resolvePayload(array $payload): JsonResponse
+    {
         try {
             $resolved = $this->templateResolveService->resolve($payload);
 
@@ -107,16 +161,5 @@ class TemplateResolveController extends Controller
         }
 
         return is_array($payload) ? $payload : [];
-    }
-    public function showDynamicPostTemplate(Request $request, DynamicPost $dynamicPost): JsonResponse
-    {
-        $request->merge([
-            'post_type_id' => $dynamicPost->post_type_id,
-            'post_id' => $dynamicPost->id,
-            'dynamic_post_id' => $dynamicPost->id,
-            'render_for' => 'frontend',
-        ]);
-
-        return $this->resolve($request);
     }
 }

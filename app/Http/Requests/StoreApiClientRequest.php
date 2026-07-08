@@ -40,13 +40,27 @@ class StoreApiClientRequest extends FormRequest
             'type' => [
                 'required',
                 'string',
-                Rule::in(['admin', 'business', 'website', 'mobile-app', 'custom']),
+                Rule::in([
+                    'admin',
+                    'business',
+                    'website',
+                    'mobile',
+                    'mobile-app',
+                    'server',
+                    'custom',
+                ]),
             ],
 
             'status' => ['required', 'boolean'],
 
             'allowed_origins' => ['nullable', 'array'],
-            'allowed_origins.*' => ['required', 'string', 'max:255'],
+
+            'allowed_origins.*' => [
+                'required',
+                'string',
+                'max:255',
+                'regex:#^(https?)://([^/\s:]+|\*\.[^/\s:]+)(?::(\d+|\*))?$#i',
+            ],
 
             'permissions' => ['nullable', 'array'],
             'permissions.*' => [
@@ -64,6 +78,14 @@ class StoreApiClientRequest extends FormRequest
         ];
     }
 
+    public function messages(): array
+    {
+        return [
+            'allowed_origins.*.regex' => 'Allowed origin must be valid, for example https://example.com, https://*.example.com, http://localhost:* or http://localhost:5173.',
+            'permissions.*.regex' => 'Permission format is invalid. Use formats like *, post_types.*.read, post_types.properties.write.',
+        ];
+    }
+
     private function toBool(mixed $value): bool
     {
         if (is_bool($value)) {
@@ -74,6 +96,13 @@ class StoreApiClientRequest extends FormRequest
             return (int) $value === 1;
         }
 
-        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
+        return in_array(strtolower(trim((string) $value)), [
+            '1',
+            'true',
+            'yes',
+            'on',
+            'active',
+            'enabled',
+        ], true);
     }
 }

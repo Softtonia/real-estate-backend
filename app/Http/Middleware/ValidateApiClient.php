@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\ApplicationPassword;
 use App\Services\ApiAbuseProtectionService;
+use App\Services\ApiClientOriginService;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -14,20 +15,17 @@ use Symfony\Component\HttpFoundation\Response;
 class ValidateApiClient
 {
     public function __construct(
-        private readonly ApiAbuseProtectionService $apiAbuseProtectionService
+        private readonly ApiAbuseProtectionService $apiAbuseProtectionService,
+        private readonly ApiClientOriginService $originService
     ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
-        $origin = $this->resolveRequestOrigin($request);
-
-        if ($request->isMethod('OPTIONS')) {
-            return $this->corsResponse([], 204, $origin);
-        }
+        $origin = $this->originService->resolveRequestOrigin($request);
 
         $plainToken = $this->extractApplicationPassword($request);
 
-        if (!$plainToken) {
+        if (! $plainToken) {
             return $this->deny($request, 'missing_application_password', 403);
         }
 
@@ -36,7 +34,7 @@ class ValidateApiClient
             ->where('token_hash', hash('sha256', $plainToken))
             ->first();
 
-        if (!$applicationPassword || !$applicationPassword->isValid()) {
+        if (! $applicationPassword || ! $applicationPassword->isValid()) {
             return $this->deny(
                 $request,
                 'invalid_or_expired_application_password',
@@ -48,11 +46,11 @@ class ValidateApiClient
 
         $client = $applicationPassword->apiClient;
 
-        if (!$client) {
+        if (! $client) {
             return $this->deny($request, 'api_client_not_found', 403, null, $plainToken);
         }
 
-        if (!$client->isActive()) {
+        if (! $client->isActive()) {
             return $this->deny($request, 'inactive_api_client', 403, $client->id, $plainToken);
         }
 
@@ -83,7 +81,7 @@ class ValidateApiClient
             );
         }
 
-        if ($origin === '' || strtolower($origin) === 'null') {
+        if ($this->clientRequiresOrigin($client) && $origin === '') {
             return $this->deny(
                 $request,
                 'origin_missing',
@@ -93,7 +91,7 @@ class ValidateApiClient
             );
         }
 
-        if (!$this->originIsAllowed($client, $origin)) {
+        if ($origin !== '' && ! $this->originService->originAllowedForClient($client, $origin)) {
             return $this->deny(
                 $request,
                 'origin_not_allowed',
@@ -102,8 +100,18 @@ class ValidateApiClient
                 $plainToken,
                 [
                     'received_origin' => $origin,
-                    'allowed_origins' => $this->getAllowedOrigins($client),
+                    'allowed_origins' => $client->allowed_origins ?? [],
                 ]
+            );
+        }
+
+        if ($client->isSignatureRequired() && ! $this->signatureIsValid($request, $plainToken)) {
+            return $this->deny(
+                $request,
+                'invalid_signature',
+                403,
+                $client->id,
+                $plainToken
             );
         }
 
@@ -111,19 +119,22 @@ class ValidateApiClient
         $request->attributes->set('application_password', $applicationPassword);
         $request->attributes->set('application_password_plain_token', $plainToken);
 
+        $this->updateLastUsed($request, $client, $applicationPassword);
+
         return $next($request);
     }
 
-    private function extractBearerToken(Request $request): ?string
+    private function clientRequiresOrigin($client): bool
     {
-        $header = $request->header('Authorization');
+        $type = strtolower(trim((string) $client->type));
 
-        if (!$header || !preg_match('/^Bearer\s+(.+)$/i', $header, $matches)) {
-            return null;
-        }
-
-        return trim($matches[1]);
+        return ! in_array($type, [
+            'server',
+            'mobile',
+            'mobile-app',
+        ], true);
     }
+
     private function extractApplicationPassword(Request $request): ?string
     {
         $token = trim((string) $request->header('X-Application-Password'));
@@ -140,138 +151,54 @@ class ValidateApiClient
 
         return null;
     }
-    private function originIsAllowed($client, string $origin): bool
+
+    private function signatureIsValid(Request $request, string $plainToken): bool
     {
-        $allowedOrigins = $this->getAllowedOrigins($client);
+        $timestamp = trim((string) $request->header('X-Timestamp'));
+        $nonce = trim((string) $request->header('X-Nonce'));
+        $signature = trim((string) $request->header('X-Signature'));
 
-        if (app()->environment('local')) {
-            $devOrigins = config('api_security.allowed_dev_origins', []);
-
-            if (is_string($devOrigins)) {
-                $devOrigins = explode(',', $devOrigins);
-            }
-
-            $allowedOrigins = array_merge($allowedOrigins, $devOrigins);
+        if ($timestamp === '' || $nonce === '' || $signature === '') {
+            return false;
         }
 
-        $allowedOrigins = array_map(function ($allowedOrigin) {
-            return $this->normalizeOrigin($allowedOrigin);
-        }, $allowedOrigins);
-
-        $allowedOrigins = array_values(array_filter(array_unique($allowedOrigins)));
-
-        if (in_array('*', $allowedOrigins, true)) {
-            return true;
+        if (! ctype_digit($timestamp)) {
+            return false;
         }
 
-        return in_array($origin, $allowedOrigins, true);
-    }
+        $ttl = (int) config('api_security.signature_ttl', 300);
 
-    private function getAllowedOrigins($client): array
-    {
-        $allowedOrigins = $client->allowed_origins ?? [];
-
-        if (is_string($allowedOrigins)) {
-            $decoded = json_decode($allowedOrigins, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $allowedOrigins = $decoded;
-            } else {
-                $allowedOrigins = explode(',', $allowedOrigins);
-            }
+        if (abs(time() - (int) $timestamp) > $ttl) {
+            return false;
         }
 
-        if (!is_array($allowedOrigins)) {
-            $allowedOrigins = [];
+        $nonceKey = 'api-signature-nonce:' . hash('sha256', $plainToken . '|' . $nonce);
+
+        if (! Cache::add($nonceKey, true, now()->addSeconds($ttl))) {
+            return false;
         }
 
-        if (empty($allowedOrigins) && Schema::hasColumn('api_clients', 'allowed_domain')) {
-            $legacyAllowedDomain = $client->getAttribute('allowed_domain');
+        $bodyHash = hash('sha256', (string) $request->getContent());
 
-            if (!empty($legacyAllowedDomain)) {
-                $allowedOrigins = explode(',', $legacyAllowedDomain);
-            }
-        }
+        $payload = implode("\n", [
+            strtoupper($request->method()),
+            '/' . ltrim($request->path(), '/'),
+            (string) $request->getQueryString(),
+            $bodyHash,
+            $timestamp,
+            $nonce,
+        ]);
 
-        return array_values(array_filter(array_map('trim', $allowedOrigins)));
-    }
+        $expected = hash_hmac('sha256', $payload, $plainToken);
 
-    private function resolveRequestOrigin(Request $request): string
-    {
-        $origin = $this->firstHeaderValue($request->headers->get('Origin'));
-
-        if (!empty($origin) && strtolower($origin) !== 'null') {
-            return $this->normalizeOrigin($origin);
-        }
-
-        $appOrigin = $this->firstHeaderValue($request->headers->get('X-App-Origin'));
-
-        if (!empty($appOrigin) && strtolower($appOrigin) !== 'null') {
-            return $this->normalizeOrigin($appOrigin);
-        }
-
-        $referer = $this->firstHeaderValue($request->headers->get('Referer'));
-
-        if (!empty($referer)) {
-            return $this->normalizeOrigin($referer);
-        }
-
-        return '';
-    }
-
-    private function normalizeOrigin(?string $origin): string
-    {
-        $origin = trim((string) $origin);
-
-        if ($origin === '') {
-            return '';
-        }
-
-        $origin = rtrim($origin, '/');
-
-        $parts = parse_url($origin);
-
-        if (!$parts || empty($parts['scheme']) || empty($parts['host'])) {
-            return strtolower($origin);
-        }
-
-        $scheme = strtolower($parts['scheme']);
-        $host = strtolower($parts['host']);
-        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
-
-        return "{$scheme}://{$host}{$port}";
-    }
-
-    private function normalizeType(?string $type): string
-    {
-        $type = strtolower(trim((string) $type));
-
-        $allowedTypes = [
-            'admin',
-            'business',
-            'website',
-            'custom',
-        ];
-
-        return in_array($type, $allowedTypes, true) ? $type : '';
-    }
-
-    private function firstHeaderValue($value): string
-    {
-        $value = trim((string) $value);
-
-        if (str_contains($value, ',')) {
-            return trim(explode(',', $value)[0]);
-        }
-
-        return $value;
+        return hash_equals($expected, $signature);
     }
 
     private function updateLastUsed(Request $request, $client, ApplicationPassword $applicationPassword): void
     {
         $cacheKey = 'application-password-last-used:' . $applicationPassword->id;
 
-        if (!Cache::add($cacheKey, true, now()->addMinutes(10))) {
+        if (! Cache::add($cacheKey, true, now()->addMinutes(10))) {
             return;
         }
 
@@ -317,53 +244,6 @@ class ValidateApiClient
             $payload['debug'] = $debug;
         }
 
-        return $this->corsResponse(
-            $payload,
-            $status,
-            $this->resolveRequestOrigin($request)
-        );
-    }
-
-    private function corsResponse(array $data, int $status, string $origin): Response
-    {
-        $response = response()->json($data, $status);
-
-        return $this->addCorsHeaders($response, $origin);
-    }
-
-    private function addCorsHeaders(Response $response, string $origin): Response
-    {
-        if ($origin !== '' && strtolower($origin) !== 'null') {
-            $response->headers->set('Access-Control-Allow-Origin', $origin);
-        }
-
-        $response->headers->set('Vary', 'Origin');
-
-        $response->headers->set(
-            'Access-Control-Allow-Methods',
-            'GET, POST, PUT, PATCH, DELETE, OPTIONS'
-        );
-
-        $response->headers->set(
-            'Access-Control-Allow-Headers',
-            'Accept, Content-Type, Authorization, Origin, Referer, X-Requested-With, X-App-Type, X-App-Origin, X-Debug-API-Client, X-Timestamp, X-Nonce, X-Signature'
-        );
-
-        $response->headers->set(
-            'Access-Control-Expose-Headers',
-            'Content-Type'
-        );
-
-        $response->headers->set(
-            'Access-Control-Max-Age',
-            '86400'
-        );
-
-        $response->headers->set(
-            'Access-Control-Allow-Credentials',
-            'true'
-        );
-
-        return $response;
+        return response()->json($payload, $status);
     }
 }

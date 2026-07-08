@@ -49,7 +49,10 @@ class TemplateRenderService
             'terms' => $payload['terms'] ?? [],
         ]);
 
-        $html = $this->renderLayout($layoutJson, $context);
+        $normalizedLayoutJson = $this->normalizeLayoutJsonForRender($layoutJson);
+        $resolvedLayoutJson = $this->hydrateLayoutValues($normalizedLayoutJson, $fields);
+
+        $html = $this->renderLayout($resolvedLayoutJson, $context);
 
         return [
             'template' => [
@@ -61,6 +64,7 @@ class TemplateRenderService
                 'status' => $template->status,
             ],
             'layout_json' => $layoutJson,
+            'resolved_layout_json' => $resolvedLayoutJson,
 
             /*
      * Raw HTML without CSS.
@@ -78,7 +82,186 @@ class TemplateRenderService
             'html_with_styles' => $this->styleService->renderFullHtml($html),
         ];
     }
+    protected function normalizeLayoutJsonForRender(array $layoutJson): array
+    {
+        if (
+            empty($layoutJson['sections'])
+            && ! empty($layoutJson['components'])
+            && is_array($layoutJson['components'])
+        ) {
+            $layoutJson['sections'] = [
+                [
+                    'id' => 'section-root',
+                    'type' => 'section',
+                    'settings' => [],
+                    'rows' => [
+                        [
+                            'id' => 'row-root',
+                            'type' => 'row',
+                            'settings' => [],
+                            'columns' => [
+                                [
+                                    'id' => 'column-root',
+                                    'type' => 'column',
+                                    'width' => 12,
+                                    'settings' => [],
+                                    'components' => $layoutJson['components'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ];
+        }
 
+        return $layoutJson;
+    }
+
+    protected function hydrateLayoutValues(array $layoutJson, array $fields): array
+    {
+        if (! empty($layoutJson['sections']) && is_array($layoutJson['sections'])) {
+            $layoutJson['sections'] = array_map(function ($section) use ($fields) {
+                return $this->hydrateComponentValue($section, $fields);
+            }, $layoutJson['sections']);
+        }
+
+        if (! empty($layoutJson['components']) && is_array($layoutJson['components'])) {
+            $layoutJson['components'] = array_map(function ($component) use ($fields) {
+                return $this->hydrateComponentValue($component, $fields);
+            }, $layoutJson['components']);
+        }
+
+        return $layoutJson;
+    }
+
+    protected function hydrateComponentValue(array $component, array $fields): array
+    {
+        $path = $component['binding']['path']
+            ?? $component['settings']['field']
+            ?? $component['field_path']
+            ?? null;
+
+        $source = $component['source']
+            ?? $component['binding']['source']
+            ?? $component['settings']['source']
+            ?? null;
+
+        if ($path && ! str_contains((string) $path, '.')) {
+            if ($source === 'custom_field') {
+                $path = 'custom.' . $path;
+            } elseif ($source === 'system') {
+                $path = 'system.' . $path;
+            }
+        }
+
+        if (! $path && ! empty($component['binding']['field_key'])) {
+            $path = 'custom.' . $component['binding']['field_key'];
+        }
+
+        if ($path) {
+            $value = data_get($fields, $path);
+
+            $component['field_value'] = $value;
+            $component['value'] = $value;
+            $component['has_value'] = $this->hasRealValue($value);
+
+            $component['settings'] = is_array($component['settings'] ?? null)
+                ? $component['settings']
+                : [];
+
+            $component['settings']['source'] = 'dynamic';
+            $component['settings']['field'] = $path;
+
+            $type = $component['component_key']
+                ?? $component['type']
+                ?? null;
+
+            $type = $this->resolveWidgetType([
+                'type' => $type,
+            ]);
+
+            if (in_array($type, ['heading', 'text'], true)) {
+                $textValue = is_array($value)
+                    ? json_encode($value, JSON_UNESCAPED_SLASHES)
+                    : $value;
+
+                if ($textValue !== null) {
+                    $component['settings']['text'] = $textValue;
+                    $component['settings']['content'] = $textValue;
+                }
+            }
+
+            if (in_array($type, ['image', 'gallery'], true)) {
+                $url = $this->extractFirstUrl($value);
+
+                if ($url) {
+                    $component['type'] = $type === 'gallery' ? 'gallery' : 'image';
+                    $component['component_key'] = $type === 'gallery' ? 'gallery' : 'image';
+                    $component['settings']['url'] = $url;
+                }
+            }
+
+            if ($type === 'button') {
+                if (is_string($value)) {
+                    $component['settings']['url'] = $value;
+                }
+
+                if (is_array($value) && ! empty($value['url'])) {
+                    $component['settings']['url'] = $value['url'];
+                }
+            }
+        }
+
+        foreach (['sections', 'rows', 'columns', 'components', 'children', 'items', 'widgets'] as $childKey) {
+            if (! empty($component[$childKey]) && is_array($component[$childKey])) {
+                $component[$childKey] = array_map(function ($child) use ($fields) {
+                    return is_array($child)
+                        ? $this->hydrateComponentValue($child, $fields)
+                        : $child;
+                }, $component[$childKey]);
+            }
+        }
+
+        return $component;
+    }
+
+    protected function extractFirstUrl(mixed $value): ?string
+    {
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        if (! is_array($value)) {
+            return null;
+        }
+
+        if (! empty($value['url'])) {
+            return (string) $value['url'];
+        }
+
+        if (! empty($value[0]) && is_array($value[0]) && ! empty($value[0]['url'])) {
+            return (string) $value[0]['url'];
+        }
+
+        if (! empty($value['path'])) {
+            return (string) $value['path'];
+        }
+
+        return null;
+    }
+
+    protected function hasRealValue(mixed $value): bool
+    {
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        if (is_array($value) && empty($value)) {
+            return false;
+        }
+
+        return true;
+    }
     public function renderLayout(array $layoutJson, WidgetContext $context): string
     {
         if (array_is_list($layoutJson)) {
@@ -221,8 +404,93 @@ class TemplateRenderService
 
         return collect($children)
             ->filter(fn($child) => is_array($child))
-            ->map(fn(array $child) => $this->renderWidgetNode($child, $context))
+            ->map(fn(array $child) => $this->renderAnyNode($child, $context))
             ->implode('');
+    }
+
+    protected function renderAnyNode(array $node, WidgetContext $context): string
+    {
+        $type = $node['type']
+            ?? $node['component_key']
+            ?? null;
+
+        if (in_array($type, ['container', 'layout'], true)) {
+            $content = $this->renderNodeChildren($node, $context);
+
+            $settings = is_array($node['settings'] ?? null)
+                ? $node['settings']
+                : [];
+
+            $style = $this->buildStyleAttribute($this->componentStyles($settings));
+
+            return sprintf(
+                '<div class="pb-container"%s>%s</div>',
+                $style,
+                $content
+            );
+        }
+
+        if (! empty($node['components']) || ! empty($node['children'])) {
+            $content = $this->renderNodeChildren($node, $context);
+
+            $settings = is_array($node['settings'] ?? null)
+                ? $node['settings']
+                : [];
+
+            $style = $this->buildStyleAttribute($this->componentStyles($settings));
+
+            return sprintf(
+                '<div class="pb-component-wrapper"%s>%s</div>',
+                $style,
+                $content
+            );
+        }
+
+        return $this->renderWidgetNode($node, $context);
+    }
+
+    protected function componentStyles(array $settings): array
+    {
+        $styles = [];
+
+        if (! empty($settings['height'])) {
+            $styles['height'] = $this->cssLength($settings['height']);
+        }
+
+        if (! empty($settings['width'])) {
+            $styles['width'] = $this->cssLength($settings['width']);
+        }
+
+        if (! empty($settings['padding'])) {
+            $styles['padding'] = $this->cssBoxValue($settings['padding']);
+        }
+
+        if (! empty($settings['margin'])) {
+            $styles['margin'] = $this->cssBoxValue($settings['margin']);
+        }
+
+        if (! empty($settings['flexDirection'])) {
+            $styles['display'] = 'flex';
+            $styles['flex-direction'] = $this->safeCssKeyword($settings['flexDirection']);
+        }
+
+        if (! empty($settings['borderWidth'])) {
+            $styles['border-width'] = $this->cssLength($settings['borderWidth']);
+        }
+
+        if (! empty($settings['borderType'])) {
+            $styles['border-style'] = $this->safeCssKeyword($settings['borderType']);
+        }
+
+        if (! empty($settings['borderColor'])) {
+            $styles['border-color'] = $this->safeColor($settings['borderColor']);
+        }
+
+        if (! empty($settings['backgroundColor'])) {
+            $styles['background-color'] = $this->safeColor($settings['backgroundColor']);
+        }
+
+        return $styles;
     }
 
     protected function renderWidgetNode(array $node, WidgetContext $context): string
