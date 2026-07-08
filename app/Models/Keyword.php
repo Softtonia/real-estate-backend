@@ -3,31 +3,34 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Keyword extends Model
 {
     protected $fillable = [
         'slug',
-        'keyword_type',
-        'post_type',
         'keyword_list',
+        'status',
+        'search_volume',
+        'ranking',
     ];
 
     protected $casts = [
-        'keyword_type' => 'integer',
-        'post_type' => 'integer',
         'keyword_list' => 'array',
+        'search_volume' => 'integer',
+        'ranking' => 'integer',
     ];
 
-    public function keywordType(): BelongsTo
+    public function postTypes(): BelongsToMany
     {
-        return $this->belongsTo(PostType::class, 'keyword_type');
+        return $this->belongsToMany(PostType::class, 'keyword_post_type', 'keyword_id', 'post_type_id')
+            ->withTimestamps();
     }
 
-    public function listing(): BelongsTo
+    public function dynamicPosts(): BelongsToMany
     {
-        return $this->belongsTo(DynamicPost::class, 'post_type');
+        return $this->belongsToMany(DynamicPost::class, 'keyword_dynamic_post', 'keyword_id', 'dynamic_post_id')
+            ->withTimestamps();
     }
 
     public function setKeywordListAttribute(mixed $value): void
