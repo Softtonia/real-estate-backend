@@ -23,14 +23,12 @@ class Keyword extends Model
 
     public function postTypes(): BelongsToMany
     {
-        return $this->belongsToMany(PostType::class, 'keyword_post_type', 'keyword_id', 'post_type_id')
-            ->withTimestamps();
+        return $this->belongsToMany(PostType::class, 'keyword_post_type', 'keyword_id', 'post_type_id');
     }
 
     public function dynamicPosts(): BelongsToMany
     {
-        return $this->belongsToMany(DynamicPost::class, 'keyword_dynamic_post', 'keyword_id', 'dynamic_post_id')
-            ->withTimestamps();
+        return $this->belongsToMany(DynamicPost::class, 'keyword_dynamic_post', 'keyword_id', 'dynamic_post_id');
     }
 
     public function setKeywordListAttribute(mixed $value): void
@@ -59,7 +57,7 @@ class Keyword extends Model
 
         return collect($value)
             ->flatten()
-            ->map(fn ($item) => trim((string) $item))
+            ->map(fn($item) => trim((string) $item))
             ->filter()
             ->unique()
             ->values()

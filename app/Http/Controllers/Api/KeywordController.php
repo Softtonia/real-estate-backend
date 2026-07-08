@@ -47,19 +47,19 @@ class KeywordController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        if ($request->has('items')) {
-            $validated = $request->validate([
-                'items' => ['required', 'array', 'min:1'],
-                'items.*.slug' => ['required', 'string', 'max:255', 'distinct', 'unique:keywords,slug'],
-                'items.*.status' => ['nullable', Rule::in(['active', 'inactive'])],
-                'items.*.keyword_type' => ['required'],
-                'items.*.post_type' => ['required'],
-                'items.*.keyword_list' => ['required'],
-                'items.*.search_volume' => ['nullable', 'integer', 'min:0'],
-                'items.*.ranking' => ['nullable', 'integer', 'min:0'],
-            ]);
+        try {
+            if ($request->has('items')) {
+                $validated = $request->validate([
+                    'items' => ['required', 'array', 'min:1'],
+                    'items.*.slug' => ['required', 'string', 'max:255', 'distinct', 'unique:keywords,slug'],
+                    'items.*.status' => ['nullable', Rule::in(['active', 'inactive'])],
+                    'items.*.keyword_type' => ['required'],
+                    'items.*.post_type' => ['required'],
+                    'items.*.keyword_list' => ['required'],
+                    'items.*.search_volume' => ['nullable', 'integer', 'min:0'],
+                    'items.*.ranking' => ['nullable', 'integer', 'min:0'],
+                ]);
 
-            try {
                 $created = DB::transaction(function () use ($validated) {
                     return collect($validated['items'])
                         ->map(fn($item) => $this->createKeywordFromPayload($item))
@@ -72,17 +72,10 @@ class KeywordController extends Controller
                     'message' => 'Keywords created successfully.',
                     'data' => $created,
                 ], 201);
-            } catch (RuntimeException $e) {
-                return response()->json([
-                    'status' => false,
-                    'message' => $e->getMessage(),
-                ], 422);
             }
-        }
 
-        $validated = $this->validateSingleKeyword($request);
+            $validated = $this->validateSingleKeyword($request);
 
-        try {
             $keyword = DB::transaction(fn() => $this->createKeywordFromPayload($validated));
 
             return response()->json([
@@ -90,11 +83,19 @@ class KeywordController extends Controller
                 'message' => 'Keyword created successfully.',
                 'data' => $keyword,
             ], 201);
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (RuntimeException $e) {
             return response()->json([
                 'status' => false,
                 'message' => $e->getMessage(),
             ], 422);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Keyword create failed.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 
@@ -292,8 +293,20 @@ class KeywordController extends Controller
 
     private function createKeywordFromPayload(array $payload): array
     {
-        $postTypeIds = $this->resolver->resolvePostTypeIds($payload['keyword_type']);
-        $dynamicPostIds = $this->resolver->resolveDynamicPostIds($payload['post_type'], $postTypeIds);
+        $postTypeIds = $this->resolver->resolvePostTypeIds($payload['keyword_type'] ?? null);
+
+        if (empty($postTypeIds)) {
+            throw new RuntimeException('Invalid keyword_type. Use post_types id, slug, or name.');
+        }
+
+        $dynamicPostIds = $this->resolver->resolveDynamicPostIds(
+            $payload['post_type'] ?? null,
+            $postTypeIds
+        );
+
+        if (empty($dynamicPostIds)) {
+            throw new RuntimeException('Invalid post_type. Use dynamic_posts id, slug, or title belonging to selected keyword_type.');
+        }
 
         $keyword = Keyword::create([
             'slug' => Str::slug($payload['slug']),
@@ -307,7 +320,10 @@ class KeywordController extends Controller
         $keyword->dynamicPosts()->sync($dynamicPostIds);
 
         return $this->formatKeyword(
-            $keyword->fresh(['postTypes:id,name,slug', 'dynamicPosts:id,post_type_id,title,slug'])
+            $keyword->fresh([
+                'postTypes:id,name,slug',
+                'dynamicPosts:id,post_type_id,title,slug',
+            ])
         );
     }
 
