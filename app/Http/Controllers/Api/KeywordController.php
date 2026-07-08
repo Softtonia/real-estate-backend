@@ -15,7 +15,10 @@ class KeywordController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Keyword::with(['postType:id,name,slug', 'dynamicPost:id,post_type_id,title,slug']);
+        $query = Keyword::with([
+            'keywordType:id,name,slug',
+            'listing:id,post_type_id,title,slug,status,live_status',
+        ]);
 
         $query->when($request->filled('search'), function ($q) use ($request) {
             $search = $request->search;
@@ -27,14 +30,11 @@ class KeywordController extends Controller
         });
 
         $query->when($request->filled('keyword_type'), fn ($q) => $q->where('keyword_type', $request->keyword_type));
-        $query->when($request->filled('post_type_id'), fn ($q) => $q->where('post_type_id', $request->post_type_id));
-        $query->when($request->filled('dynamic_post_id'), fn ($q) => $q->where('dynamic_post_id', $request->dynamic_post_id));
+        $query->when($request->filled('post_type'), fn ($q) => $q->where('post_type', $request->post_type));
 
         $perPage = min((int) $request->get('per_page', 15), 100);
 
-        $keywords = $query
-            ->latest()
-            ->paginate($perPage);
+        $keywords = $query->latest()->paginate($perPage);
 
         $keywords->getCollection()->transform(fn ($keyword) => $this->formatKeyword($keyword));
 
@@ -49,18 +49,23 @@ class KeywordController extends Controller
     {
         $validated = $this->validateKeyword($request);
 
-        $resolved = $this->resolveRelations($validated);
+        $relationError = $this->validateListingBelongsToPostType(
+            (int) $validated['keyword_type'],
+            (int) $validated['post_type']
+        );
+
+        if ($relationError) {
+            return response()->json($relationError, 422);
+        }
 
         $keyword = Keyword::create([
             'slug' => Str::slug($validated['slug']),
-            'keyword_type' => $validated['keyword_type'],
-            'post_type_id' => $resolved['post_type_id'],
-            'dynamic_post_id' => $resolved['dynamic_post_id'],
-            'keyword_list' => $validated['keyword_list'] ?? [],
-            'import_uid' => (string) Str::uuid(),
+            'keyword_type' => (int) $validated['keyword_type'],
+            'post_type' => (int) $validated['post_type'],
+            'keyword_list' => $validated['keyword_list'],
         ]);
 
-        $keyword->load(['postType:id,name,slug', 'dynamicPost:id,post_type_id,title,slug']);
+        $keyword->load(['keywordType:id,name,slug', 'listing:id,post_type_id,title,slug,status,live_status']);
 
         return response()->json([
             'status' => true,
@@ -71,7 +76,10 @@ class KeywordController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $keyword = Keyword::with(['postType:id,name,slug', 'dynamicPost:id,post_type_id,title,slug'])->find($id);
+        $keyword = Keyword::with([
+            'keywordType:id,name,slug',
+            'listing:id,post_type_id,title,slug,status,live_status',
+        ])->find($id);
 
         if (! $keyword) {
             return response()->json([
@@ -100,17 +108,23 @@ class KeywordController extends Controller
 
         $validated = $this->validateKeyword($request, $keyword);
 
-        $resolved = $this->resolveRelations($validated);
+        $relationError = $this->validateListingBelongsToPostType(
+            (int) $validated['keyword_type'],
+            (int) $validated['post_type']
+        );
+
+        if ($relationError) {
+            return response()->json($relationError, 422);
+        }
 
         $keyword->update([
             'slug' => Str::slug($validated['slug']),
-            'keyword_type' => $validated['keyword_type'],
-            'post_type_id' => $resolved['post_type_id'],
-            'dynamic_post_id' => $resolved['dynamic_post_id'],
-            'keyword_list' => $validated['keyword_list'] ?? [],
+            'keyword_type' => (int) $validated['keyword_type'],
+            'post_type' => (int) $validated['post_type'],
+            'keyword_list' => $validated['keyword_list'],
         ]);
 
-        $keyword->load(['postType:id,name,slug', 'dynamicPost:id,post_type_id,title,slug']);
+        $keyword->load(['keywordType:id,name,slug', 'listing:id,post_type_id,title,slug,status,live_status']);
 
         return response()->json([
             'status' => true,
@@ -138,6 +152,50 @@ class KeywordController extends Controller
         ]);
     }
 
+    public function keywordTypes(): JsonResponse
+    {
+        $postTypes = PostType::query()
+            ->where('status', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'slug']);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Keyword types fetched successfully.',
+            'data' => $postTypes,
+        ]);
+    }
+
+    public function listings(int $keywordType): JsonResponse
+    {
+        $postType = PostType::find($keywordType);
+
+        if (! $postType) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Post type not found.',
+            ], 404);
+        }
+
+        $listings = DynamicPost::query()
+            ->where('post_type_id', $postType->id)
+            ->orderBy('title')
+            ->get(['id', 'post_type_id', 'title', 'slug', 'status', 'live_status']);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Dependent listings fetched successfully.',
+            'data' => [
+                'keyword_type' => [
+                    'id' => $postType->id,
+                    'name' => $postType->name,
+                    'slug' => $postType->slug,
+                ],
+                'listings' => $listings,
+            ],
+        ]);
+    }
+
     private function validateKeyword(Request $request, ?Keyword $keyword = null): array
     {
         return $request->validate([
@@ -147,68 +205,45 @@ class KeywordController extends Controller
                 'max:255',
                 Rule::unique('keywords', 'slug')->ignore($keyword?->id),
             ],
-            'keyword_type' => ['required', Rule::in(['post_type', 'dynamic_post'])],
 
-            'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
-            'post_type_slug' => ['nullable', 'string', 'exists:post_types,slug'],
+            'keyword_type' => [
+                'required',
+                'integer',
+                'exists:post_types,id',
+            ],
 
-            'dynamic_post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
-            'dynamic_post_slug' => ['nullable', 'string'],
+            'post_type' => [
+                'required',
+                'integer',
+                'exists:dynamic_posts,id',
+            ],
 
-            'keyword_list' => ['required'],
+            'keyword_list' => [
+                'required',
+            ],
         ]);
     }
 
-    private function resolveRelations(array $data): array
+    private function validateListingBelongsToPostType(int $keywordType, int $postType): ?array
     {
-        $postType = null;
+        $exists = DynamicPost::query()
+            ->where('id', $postType)
+            ->where('post_type_id', $keywordType)
+            ->exists();
 
-        if (! empty($data['post_type_id'])) {
-            $postType = PostType::find((int) $data['post_type_id']);
-        }
-
-        if (! $postType && ! empty($data['post_type_slug'])) {
-            $postType = PostType::where('slug', $data['post_type_slug'])->first();
-        }
-
-        if (! $postType) {
-            abort(response()->json([
+        if (! $exists) {
+            return [
                 'status' => false,
-                'message' => 'Post type is required.',
-            ], 422));
+                'message' => 'Selected listing does not belong to selected keyword type.',
+                'errors' => [
+                    'post_type' => [
+                        'Selected listing does not belong to selected keyword type.',
+                    ],
+                ],
+            ];
         }
 
-        $dynamicPostId = null;
-
-        if (($data['keyword_type'] ?? null) === 'dynamic_post') {
-            $dynamicPost = null;
-
-            if (! empty($data['dynamic_post_id'])) {
-                $dynamicPost = DynamicPost::where('id', (int) $data['dynamic_post_id'])
-                    ->where('post_type_id', $postType->id)
-                    ->first();
-            }
-
-            if (! $dynamicPost && ! empty($data['dynamic_post_slug'])) {
-                $dynamicPost = DynamicPost::where('slug', $data['dynamic_post_slug'])
-                    ->where('post_type_id', $postType->id)
-                    ->first();
-            }
-
-            if (! $dynamicPost) {
-                abort(response()->json([
-                    'status' => false,
-                    'message' => 'Dynamic post is required and must belong to selected post type.',
-                ], 422));
-            }
-
-            $dynamicPostId = $dynamicPost->id;
-        }
-
-        return [
-            'post_type_id' => $postType->id,
-            'dynamic_post_id' => $dynamicPostId,
-        ];
+        return null;
     }
 
     private function formatKeyword(Keyword $keyword): array
@@ -216,22 +251,26 @@ class KeywordController extends Controller
         return [
             'id' => $keyword->id,
             'slug' => $keyword->slug,
+
             'keyword_type' => $keyword->keyword_type,
-            'post_type_id' => $keyword->post_type_id,
-            'dynamic_post_id' => $keyword->dynamic_post_id,
+            'post_type' => $keyword->post_type,
+
             'keyword_list' => $keyword->keyword_list ?? [],
             'keyword_list_text' => implode(', ', $keyword->keyword_list ?? []),
 
-            'post_type' => $keyword->postType ? [
-                'id' => $keyword->postType->id,
-                'name' => $keyword->postType->name,
-                'slug' => $keyword->postType->slug,
+            'keyword_type_data' => $keyword->keywordType ? [
+                'id' => $keyword->keywordType->id,
+                'name' => $keyword->keywordType->name,
+                'slug' => $keyword->keywordType->slug,
             ] : null,
 
-            'dynamic_post' => $keyword->dynamicPost ? [
-                'id' => $keyword->dynamicPost->id,
-                'title' => $keyword->dynamicPost->title,
-                'slug' => $keyword->dynamicPost->slug,
+            'post_type_data' => $keyword->listing ? [
+                'id' => $keyword->listing->id,
+                'title' => $keyword->listing->title,
+                'slug' => $keyword->listing->slug,
+                'post_type_id' => $keyword->listing->post_type_id,
+                'status' => $keyword->listing->status,
+                'live_status' => $keyword->listing->live_status,
             ] : null,
 
             'created_at' => $keyword->created_at,

@@ -33,7 +33,6 @@ class KeywordCsvImportService
     public function readPreviewRows(string $fullPath, int $limit = 10): array
     {
         $headers = $this->readHeaders($fullPath);
-        $headerMap = $this->mapHeaders($headers);
 
         $handle = fopen($fullPath, 'r');
 
@@ -72,7 +71,6 @@ class KeywordCsvImportService
 
         return [
             'headers' => $headers,
-            'header_map' => $headerMap,
             'preview_rows' => $rows,
             'detected_mapping' => $this->detectMapping($headers),
         ];
@@ -82,22 +80,17 @@ class KeywordCsvImportService
     {
         $errors = [];
 
-        if (empty($mapping['slug'])) {
-            $errors['slug'][] = 'Slug column is required.';
-        }
-
-        if (empty($mapping['keyword_list']) && empty($mapping['keyword'])) {
-            $errors['keyword_list'][] = 'Keyword column is required.';
+        foreach (['slug', 'keyword_type', 'post_type', 'keyword_list'] as $field) {
+            if (empty($mapping[$field])) {
+                $errors[$field][] = "{$field} column is required.";
+            }
         }
 
         return $errors;
     }
 
-    public function validateUpload(
-        string $fullPath,
-        array $mapping,
-        string $fileKey
-    ): array {
+    public function validateUpload(string $fullPath, array $mapping): array
+    {
         $headers = $this->readHeaders($fullPath);
         $headerMap = $this->mapHeaders($headers);
 
@@ -106,9 +99,9 @@ class KeywordCsvImportService
         if (! empty($mappingErrors)) {
             return [
                 'status' => false,
+                'total_rows' => 0,
                 'valid_rows' => 0,
                 'invalid_rows' => 0,
-                'total_rows' => 0,
                 'errors' => $mappingErrors,
                 'preview' => [],
             ];
@@ -139,17 +132,12 @@ class KeywordCsvImportService
 
             $totalRows++;
 
-            $prepared = $this->prepareRow(
-                row: $row,
-                headerMap: $headerMap,
-                mapping: $mapping,
-                fileKey: $fileKey,
-                rowNumber: $rowNumber
-            );
+            $prepared = $this->prepareRow($row, $headerMap, $mapping);
 
             $slug = $prepared['data']['slug'] ?? null;
 
             if ($slug && isset($slugSeen[$slug])) {
+                $prepared['valid'] = false;
                 $prepared['errors'][] = [
                     'field' => 'slug',
                     'message' => 'Duplicate slug inside CSV. Already used on row ' . $slugSeen[$slug] . '.',
@@ -202,44 +190,33 @@ class KeywordCsvImportService
         ];
     }
 
-    public function prepareRow(
-        array $row,
-        array $headerMap,
-        array $mapping,
-        string $fileKey,
-        int $rowNumber
-    ): array {
+    public function prepareRow(array $row, array $headerMap, array $mapping): array
+    {
         $errors = [];
 
-        $data = [
-            'id' => $this->cell($row, $headerMap, $mapping['id'] ?? null),
-            'import_uid' => $this->cell($row, $headerMap, $mapping['import_uid'] ?? null),
+        $id = $this->cell($row, $headerMap, $mapping['id'] ?? null);
+        $slugInput = $this->cell($row, $headerMap, $mapping['slug'] ?? null);
+        $keywordTypeInput = $this->cell($row, $headerMap, $mapping['keyword_type'] ?? null);
+        $postTypeInput = $this->cell($row, $headerMap, $mapping['post_type'] ?? null);
+        $keywordListInput = $this->cell($row, $headerMap, $mapping['keyword_list'] ?? null);
 
-            'slug' => $this->cell($row, $headerMap, $mapping['slug'] ?? null),
-            'keyword_type' => $this->cell($row, $headerMap, $mapping['keyword_type'] ?? null),
+        $existingKeyword = null;
 
-            'post_type_id' => $this->cell($row, $headerMap, $mapping['post_type_id'] ?? null),
-            'post_type_slug' => $this->cell($row, $headerMap, $mapping['post_type_slug'] ?? null),
+        if ($id) {
+            $existingKeyword = Keyword::find((int) $id);
+        }
 
-            'dynamic_post_id' => $this->cell($row, $headerMap, $mapping['dynamic_post_id'] ?? null),
-            'dynamic_post_slug' => $this->cell($row, $headerMap, $mapping['dynamic_post_slug'] ?? null),
-
-            'keyword_list' => $this->cell($row, $headerMap, $mapping['keyword_list'] ?? ($mapping['keyword'] ?? null)),
-
-            'search_volume' => $this->cell($row, $headerMap, $mapping['search_volume'] ?? null),
-            'ranking' => $this->cell($row, $headerMap, $mapping['ranking'] ?? null),
-            'intent' => $this->cell($row, $headerMap, $mapping['intent'] ?? null),
-        ];
-
-        $existingKeyword = $this->findExistingKeyword($data, $fileKey, $rowNumber);
-
-        $slug = Str::slug((string) ($data['slug'] ?: $existingKeyword?->slug));
+        $slug = Str::slug((string) ($slugInput ?: $existingKeyword?->slug));
 
         if ($slug === '') {
             $errors[] = [
                 'field' => 'slug',
                 'message' => 'Slug is required.',
             ];
+        }
+
+        if (! $existingKeyword && $slug !== '') {
+            $existingKeyword = Keyword::where('slug', $slug)->first();
         }
 
         if ($slug !== '') {
@@ -256,76 +233,38 @@ class KeywordCsvImportService
             }
         }
 
-        $keywordType = strtolower((string) (
-            $data['keyword_type']
-            ?: $existingKeyword?->keyword_type
-            ?: 'post_type'
-        ));
+        $keywordType = $this->resolveKeywordType($keywordTypeInput ?: $existingKeyword?->keyword_type);
 
-        if (! in_array($keywordType, ['post_type', 'dynamic_post'], true)) {
+        if (! $keywordType) {
             $errors[] = [
                 'field' => 'keyword_type',
-                'message' => 'Keyword type must be post_type or dynamic_post.',
+                'message' => 'Invalid keyword_type. Use post_types id, slug, or name.',
             ];
         }
 
-        $postType = $this->resolvePostType($data, $existingKeyword);
+        $listing = null;
 
-        if (! $postType) {
+        if ($keywordType) {
+            $listing = $this->resolveListing(
+                keywordTypeId: $keywordType->id,
+                value: $postTypeInput ?: $existingKeyword?->post_type
+            );
+        }
+
+        if (! $listing) {
             $errors[] = [
                 'field' => 'post_type',
-                'message' => 'Post type not found.',
+                'message' => 'Invalid post_type. Use dynamic_posts id, slug, or title belonging to selected keyword_type.',
             ];
         }
 
-        $dynamicPost = null;
-
-        if ($keywordType === 'dynamic_post') {
-            if ($postType) {
-                $dynamicPost = $this->resolveDynamicPost($data, $postType, $existingKeyword);
-            }
-
-            if (! $dynamicPost) {
-                $errors[] = [
-                    'field' => 'dynamic_post',
-                    'message' => 'Dynamic post not found or does not belong to selected post type.',
-                ];
-            }
-        }
-
-        $keywordList = Keyword::normalizeKeywords($data['keyword_list']);
+        $keywordList = Keyword::normalizeKeywords($keywordListInput);
 
         if (empty($keywordList)) {
             $errors[] = [
                 'field' => 'keyword_list',
-                'message' => 'Keyword is required.',
+                'message' => 'keyword_list is required.',
             ];
-        }
-
-        $searchVolume = null;
-
-        if ($data['search_volume'] !== null && $data['search_volume'] !== '') {
-            if (! is_numeric($data['search_volume'])) {
-                $errors[] = [
-                    'field' => 'search_volume',
-                    'message' => 'Search volume must be numeric.',
-                ];
-            } else {
-                $searchVolume = (int) $data['search_volume'];
-            }
-        }
-
-        $ranking = null;
-
-        if ($data['ranking'] !== null && $data['ranking'] !== '') {
-            if (! is_numeric($data['ranking'])) {
-                $errors[] = [
-                    'field' => 'ranking',
-                    'message' => 'Ranking must be numeric.',
-                ];
-            } else {
-                $ranking = (int) $data['ranking'];
-            }
         }
 
         return [
@@ -334,24 +273,15 @@ class KeywordCsvImportService
             'errors' => $errors,
             'data' => [
                 'slug' => $slug,
-                'keyword_type' => $keywordType,
-                'post_type_id' => $postType?->id,
-                'post_type_slug' => $postType?->slug,
-                'dynamic_post_id' => $dynamicPost?->id,
-                'dynamic_post_slug' => $dynamicPost?->slug,
+                'keyword_type' => $keywordType?->id,
+                'post_type' => $listing?->id,
                 'keyword_list' => $keywordList,
                 'keyword_list_text' => implode(', ', $keywordList),
-                'search_volume' => $searchVolume,
-                'ranking' => $ranking,
-                'intent' => $data['intent'] ?: null,
-                'import_uid' => $existingKeyword?->import_uid ?: ($data['import_uid'] ?: (string) Str::uuid()),
-                'import_file_key' => $fileKey,
-                'import_row_number' => $rowNumber,
             ],
         ];
     }
 
-    public function upsertPreparedRow(array $prepared, string $batchId): string
+    public function upsertPreparedRow(array $prepared): string
     {
         if (! ($prepared['valid'] ?? false)) {
             throw new RuntimeException($prepared['errors'][0]['message'] ?? 'Invalid row.');
@@ -359,17 +289,11 @@ class KeywordCsvImportService
 
         $data = $prepared['data'];
 
-        return DB::transaction(function () use ($prepared, $data, $batchId) {
+        return DB::transaction(function () use ($prepared, $data) {
             $keyword = null;
 
             if (! empty($prepared['existing_id'])) {
                 $keyword = Keyword::find((int) $prepared['existing_id']);
-            }
-
-            if (! $keyword) {
-                $keyword = Keyword::where('import_file_key', $data['import_file_key'])
-                    ->where('import_row_number', $data['import_row_number'])
-                    ->first();
             }
 
             if (! $keyword) {
@@ -379,16 +303,8 @@ class KeywordCsvImportService
             $payload = [
                 'slug' => $data['slug'],
                 'keyword_type' => $data['keyword_type'],
-                'post_type_id' => $data['post_type_id'],
-                'dynamic_post_id' => $data['dynamic_post_id'],
+                'post_type' => $data['post_type'],
                 'keyword_list' => $data['keyword_list'],
-                'search_volume' => $data['search_volume'],
-                'ranking' => $data['ranking'],
-                'intent' => $data['intent'],
-                'import_uid' => $data['import_uid'],
-                'import_file_key' => $data['import_file_key'],
-                'import_row_number' => $data['import_row_number'],
-                'last_import_batch_id' => $batchId,
             ];
 
             if ($keyword) {
@@ -455,17 +371,10 @@ class KeywordCsvImportService
 
         $aliases = [
             'id' => ['id'],
-            'import_uid' => ['import_uid', 'uid'],
-            'slug' => ['keyword_slug', 'slug', 'keyword_url_slug'],
-            'keyword_list' => ['keyword', 'keywords', 'keyword_list', 'keyword_text'],
-            'keyword_type' => ['keyword_type', 'type'],
-            'post_type_id' => ['post_type_id'],
-            'post_type_slug' => ['post_type_slug', 'post_type'],
-            'dynamic_post_id' => ['dynamic_post_id', 'listing_id', 'post_id'],
-            'dynamic_post_slug' => ['dynamic_post_slug', 'listing_slug', 'post_slug', 'listing'],
-            'search_volume' => ['search_volume', 'volume'],
-            'ranking' => ['ranking', 'rank'],
-            'intent' => ['intent', 'search_intent'],
+            'slug' => ['slug', 'keyword_slug'],
+            'keyword_type' => ['keyword_type', 'type', 'post_type_type'],
+            'post_type' => ['post_type', 'listing', 'listing_id', 'dynamic_post', 'dynamic_post_id'],
+            'keyword_list' => ['keyword_list', 'keywords', 'keyword'],
         ];
 
         $mapping = [];
@@ -521,76 +430,37 @@ class KeywordCsvImportService
         return trim((string) $header, '_');
     }
 
-    private function findExistingKeyword(array $data, string $fileKey, int $rowNumber): ?Keyword
+    private function resolveKeywordType(mixed $value): ?PostType
     {
-        if (! empty($data['id'])) {
-            $keyword = Keyword::find((int) $data['id']);
-
-            if ($keyword) {
-                return $keyword;
-            }
+        if ($value === null || $value === '') {
+            return null;
         }
 
-        if (! empty($data['import_uid'])) {
-            $keyword = Keyword::where('import_uid', $data['import_uid'])->first();
-
-            if ($keyword) {
-                return $keyword;
-            }
+        if (is_numeric($value)) {
+            return PostType::where('id', (int) $value)->first();
         }
 
-        $keyword = Keyword::where('import_file_key', $fileKey)
-            ->where('import_row_number', $rowNumber)
+        return PostType::where('slug', $value)
+            ->orWhere('name', $value)
             ->first();
-
-        if ($keyword) {
-            return $keyword;
-        }
-
-        if (! empty($data['slug'])) {
-            return Keyword::where('slug', Str::slug((string) $data['slug']))->first();
-        }
-
-        return null;
     }
 
-    private function resolvePostType(array $data, ?Keyword $keyword = null): ?PostType
+    private function resolveListing(int $keywordTypeId, mixed $value): ?DynamicPost
     {
-        if (! empty($data['post_type_id'])) {
-            return PostType::find((int) $data['post_type_id']);
+        if ($value === null || $value === '') {
+            return null;
         }
 
-        if (! empty($data['post_type_slug'])) {
-            return PostType::where('slug', $data['post_type_slug'])->first();
+        $query = DynamicPost::query()
+            ->where('post_type_id', $keywordTypeId);
+
+        if (is_numeric($value)) {
+            return $query->where('id', (int) $value)->first();
         }
 
-        if ($keyword?->post_type_id) {
-            return PostType::find($keyword->post_type_id);
-        }
-
-        return null;
-    }
-
-    private function resolveDynamicPost(array $data, PostType $postType, ?Keyword $keyword = null): ?DynamicPost
-    {
-        if (! empty($data['dynamic_post_id'])) {
-            return DynamicPost::where('id', (int) $data['dynamic_post_id'])
-                ->where('post_type_id', $postType->id)
-                ->first();
-        }
-
-        if (! empty($data['dynamic_post_slug'])) {
-            return DynamicPost::where('slug', $data['dynamic_post_slug'])
-                ->where('post_type_id', $postType->id)
-                ->first();
-        }
-
-        if ($keyword?->dynamic_post_id) {
-            return DynamicPost::where('id', $keyword->dynamic_post_id)
-                ->where('post_type_id', $postType->id)
-                ->first();
-        }
-
-        return null;
+        return $query->where(function ($q) use ($value) {
+            $q->where('slug', $value)
+                ->orWhere('title', $value);
+        })->first();
     }
 }

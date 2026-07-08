@@ -23,7 +23,6 @@ class KeywordImportController extends Controller
     {
         $request->validate([
             'file' => ['required', 'file', 'max:20480'],
-            'file_key' => ['nullable', 'string', 'max:150'],
         ]);
 
         $extension = strtolower($request->file('file')->getClientOriginalExtension());
@@ -37,7 +36,6 @@ class KeywordImportController extends Controller
 
         try {
             $uploadId = (string) Str::uuid();
-            $fileKey = $request->input('file_key', 'default');
 
             $storedPath = $request->file('file')->storeAs(
                 'keyword-imports/uploads',
@@ -53,20 +51,18 @@ class KeywordImportController extends Controller
                 'upload_id' => $uploadId,
                 'stored_path' => $storedPath,
                 'original_file_name' => $request->file('file')->getClientOriginalName(),
-                'file_key' => $fileKey,
                 'headers' => $preview['headers'],
                 'mapping' => $preview['detected_mapping'],
                 'validation' => null,
             ];
 
-            $this->cache()->put($this->uploadKey($uploadId), $uploadData, now()->addDay());
+            Cache::put($this->uploadKey($uploadId), $uploadData, now()->addDay());
 
             return response()->json([
                 'status' => true,
                 'message' => 'CSV uploaded successfully.',
                 'data' => [
                     'upload_id' => $uploadId,
-                    'file_key' => $fileKey,
                     'headers' => $preview['headers'],
                     'preview_rows' => $preview['preview_rows'],
                     'detected_mapping' => $preview['detected_mapping'],
@@ -110,7 +106,7 @@ class KeywordImportController extends Controller
         $upload['mapping'] = $validated['mapping'];
         $upload['validation'] = null;
 
-        $this->cache()->put($this->uploadKey($validated['upload_id']), $upload, now()->addDay());
+        Cache::put($this->uploadKey($validated['upload_id']), $upload, now()->addDay());
 
         return response()->json([
             'status' => true,
@@ -142,13 +138,12 @@ class KeywordImportController extends Controller
 
             $result = $this->keywordCsvImportService->validateUpload(
                 fullPath: $fullPath,
-                mapping: $upload['mapping'] ?? [],
-                fileKey: $upload['file_key'] ?? 'default'
+                mapping: $upload['mapping'] ?? []
             );
 
             $upload['validation'] = $result;
 
-            $this->cache()->put($this->uploadKey($validated['upload_id']), $upload, now()->addDay());
+            Cache::put($this->uploadKey($validated['upload_id']), $upload, now()->addDay());
 
             return response()->json([
                 'status' => true,
@@ -189,13 +184,12 @@ class KeywordImportController extends Controller
 
             $validation = $this->keywordCsvImportService->validateUpload(
                 fullPath: $fullPath,
-                mapping: $upload['mapping'] ?? [],
-                fileKey: $upload['file_key'] ?? 'default'
+                mapping: $upload['mapping'] ?? []
             );
 
             $upload['validation'] = $validation;
 
-            $this->cache()->put($this->uploadKey($validated['upload_id']), $upload, now()->addDay());
+            Cache::put($this->uploadKey($validated['upload_id']), $upload, now()->addDay());
         }
 
         if (($validation['invalid_rows'] ?? 0) > 0 && ! $request->boolean('ignore_invalid')) {
@@ -208,11 +202,10 @@ class KeywordImportController extends Controller
 
         $batchId = (string) Str::uuid();
 
-        $this->cache()->put($this->progressKey($batchId), [
+        Cache::put($this->progressKey($batchId), [
             'batch_id' => $batchId,
             'upload_id' => $validated['upload_id'],
             'status' => 'queued',
-            'file_key' => $upload['file_key'] ?? 'default',
             'total' => 0,
             'processed' => 0,
             'created' => 0,
@@ -227,7 +220,6 @@ class KeywordImportController extends Controller
             uploadId: $validated['upload_id'],
             storedPath: $upload['stored_path'],
             mapping: $upload['mapping'] ?? [],
-            fileKey: $upload['file_key'] ?? 'default',
             ignoreInvalid: $request->boolean('ignore_invalid'),
             userId: auth()->id()
         );
@@ -238,14 +230,14 @@ class KeywordImportController extends Controller
             'data' => [
                 'batch_id' => $batchId,
                 'upload_id' => $validated['upload_id'],
-                'progress_url' => url('/api/keywords/import-progress/' . $batchId),
+                'progress_url' => url('/api/keywords-import-progress/' . $batchId),
             ],
         ], 202);
     }
 
     public function progress(string $batchId): JsonResponse
     {
-        $progress = $this->cache()->get($this->progressKey($batchId));
+        $progress = Cache::get($this->progressKey($batchId));
 
         if (! $progress) {
             return response()->json([
@@ -263,14 +255,9 @@ class KeywordImportController extends Controller
 
     private function getUpload(string $uploadId): ?array
     {
-        $upload = $this->cache()->get($this->uploadKey($uploadId));
+        $upload = Cache::get($this->uploadKey($uploadId));
 
         return is_array($upload) ? $upload : null;
-    }
-
-    private function cache()
-    {
-        return Cache::store('redis');
     }
 
     private function uploadKey(string $uploadId): string

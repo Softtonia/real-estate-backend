@@ -11,14 +11,10 @@ class KeywordExportController extends Controller
 {
     public function export(Request $request): StreamedResponse
     {
-        $query = Keyword::with([
-            'postType:id,name,slug',
-            'dynamicPost:id,post_type_id,title,slug',
-        ]);
+        $query = Keyword::query();
 
         $query->when($request->filled('keyword_type'), fn ($q) => $q->where('keyword_type', $request->keyword_type));
-        $query->when($request->filled('post_type_id'), fn ($q) => $q->where('post_type_id', $request->post_type_id));
-        $query->when($request->filled('dynamic_post_id'), fn ($q) => $q->where('dynamic_post_id', $request->dynamic_post_id));
+        $query->when($request->filled('post_type'), fn ($q) => $q->where('post_type', $request->post_type));
 
         $fileName = 'keywords-export-' . now()->format('YmdHis') . '.csv';
 
@@ -27,23 +23,22 @@ class KeywordExportController extends Controller
 
             fwrite($handle, "\xEF\xBB\xBF");
 
-            fputcsv($handle, $this->headers());
+            fputcsv($handle, [
+                'id',
+                'slug',
+                'keyword_type',
+                'post_type',
+                'keyword_list',
+            ]);
 
             $query->orderBy('id')->chunk(500, function ($keywords) use ($handle) {
                 foreach ($keywords as $keyword) {
                     fputcsv($handle, [
                         $keyword->id,
-                        $keyword->import_uid,
                         $keyword->slug,
                         $keyword->keyword_type,
-                        $keyword->post_type_id,
-                        $keyword->postType?->slug,
-                        $keyword->dynamic_post_id,
-                        $keyword->dynamicPost?->slug,
+                        $keyword->post_type,
                         implode(', ', $keyword->keyword_list ?? []),
-                        $keyword->search_volume,
-                        $keyword->ranking,
-                        $keyword->intent,
                     ]);
                 }
             });
@@ -62,36 +57,20 @@ class KeywordExportController extends Controller
 
             fwrite($handle, "\xEF\xBB\xBF");
 
-            fputcsv($handle, $this->headers());
-
             fputcsv($handle, [
-                '',
-                '',
-                'property-listing-main-keywords',
+                'id',
+                'slug',
+                'keyword_type',
                 'post_type',
-                '',
-                'property-listing',
-                '',
-                '',
-                'property in mohali, flats in chandigarh, luxury apartment',
-                '1000',
-                '1',
-                'commercial',
+                'keyword_list',
             ]);
 
             fputcsv($handle, [
                 '',
-                '',
-                'luxury-property-keywords',
-                'dynamic_post',
-                '',
-                'property-listing',
+                'property-listing-main-keywords',
+                '1',
                 '25',
-                '',
-                'luxury flat, 3 bhk flat, ready to move property',
-                '800',
-                '2',
-                'transactional',
+                'property in mohali, flats in chandigarh, luxury apartment',
             ]);
 
             fclose($handle);
@@ -99,23 +78,5 @@ class KeywordExportController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Cache-Control' => 'no-store, no-cache',
         ]);
-    }
-
-    private function headers(): array
-    {
-        return [
-            'id',
-            'import_uid',
-            'slug',
-            'keyword_type',
-            'post_type_id',
-            'post_type_slug',
-            'dynamic_post_id',
-            'dynamic_post_slug',
-            'keyword_list',
-            'search_volume',
-            'ranking',
-            'intent',
-        ];
     }
 }

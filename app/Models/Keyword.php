@@ -10,35 +10,24 @@ class Keyword extends Model
     protected $fillable = [
         'slug',
         'keyword_type',
-        'post_type_id',
-        'dynamic_post_id',
+        'post_type',
         'keyword_list',
-        'search_volume',
-        'ranking',
-        'intent',
-        'import_uid',
-        'import_file_key',
-        'import_row_number',
-        'last_import_batch_id',
     ];
 
     protected $casts = [
+        'keyword_type' => 'integer',
+        'post_type' => 'integer',
         'keyword_list' => 'array',
-        'post_type_id' => 'integer',
-        'dynamic_post_id' => 'integer',
-        'search_volume' => 'integer',
-        'ranking' => 'integer',
-        'import_row_number' => 'integer',
     ];
 
-    public function postType(): BelongsTo
+    public function keywordType(): BelongsTo
     {
-        return $this->belongsTo(PostType::class);
+        return $this->belongsTo(PostType::class, 'keyword_type');
     }
 
-    public function dynamicPost(): BelongsTo
+    public function listing(): BelongsTo
     {
-        return $this->belongsTo(DynamicPost::class);
+        return $this->belongsTo(DynamicPost::class, 'post_type');
     }
 
     public function setKeywordListAttribute(mixed $value): void

@@ -1008,19 +1008,23 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
         Route::get('/widgets/{type}', [WidgetApiController::class, 'show']);
     });
     // Keywords custom routes should come before apiResource
-    Route::prefix('keywords')->group(function () {
-        Route::post('import/upload', [KeywordImportController::class, 'upload']);
-        Route::post('import/map', [KeywordImportController::class, 'map']);
-        Route::post('import/validate', [KeywordImportController::class, 'validateImport']);
-        Route::post('import/confirm', [KeywordImportController::class, 'confirm']);
-        Route::get('import-progress/{batchId}', [KeywordImportController::class, 'progress']);
+    Route::get('keywords-list', [KeywordController::class, 'index']);
+    Route::post('keywords-create', [KeywordController::class, 'store']);
+    Route::get('keywords-show/{id}', [KeywordController::class, 'show']);
+    Route::post('keywords-update/{id}', [KeywordController::class, 'update']);
+    Route::delete('keywords-delete/{id}', [KeywordController::class, 'destroy']);
 
-        Route::get('export', [KeywordExportController::class, 'export']);
-        Route::get('template', [KeywordExportController::class, 'template']);
-    });
+    Route::get('keywords-options-keyword-types', [KeywordController::class, 'keywordTypes']);
+    Route::get('keywords-options-listings/{keywordType}', [KeywordController::class, 'listings']);
 
-    Route::apiResource('keywords', KeywordController::class)
-        ->where(['keyword' => '[0-9]+']);
+    Route::post('keywords-import-upload', [KeywordImportController::class, 'upload']);
+    Route::post('keywords-import-map', [KeywordImportController::class, 'map']);
+    Route::post('keywords-import-validate', [KeywordImportController::class, 'validateImport']);
+    Route::post('keywords-import-confirm', [KeywordImportController::class, 'confirm']);
+    Route::get('keywords-import-progress/{batchId}', [KeywordImportController::class, 'progress']);
+
+    Route::get('keywords-export', [KeywordExportController::class, 'export']);
+    Route::get('keywords-template', [KeywordExportController::class, 'template']);
 });
 Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])

@@ -26,7 +26,6 @@ class ImportKeywordsCsvJob implements ShouldQueue
         public string $uploadId,
         public string $storedPath,
         public array $mapping,
-        public string $fileKey = 'default',
         public bool $ignoreInvalid = false,
         public ?int $userId = null
     ) {
@@ -57,11 +56,11 @@ class ImportKeywordsCsvJob implements ShouldQueue
 
             fgetcsv($handle);
 
-            $rowNumber = 1;
             $processed = 0;
             $created = 0;
             $updated = 0;
             $failed = 0;
+            $rowNumber = 1;
 
             while (($row = fgetcsv($handle)) !== false) {
                 $rowNumber++;
@@ -74,9 +73,7 @@ class ImportKeywordsCsvJob implements ShouldQueue
                     $prepared = $keywordCsvImportService->prepareRow(
                         row: $row,
                         headerMap: $headerMap,
-                        mapping: $this->mapping,
-                        fileKey: $this->fileKey,
-                        rowNumber: $rowNumber
+                        mapping: $this->mapping
                     );
 
                     if (! $prepared['valid']) {
@@ -85,6 +82,7 @@ class ImportKeywordsCsvJob implements ShouldQueue
                         }
 
                         $failed++;
+
                         $this->pushError([
                             'row' => $rowNumber,
                             'message' => $prepared['errors'][0]['message'] ?? 'Invalid row skipped.',
@@ -92,10 +90,11 @@ class ImportKeywordsCsvJob implements ShouldQueue
 
                         $processed++;
                         $this->updateProgressNumbers($processed, $created, $updated, $failed, $total);
+
                         continue;
                     }
 
-                    $result = $keywordCsvImportService->upsertPreparedRow($prepared, $this->batchId);
+                    $result = $keywordCsvImportService->upsertPreparedRow($prepared);
 
                     if ($result === 'created') {
                         $created++;
@@ -159,16 +158,16 @@ class ImportKeywordsCsvJob implements ShouldQueue
     {
         $key = $this->progressKey();
 
-        $current = Cache::store('redis')->get($key, []);
+        $current = Cache::get($key, []);
 
-        Cache::store('redis')->put($key, array_merge($current, $data), now()->addDay());
+        Cache::put($key, array_merge($current, $data), now()->addDay());
     }
 
     private function pushError(array $error): void
     {
         $key = $this->progressKey();
 
-        $current = Cache::store('redis')->get($key, []);
+        $current = Cache::get($key, []);
 
         $errors = $current['errors'] ?? [];
 
@@ -178,7 +177,7 @@ class ImportKeywordsCsvJob implements ShouldQueue
 
         $current['errors'] = $errors;
 
-        Cache::store('redis')->put($key, $current, now()->addDay());
+        Cache::put($key, $current, now()->addDay());
     }
 
     private function progressKey(): string
