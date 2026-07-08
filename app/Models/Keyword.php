@@ -13,6 +13,9 @@ class Keyword extends Model
         'post_type_id',
         'dynamic_post_id',
         'keyword_list',
+        'search_volume',
+        'ranking',
+        'intent',
         'import_uid',
         'import_file_key',
         'import_row_number',
@@ -23,6 +26,8 @@ class Keyword extends Model
         'keyword_list' => 'array',
         'post_type_id' => 'integer',
         'dynamic_post_id' => 'integer',
+        'search_volume' => 'integer',
+        'ranking' => 'integer',
         'import_row_number' => 'integer',
     ];
 

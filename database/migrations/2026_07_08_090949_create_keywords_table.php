@@ -13,10 +13,6 @@ return new class extends Migration
 
             $table->string('slug')->unique();
 
-            /*
-             * post_type = keyword belongs to full post type
-             * dynamic_post = keyword belongs to specific listing/post
-             */
             $table->enum('keyword_type', ['post_type', 'dynamic_post'])
                 ->default('post_type')
                 ->index();
@@ -34,9 +30,10 @@ return new class extends Migration
 
             $table->json('keyword_list')->nullable();
 
-            /*
-             * Import tracking
-             */
+            $table->unsignedInteger('search_volume')->nullable();
+            $table->unsignedInteger('ranking')->nullable();
+            $table->string('intent')->nullable();
+
             $table->uuid('import_uid')->nullable()->unique();
             $table->string('import_file_key')->nullable()->index();
             $table->unsignedInteger('import_row_number')->nullable();

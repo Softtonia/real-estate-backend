@@ -20,22 +20,31 @@ class KeywordExportController extends Controller
         $query->when($request->filled('post_type_id'), fn ($q) => $q->where('post_type_id', $request->post_type_id));
         $query->when($request->filled('dynamic_post_id'), fn ($q) => $q->where('dynamic_post_id', $request->dynamic_post_id));
 
-        $includeSystem = $request->boolean('include_system', true);
-
         $fileName = 'keywords-export-' . now()->format('YmdHis') . '.csv';
 
-        return response()->streamDownload(function () use ($query, $includeSystem) {
+        return response()->streamDownload(function () use ($query) {
             $handle = fopen('php://output', 'w');
 
             fwrite($handle, "\xEF\xBB\xBF");
 
-            $headers = $this->headers($includeSystem);
+            fputcsv($handle, $this->headers());
 
-            fputcsv($handle, $headers);
-
-            $query->orderBy('id')->chunk(500, function ($keywords) use ($handle, $includeSystem) {
+            $query->orderBy('id')->chunk(500, function ($keywords) use ($handle) {
                 foreach ($keywords as $keyword) {
-                    fputcsv($handle, $this->row($keyword, $includeSystem));
+                    fputcsv($handle, [
+                        $keyword->id,
+                        $keyword->import_uid,
+                        $keyword->slug,
+                        $keyword->keyword_type,
+                        $keyword->post_type_id,
+                        $keyword->postType?->slug,
+                        $keyword->dynamic_post_id,
+                        $keyword->dynamicPost?->slug,
+                        implode(', ', $keyword->keyword_list ?? []),
+                        $keyword->search_volume,
+                        $keyword->ranking,
+                        $keyword->intent,
+                    ]);
                 }
             });
 
@@ -46,51 +55,57 @@ class KeywordExportController extends Controller
         ]);
     }
 
-    public function template(Request $request): StreamedResponse
+    public function template(): StreamedResponse
     {
-        $includeSystem = $request->boolean('include_system', true);
-
-        return response()->streamDownload(function () use ($includeSystem) {
+        return response()->streamDownload(function () {
             $handle = fopen('php://output', 'w');
 
             fwrite($handle, "\xEF\xBB\xBF");
 
-            fputcsv($handle, $this->headers($includeSystem));
+            fputcsv($handle, $this->headers());
 
-            if ($includeSystem) {
-                fputcsv($handle, [
-                    '',
-                    '',
-                    'property-listing-main-keywords',
-                    'post_type',
-                    '',
-                    'property-listing',
-                    '',
-                    '',
-                    'property in mohali, flats in chandigarh, luxury apartment',
-                ]);
-            } else {
-                fputcsv($handle, [
-                    'property-listing-main-keywords',
-                    'post_type',
-                    '',
-                    'property-listing',
-                    '',
-                    '',
-                    'property in mohali, flats in chandigarh, luxury apartment',
-                ]);
-            }
+            fputcsv($handle, [
+                '',
+                '',
+                'property-listing-main-keywords',
+                'post_type',
+                '',
+                'property-listing',
+                '',
+                '',
+                'property in mohali, flats in chandigarh, luxury apartment',
+                '1000',
+                '1',
+                'commercial',
+            ]);
+
+            fputcsv($handle, [
+                '',
+                '',
+                'luxury-property-keywords',
+                'dynamic_post',
+                '',
+                'property-listing',
+                '25',
+                '',
+                'luxury flat, 3 bhk flat, ready to move property',
+                '800',
+                '2',
+                'transactional',
+            ]);
 
             fclose($handle);
-        }, 'keywords-template.csv', [
+        }, 'sample_keywords.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Cache-Control' => 'no-store, no-cache',
         ]);
     }
 
-    private function headers(bool $includeSystem): array
+    private function headers(): array
     {
-        $headers = [
+        return [
+            'id',
+            'import_uid',
             'slug',
             'keyword_type',
             'post_type_id',
@@ -98,31 +113,9 @@ class KeywordExportController extends Controller
             'dynamic_post_id',
             'dynamic_post_slug',
             'keyword_list',
+            'search_volume',
+            'ranking',
+            'intent',
         ];
-
-        if ($includeSystem) {
-            array_unshift($headers, 'id', 'import_uid');
-        }
-
-        return $headers;
-    }
-
-    private function row(Keyword $keyword, bool $includeSystem): array
-    {
-        $row = [
-            $keyword->slug,
-            $keyword->keyword_type,
-            $keyword->post_type_id,
-            $keyword->postType?->slug,
-            $keyword->dynamic_post_id,
-            $keyword->dynamicPost?->slug,
-            implode(', ', $keyword->keyword_list ?? []),
-        ];
-
-        if ($includeSystem) {
-            array_unshift($row, $keyword->id, $keyword->import_uid);
-        }
-
-        return $row;
     }
 }

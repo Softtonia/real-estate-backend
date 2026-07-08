@@ -1007,20 +1007,20 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
         Route::get('/dynamic-fields', [DynamicFieldApiController::class, 'index']);
         Route::get('/widgets/{type}', [WidgetApiController::class, 'show']);
     });
+    
+Route::prefix('keywords')->group(function () {
+    Route::post('import/upload', [KeywordImportController::class, 'upload']);
+    Route::post('import/map', [KeywordImportController::class, 'map']);
+    Route::post('import/validate', [KeywordImportController::class, 'validateImport']);
+    Route::post('import/confirm', [KeywordImportController::class, 'confirm']);
+    Route::get('import-progress/{batchId}', [KeywordImportController::class, 'progress']);
 
-    Route::post('template-resolve', [TemplateResolveController::class, 'resolve']);
-    Route::get('templates-stats', [TemplateListController::class, 'stats']);
-
-    // Keywords
-    Route::post('keywords/import', [KeywordImportController::class, 'start']);
-    Route::get('keywords/import-progress/{batchId}', [KeywordImportController::class, 'progress']);
-
-    Route::get('keywords/export', [KeywordExportController::class, 'export']);
-    Route::get('keywords/template', [KeywordExportController::class, 'template']);
-
-    Route::apiResource('keywords', KeywordController::class)
-        ->where(['keyword' => '[0-9]+']);
+    Route::get('export', [KeywordExportController::class, 'export']);
+    Route::get('template', [KeywordExportController::class, 'template']);
 });
+
+Route::apiResource('keywords', KeywordController::class)
+    ->where(['keyword' => '[0-9]+']);
 Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
         ->whereNumber('dynamicPost');
