@@ -10,18 +10,19 @@ return new class extends Migration
     {
         Schema::create('keywords', function (Blueprint $table) {
             $table->id();
-            $table->string('slug')->unique();
 
-            $table->json('keyword_list')->nullable();
+            $table->string('keyword');
 
             $table->enum('status', ['active', 'inactive'])
                 ->default('active')
                 ->index();
 
-            $table->unsignedInteger('search_volume')->nullable();
-            $table->unsignedInteger('ranking')->nullable();
+            $table->unsignedInteger('avg_search_volume')->nullable();
+            $table->decimal('avg_ranking', 8, 2)->nullable();
 
             $table->timestamps();
+
+            $table->index('keyword');
         });
 
         Schema::create('keyword_post_type', function (Blueprint $table) {
@@ -35,7 +36,7 @@ return new class extends Migration
                 ->constrained('post_types')
                 ->cascadeOnDelete();
 
-            $table->unique(['keyword_id', 'post_type_id']);
+            $table->unique(['keyword_id', 'post_type_id'], 'keyword_post_type_unique');
         });
 
         Schema::create('keyword_dynamic_post', function (Blueprint $table) {
@@ -49,7 +50,7 @@ return new class extends Migration
                 ->constrained('dynamic_posts')
                 ->cascadeOnDelete();
 
-            $table->unique(['keyword_id', 'dynamic_post_id']);
+            $table->unique(['keyword_id', 'dynamic_post_id'], 'keyword_dynamic_post_unique');
         });
     }
 

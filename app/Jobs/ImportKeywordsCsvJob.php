@@ -61,6 +61,7 @@ class ImportKeywordsCsvJob implements ShouldQueue
             $updated = 0;
             $failed = 0;
             $rowNumber = 1;
+            $naturalKeysSeen = [];
 
             while (($row = fgetcsv($handle)) !== false) {
                 $rowNumber++;
@@ -75,6 +76,18 @@ class ImportKeywordsCsvJob implements ShouldQueue
                         headerMap: $headerMap,
                         mapping: $this->mapping
                     );
+
+                    $naturalKey = $prepared['natural_key'] ?? null;
+
+                    if ($naturalKey && isset($naturalKeysSeen[$naturalKey])) {
+                        throw new \RuntimeException(
+                            'Duplicate keyword + post_type + listing inside CSV. Already used on row ' . $naturalKeysSeen[$naturalKey] . '.'
+                        );
+                    }
+
+                    if ($naturalKey) {
+                        $naturalKeysSeen[$naturalKey] = $rowNumber;
+                    }
 
                     if (! $prepared['valid']) {
                         if (! $this->ignoreInvalid) {

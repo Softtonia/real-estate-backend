@@ -2,15 +2,17 @@
 
 namespace App\Services;
 
-use App\Models\DynamicPost;
 use App\Models\Keyword;
-use App\Models\PostType;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use RuntimeException;
 
 class KeywordCsvImportService
 {
+    public function __construct(
+        protected KeywordRelationResolver $relationResolver
+    ) {
+    }
+
     public function readHeaders(string $fullPath): array
     {
         $handle = fopen($fullPath, 'r');
@@ -33,6 +35,7 @@ class KeywordCsvImportService
     public function readPreviewRows(string $fullPath, int $limit = 10): array
     {
         $headers = $this->readHeaders($fullPath);
+        $headerMap = $this->mapHeaders($headers);
 
         $handle = fopen($fullPath, 'r');
 
@@ -71,6 +74,7 @@ class KeywordCsvImportService
 
         return [
             'headers' => $headers,
+            'header_map' => $headerMap,
             'preview_rows' => $rows,
             'detected_mapping' => $this->detectMapping($headers),
         ];
@@ -80,10 +84,16 @@ class KeywordCsvImportService
     {
         $errors = [];
 
-        foreach (['slug', 'keyword_type', 'post_type', 'keyword_list'] as $field) {
-            if (empty($mapping[$field])) {
-                $errors[$field][] = "{$field} column is required.";
-            }
+        if (empty($mapping['keyword'])) {
+            $errors['keyword'][] = 'Keyword column is required.';
+        }
+
+        if (empty($mapping['post_type'])) {
+            $errors['post_type'][] = 'post_type column is required.';
+        }
+
+        if (empty($mapping['listing'])) {
+            $errors['listing'][] = 'listing column is required.';
         }
 
         return $errors;
@@ -121,7 +131,7 @@ class KeywordCsvImportService
         $invalidRows = 0;
         $errors = [];
         $preview = [];
-        $slugSeen = [];
+        $naturalKeysSeen = [];
 
         while (($row = fgetcsv($handle)) !== false) {
             $rowNumber++;
@@ -132,20 +142,24 @@ class KeywordCsvImportService
 
             $totalRows++;
 
-            $prepared = $this->prepareRow($row, $headerMap, $mapping);
+            $prepared = $this->prepareRow(
+                row: $row,
+                headerMap: $headerMap,
+                mapping: $mapping
+            );
 
-            $slug = $prepared['data']['slug'] ?? null;
+            $naturalKey = $prepared['natural_key'] ?? null;
 
-            if ($slug && isset($slugSeen[$slug])) {
+            if ($naturalKey && isset($naturalKeysSeen[$naturalKey])) {
                 $prepared['valid'] = false;
                 $prepared['errors'][] = [
-                    'field' => 'slug',
-                    'message' => 'Duplicate slug inside CSV. Already used on row ' . $slugSeen[$slug] . '.',
+                    'field' => 'keyword',
+                    'message' => 'Duplicate keyword + post_type + listing inside CSV. Already used on row ' . $naturalKeysSeen[$naturalKey] . '.',
                 ];
             }
 
-            if ($slug) {
-                $slugSeen[$slug] = $rowNumber;
+            if ($naturalKey) {
+                $naturalKeysSeen[$naturalKey] = $rowNumber;
             }
 
             if ($prepared['valid']) {
@@ -194,89 +208,112 @@ class KeywordCsvImportService
     {
         $errors = [];
 
-        $id = $this->cell($row, $headerMap, $mapping['id'] ?? null);
-        $slugInput = $this->cell($row, $headerMap, $mapping['slug'] ?? null);
-        $keywordTypeInput = $this->cell($row, $headerMap, $mapping['keyword_type'] ?? null);
+        $keywordInput = $this->cell($row, $headerMap, $mapping['keyword'] ?? null);
         $postTypeInput = $this->cell($row, $headerMap, $mapping['post_type'] ?? null);
-        $keywordListInput = $this->cell($row, $headerMap, $mapping['keyword_list'] ?? null);
+        $listingInput = $this->cell($row, $headerMap, $mapping['listing'] ?? null);
+        $statusInput = $this->cell($row, $headerMap, $mapping['status'] ?? null);
+        $avgSearchVolumeInput = $this->cell($row, $headerMap, $mapping['avg_search_volume'] ?? null);
+        $avgRankingInput = $this->cell($row, $headerMap, $mapping['avg_ranking'] ?? null);
 
-        $existingKeyword = null;
+        $keywordText = Keyword::normalizeKeyword($keywordInput);
 
-        if ($id) {
-            $existingKeyword = Keyword::find((int) $id);
-        }
-
-        $slug = Str::slug((string) ($slugInput ?: $existingKeyword?->slug));
-
-        if ($slug === '') {
+        if ($keywordText === '') {
             $errors[] = [
-                'field' => 'slug',
-                'message' => 'Slug is required.',
+                'field' => 'keyword',
+                'message' => 'Keyword is required.',
             ];
         }
 
-        if (! $existingKeyword && $slug !== '') {
-            $existingKeyword = Keyword::where('slug', $slug)->first();
+        try {
+            $keywordType = $this->relationResolver->resolveKeywordType($postTypeInput);
+        } catch (\Throwable $e) {
+            $keywordType = null;
+
+            $errors[] = [
+                'field' => 'post_type',
+                'message' => $e->getMessage(),
+            ];
         }
 
-        if ($slug !== '') {
-            $duplicateSlugExists = Keyword::query()
-                ->where('slug', $slug)
-                ->when($existingKeyword, fn ($q) => $q->where('id', '!=', $existingKeyword->id))
-                ->exists();
+        try {
+            $postType = $keywordType
+                ? $this->relationResolver->resolvePostType($listingInput, (int) $keywordType->id)
+                : null;
 
-            if ($duplicateSlugExists) {
+            if (! $postType) {
+                throw new RuntimeException('listing is required.');
+            }
+        } catch (\Throwable $e) {
+            $postType = null;
+
+            $errors[] = [
+                'field' => 'listing',
+                'message' => $e->getMessage(),
+            ];
+        }
+
+        $status = $this->normalizeStatus($statusInput ?: 'active');
+
+        if (! in_array($status, ['active', 'inactive'], true)) {
+            $errors[] = [
+                'field' => 'status',
+                'message' => 'Status must be active or inactive.',
+            ];
+        }
+
+        $avgSearchVolume = null;
+
+        if ($avgSearchVolumeInput !== null && $avgSearchVolumeInput !== '') {
+            if (! is_numeric($avgSearchVolumeInput)) {
                 $errors[] = [
-                    'field' => 'slug',
-                    'message' => "Slug '{$slug}' already exists.",
+                    'field' => 'avg_search_volume',
+                    'message' => 'avg_search_volume must be numeric.',
                 ];
+            } else {
+                $avgSearchVolume = (int) $avgSearchVolumeInput;
             }
         }
 
-        $keywordType = $this->resolveKeywordType($keywordTypeInput ?: $existingKeyword?->keyword_type);
+        $avgRanking = null;
 
-        if (! $keywordType) {
-            $errors[] = [
-                'field' => 'keyword_type',
-                'message' => 'Invalid keyword_type. Use post_types id, slug, or name.',
-            ];
+        if ($avgRankingInput !== null && $avgRankingInput !== '') {
+            if (! is_numeric($avgRankingInput)) {
+                $errors[] = [
+                    'field' => 'avg_ranking',
+                    'message' => 'avg_ranking must be numeric.',
+                ];
+            } else {
+                $avgRanking = round((float) $avgRankingInput, 2);
+            }
         }
 
-        $listing = null;
+        $existingKeyword = null;
+        $naturalKey = null;
 
-        if ($keywordType) {
-            $listing = $this->resolveListing(
-                keywordTypeId: $keywordType->id,
-                value: $postTypeInput ?: $existingKeyword?->post_type
+        if ($keywordType && $postType && $keywordText !== '') {
+            $existingKeyword = $this->findExistingByNaturalKey(
+                keyword: $keywordText,
+                keywordTypeId: (int) $keywordType->id,
+                postTypeId: (int) $postType->id
             );
-        }
 
-        if (! $listing) {
-            $errors[] = [
-                'field' => 'post_type',
-                'message' => 'Invalid post_type. Use dynamic_posts id, slug, or title belonging to selected keyword_type.',
-            ];
-        }
-
-        $keywordList = Keyword::normalizeKeywords($keywordListInput);
-
-        if (empty($keywordList)) {
-            $errors[] = [
-                'field' => 'keyword_list',
-                'message' => 'keyword_list is required.',
-            ];
+            $naturalKey = mb_strtolower($keywordText) . '|' . $keywordType->id . '|' . $postType->id;
         }
 
         return [
             'valid' => empty($errors),
             'existing_id' => $existingKeyword?->id,
+            'natural_key' => $naturalKey,
             'errors' => $errors,
             'data' => [
-                'slug' => $slug,
-                'keyword_type' => $keywordType?->id,
-                'post_type' => $listing?->id,
-                'keyword_list' => $keywordList,
-                'keyword_list_text' => implode(', ', $keywordList),
+                'keyword' => $keywordText,
+                'post_type' => $keywordType?->slug,
+                'listing' => $postType?->slug,
+                'keyword_type_id' => $keywordType?->id,
+                'post_type_id' => $postType?->id,
+                'status' => $status,
+                'avg_search_volume' => $avgSearchVolume,
+                'avg_ranking' => $avgRanking,
             ],
         ];
     }
@@ -296,25 +333,25 @@ class KeywordCsvImportService
                 $keyword = Keyword::find((int) $prepared['existing_id']);
             }
 
-            if (! $keyword) {
-                $keyword = Keyword::where('slug', $data['slug'])->first();
-            }
-
             $payload = [
-                'slug' => $data['slug'],
-                'keyword_type' => $data['keyword_type'],
-                'post_type' => $data['post_type'],
-                'keyword_list' => $data['keyword_list'],
+                'keyword' => $data['keyword'],
+                'status' => $data['status'],
+                'avg_search_volume' => $data['avg_search_volume'],
+                'avg_ranking' => $data['avg_ranking'],
             ];
 
             if ($keyword) {
                 $keyword->update($payload);
-                return 'updated';
+                $result = 'updated';
+            } else {
+                $keyword = Keyword::create($payload);
+                $result = 'created';
             }
 
-            Keyword::create($payload);
+            $keyword->postTypes()->sync([(int) $data['keyword_type_id']]);
+            $keyword->dynamicPosts()->sync([(int) $data['post_type_id']]);
 
-            return 'created';
+            return $result;
         });
     }
 
@@ -366,15 +403,16 @@ class KeywordCsvImportService
         $normalizedToOriginal = [];
 
         foreach ($headers as $header) {
-            $normalizedToOriginal[$this->normalizeHeader($header)] = $header;
+            $normalizedToOriginal[$this->normalizeHeader((string) $header)] = $header;
         }
 
         $aliases = [
-            'id' => ['id'],
-            'slug' => ['slug', 'keyword_slug'],
-            'keyword_type' => ['keyword_type', 'type', 'post_type_type'],
-            'post_type' => ['post_type', 'listing', 'listing_id', 'dynamic_post', 'dynamic_post_id'],
-            'keyword_list' => ['keyword_list', 'keywords', 'keyword'],
+            'keyword' => ['keyword', 'keywords', 'keyword_text'],
+            'post_type' => ['post_type', 'keyword_type', 'type'],
+            'listing' => ['listing', 'post', 'dynamic_post', 'dynamic_post_slug', 'post_slug'],
+            'status' => ['status', 'active_inactive', 'active_deactive'],
+            'avg_search_volume' => ['avg_search_volume', 'search_volume', 'volume'],
+            'avg_ranking' => ['avg_ranking', 'ranking', 'rank'],
         ];
 
         $mapping = [];
@@ -402,6 +440,18 @@ class KeywordCsvImportService
         return true;
     }
 
+    private function findExistingByNaturalKey(
+        string $keyword,
+        int $keywordTypeId,
+        int $postTypeId
+    ): ?Keyword {
+        return Keyword::query()
+            ->where('keyword', $keyword)
+            ->whereHas('postTypes', fn ($query) => $query->where('post_types.id', $keywordTypeId))
+            ->whereHas('dynamicPosts', fn ($query) => $query->where('dynamic_posts.id', $postTypeId))
+            ->first();
+    }
+
     private function cell(array $row, array $headerMap, ?string $mappedHeader): mixed
     {
         if (! $mappedHeader) {
@@ -424,43 +474,20 @@ class KeywordCsvImportService
     private function normalizeHeader(string $header): string
     {
         $header = preg_replace('/^\xEF\xBB\xBF/', '', $header);
-        $header = strtolower(trim($header));
+        $header = strtolower(trim((string) $header));
         $header = preg_replace('/[^a-z0-9]+/', '_', $header);
 
         return trim((string) $header, '_');
     }
 
-    private function resolveKeywordType(mixed $value): ?PostType
+    private function normalizeStatus(mixed $value): string
     {
-        if ($value === null || $value === '') {
-            return null;
-        }
+        $value = strtolower(trim((string) $value));
 
-        if (is_numeric($value)) {
-            return PostType::where('id', (int) $value)->first();
-        }
-
-        return PostType::where('slug', $value)
-            ->orWhere('name', $value)
-            ->first();
-    }
-
-    private function resolveListing(int $keywordTypeId, mixed $value): ?DynamicPost
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        $query = DynamicPost::query()
-            ->where('post_type_id', $keywordTypeId);
-
-        if (is_numeric($value)) {
-            return $query->where('id', (int) $value)->first();
-        }
-
-        return $query->where(function ($q) use ($value) {
-            $q->where('slug', $value)
-                ->orWhere('title', $value);
-        })->first();
+        return match ($value) {
+            '1', 'yes', 'true', 'enabled', 'enable', 'active' => 'active',
+            '0', 'no', 'false', 'disabled', 'disable', 'inactive', 'deactive' => 'inactive',
+            default => $value,
+        };
     }
 }

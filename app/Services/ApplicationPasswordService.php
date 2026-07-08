@@ -15,6 +15,7 @@ class ApplicationPasswordService
         private readonly ApplicationPasswordRepository $applicationPasswordRepository
     ) {}
 
+
     public function paginateByClient(ApiClient $client, int $perPage = 20)
     {
         return $this->applicationPasswordRepository->paginateByClient($client, $perPage);

@@ -4,63 +4,58 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Str;
 
 class Keyword extends Model
 {
     protected $fillable = [
-        'slug',
-        'keyword_list',
+        'csv_row_id',
+        'keyword',
         'status',
-        'search_volume',
-        'ranking',
+        'avg_search_volume',
+        'avg_ranking',
+    ];
+
+    protected $hidden = [
+        'csv_row_id',
     ];
 
     protected $casts = [
-        'keyword_list' => 'array',
-        'search_volume' => 'integer',
-        'ranking' => 'integer',
+        'avg_search_volume' => 'integer',
+        'avg_ranking' => 'decimal:2',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Keyword $keyword) {
+            if (empty($keyword->csv_row_id)) {
+                $keyword->csv_row_id = (string) Str::uuid();
+            }
+        });
+    }
 
     public function postTypes(): BelongsToMany
     {
-        return $this->belongsToMany(PostType::class, 'keyword_post_type', 'keyword_id', 'post_type_id');
+        return $this->belongsToMany(
+            PostType::class,
+            'keyword_post_type',
+            'keyword_id',
+            'post_type_id'
+        );
     }
 
     public function dynamicPosts(): BelongsToMany
     {
-        return $this->belongsToMany(DynamicPost::class, 'keyword_dynamic_post', 'keyword_id', 'dynamic_post_id');
-    }
-
-    public function setKeywordListAttribute(mixed $value): void
-    {
-        $this->attributes['keyword_list'] = json_encode(
-            self::normalizeKeywords($value),
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        return $this->belongsToMany(
+            DynamicPost::class,
+            'keyword_dynamic_post',
+            'keyword_id',
+            'dynamic_post_id'
         );
     }
 
-    public static function normalizeKeywords(mixed $value): array
+    public static function normalizeKeyword(mixed $value): string
     {
-        if (is_string($value)) {
-            $decoded = json_decode($value, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $value = $decoded;
-            } else {
-                $value = explode(',', $value);
-            }
-        }
-
-        if (! is_array($value)) {
-            return [];
-        }
-
-        return collect($value)
-            ->flatten()
-            ->map(fn($item) => trim((string) $item))
-            ->filter()
-            ->unique()
-            ->values()
-            ->toArray();
+        return trim((string) $value);
     }
 }

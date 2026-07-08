@@ -47,16 +47,14 @@ class KeywordImportController extends Controller
 
             $preview = $this->keywordCsvImportService->readPreviewRows($fullPath, 10);
 
-            $uploadData = [
+            Cache::put($this->uploadKey($uploadId), [
                 'upload_id' => $uploadId,
                 'stored_path' => $storedPath,
                 'original_file_name' => $request->file('file')->getClientOriginalName(),
                 'headers' => $preview['headers'],
                 'mapping' => $preview['detected_mapping'],
                 'validation' => null,
-            ];
-
-            Cache::put($this->uploadKey($uploadId), $uploadData, now()->addDay());
+            ], now()->addDay());
 
             return response()->json([
                 'status' => true,
