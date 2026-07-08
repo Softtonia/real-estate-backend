@@ -1018,7 +1018,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('keywords/import', [KeywordController::class, 'import']);
     Route::get('keywords/export', [KeywordController::class, 'export']);
 });
-Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
+Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
         ->whereNumber('dynamicPost');
 });
