@@ -52,25 +52,15 @@ class KeywordRelationResolver
         }
 
         $ids = [];
-        $invalid = [];
 
         foreach ($items as $item) {
             $postType = $this->resolvePostType($item);
 
             if (! $postType) {
-                $invalid[] = $item;
-                continue;
+                throw new \RuntimeException("Invalid keyword_type '{$item}'. Use post_types id, slug, or name.");
             }
 
             $ids[] = $postType->id;
-        }
-
-        if (! empty($invalid)) {
-            throw new \RuntimeException(
-                "Invalid keyword_type value(s): " . implode(', ', $invalid) .
-                ". Expected post_types.id, post_types.slug, or post_types.name. " .
-                "Available examples: " . $this->postTypeExamples()
-            );
         }
 
         return collect($ids)->unique()->values()->toArray();
@@ -89,37 +79,15 @@ class KeywordRelationResolver
         }
 
         $ids = [];
-        $errors = [];
 
         foreach ($items as $item) {
             $dynamicPost = $this->resolveDynamicPost($item, $allowedPostTypeIds);
 
-            if ($dynamicPost) {
-                $ids[] = $dynamicPost->id;
-                continue;
+            if (! $dynamicPost) {
+                throw new \RuntimeException("Invalid post_type '{$item}'. Use dynamic_posts id, slug, or title belonging to selected keyword_type.");
             }
 
-            $existingAnywhere = $this->findDynamicPostAnywhere($item);
-
-            if ($existingAnywhere) {
-                $actualPostType = PostType::find($existingAnywhere->post_type_id);
-
-                $errors[] =
-                    "Invalid post_type '{$item}'. It exists in dynamic_posts " .
-                    "as id={$existingAnywhere->id}, slug='{$existingAnywhere->slug}', title='{$existingAnywhere->title}', " .
-                    "but it belongs to post_type_id={$existingAnywhere->post_type_id}" .
-                    ($actualPostType ? " ({$actualPostType->slug})" : "") .
-                    ". Selected keyword_type is: " . $this->selectedPostTypesText($allowedPostTypeIds) . ".";
-            } else {
-                $errors[] =
-                    "Invalid post_type '{$item}'. No dynamic_posts record found by id, slug, or title " .
-                    "under selected keyword_type: " . $this->selectedPostTypesText($allowedPostTypeIds) . ". " .
-                    "Available post_type examples for selected keyword_type: " . $this->dynamicPostExamples($allowedPostTypeIds);
-            }
-        }
-
-        if (! empty($errors)) {
-            throw new \RuntimeException(implode(' ', $errors));
+            $ids[] = $dynamicPost->id;
         }
 
         return collect($ids)->unique()->values()->toArray();
@@ -162,73 +130,5 @@ class KeywordRelationResolver
             $q->where('slug', $value)
                 ->orWhere('title', $value);
         })->first();
-    }
-
-    private function findDynamicPostAnywhere(mixed $value): ?DynamicPost
-    {
-        if ($value === null || trim((string) $value) === '') {
-            return null;
-        }
-
-        $value = trim((string) $value);
-
-        if (is_numeric($value)) {
-            return DynamicPost::query()->whereKey((int) $value)->first();
-        }
-
-        return DynamicPost::query()
-            ->where(function ($q) use ($value) {
-                $q->where('slug', $value)
-                    ->orWhere('title', $value);
-            })
-            ->first();
-    }
-
-    private function selectedPostTypesText(array $ids): string
-    {
-        $items = PostType::query()
-            ->whereIn('id', $ids)
-            ->get(['id', 'name', 'slug']);
-
-        if ($items->isEmpty()) {
-            return 'none';
-        }
-
-        return $items
-            ->map(fn ($item) => "#{$item->id} {$item->slug} ({$item->name})")
-            ->implode(', ');
-    }
-
-    private function postTypeExamples(): string
-    {
-        $items = PostType::query()
-            ->orderBy('id')
-            ->limit(10)
-            ->get(['id', 'name', 'slug']);
-
-        if ($items->isEmpty()) {
-            return 'No post_types found.';
-        }
-
-        return $items
-            ->map(fn ($item) => "#{$item->id} slug='{$item->slug}' name='{$item->name}'")
-            ->implode('; ');
-    }
-
-    private function dynamicPostExamples(array $allowedPostTypeIds): string
-    {
-        $items = DynamicPost::query()
-            ->whereIn('post_type_id', $allowedPostTypeIds)
-            ->orderBy('id')
-            ->limit(10)
-            ->get(['id', 'post_type_id', 'title', 'slug']);
-
-        if ($items->isEmpty()) {
-            return 'No dynamic_posts found for selected keyword_type.';
-        }
-
-        return $items
-            ->map(fn ($item) => "#{$item->id} post_type_id={$item->post_type_id} slug='{$item->slug}' title='{$item->title}'")
-            ->implode('; ');
     }
 }

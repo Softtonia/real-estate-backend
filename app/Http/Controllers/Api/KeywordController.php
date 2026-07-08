@@ -12,13 +12,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class KeywordController extends Controller
 {
     public function __construct(
         protected KeywordRelationResolver $resolver
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -34,7 +36,7 @@ class KeywordController extends Controller
 
         $keywords = $query->latest()->paginate($perPage);
 
-        $keywords->getCollection()->transform(fn (Keyword $keyword) => $this->formatKeyword($keyword));
+        $keywords->getCollection()->transform(fn(Keyword $keyword) => $this->formatKeyword($keyword));
 
         return response()->json([
             'status' => true,
@@ -57,28 +59,43 @@ class KeywordController extends Controller
                 'items.*.ranking' => ['nullable', 'integer', 'min:0'],
             ]);
 
-            $created = [];
+            try {
+                $created = DB::transaction(function () use ($validated) {
+                    return collect($validated['items'])
+                        ->map(fn($item) => $this->createKeywordFromPayload($item))
+                        ->values()
+                        ->toArray();
+                });
 
-            foreach ($validated['items'] as $item) {
-                $created[] = DB::transaction(fn () => $this->createKeywordFromPayload($item));
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Keywords created successfully.',
+                    'data' => $created,
+                ], 201);
+            } catch (RuntimeException $e) {
+                return response()->json([
+                    'status' => false,
+                    'message' => $e->getMessage(),
+                ], 422);
             }
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Keywords created successfully.',
-                'data' => $created,
-            ], 201);
         }
 
         $validated = $this->validateSingleKeyword($request);
 
-        $keyword = DB::transaction(fn () => $this->createKeywordFromPayload($validated));
+        try {
+            $keyword = DB::transaction(fn() => $this->createKeywordFromPayload($validated));
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Keyword created successfully.',
-            'data' => $keyword,
-        ], 201);
+            return response()->json([
+                'status' => true,
+                'message' => 'Keyword created successfully.',
+                'data' => $keyword,
+            ], 201);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     public function show(int $id): JsonResponse
@@ -115,31 +132,38 @@ class KeywordController extends Controller
 
         $validated = $this->validateSingleKeyword($request, $keyword);
 
-        $updated = DB::transaction(function () use ($keyword, $validated) {
-            $postTypeIds = $this->resolver->resolvePostTypeIds($validated['keyword_type']);
-            $dynamicPostIds = $this->resolver->resolveDynamicPostIds($validated['post_type'], $postTypeIds);
+        try {
+            $updated = DB::transaction(function () use ($keyword, $validated) {
+                $postTypeIds = $this->resolver->resolvePostTypeIds($validated['keyword_type']);
+                $dynamicPostIds = $this->resolver->resolveDynamicPostIds($validated['post_type'], $postTypeIds);
 
-            $keyword->update([
-                'slug' => Str::slug($validated['slug']),
-                'status' => $validated['status'] ?? 'active',
-                'keyword_list' => $validated['keyword_list'],
-                'search_volume' => $validated['search_volume'] ?? null,
-                'ranking' => $validated['ranking'] ?? null,
+                $keyword->update([
+                    'slug' => Str::slug($validated['slug']),
+                    'status' => $validated['status'] ?? 'active',
+                    'keyword_list' => $validated['keyword_list'],
+                    'search_volume' => $validated['search_volume'] ?? null,
+                    'ranking' => $validated['ranking'] ?? null,
+                ]);
+
+                $keyword->postTypes()->sync($postTypeIds);
+                $keyword->dynamicPosts()->sync($dynamicPostIds);
+
+                return $this->formatKeyword(
+                    $keyword->fresh(['postTypes:id,name,slug', 'dynamicPosts:id,post_type_id,title,slug'])
+                );
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Keyword updated successfully.',
+                'data' => $updated,
             ]);
-
-            $keyword->postTypes()->sync($postTypeIds);
-            $keyword->dynamicPosts()->sync($dynamicPostIds);
-
-            return $this->formatKeyword(
-                $keyword->fresh(['postTypes:id,name,slug', 'dynamicPosts:id,post_type_id,title,slug'])
-            );
-        });
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Keyword updated successfully.',
-            'data' => $updated,
-        ]);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     public function destroy(int $id): JsonResponse
@@ -204,7 +228,7 @@ class KeywordController extends Controller
                 'total_keywords' => $keywords->count(),
                 'active_keywords' => $keywords->where('status', 'active')->count(),
                 'inactive_keywords' => $keywords->where('status', 'inactive')->count(),
-                'total_keyword_items' => $keywords->sum(fn ($keyword) => count($keyword->keyword_list ?? [])),
+                'total_keyword_items' => $keywords->sum(fn($keyword) => count($keyword->keyword_list ?? [])),
                 'avg_ranking' => round((float) $keywords->whereNotNull('ranking')->avg('ranking'), 2),
                 'avg_search_volume' => round((float) $keywords->whereNotNull('search_volume')->avg('search_volume'), 2),
             ],
@@ -298,13 +322,13 @@ class KeywordController extends Controller
             });
         });
 
-        $query->when($request->filled('status'), fn ($q) => $q->where('status', $request->status));
+        $query->when($request->filled('status'), fn($q) => $q->where('status', $request->status));
 
         $query->when($request->filled('keyword_type'), function ($q) use ($request) {
             $postType = $this->resolver->resolvePostType($request->keyword_type);
 
             if ($postType) {
-                $q->whereHas('postTypes', fn ($sub) => $sub->where('post_types.id', $postType->id));
+                $q->whereHas('postTypes', fn($sub) => $sub->where('post_types.id', $postType->id));
             }
         });
 
@@ -335,13 +359,13 @@ class KeywordController extends Controller
             'search_volume' => $keyword->search_volume,
             'ranking' => $keyword->ranking,
 
-            'keyword_type' => $keyword->postTypes->map(fn ($postType) => [
+            'keyword_type' => $keyword->postTypes->map(fn($postType) => [
                 'id' => $postType->id,
                 'name' => $postType->name,
                 'slug' => $postType->slug,
             ])->values(),
 
-            'post_type' => $keyword->dynamicPosts->map(fn ($dynamicPost) => [
+            'post_type' => $keyword->dynamicPosts->map(fn($dynamicPost) => [
                 'id' => $dynamicPost->id,
                 'post_type_id' => $dynamicPost->post_type_id,
                 'title' => $dynamicPost->title,
