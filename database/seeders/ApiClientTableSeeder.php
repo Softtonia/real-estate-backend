@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Services\ApiClientOriginService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -22,99 +23,80 @@ class ApiClientTableSeeder extends Seeder
                 'status' => true,
                 'allowed_origins' => [
                     'https://admin.holiplaces.com',
-                    'http://admin.holiplaces.com',
-                    'http://localhost:5173',
-                    'http://127.0.0.1:5173',
                 ],
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'React admin panel client.',
+                'description' => 'Production admin panel client.',
             ],
             [
-                'name' => 'API Key Port :5173',
-                'slug' => 'api-key-port-5173',
+                'name' => 'Local Admin',
+                'slug' => 'local-admin',
                 'type' => 'admin',
                 'status' => true,
                 'allowed_origins' => [
-                    'http://localhost:5173',
+                    'http://localhost:*',
+                    'http://127.0.0.1:*',
                 ],
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'Local React admin client.',
+                'description' => 'Local admin development client.',
             ],
             [
-                'name' => 'API Key Port :8000',
-                'slug' => 'api-key-port-8000',
-                'type' => 'custom',
-                'status' => true,
-                'allowed_origins' => [
-                    'http://127.0.0.1:8000',
-                ],
-                'permissions' => ['*'],
-                'rate_limit_per_minute' => 300,
-                'requires_signature' => false,
-                'description' => 'Local API testing client.',
-            ],
-            [
-                'name' => 'Business.com',
-                'slug' => 'businesscom',
+                'name' => 'Business Panel',
+                'slug' => 'business-panel',
                 'type' => 'business',
                 'status' => true,
                 'allowed_origins' => [
                     'https://business.holiplaces.com',
-                    'http://business.holiplaces.com',
                 ],
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'Business production client.',
+                'description' => 'Production business panel client.',
             ],
             [
-                'name' => 'Business Localhost API Key Port :5173',
-                'slug' => 'business-localhost-api-key-port-5173',
+                'name' => 'Local Business',
+                'slug' => 'local-business',
                 'type' => 'business',
                 'status' => true,
                 'allowed_origins' => [
-                    'http://localhost:5173',
-                    'http://localhost:5175',
+                    'http://localhost:*',
+                    'http://127.0.0.1:*',
                 ],
                 'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
-                'description' => 'Business localhost client.',
+                'description' => 'Local business development client.',
             ],
             [
-                'name' => 'Local Next.js Website',
-                'slug' => 'local-sagar',
+                'name' => 'Holiplaces Website',
+                'slug' => 'holiplaces-website',
                 'type' => 'website',
                 'status' => true,
                 'allowed_origins' => [
-                    'http://localhost:3000',
-                    'http://localhost:3000/',
-                    'http://127.0.0.1:3000',
-                ],
-                'permissions' => ['*'],
-                'rate_limit_per_minute' => 300,
-                'requires_signature' => false,
-                'description' => 'Local Next.js website client.',
-            ],
-            [
-                'name' => 'holiplaces.com',
-                'slug' => 'holiplacescom',
-                'type' => 'website',
-                'status' => true,
-                'allowed_origins' => [
-                    'https://www.holiplaces.com',
                     'https://holiplaces.com',
+                    'https://www.holiplaces.com',
                 ],
-                'permissions' => [
-                    'post_types.*.read',
-                ],
+                'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
-                'requires_signature' => true,
+                'requires_signature' => false,
                 'description' => 'Production Next.js website client.',
+            ],
+            [
+                'name' => 'Local Website',
+                'slug' => 'local-website',
+                'type' => 'website',
+                'status' => true,
+                'allowed_origins' => [
+                    'http://localhost:*',
+                    'http://127.0.0.1:*',
+                ],
+                'permissions' => ['*'],
+                'rate_limit_per_minute' => 300,
+                'requires_signature' => false,
+                'description' => 'Local website development client.',
             ],
             [
                 'name' => 'Mobile Application',
@@ -122,33 +104,17 @@ class ApiClientTableSeeder extends Seeder
                 'type' => 'mobile-app',
                 'status' => true,
                 'allowed_origins' => [],
-                'permissions' => [
-                    'post_types.*.read',
-                ],
+                'permissions' => ['*'],
                 'rate_limit_per_minute' => 300,
                 'requires_signature' => false,
                 'description' => 'Mobile application client.',
             ],
-            [
-                'name' => 'Custom Integration',
-                'slug' => 'custom-integration',
-                'type' => 'custom',
-                'status' => true,
-                'allowed_origins' => [
-                    'https://partner1.com',
-                    'https://partner2.com',
-                ],
-                'permissions' => [
-                    'post_types.*.read',
-                    'post_types.*.write',
-                ],
-                'rate_limit_per_minute' => 300,
-                'requires_signature' => true,
-                'description' => 'External custom integration client.',
-            ],
         ];
 
         foreach ($clients as $client) {
+            $client['allowed_origins'] = $this->normalizeArray($client['allowed_origins']);
+            $client['permissions'] = $this->normalizeArray($client['permissions']);
+
             $existing = DB::table('api_clients')
                 ->where('slug', $client['slug'])
                 ->first();
@@ -168,33 +134,11 @@ class ApiClientTableSeeder extends Seeder
                 'updated_at' => $now,
             ];
 
-            if (!$existing) {
+            if (! $existing) {
                 $data['created_at'] = $now;
             }
 
-            if (Schema::hasColumn('api_clients', 'client_name')) {
-                $data['client_name'] = $client['name'];
-            }
-
-            if (Schema::hasColumn('api_clients', 'app_type')) {
-                $data['app_type'] = $client['type'];
-            }
-
-            if (Schema::hasColumn('api_clients', 'allowed_domain')) {
-                $data['allowed_domain'] = implode(',', $client['allowed_origins']);
-            }
-
-            if (!$existing && Schema::hasColumn('api_clients', 'client_id')) {
-                $data['client_id'] = Str::upper(Str::random(16));
-            }
-
-            if (!$existing && Schema::hasColumn('api_clients', 'client_secret')) {
-                $data['client_secret'] = Str::upper(Str::random(32));
-            }
-
-            if (!$existing && Schema::hasColumn('api_clients', 'nextjs_internal_key')) {
-                $data['nextjs_internal_key'] = Str::random(48);
-            }
+            $data = $this->addLegacyColumns($data, $client, ! $existing);
 
             if ($existing) {
                 DB::table('api_clients')
@@ -204,5 +148,46 @@ class ApiClientTableSeeder extends Seeder
                 DB::table('api_clients')->insert($data);
             }
         }
+
+        app(ApiClientOriginService::class)->clearCache();
+    }
+
+    private function normalizeArray(array $items): array
+    {
+        return collect($items)
+            ->map(fn ($item) => rtrim(strtolower(trim((string) $item)), '/'))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function addLegacyColumns(array $data, array $client, bool $isCreate): array
+    {
+        if (Schema::hasColumn('api_clients', 'client_name')) {
+            $data['client_name'] = $client['name'];
+        }
+
+        if (Schema::hasColumn('api_clients', 'app_type')) {
+            $data['app_type'] = $client['type'];
+        }
+
+        if (Schema::hasColumn('api_clients', 'allowed_domain')) {
+            $data['allowed_domain'] = implode(',', $client['allowed_origins']);
+        }
+
+        if ($isCreate && Schema::hasColumn('api_clients', 'client_id')) {
+            $data['client_id'] = Str::upper(Str::random(16));
+        }
+
+        if ($isCreate && Schema::hasColumn('api_clients', 'client_secret')) {
+            $data['client_secret'] = Str::upper(Str::random(32));
+        }
+
+        if ($isCreate && Schema::hasColumn('api_clients', 'nextjs_internal_key')) {
+            $data['nextjs_internal_key'] = Str::random(48);
+        }
+
+        return $data;
     }
 }
