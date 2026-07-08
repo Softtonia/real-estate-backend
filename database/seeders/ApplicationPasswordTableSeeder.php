@@ -19,50 +19,58 @@ class ApplicationPasswordTableSeeder extends Seeder
         $now = Carbon::now();
 
         $passwords = [
-            'fixed_admin_panel' => [
-                'api_client_slug' => 'admin-panel',
+            [
+                'key_name' => 'fixed_admin_panel',
+                'client_slug' => 'admin-panel',
                 'name' => 'Fixed Admin Panel Application Password',
                 'env_key' => 'FIXED_ADMIN_PANEL_TOKEN',
                 'abilities' => ['*'],
             ],
-
-            'fixed_local_react_admin' => [
-                'api_client_slug' => 'api-key-port-5173',
+            [
+                'key_name' => 'fixed_local_react_admin',
+                'client_slug' => 'api-key-port-5173',
                 'name' => 'Fixed Local React Admin Application Password',
                 'env_key' => 'FIXED_LOCAL_REACT_ADMIN_TOKEN',
                 'abilities' => ['*'],
             ],
-
-            'fixed_business_live' => [
-                'api_client_slug' => 'businesscom',
+            [
+                'key_name' => 'fixed_local_api',
+                'client_slug' => 'api-key-port-8000',
+                'name' => 'Fixed Local API Application Password',
+                'env_key' => 'FIXED_LOCAL_API_TOKEN',
+                'abilities' => ['*'],
+            ],
+            [
+                'key_name' => 'fixed_business_live',
+                'client_slug' => 'businesscom',
                 'name' => 'Fixed Business Live Application Password',
                 'env_key' => 'FIXED_BUSINESS_LIVE_TOKEN',
                 'abilities' => ['*'],
             ],
-
-            'fixed_business_local' => [
-                'api_client_slug' => 'business-localhost-api-key-port-5173',
+            [
+                'key_name' => 'fixed_business_local',
+                'client_slug' => 'business-localhost-api-key-port-5173',
                 'name' => 'Fixed Business Local Application Password',
                 'env_key' => 'FIXED_BUSINESS_LOCAL_TOKEN',
                 'abilities' => ['*'],
             ],
-
-            'fixed_local_nextjs' => [
-                'api_client_slug' => 'local-sagar',
-                'name' => 'Fixed Local Next.js Website Application Password',
+            [
+                'key_name' => 'fixed_local_nextjs',
+                'client_slug' => 'local-sagar',
+                'name' => 'Fixed Local Next.js Application Password',
                 'env_key' => 'FIXED_LOCAL_NEXTJS_TOKEN',
                 'abilities' => ['*'],
             ],
-
-            'fixed_holiplaces_website' => [
-                'api_client_slug' => 'holiplacescom',
+            [
+                'key_name' => 'fixed_holiplaces_website',
+                'client_slug' => 'holiplacescom',
                 'name' => 'Fixed Holiplaces Website Application Password',
                 'env_key' => 'FIXED_HOLIPLACES_WEBSITE_TOKEN',
                 'abilities' => ['*'],
             ],
-
-            'fixed_mobile_application' => [
-                'api_client_slug' => 'mobile-application',
+            [
+                'key_name' => 'fixed_mobile_application',
+                'client_slug' => 'mobile-application',
                 'name' => 'Fixed Mobile Application Password',
                 'env_key' => 'FIXED_MOBILE_APPLICATION_TOKEN',
                 'abilities' => ['*'],
