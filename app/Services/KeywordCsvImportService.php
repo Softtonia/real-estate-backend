@@ -10,8 +10,7 @@ class KeywordCsvImportService
 {
     public function __construct(
         protected KeywordRelationResolver $relationResolver
-    ) {
-    }
+    ) {}
 
     public function readHeaders(string $fullPath): array
     {
@@ -29,7 +28,7 @@ class KeywordCsvImportService
             throw new RuntimeException('CSV header row missing.');
         }
 
-        return array_map(fn ($header) => trim((string) $header), $headers);
+        return array_map(fn($header) => trim((string) $header), $headers);
     }
 
     public function readPreviewRows(string $fullPath, int $limit = 10): array
@@ -235,21 +234,20 @@ class KeywordCsvImportService
             ];
         }
 
-        try {
-            $postType = $keywordType
-                ? $this->relationResolver->resolvePostType($listingInput, (int) $keywordType->id)
-                : null;
+        $postType = null;
 
-            if (! $postType) {
-                throw new RuntimeException('listing is required.');
+        if ($keywordType) {
+            try {
+                $postType = $this->relationResolver->resolvePostType(
+                    $listingInput,
+                    (int) $keywordType->id
+                );
+            } catch (\Throwable $e) {
+                $errors[] = [
+                    'field' => 'listing',
+                    'message' => $e->getMessage(),
+                ];
             }
-        } catch (\Throwable $e) {
-            $postType = null;
-
-            $errors[] = [
-                'field' => 'listing',
-                'message' => $e->getMessage(),
-            ];
         }
 
         $status = $this->normalizeStatus($statusInput ?: 'active');
@@ -447,8 +445,8 @@ class KeywordCsvImportService
     ): ?Keyword {
         return Keyword::query()
             ->where('keyword', $keyword)
-            ->whereHas('postTypes', fn ($query) => $query->where('post_types.id', $keywordTypeId))
-            ->whereHas('dynamicPosts', fn ($query) => $query->where('dynamic_posts.id', $postTypeId))
+            ->whereHas('postTypes', fn($query) => $query->where('post_types.id', $keywordTypeId))
+            ->whereHas('dynamicPosts', fn($query) => $query->where('dynamic_posts.id', $postTypeId))
             ->first();
     }
 
