@@ -434,11 +434,11 @@ class KeywordController extends Controller
             'avg_search_volume' => $keyword->avg_search_volume,
             'avg_ranking' => $keyword->avg_ranking,
 
-            'keyword_type' => $keywordType ? [
-                'id' => $keywordType->id,
-                'name' => $keywordType->name,
-                'slug' => $keywordType->slug,
-            ] : null,
+            // 'keyword_type' => $keywordType ? [
+            //     'id' => $keywordType->id,
+            //     'name' => $keywordType->name,
+            //     'slug' => $keywordType->slug,
+            // ] : null,
 
             'post_type' => $postType ? [
                 'id' => $postType->id,
