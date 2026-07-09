@@ -362,7 +362,6 @@ Route::middleware(['validate.api.client'])->group(function () {
         Route::post('roles/search', [RoleController::class, 'searchRole'])->middleware(['throttle:60,1']);
     });
 
-    Route::middleware(['throttle:60,1', 'api.token'])->get('get-keyword-by-keyword-type', [Admincontroller::class, 'getKeywordbykeywordtype']);
     // ======= Analytics =========
     Route::middleware(['throttle:60,1', 'admin.token'])->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
     Route::middleware(['throttle:60,1', 'api.token'])->get('business-dashboard-analytics', [BusinessDashboardAnalyticsController::class, 'businessDashboardAnalytics']);
