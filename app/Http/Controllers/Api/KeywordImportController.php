@@ -127,6 +127,17 @@ class KeywordImportController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Upload not found or expired.',
+                'data' => [
+                    'upload_id' => $validated['upload_id'],
+                    'nextmove' => false,
+                    'total_errors' => 1,
+                    'errors' => [
+                        [
+                            'field' => 'upload_id',
+                            'message' => 'Upload not found or expired.',
+                        ],
+                    ],
+                ],
             ], 404);
         }
 
@@ -138,9 +149,26 @@ class KeywordImportController extends Controller
                 mapping: $upload['mapping'] ?? []
             );
 
+            $totalErrors = $this->countImportErrors($result['errors'] ?? []);
+
+            if (($result['invalid_rows'] ?? 0) > 0 && $totalErrors === 0) {
+                $totalErrors = (int) $result['invalid_rows'];
+            }
+
+            $nextmove = $totalErrors === 0
+                && (int) ($result['invalid_rows'] ?? 0) === 0
+                && (bool) ($result['status'] ?? false) === true;
+
+            $result['total_errors'] = $totalErrors;
+            $result['nextmove'] = $nextmove;
+
             $upload['validation'] = $result;
 
-            Cache::put($this->uploadKey($validated['upload_id']), $upload, now()->addDay());
+            Cache::put(
+                $this->uploadKey($validated['upload_id']),
+                $upload,
+                now()->addDay()
+            );
 
             return response()->json([
                 'status' => true,
@@ -153,11 +181,53 @@ class KeywordImportController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to validate CSV.',
-                'error' => $e->getMessage(),
+                'data' => [
+                    'upload_id' => $validated['upload_id'],
+                    'nextmove' => false,
+                    'total_errors' => 1,
+                    'errors' => [
+                        [
+                            'field' => null,
+                            'message' => $e->getMessage(),
+                        ],
+                    ],
+                ],
             ], 500);
         }
     }
+    private function countImportErrors(array $errors): int
+    {
+        $count = 0;
 
+        foreach ($errors as $error) {
+            if (is_array($error)) {
+                if (
+                    array_key_exists('message', $error)
+                    || array_key_exists('row_number', $error)
+                    || array_key_exists('field', $error)
+                ) {
+                    $count++;
+                    continue;
+                }
+
+                foreach ($error as $messages) {
+                    if (is_array($messages)) {
+                        $count += count($messages);
+                    } elseif (trim((string) $messages) !== '') {
+                        $count++;
+                    }
+                }
+
+                continue;
+            }
+
+            if (trim((string) $error) !== '') {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
     public function confirm(Request $request): JsonResponse
     {
         $validated = $request->validate([
