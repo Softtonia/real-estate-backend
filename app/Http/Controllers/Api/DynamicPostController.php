@@ -425,7 +425,15 @@ class DynamicPostController extends Controller
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
                 $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
-                $this->saveCustomFieldValues($post->id, 'post', $customFields);
+                if ($this->hasKeywordPayload($validated)) {
+                    $this->validatePostTypeKeywordSupport($postType);
+
+                    $this->syncKeywordsForDynamicPost(
+                        post: $post,
+                        postType: $postType,
+                        input: $this->getKeywordPayload($validated)
+                    );
+                }
 
                 return $post;
             });
@@ -497,7 +505,6 @@ class DynamicPostController extends Controller
 
             if ($request->filled('search')) {
                 $search = trim((string) $request->search);
-
                 $query->where('keywords.keyword', 'like', "%{$search}%");
             }
 
@@ -697,7 +704,11 @@ class DynamicPostController extends Controller
                         ->orWhere('related_post_id', $post->id)
                         ->delete();
                 }
-
+                if (Schema::hasTable('keyword_dynamic_post')) {
+                    DB::table('keyword_dynamic_post')
+                        ->where('dynamic_post_id', $post->id)
+                        ->delete();
+                }
                 $post->taxonomyTerms()->detach();
                 $post->delete();
             });
@@ -749,6 +760,11 @@ class DynamicPostController extends Controller
                     DB::table('dynamic_post_relationships')
                         ->whereIn('dynamic_post_id', $existingIds)
                         ->orWhereIn('related_post_id', $existingIds)
+                        ->delete();
+                }
+                if (Schema::hasTable('keyword_dynamic_post')) {
+                    DB::table('keyword_dynamic_post')
+                        ->whereIn('dynamic_post_id', $existingIds)
                         ->delete();
                 }
 
@@ -3607,6 +3623,13 @@ class DynamicPostController extends Controller
 
         $supports = collect($supports)
             ->map(fn($item) => Str::slug((string) $item, '_'))
+            ->map(function ($item) {
+                return match ($item) {
+                    'editor' => 'content',
+                    'keyword' => 'keywords',
+                    default => $item,
+                };
+            })
             ->values()
             ->toArray();
 
@@ -3618,7 +3641,7 @@ class DynamicPostController extends Controller
             'taxonomies' => in_array('taxonomies', $supports, true),
             'excerpt' => in_array('excerpt', $supports, true),
             'gallery' => in_array('gallery', $supports, true),
-            'keywords' => in_array('keywords', $supports, true) || in_array('keyword', $supports, true),
+            'keywords' => in_array('keywords', $supports, true),
         ];
     }
 
@@ -3771,27 +3794,36 @@ class DynamicPostController extends Controller
             [
                 'key' => 'featured_image_id',
                 'label' => 'Featured Image',
-                'enabled' => $supports['featured_image'],
+                'enabled' => $supports['featured_image'] ?? false,
             ],
             [
                 'key' => 'title',
                 'label' => 'Title',
-                'enabled' => $supports['title'],
+                'enabled' => $supports['title'] ?? false,
             ],
             [
                 'key' => 'content',
                 'label' => 'Content',
-                'enabled' => $supports['content'],
+                'enabled' => $supports['content'] ?? false,
             ],
             [
                 'key' => 'excerpt',
                 'label' => 'Excerpt',
-                'enabled' => $supports['excerpt'],
+                'enabled' => $supports['excerpt'] ?? false,
             ],
             [
                 'key' => 'gallery_image_ids',
                 'label' => 'Gallery',
-                'enabled' => $supports['gallery'],
+                'enabled' => $supports['gallery'] ?? false,
+            ],
+            [
+                'key' => 'keywords',
+                'label' => 'Keywords',
+                'enabled' => $supports['keywords'] ?? false,
+                'type' => 'tag_autocomplete',
+                'multiple' => true,
+                'request_key' => 'keywords',
+                'suggestion_api' => 'dynamic-post-keyword-suggestions',
             ],
         ];
     }
@@ -4099,6 +4131,8 @@ class DynamicPostController extends Controller
         $data['gallery_image_files'] = $galleryMedia;
         $data['meta'] = $this->formatMetaForFrontend($data['meta'] ?? []);
         $data['selected_relationship_post_types'] = $this->formatRelationshipPostTypesForFrontend($post);
+        $data['selected_keywords'] = $this->formatSelectedKeywords($post);
+        $data['keywords'] = $data['selected_keywords'];
 
         return $data;
     }
@@ -4364,5 +4398,236 @@ class DynamicPostController extends Controller
         };
 
         return $action === 'hide' ? !$matched : $matched;
+    }
+    private function hasKeywordPayload(array $payload): bool
+    {
+        return array_key_exists('keyword', $payload)
+            || array_key_exists('keywords', $payload);
+    }
+
+    private function getKeywordPayload(array $payload): mixed
+    {
+        if (array_key_exists('keywords', $payload)) {
+            return $payload['keywords'];
+        }
+
+        return $payload['keyword'] ?? null;
+    }
+
+    private function validatePostTypeKeywordSupport(PostType $postType): void
+    {
+        $supports = $this->normalizePostTypeSupports($postType->supports ?? []);
+
+        if (!($supports['keywords'] ?? false)) {
+            throw ValidationException::withMessages([
+                'keywords' => [
+                    'This post type does not support keywords. Please enable Keywords in post type supports.',
+                ],
+            ]);
+        }
+    }
+
+    private function syncKeywordsForDynamicPost(
+        DynamicPost $post,
+        PostType $postType,
+        mixed $input
+    ): void {
+        $normalized = $this->normalizeSubmittedKeywords($input);
+
+        if (empty($normalized)) {
+            DB::table('keyword_dynamic_post')
+                ->where('dynamic_post_id', $post->id)
+                ->delete();
+
+            return;
+        }
+
+        $keywordIds = [];
+
+        foreach ($normalized as $item) {
+            $keyword = null;
+            $keywordText = null;
+
+            if (!empty($item['id'])) {
+                $keyword = Keyword::find((int) $item['id']);
+                $keywordText = $keyword?->keyword;
+            }
+
+            if (!$keyword && !empty($item['keyword'])) {
+                $keywordText = Keyword::normalizeKeyword($item['keyword']);
+
+                $keyword = $this->findExistingKeywordForDynamicPost(
+                    keyword: $keywordText,
+                    postTypeId: (int) $postType->id,
+                    dynamicPostId: (int) $post->id
+                );
+            }
+
+            $keywordText = Keyword::normalizeKeyword($keywordText);
+
+            if ($keywordText === '') {
+                continue;
+            }
+
+            if (!$keyword) {
+                $keyword = Keyword::create([
+                    'keyword' => $keywordText,
+                    'status' => 'active',
+                    'avg_search_volume' => null,
+                    'avg_ranking' => null,
+                ]);
+            }
+
+            $keyword->postTypes()->syncWithoutDetaching([
+                (int) $postType->id,
+            ]);
+
+            $keyword->dynamicPosts()->syncWithoutDetaching([
+                (int) $post->id,
+            ]);
+
+            $keywordIds[] = (int) $keyword->id;
+        }
+
+        $keywordIds = collect($keywordIds)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        DB::table('keyword_dynamic_post')
+            ->where('dynamic_post_id', $post->id)
+            ->when(!empty($keywordIds), function ($query) use ($keywordIds) {
+                $query->whereNotIn('keyword_id', $keywordIds);
+            })
+            ->delete();
+    }
+
+    private function normalizeSubmittedKeywords(mixed $input): array
+    {
+        if (is_null($input) || $input === '') {
+            return [];
+        }
+
+        if (is_string($input)) {
+            $decoded = json_decode($input, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $input = $decoded;
+            } else {
+                $input = str_contains($input, ',')
+                    ? explode(',', $input)
+                    : [$input];
+            }
+        }
+
+        if (!is_array($input)) {
+            $input = [$input];
+        }
+
+        $items = [];
+
+        foreach ($input as $item) {
+            if (is_null($item) || $item === '') {
+                continue;
+            }
+
+            if (is_numeric($item)) {
+                $items[] = [
+                    'id' => (int) $item,
+                    'keyword' => null,
+                ];
+
+                continue;
+            }
+
+            if (is_string($item)) {
+                $keyword = Keyword::normalizeKeyword($item);
+
+                if ($keyword !== '') {
+                    $items[] = [
+                        'id' => null,
+                        'keyword' => $keyword,
+                    ];
+                }
+
+                continue;
+            }
+
+            if (is_array($item)) {
+                $id = null;
+                $keyword = null;
+
+                if (!empty($item['id']) && is_numeric($item['id'])) {
+                    $id = (int) $item['id'];
+                }
+
+                foreach (['keyword', 'label', 'name', 'title', 'value'] as $key) {
+                    if (!empty($item[$key]) && is_string($item[$key]) && !is_numeric($item[$key])) {
+                        $keyword = Keyword::normalizeKeyword($item[$key]);
+                        break;
+                    }
+                }
+
+                if ($id || $keyword) {
+                    $items[] = [
+                        'id' => $id,
+                        'keyword' => $keyword,
+                    ];
+                }
+            }
+        }
+
+        return collect($items)
+            ->filter(fn($item) => !empty($item['id']) || !empty($item['keyword']))
+            ->unique(function ($item) {
+                return !empty($item['id'])
+                    ? 'id:' . $item['id']
+                    : 'keyword:' . mb_strtolower(Keyword::normalizeKeyword($item['keyword']));
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function findExistingKeywordForDynamicPost(
+        string $keyword,
+        int $postTypeId,
+        int $dynamicPostId
+    ): ?Keyword {
+        return Keyword::query()
+            ->where('keyword', $keyword)
+            ->whereHas('postTypes', fn($query) => $query->where('post_types.id', $postTypeId))
+            ->whereHas('dynamicPosts', fn($query) => $query->where('dynamic_posts.id', $dynamicPostId))
+            ->first();
+    }
+
+    private function formatSelectedKeywords(DynamicPost $post): array
+    {
+        if (!Schema::hasTable('keywords') || !Schema::hasTable('keyword_dynamic_post')) {
+            return [];
+        }
+
+        return Keyword::query()
+            ->join('keyword_dynamic_post', 'keywords.id', '=', 'keyword_dynamic_post.keyword_id')
+            ->where('keyword_dynamic_post.dynamic_post_id', $post->id)
+            ->select(
+                'keywords.id',
+                'keywords.keyword',
+                'keywords.status',
+                'keywords.avg_search_volume',
+                'keywords.avg_ranking'
+            )
+            ->orderBy('keywords.keyword')
+            ->get()
+            ->map(fn($keyword) => [
+                'id' => (int) $keyword->id,
+                'value' => $keyword->keyword,
+                'label' => $keyword->keyword,
+                'keyword' => $keyword->keyword,
+                'status' => $keyword->status,
+                'avg_search_volume' => $keyword->avg_search_volume,
+                'avg_ranking' => $keyword->avg_ranking,
+            ])
+            ->values()
+            ->toArray();
     }
 }

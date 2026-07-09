@@ -53,6 +53,7 @@ class PostTypeController extends Controller
                 'is_relationship' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
+                'supports.*' => ['nullable', 'string', 'max:100'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
 
                 // Optional. If not sent, system assigns 6 or next available.
@@ -95,7 +96,10 @@ class PostTypeController extends Controller
                     'is_default' => $isDefault,
                     'is_relationship' => $isRelationship,
                     'status' => $status,
-                    'supports' => $validated['supports'] ?? ['title', 'excerpt', 'featured_image', 'editor'],
+                    'supports' => $this->normalizeSupportsForSave(
+                        $validated['supports'] ?? null,
+                        ['title', 'excerpt', 'featured_image', 'content']
+                    ),
                     'created_by' => Auth::id(),
                     'sort_order' => $validated['sort_order'] ?? $this->getNextSortOrder(),
                     'menu_order' => $menuOrder,
@@ -187,6 +191,7 @@ class PostTypeController extends Controller
                 'is_relationship' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
                 'supports' => ['nullable', 'array'],
+                'supports.*' => ['nullable', 'string', 'max:100'],
                 'sort_order' => ['nullable', 'integer', 'min:0'],
 
                 // Optional on update. If sent, must be 6 or above.
@@ -229,7 +234,7 @@ class PostTypeController extends Controller
             }
 
             if (array_key_exists('supports', $validated)) {
-                $updateData['supports'] = $validated['supports'];
+                $updateData['supports'] = $this->normalizeSupportsForSave($validated['supports']);
             }
 
             if (array_key_exists('sort_order', $validated)) {
@@ -423,7 +428,7 @@ class PostTypeController extends Controller
             'slug' => $pt->slug,
             'description' => $pt->description,
             'menu_order' => $pt->menu_order,
-            'supports' => $pt->supports ?? [],
+            'supports' => $this->normalizeSupportsForSave($pt->supports ?? []),
         ]);
         return response()->json(['status' => true, 'message' => 'Post type menu fetched successfully.', 'data' => $postTypes], 200);
     }
@@ -551,5 +556,129 @@ class PostTypeController extends Controller
             return null;
         }
         return null;
+    }
+    public function supportOptions()
+    {
+        return response()->json([
+            'status' => true,
+            'message' => 'Support options fetched successfully.',
+            'data' => [
+                'select_all_value' => 'select_all',
+                'all_values' => $this->getSupportValues(),
+                'options' => $this->getSupportOptions(),
+            ],
+        ], 200);
+    }
+    private function getSupportOptions(): array
+    {
+        return [
+            [
+                'label' => 'Select All',
+                'value' => 'select_all',
+            ],
+            [
+                'label' => 'Featured Image',
+                'value' => 'featured_image',
+            ],
+            [
+                'label' => 'Title',
+                'value' => 'title',
+            ],
+            [
+                'label' => 'Custom Fields',
+                'value' => 'custom_fields',
+            ],
+            [
+                'label' => 'Content',
+                'value' => 'content',
+            ],
+            [
+                'label' => 'Taxonomies',
+                'value' => 'taxonomies',
+            ],
+            [
+                'label' => 'Excerpt',
+                'value' => 'excerpt',
+            ],
+            [
+                'label' => 'Gallery',
+                'value' => 'gallery',
+            ],
+            [
+                'label' => 'Keywords',
+                'value' => 'keywords',
+            ],
+        ];
+    }
+
+    private function getSupportValues(): array
+    {
+        return [
+            'featured_image',
+            'title',
+            'custom_fields',
+            'content',
+            'taxonomies',
+            'excerpt',
+            'gallery',
+            'keywords',
+        ];
+    }
+
+    private function normalizeSupportsForSave(mixed $supports, ?array $default = null): array
+    {
+        if (is_null($supports) || $supports === '') {
+            return $default ?? [];
+        }
+
+        if (is_string($supports)) {
+            $decoded = json_decode($supports, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $supports = $decoded;
+            } else {
+                $supports = str_contains($supports, ',')
+                    ? explode(',', $supports)
+                    : [$supports];
+            }
+        }
+
+        if (! is_array($supports)) {
+            return $default ?? [];
+        }
+
+        $supports = collect($supports)
+            ->filter(fn($item) => !is_null($item) && $item !== '')
+            ->map(function ($item) {
+                $item = trim((string) $item);
+                $item = Str::slug($item, '_');
+
+                return match ($item) {
+                    'featured_image_id', 'featuredimage', 'featured' => 'featured_image',
+                    'custom_field', 'customfields' => 'custom_fields',
+                    'taxonomy' => 'taxonomies',
+                    'editor' => 'content',
+                    'keyword' => 'keywords',
+                    default => $item,
+                };
+            })
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (
+            in_array('select_all', $supports, true)
+            || in_array('all', $supports, true)
+        ) {
+            return $this->getSupportValues();
+        }
+
+        $allowedValues = $this->getSupportValues();
+
+        return collect($supports)
+            ->filter(fn($item) => in_array($item, $allowedValues, true))
+            ->unique()
+            ->values()
+            ->toArray();
     }
 }
