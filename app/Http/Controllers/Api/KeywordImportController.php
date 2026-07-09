@@ -16,8 +16,7 @@ class KeywordImportController extends Controller
 {
     public function __construct(
         protected KeywordCsvImportService $keywordCsvImportService
-    ) {
-    }
+    ) {}
 
     public function upload(Request $request): JsonResponse
     {
@@ -266,5 +265,102 @@ class KeywordImportController extends Controller
     private function progressKey(string $batchId): string
     {
         return 'keyword_import:' . $batchId;
+    }
+    public function headers(Request $request, string $uploadId): JsonResponse
+    {
+        $upload = $this->getUpload($uploadId);
+
+        if (! $upload) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Upload not found or expired.',
+            ], 404);
+        }
+
+        if (empty($upload['stored_path']) || ! Storage::disk('local')->exists($upload['stored_path'])) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Uploaded CSV file not found.',
+            ], 404);
+        }
+
+        try {
+            $previewLimit = min((int) $request->get('preview_limit', 10), 50);
+
+            $fullPath = Storage::disk('local')->path($upload['stored_path']);
+
+            $preview = $this->keywordCsvImportService->readPreviewRows(
+                $fullPath,
+                $previewLimit
+            );
+
+            $upload['headers'] = $preview['headers'];
+            $upload['mapping'] = $preview['detected_mapping'];
+
+            Cache::put(
+                $this->uploadKey($uploadId),
+                $upload,
+                now()->addDay()
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'CSV headers fetched successfully.',
+                'data' => [
+                    'upload_id' => $uploadId,
+                    'file_name' => $upload['original_file_name'] ?? null,
+
+                    'headers' => $preview['headers'],
+                    'header_map' => $preview['header_map'] ?? [],
+                    'preview_rows' => $preview['preview_rows'],
+                    'detected_mapping' => $preview['detected_mapping'],
+
+                    'mapping_fields' => [
+                        'required' => [
+                            [
+                                'key' => 'keyword',
+                                'label' => 'Keyword',
+                            ],
+                            [
+                                'key' => 'post_type',
+                                'label' => 'Post Type',
+                            ],
+                            [
+                                'key' => 'listing',
+                                'label' => 'Listing',
+                            ],
+                        ],
+                        'optional' => [
+                            [
+                                'key' => 'status',
+                                'label' => 'Status',
+                            ],
+                            [
+                                'key' => 'avg_search_volume',
+                                'label' => 'Average Search Volume',
+                            ],
+                            [
+                                'key' => 'avg_ranking',
+                                'label' => 'Average Ranking',
+                            ],
+                        ],
+                    ],
+
+                    'mapping_options' => collect($preview['headers'])
+                        ->map(fn($header) => [
+                            'label' => $header,
+                            'value' => $header,
+                        ])
+                        ->values()
+                        ->toArray(),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch CSV headers.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }

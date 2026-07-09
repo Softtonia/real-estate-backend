@@ -1021,6 +1021,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('keywords-options-listings/{keywordType}', [KeywordController::class, 'listings']);
 
     Route::post('keywords-import-upload', [KeywordImportController::class, 'upload']);
+    Route::get('keywords-import-headers/{uploadId}', [KeywordImportController::class, 'headers']);
     Route::post('keywords-import-map', [KeywordImportController::class, 'map']);
     Route::post('keywords-import-validate', [KeywordImportController::class, 'validateImport']);
     Route::post('keywords-import-confirm', [KeywordImportController::class, 'confirm']);
