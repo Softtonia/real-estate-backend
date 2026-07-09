@@ -1014,6 +1014,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('keywords-update/{id}', [KeywordController::class, 'update']);
     Route::delete('keywords-delete/{id}', [KeywordController::class, 'destroy']);
     Route::post('keywords-status/{id}', [KeywordController::class, 'changeStatus']);
+    Route::post('keywords-bulk-delete', [KeywordController::class, 'bulkDelete']);
 
     Route::get('keywords-analytics', [KeywordController::class, 'analytics']);
 

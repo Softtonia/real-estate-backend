@@ -19,8 +19,7 @@ class KeywordController extends Controller
 {
     public function __construct(
         protected KeywordRelationResolver $relationResolver
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -37,7 +36,7 @@ class KeywordController extends Controller
         $keywords = $query->latest()->paginate($perPage);
 
         $keywords->getCollection()->transform(
-            fn (Keyword $keyword) => $this->formatKeyword($keyword)
+            fn(Keyword $keyword) => $this->formatKeyword($keyword)
         );
 
         return response()->json([
@@ -63,7 +62,7 @@ class KeywordController extends Controller
 
                 $saved = DB::transaction(function () use ($validated) {
                     return collect($validated['items'])
-                        ->map(fn (array $item) => $this->upsertKeywordFromPayload($item))
+                        ->map(fn(array $item) => $this->upsertKeywordFromPayload($item))
                         ->values()
                         ->toArray();
                 });
@@ -78,7 +77,7 @@ class KeywordController extends Controller
             $validated = $this->validateSingleKeyword($request);
 
             $keyword = DB::transaction(
-                fn () => $this->upsertKeywordFromPayload($validated)
+                fn() => $this->upsertKeywordFromPayload($validated)
             );
 
             return response()->json([
@@ -382,8 +381,8 @@ class KeywordController extends Controller
     ): ?Keyword {
         return Keyword::query()
             ->where('keyword', $keyword)
-            ->whereHas('postTypes', fn ($query) => $query->where('post_types.id', $keywordTypeId))
-            ->whereHas('dynamicPosts', fn ($query) => $query->where('dynamic_posts.id', $postTypeId))
+            ->whereHas('postTypes', fn($query) => $query->where('post_types.id', $keywordTypeId))
+            ->whereHas('dynamicPosts', fn($query) => $query->where('dynamic_posts.id', $postTypeId))
             ->first();
     }
 
@@ -393,7 +392,7 @@ class KeywordController extends Controller
             $q->where('keyword', 'like', '%' . $request->search . '%');
         });
 
-        $query->when($request->filled('status'), fn ($q) => $q->where('status', $request->status));
+        $query->when($request->filled('status'), fn($q) => $q->where('status', $request->status));
 
         $query->when($request->filled('keyword_type'), function ($q) use ($request) {
             $value = $request->keyword_type;
@@ -452,5 +451,59 @@ class KeywordController extends Controller
             'created_at' => $keyword->created_at,
             'updated_at' => $keyword->updated_at,
         ];
+    }
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'integer', 'distinct', 'exists:keywords,id'],
+        ]);
+
+        try {
+            $ids = collect($validated['ids'])
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $existingIds = Keyword::query()
+                ->whereIn('id', $ids)
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            $notFoundIds = array_values(array_diff($ids, $existingIds));
+
+            DB::transaction(function () use ($existingIds) {
+                // Safe cleanup even if FK cascade is not working on old DB
+                DB::table('keyword_post_type')
+                    ->whereIn('keyword_id', $existingIds)
+                    ->delete();
+
+                DB::table('keyword_dynamic_post')
+                    ->whereIn('keyword_id', $existingIds)
+                    ->delete();
+
+                Keyword::query()
+                    ->whereIn('id', $existingIds)
+                    ->delete();
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Keywords deleted successfully.',
+                'data' => [
+                    'requested_count' => count($ids),
+                    'deleted_count' => count($existingIds),
+                    'not_found_ids' => $notFoundIds,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Keyword bulk delete failed.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }
