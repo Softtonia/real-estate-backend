@@ -889,12 +889,12 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('template-builder-save/{template_id}', [TemplateBuilderController::class, 'save'])->whereNumber('template_id');
 
     // Post Types
+    Route::get('post-types-support-options', [PostTypeController::class, 'supportOptions']);
     Route::get('post-types/trash', [PostTypeController::class, 'trash']);
     Route::post('post-types/bulk-delete', [PostTypeController::class, 'bulkDelete']);
     Route::post('post-types/bulk-restore', [PostTypeController::class, 'bulkRestore']);
     Route::delete('post-types/bulk-force-delete', [PostTypeController::class, 'bulkForceDelete']);
     Route::get('post-types-menu', [PostTypeController::class, 'menu']);
-    Route::get('post-types-support-options', [PostTypeController::class, 'supportOptions']);
 
     Route::get('post-types/export-csv', [PostTypeExportImportController::class, 'exportToCsv']);
     Route::post('post-types/import-csv', [PostTypeExportImportController::class, 'importFromCsv']);

@@ -161,11 +161,24 @@ class PostTypeController extends Controller
 
         return $nextOrder;
     }
-    public function show($id)
+    public function show($postType)
     {
-        $postType = PostType::with(['creator', 'taxonomies', 'relatedPostTypes'])->find($id);
-        if (!$postType) return response()->json(['status' => false, 'message' => 'Post type not found.'], 404);
-        return response()->json(['status' => true, 'message' => 'Post type fetched successfully.', 'data' => $this->formatPostType($postType)], 200);
+        $postType = $this->resolvePostType($postType);
+
+        if (!$postType) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Post type not found.',
+            ], 404);
+        }
+
+        $postType->load(['creator', 'taxonomies', 'relatedPostTypes']);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Post type fetched successfully.',
+            'data' => $this->formatPostType($postType),
+        ], 200);
     }
 
     public function update(Request $request, $id)
@@ -173,7 +186,7 @@ class PostTypeController extends Controller
         DB::beginTransaction();
 
         try {
-            $postType = PostType::find($id);
+            $postType = $this->resolvePostType($id);
 
             if (!$postType) {
                 DB::rollBack();
@@ -681,5 +694,24 @@ class PostTypeController extends Controller
             ->unique()
             ->values()
             ->toArray();
+    }
+    private function resolvePostType(string|int $value): ?PostType
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        return PostType::query()
+            ->where(function ($query) use ($value) {
+                if (is_numeric($value)) {
+                    $query->where('id', (int) $value);
+                }
+
+                $query->orWhere('slug', $value)
+                    ->orWhere('name', $value);
+            })
+            ->first();
     }
 }
