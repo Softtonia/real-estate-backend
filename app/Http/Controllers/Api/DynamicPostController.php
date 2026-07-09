@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 use App\Models\SiteSetting;
+use App\Models\Keyword;
 
 class DynamicPostController extends Controller
 {
@@ -371,7 +372,15 @@ class DynamicPostController extends Controller
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
             $this->validateDependentTaxonomySelections($taxonomyTermIds);
             $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
+            if ($this->hasKeywordPayload($validated)) {
+                $this->validatePostTypeKeywordSupport($postType);
 
+                $this->syncKeywordsForDynamicPost(
+                    post: $post,
+                    postType: $postType,
+                    input: $this->getKeywordPayload($validated)
+                );
+            }
             if ($relationshipPayloadPresent && empty($relationshipPostTypes)) {
                 throw ValidationException::withMessages([
                     'relationship_post_types' => [
@@ -434,7 +443,90 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to create dynamic post.', 500, $e->getMessage());
         }
     }
+    public function keywordSuggestions(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+                'post_type' => ['nullable', 'string'],
+                'post_type_slug' => ['nullable', 'string'],
+                'search' => ['nullable', 'string', 'max:255'],
+                'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
+            ]);
 
+            if (
+                !$request->filled('post_type_id')
+                && !$request->filled('post_type')
+                && !$request->filled('post_type_slug')
+            ) {
+                throw ValidationException::withMessages([
+                    'post_type' => ['post_type_id or post_type slug is required.'],
+                ]);
+            }
+
+            $postType = PostType::query()
+                ->where(function ($q) use ($request) {
+                    if ($request->filled('post_type_id')) {
+                        $q->where('id', (int) $request->post_type_id);
+                    }
+
+                    if ($request->filled('post_type')) {
+                        $q->orWhere('slug', $request->post_type)
+                            ->orWhere('name', $request->post_type);
+                    }
+
+                    if ($request->filled('post_type_slug')) {
+                        $q->orWhere('slug', $request->post_type_slug);
+                    }
+                })
+                ->first();
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
+
+            $limit = min((int) $request->get('limit', 20), 100);
+
+            $query = Keyword::query()
+                ->join('keyword_post_type', 'keywords.id', '=', 'keyword_post_type.keyword_id')
+                ->where('keyword_post_type.post_type_id', $postType->id)
+                ->where('keywords.status', 'active')
+                ->selectRaw('MIN(keywords.id) as id, keywords.keyword')
+                ->groupBy('keywords.keyword')
+                ->orderBy('keywords.keyword', 'asc');
+
+            if ($request->filled('search')) {
+                $search = trim((string) $request->search);
+
+                $query->where('keywords.keyword', 'like', "%{$search}%");
+            }
+
+            $keywords = $query
+                ->limit($limit)
+                ->get();
+
+            $options = $keywords->map(fn($keyword) => [
+                'id' => (int) $keyword->id,
+                'value' => $keyword->keyword,
+                'label' => $keyword->keyword,
+                'keyword' => $keyword->keyword,
+            ])->values();
+
+            return $this->successResponse('Keyword suggestions fetched successfully.', [
+                'post_type' => [
+                    'id' => (int) $postType->id,
+                    'name' => $postType->name,
+                    'slug' => $postType->slug,
+                ],
+                'count' => $options->count(),
+                'options' => $options,
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch keyword suggestions.', 500, $e->getMessage());
+        }
+    }
     public function show(int|string $dynamicPost): JsonResponse
     {
         try {
@@ -1449,6 +1541,9 @@ class DynamicPostController extends Controller
             'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'integer', 'exists:post_types,id'],
             'title' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
+            'keyword' => ['nullable'],
+            'keywords' => ['nullable'],
+            'keywords.*' => ['nullable'],
             'excerpt' => ['nullable', 'string'],
             'content' => ['nullable', 'string'],
             'featured_image_id' => ['nullable', 'integer'],
@@ -1730,7 +1825,9 @@ class DynamicPostController extends Controller
             $validated['related_posts'],
             $validated['featured_image'],
             $validated['gallery_images'],
-            $validated['post_type']
+            $validated['post_type'],
+            $validated['keyword'],
+            $validated['keywords']
         );
 
         if (array_key_exists('gallery_image_ids', $validated)) {
@@ -3521,6 +3618,7 @@ class DynamicPostController extends Controller
             'taxonomies' => in_array('taxonomies', $supports, true),
             'excerpt' => in_array('excerpt', $supports, true),
             'gallery' => in_array('gallery', $supports, true),
+            'keywords' => in_array('keywords', $supports, true) || in_array('keyword', $supports, true),
         ];
     }
 

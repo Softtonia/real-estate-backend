@@ -36,7 +36,7 @@ class KeywordController extends Controller
         $keywords = $query->latest()->paginate($perPage);
 
         $keywords->getCollection()->transform(
-            fn(Keyword $keyword) => $this->formatKeyword($keyword)
+            fn(Keyword $keyword) => $this->formatKeywordforget($keyword)
         );
 
         return response()->json([
@@ -422,6 +422,37 @@ class KeywordController extends Controller
     }
 
     private function formatKeyword(Keyword $keyword): array
+    {
+        $keywordType = $keyword->postTypes->first();
+        $postType = $keyword->dynamicPosts->first();
+
+        return [
+            'id' => $keyword->id,
+            'keyword' => $keyword->keyword,
+            'status' => $keyword->status,
+            'avg_search_volume' => $keyword->avg_search_volume,
+            'avg_ranking' => $keyword->avg_ranking,
+
+            'keyword_type' => $keywordType ? [
+                'id' => $keywordType->id,
+                'name' => $keywordType->name,
+                'slug' => $keywordType->slug,
+            ] : null,
+
+            'post_type' => $postType ? [
+                'id' => $postType->id,
+                'post_type_id' => $postType->post_type_id,
+                'title' => $postType->title,
+                'slug' => $postType->slug,
+                'status' => $postType->status ?? null,
+                'live_status' => $postType->live_status ?? null,
+            ] : null,
+
+            'created_at' => $keyword->created_at,
+            'updated_at' => $keyword->updated_at,
+        ];
+    }
+    private function formatKeywordforget(Keyword $keyword): array
     {
         $keywordType = $keyword->postTypes->first();
         $postType = $keyword->dynamicPosts->first();
