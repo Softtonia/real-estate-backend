@@ -140,7 +140,6 @@ class KeywordImportController extends Controller
                 ],
             ], 404);
         }
-
         try {
             $fullPath = Storage::disk('local')->path($upload['stored_path']);
 

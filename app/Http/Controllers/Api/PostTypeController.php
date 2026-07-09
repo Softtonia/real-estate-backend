@@ -447,8 +447,6 @@ class PostTypeController extends Controller
         return response()->json(['status' => true, 'message' => 'Post type menu fetched successfully.', 'data' => $postTypes], 200);
     }
 
-    // ---------------- Helper ----------------
-
     private function syncRelatedPostTypes(PostType $postType, array $postTypeIds): void
     {
         $syncData = [];
