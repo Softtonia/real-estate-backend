@@ -14,15 +14,22 @@ class StoreApiClientRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $this->merge([
-            'status' => $this->has('status')
-                ? $this->toBool($this->input('status'))
-                : true,
+        if ($this->has('type')) {
+            $this->merge([
+                'type' => $this->normalizeType($this->input('type')),
+            ]);
+        }
+    }
 
-            'requires_signature' => $this->has('requires_signature')
-                ? $this->toBool($this->input('requires_signature'))
-                : false,
-        ]);
+    private function normalizeType($type): string
+    {
+        $type = strtolower(trim((string) $type));
+
+        $type = preg_replace('/\s+/', '-', $type);
+        $type = preg_replace('/[^a-z0-9_-]/', '-', $type);
+        $type = preg_replace('/-+/', '-', $type);
+
+        return trim($type, '-_');
     }
 
     public function rules(): array
@@ -40,15 +47,9 @@ class StoreApiClientRequest extends FormRequest
             'type' => [
                 'required',
                 'string',
-                Rule::in([
-                    'admin',
-                    'business',
-                    'website',
-                    'mobile',
-                    'mobile-app',
-                    'server',
-                    'custom',
-                ]),
+                'min:2',
+                'max:80',
+                'regex:/^[a-z0-9][a-z0-9_-]*[a-z0-9]$/i',
             ],
 
             'status' => ['required', 'boolean'],

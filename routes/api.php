@@ -730,9 +730,9 @@ Route::get('/project-listings-by-featured-type', [TopFeatureController::class, '
 
 // API Client
 
-Route::middleware((['admin.token', 'validate.api.client']))->get('api-client-secrect-list', [ApiClientController::class, 'index']);
+Route::middleware((['admin.token']))->get('api-client-secrect-list', [ApiClientController::class, 'index']);
 Route::middleware('admin.token')->post('api-client-secrect-store', [ApiClientController::class, 'store']);
-Route::middleware((['admin.token', 'validate.api.client']))->get('api-client-secrect-show-by-id/{id}', [ApiClientController::class, 'show']);
+Route::middleware((['admin.token']))->get('api-client-secrect-show-by-id/{id}', [ApiClientController::class, 'show']);
 Route::middleware('admin.token')->post('api-client-secrect-update/{id}', [ApiClientController::class, 'update']);
 Route::middleware('admin.token')->post('api-client-secrect-delete/{id}', [ApiClientController::class, 'destroy']);
 

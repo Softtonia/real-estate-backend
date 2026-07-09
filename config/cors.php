@@ -2,16 +2,6 @@
 
 return [
 
-    /*
-    |--------------------------------------------------------------------------
-    | Laravel default CORS disabled for API
-    |--------------------------------------------------------------------------
-    |
-    | DynamicApiCors will handle CORS from api_clients.allowed_origins.
-    | Keep paths empty so Laravel's default HandleCors does not block dynamic DB origins.
-    |
-    */
-
     'paths' => [],
 
     'allowed_methods' => ['*'],

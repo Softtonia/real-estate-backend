@@ -15,17 +15,22 @@ class UpdateApiClientRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $data = [];
-
-        if ($this->has('status')) {
-            $data['status'] = $this->toBool($this->input('status'));
+        if ($this->has('type')) {
+            $this->merge([
+                'type' => $this->normalizeType($this->input('type')),
+            ]);
         }
+    }
 
-        if ($this->has('requires_signature')) {
-            $data['requires_signature'] = $this->toBool($this->input('requires_signature'));
-        }
+    private function normalizeType($type): string
+    {
+        $type = strtolower(trim((string) $type));
 
-        $this->merge($data);
+        $type = preg_replace('/\s+/', '-', $type);
+        $type = preg_replace('/[^a-z0-9_-]/', '-', $type);
+        $type = preg_replace('/-+/', '-', $type);
+
+        return trim($type, '-_');
     }
 
     public function rules(): array
@@ -53,15 +58,9 @@ class UpdateApiClientRequest extends FormRequest
                 'sometimes',
                 'required',
                 'string',
-                Rule::in([
-                    'admin',
-                    'business',
-                    'website',
-                    'mobile',
-                    'mobile-app',
-                    'server',
-                    'custom',
-                ]),
+                'min:2',
+                'max:80',
+                'regex:/^[a-z0-9][a-z0-9_-]*[a-z0-9]$/i',
             ],
 
             'status' => ['sometimes', 'boolean'],

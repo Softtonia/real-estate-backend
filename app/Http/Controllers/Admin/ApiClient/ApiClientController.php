@@ -312,7 +312,12 @@ class ApiClientController extends Controller
     }
     public function getAppTypes(): JsonResponse
     {
-        $table = collect([
+        $types = collect();
+
+        /*
+     * 1. First read app types from optional app type tables if you create them later.
+     */
+        $typeTable = collect([
             'app_types',
             'api_client_app_types',
             'application_types',
@@ -320,87 +325,118 @@ class ApiClientController extends Controller
             return Schema::hasTable($table);
         });
 
+        if ($typeTable) {
+            $query = DB::table($typeTable);
+
+            if (Schema::hasColumn($typeTable, 'status')) {
+                $query->where(function ($q) {
+                    $q->where('status', true)
+                        ->orWhere('status', 1)
+                        ->orWhere('status', '1')
+                        ->orWhere('status', 'active')
+                        ->orWhere('status', 'enabled');
+                });
+            }
+
+            $tableTypes = $query->get()->map(function ($row) {
+                $name = $row->name
+                    ?? $row->title
+                    ?? $row->label
+                    ?? $row->slug
+                    ?? $row->key
+                    ?? $row->code
+                    ?? null;
+
+                $type = $row->slug
+                    ?? $row->key
+                    ?? $row->code
+                    ?? $name;
+
+                $type = $this->normalizeAppType($type);
+
+                if ($type === '') {
+                    return null;
+                }
+
+                return [
+                    'id' => $row->id ?? $type,
+                    'name' => $name ?: ucwords(str_replace(['-', '_'], ' ', $type)),
+                    'slug' => $type,
+                    'key' => $type,
+                    'code' => $type,
+                    'description' => $row->description ?? null,
+                    'status' => true,
+                    'source' => $typeTable,
+                ];
+            })->filter();
+
+            $types = $types->merge($tableTypes);
+        }
+
         /*
-     * Fallback response if app type table does not exist.
+     * 2. Also read all existing api_clients.type values dynamically.
      */
-        if (! $table) {
-            return response()->json([
-                'status' => true,
-                'message' => 'App types fetched successfully.',
-                'data' => [
-                    [
-                        'id' => 'web',
-                        'name' => 'Web App',
-                        'slug' => 'web',
-                        'key' => 'web',
+        if (Schema::hasTable('api_clients')) {
+            $clientTypesQuery = DB::table('api_clients')
+                ->whereNotNull('type')
+                ->where('type', '!=', '');
+
+            if (Schema::hasColumn('api_clients', 'deleted_at')) {
+                $clientTypesQuery->whereNull('deleted_at');
+            }
+
+            $clientTypes = $clientTypesQuery
+                ->distinct()
+                ->pluck('type')
+                ->map(function ($type) {
+                    $type = $this->normalizeAppType($type);
+
+                    if ($type === '') {
+                        return null;
+                    }
+
+                    return [
+                        'id' => $type,
+                        'name' => ucwords(str_replace(['-', '_'], ' ', $type)),
+                        'slug' => $type,
+                        'key' => $type,
+                        'code' => $type,
+                        'description' => null,
                         'status' => true,
-                    ],
-                    [
-                        'id' => 'mobile',
-                        'name' => 'Mobile App',
-                        'slug' => 'mobile',
-                        'key' => 'mobile',
-                        'status' => true,
-                    ],
-                    [
-                        'id' => 'server',
-                        'name' => 'Server App',
-                        'slug' => 'server',
-                        'key' => 'server',
-                        'status' => true,
-                    ],
-                ],
-            ]);
+                        'source' => 'api_clients',
+                    ];
+                })
+                ->filter();
+
+            $types = $types->merge($clientTypes);
         }
 
-        $query = DB::table($table);
-
-        if (Schema::hasColumn($table, 'status')) {
-            $query->where(function ($q) {
-                $q->where('status', true)
-                    ->orWhere('status', 1)
-                    ->orWhere('status', '1')
-                    ->orWhere('status', 'active');
-            });
-        }
-
-        if (Schema::hasColumn($table, 'sort_order')) {
-            $query->orderBy('sort_order');
-        } elseif (Schema::hasColumn($table, 'name')) {
-            $query->orderBy('name');
-        } else {
-            $query->orderBy('id');
-        }
-
-        $items = $query->get()->map(function ($row) {
-            $name = $row->name
-                ?? $row->title
-                ?? $row->label
-                ?? $row->slug
-                ?? $row->key
-                ?? $row->code
-                ?? 'App Type';
-
-            $slug = $row->slug
-                ?? $row->key
-                ?? $row->code
-                ?? strtolower(str_replace(' ', '_', (string) $name));
-
-            return [
-                'id' => $row->id ?? $slug,
-                'name' => $name,
-                'slug' => $slug,
-                'key' => $row->key ?? $slug,
-                'code' => $row->code ?? $slug,
-                'description' => $row->description ?? null,
-                'status' => $row->status ?? true,
-            ];
-        })->values();
+        $types = $types
+            ->unique('slug')
+            ->sortBy('name')
+            ->values();
 
         return response()->json([
             'status' => true,
             'message' => 'App types fetched successfully.',
-            'data' => $items,
+            'data' => $types,
+            'meta' => [
+                'dynamic' => true,
+                'can_create_new_type' => true,
+                'type_format' => 'Use lowercase letters, numbers, hyphen or underscore. Example: partner-app',
+                'header_rule' => 'X-App-Type must exactly match api_clients.type.',
+            ],
         ]);
+    }
+
+    private function normalizeAppType($type): string
+    {
+        $type = strtolower(trim((string) $type));
+
+        $type = preg_replace('/\s+/', '-', $type);
+        $type = preg_replace('/[^a-z0-9_-]/', '-', $type);
+        $type = preg_replace('/-+/', '-', $type);
+
+        return trim($type, '-_');
     }
 }
