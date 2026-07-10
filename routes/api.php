@@ -1042,3 +1042,4 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
         ->whereNumber('dynamicPost');
     Route::get('dynamic-posts/template/{slug}', [TemplateResolveController::class, 'showDynamicPostTemplateBySlug']);
 });
+Route::post('frontend/listings', [DynamicPostController::class, 'storeFrontendListing']);

@@ -27,6 +27,9 @@ use App\Models\SiteSetting;
 use App\Models\Keyword;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
+use App\Models\Role;
+use App\Models\UniqueID;
+use App\Models\UserDetail;
 
 class DynamicPostController extends Controller
 {
@@ -349,7 +352,7 @@ class DynamicPostController extends Controller
         }
     }
 
-    public function store(Request $request): JsonResponse
+    public function storeFrontendListing(Request $request): JsonResponse
     {
         try {
             $validated = $this->validatePost($request);
@@ -359,6 +362,23 @@ class DynamicPostController extends Controller
             if (!$postType) {
                 return $this->errorResponse('Post type not found.', 404);
             }
+
+            $frontendUserResult = $this->resolveOrCreateFrontendUser($request);
+
+            $frontendUser = $frontendUserResult['user'];
+            $newToken = $frontendUserResult['token'];
+            $isNewUser = $frontendUserResult['is_new_user'];
+
+            $this->assertAssignableUser((int) $frontendUser->id);
+
+            // Important: frontend cannot decide user_id manually.
+            // Server will always assign logged-in or newly registered user.
+            $validated['user_id'] = (int) $frontendUser->id;
+            $validated['author_id'] = (int) $frontendUser->id;
+
+            // User submitted listing should go for review by default
+            $validated['live_status'] = $validated['live_status'] ?? 'submit';
+            $validated['status'] = $validated['status'] ?? 'draft';
 
             $validated = $this->prepareBaseMediaForSave($request, $validated, $postType);
 
@@ -386,7 +406,7 @@ class DynamicPostController extends Controller
             if ($relationshipPayloadPresent && empty($relationshipPostTypes)) {
                 throw ValidationException::withMessages([
                     'relationship_post_types' => [
-                        'Relationship payload was received but no valid dynamic post IDs were found. Send dynamic_posts.id values in relationship_post_types, not post_type_id or taxonomy ids.',
+                        'Relationship payload was received but no valid dynamic post IDs were found.',
                     ],
                 ]);
             }
@@ -402,13 +422,7 @@ class DynamicPostController extends Controller
                 ->exists();
 
             if ($slugExists) {
-                return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
-                    'errors' => [
-                        'slug' => [
-                            $slug . ' already exists for this post type.',
-                        ],
-                    ],
-                ]);
+                $slug = $slug . '-' . time();
             }
 
             $post = DB::transaction(function () use (
@@ -425,7 +439,7 @@ class DynamicPostController extends Controller
                 $postData['slug'] = $slug;
                 $postData['listing_code'] = $this->generateDynamicPostListingCode($postType);
                 $postData['status'] = $postData['status'] ?? 'draft';
-                $postData['author_id'] = $postData['author_id'] ?? Auth::id();
+                $postData['live_status'] = $postData['live_status'] ?? 'submit';
 
                 if ($postData['status'] === 'published' && empty($postData['published_at'])) {
                     $postData['published_at'] = now();
@@ -441,6 +455,7 @@ class DynamicPostController extends Controller
                     $this->saveCustomFieldValues($post->id, 'post', $customFields);
                 }
 
+                // Assign listing to logged-in/new registered user
                 $this->syncDynamicPostAssignedUser($post, $validated);
 
                 if ($hasKeywordPayload) {
@@ -455,18 +470,33 @@ class DynamicPostController extends Controller
             });
 
             return $this->successResponse(
-                'Dynamic post created successfully.',
-                $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations)),
+                $isNewUser
+                    ? 'User registered and listing created successfully.'
+                    : 'Listing created successfully.',
+                [
+                    'user' => [
+                        'id' => (int) $frontendUser->id,
+                        'first_name' => $frontendUser->first_name ?? null,
+                        'last_name' => $frontendUser->last_name ?? null,
+                        'email' => $frontendUser->email ?? null,
+                        'phone' => $frontendUser->phone ?? null,
+                        'role_id' => $frontendUser->role_id ?? null,
+                    ],
+                    'token' => $newToken,
+                    'is_new_user' => $isNewUser,
+                    'listing' => $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations)),
+                ],
                 201
             );
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while creating dynamic post.');
+            return $this->databaseErrorResponse($e, 'Database error while creating frontend listing.');
         } catch (Throwable $e) {
-            return $this->errorResponse('Unable to create dynamic post.', 500, $e->getMessage());
+            return $this->errorResponse('Unable to create frontend listing.', 500, $e->getMessage());
         }
     }
+
     public function keywordSuggestions(Request $request): JsonResponse
     {
         try {
@@ -4220,8 +4250,7 @@ class DynamicPostController extends Controller
         $data['selected_relationship_post_types'] = $this->formatRelationshipPostTypesForFrontend($post);
         $data['selected_keywords'] = $this->formatSelectedKeywords($post);
         $data['keywords'] = $data['selected_keywords'];
-        $data['assigned_user'] = $this->formatAssignedUser($post);
-        $data['assigned_user_id'] = $data['assigned_user']['id'] ?? null;
+        $data['user_id'] = $this->formatAssignedUser($post);
         return $data;
     }
 
@@ -5197,5 +5226,207 @@ class DynamicPostController extends Controller
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to fetch roles.', 500, $e->getMessage());
         }
+    }
+    private function resolveOrCreateFrontendUser(Request $request): array
+    {
+        $loggedInUser = $this->resolveLoggedInFrontendUser($request);
+
+        if ($loggedInUser) {
+            return [
+                'user' => $loggedInUser,
+                'token' => null,
+                'is_new_user' => false,
+            ];
+        }
+
+        $user = $this->createFrontendUserForListing($request);
+
+        return [
+            'user' => $user,
+            'token' => $user->api_token ?? null,
+            'is_new_user' => true,
+        ];
+    }
+
+    private function resolveLoggedInFrontendUser(Request $request): ?User
+    {
+        if ($request->user()) {
+            return $request->user();
+        }
+
+        $token = $request->bearerToken();
+
+        if (!$token && $request->filled('api_token')) {
+            $token = $request->api_token;
+        }
+
+        if (!$token) {
+            return null;
+        }
+
+        return User::where('api_token', $token)->first();
+    }
+
+    private function createFrontendUserForListing(Request $request): User
+    {
+        $validated = $request->validate([
+            'user' => ['required', 'array'],
+            'user.first_name' => ['required', 'string', 'max:100'],
+            'user.last_name' => ['nullable', 'string', 'max:100'],
+            'user.phone' => [
+                'required',
+                'regex:/^[0-9]{10}$/',
+                'unique:users,phone',
+            ],
+            'user.email' => [
+                'required',
+                'email',
+                'unique:users,email',
+            ],
+            'user.password' => ['required', 'string', 'min:8'],
+            'user.role_id' => ['required', 'integer', 'exists:roles,id'],
+            'user.user_name' => [
+                'nullable',
+                'string',
+                'min:3',
+                'max:20',
+                'unique:users,user_name',
+                'regex:/^[a-zA-Z0-9._]+$/',
+            ],
+        ]);
+
+        $userData = $validated['user'];
+
+        $role = Role::find((int) $userData['role_id']);
+
+        if (!$role) {
+            throw ValidationException::withMessages([
+                'user.role_id' => ['Invalid role selected.'],
+            ]);
+        }
+
+        $this->assertAssignableRole((int) $role->id);
+
+        $token = Str::random(80);
+        $uniqueId = $this->generateFrontendUserUniqueId($role);
+
+        $user = new User();
+
+        if (Schema::hasColumn('users', 'first_name')) {
+            $user->first_name = $userData['first_name'];
+        }
+
+        if (Schema::hasColumn('users', 'last_name')) {
+            $user->last_name = $userData['last_name'] ?? null;
+        }
+
+        if (Schema::hasColumn('users', 'name')) {
+            $user->name = trim($userData['first_name'] . ' ' . ($userData['last_name'] ?? ''));
+        }
+
+        if (Schema::hasColumn('users', 'user_name')) {
+            $user->user_name = $userData['user_name']
+                ?? $this->generateUniqueFrontendUsername($userData['email']);
+        }
+
+        $user->phone = $userData['phone'];
+        $user->email = $userData['email'];
+        $user->password = Hash::make($userData['password']);
+        $user->role_id = (int) $role->id;
+
+        if (Schema::hasColumn('users', 'unique_id')) {
+            $user->unique_id = $uniqueId;
+        }
+
+        if (Schema::hasColumn('users', 'isapproved')) {
+            $user->isapproved = 1;
+        }
+
+        if (Schema::hasColumn('users', 'is_otp_verified')) {
+            $user->is_otp_verified = false;
+        }
+
+        if (Schema::hasColumn('users', 'kyc')) {
+            $user->kyc = 0;
+        }
+
+        if (Schema::hasColumn('users', 'api_token')) {
+            $user->api_token = $token;
+        }
+
+        if (Schema::hasColumn('users', 'token_created_at')) {
+            $user->token_created_at = now();
+        }
+
+        $user->save();
+
+        if (Schema::hasTable('user_details')) {
+            UserDetail::create([
+                'user_id' => $user->id,
+                'role_id' => $user->role_id,
+            ]);
+        }
+
+        return $user;
+    }
+
+    private function assertAssignableRole(int $roleId): void
+    {
+        $blockedRoleIds = $this->blockedAssignmentRoleIds();
+
+        if (in_array($roleId, $blockedRoleIds, true)) {
+            throw ValidationException::withMessages([
+                'user.role_id' => ['Admin or Super Admin role cannot create frontend listing.'],
+            ]);
+        }
+    }
+
+    private function generateFrontendUserUniqueId(Role $role): ?string
+    {
+        if (!Schema::hasTable('unique_i_d_s') && !Schema::hasTable('unique_ids')) {
+            return null;
+        }
+
+        $prefix = $role->prefix
+            ?? strtoupper(substr(Str::slug($role->name ?? 'USR', ''), 0, 3));
+
+        $prefix = $prefix ?: 'USR';
+
+        $lastUniqueID = UniqueID::where('unique_id', 'like', $prefix . '%')
+            ->orderBy('unique_id', 'desc')
+            ->first();
+
+        $lastCount = $lastUniqueID
+            ? (int) substr($lastUniqueID->unique_id, strlen($prefix))
+            : 0;
+
+        $newUniqueID = $prefix . str_pad((string) ($lastCount + 1), 3, '0', STR_PAD_LEFT);
+
+        $uniqueIDModel = new UniqueID();
+        $uniqueIDModel->unique_id = $newUniqueID;
+        $uniqueIDModel->save();
+
+        return $newUniqueID;
+    }
+
+    private function generateUniqueFrontendUsername(string $email): string
+    {
+        $base = Str::slug(strtok($email, '@'), '_');
+
+        if ($base === '') {
+            $base = 'user';
+        }
+
+        $base = substr($base, 0, 15);
+
+        $username = $base;
+        $counter = 1;
+
+        while (User::where('user_name', $username)->exists()) {
+            $username = $base . $counter;
+            $counter++;
+        }
+
+        return $username;
     }
 }
