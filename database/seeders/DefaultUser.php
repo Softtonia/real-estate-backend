@@ -13,14 +13,31 @@ use Illuminate\Support\Str;
 
 class DefaultUser extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
         DB::beginTransaction();
 
-        try {   
+        try {
+
+            User::updateOrCreate(
+                ['user_name' => 'anonymous'],
+                [
+                    'user_name' => 'anonymous',
+                    'first_name' => 'Anonymous',
+                    'last_name' => null,
+                    'email' => null,
+                    'phone' => null,
+                    'password' => null,
+                    'role_id' => null,
+                    'isapproved' => 1,
+                    'kyc' => 0,
+                    'is_otp_verified' => 0,
+                    'created_by' => 1,
+                ]
+            );
+
+            $this->command->info('✅ Anonymous User created successfully.');
+
             // ✅ Only non-admin roles
             $rolesConfig = [
                 'owner' => [
@@ -61,7 +78,6 @@ class DefaultUser extends Seeder
             ];
 
             foreach ($rolesConfig as $roleName => $data) {
-                // ✅ Fetch existing role
                 $role = Role::where('name', $roleName)->first();
 
                 if (!$role) {
@@ -69,15 +85,12 @@ class DefaultUser extends Seeder
                     continue;
                 }
 
-                // ✅ Get prefix from roles table (fallback if null)
                 $prefix = $role->prefix ?? strtoupper(substr($roleName, 0, 3));
 
-                // ✅ Generate new unique_id
                 $uniqueID = new UniqueID();
                 $uniqueID->unique_id = $prefix . str_pad(UniqueID::count() + 1, 3, '0', STR_PAD_LEFT);
                 $uniqueID->save();
 
-                // ✅ Create or update user
                 $user = User::updateOrCreate(
                     ['email' => $data['email']],
                     [
@@ -93,6 +106,7 @@ class DefaultUser extends Seeder
                         'password' => Hash::make('Zen@1234'),
                         'isapproved' => 1,
                         'kyc' => 1,
+                        'is_otp_verified' => 1,
                         'country_id' => 1,
                         'state_id' => 1,
                         'city_id' => 1,
@@ -105,13 +119,11 @@ class DefaultUser extends Seeder
                     ]
                 );
 
-                // ✅ Link user with unique_id
                 DB::table('user_has_unique_ids')->updateOrInsert([
                     'user_id' => $user->id,
                     'unique_id' => $uniqueID->id,
                 ]);
 
-                // ✅ Insert user details
                 if ($data['bussiness_required']) {
                     UserDetail::updateOrCreate(
                         ['user_id' => $user->id],
@@ -135,13 +147,12 @@ class DefaultUser extends Seeder
                             'rera_number' => 'RERA' . rand(10000, 99999),
                             'about_us' => 'This is a demo ' . ucfirst($roleName) . ' company account.',
                             'aadhaar_number' => str_pad(rand(100000000000, 999999999999), 12, '0', STR_PAD_LEFT),
-                          
                             'created_by' => 1,
                         ]
                     );
+
                     $this->command->info("✅ Full user details inserted for {$roleName}");
                 } else {
-                    // Only user_id entry for owner
                     UserDetail::updateOrCreate(
                         ['user_id' => $user->id],
                         [
@@ -150,15 +161,17 @@ class DefaultUser extends Seeder
                             'created_by' => 1,
                         ]
                     );
+
                     $this->command->info("✅ Basic user details inserted for {$roleName}");
                 }
             }
 
             DB::commit();
-            $this->command->info('🎉 All existing roles, users & user_details seeded successfully.');
 
+            $this->command->info('🎉 Anonymous user, roles, users & user_details seeded successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
+
             $this->command->error('❌ Seeder failed: ' . $e->getMessage());
         }
     }
