@@ -4958,4 +4958,344 @@ class DynamicPostController extends Controller
             ->values()
             ->toArray();
     }
+    private function resolveAssignmentPostType(Request $request): ?PostType
+    {
+        if (
+            !$request->filled('post_type_id')
+            && !$request->filled('post_type')
+            && !$request->filled('post_type_slug')
+        ) {
+            return null;
+        }
+
+        return PostType::query()
+            ->where(function ($q) use ($request) {
+                if ($request->filled('post_type_id')) {
+                    $q->where('id', (int) $request->post_type_id);
+                }
+
+                if ($request->filled('post_type')) {
+                    $q->orWhere('slug', $request->post_type)
+                        ->orWhere('name', $request->post_type);
+                }
+
+                if ($request->filled('post_type_slug')) {
+                    $q->orWhere('slug', $request->post_type_slug);
+                }
+            })
+            ->first();
+    }
+
+    private function normalizeAssignmentRoleIds(Request $request): array
+    {
+        $roleIds = [];
+
+        if ($request->filled('role_id')) {
+            $roleIds[] = (int) $request->role_id;
+        }
+
+        if ($request->filled('role_ids') && is_array($request->role_ids)) {
+            foreach ($request->role_ids as $roleId) {
+                if (!empty($roleId)) {
+                    $roleIds[] = (int) $roleId;
+                }
+            }
+        }
+
+        return collect($roleIds)
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function getAssignmentListingOptions(
+        ?PostType $postType = null,
+        ?string $search = null,
+        ?string $status = null,
+        ?string $liveStatus = null,
+        int $limit = 100
+    ) {
+        $columns = ['id', 'post_type_id'];
+
+        foreach (['title', 'slug', 'listing_code', 'status', 'live_status', 'created_at'] as $column) {
+            if (Schema::hasColumn('dynamic_posts', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        $query = DynamicPost::query()
+            ->select($columns)
+            ->when($postType, fn($q) => $q->where('post_type_id', $postType->id));
+
+        if (!empty($status) && !in_array($status, ['all', 'All', '*'], true)) {
+            $query->where('status', $status);
+        }
+
+        if (!empty($liveStatus) && !in_array($liveStatus, ['all', 'All', '*'], true)) {
+            $query->where('live_status', $liveStatus);
+        }
+
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                if (Schema::hasColumn('dynamic_posts', 'title')) {
+                    $q->where('title', 'like', "%{$search}%");
+                }
+
+                if (Schema::hasColumn('dynamic_posts', 'slug')) {
+                    $q->orWhere('slug', 'like', "%{$search}%");
+                }
+
+                if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
+                    $q->orWhere('listing_code', 'like', "%{$search}%");
+                }
+            });
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'title')) {
+            $query->orderBy('title', 'asc');
+        } else {
+            $query->orderBy('id', 'desc');
+        }
+
+        return $query
+            ->limit($limit)
+            ->get()
+            ->map(fn($post) => $this->formatAssignmentListingOption($post))
+            ->values();
+    }
+
+    private function formatAssignmentListingOption($post): array
+    {
+        $label = $post->title
+            ?? $post->slug
+            ?? ('Listing #' . $post->id);
+
+        if (!empty($post->listing_code)) {
+            $label = $post->listing_code . ' - ' . $label;
+        }
+
+        return [
+            'id' => (int) $post->id,
+            'value' => (int) $post->id,
+            'label' => $label,
+            'title' => $post->title ?? null,
+            'slug' => $post->slug ?? null,
+            'listing_code' => $post->listing_code ?? null,
+            'display_id' => $post->listing_code ?? null,
+            'post_type_id' => (int) $post->post_type_id,
+            'status' => $post->status ?? null,
+            'live_status' => $post->live_status ?? null,
+        ];
+    }
+
+    private function getAssignmentRoleOptions()
+    {
+        if (!Schema::hasTable('roles')) {
+            return collect();
+        }
+
+        $columns = ['id'];
+
+        foreach (['name', 'role_name', 'slug'] as $column) {
+            if (Schema::hasColumn('roles', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        return DB::table('roles')
+            ->select($columns)
+            ->where('id', '!=', 1)
+            ->orderBy('id')
+            ->get()
+            ->map(function ($role) {
+                $label = $role->name
+                    ?? $role->role_name
+                    ?? $role->slug
+                    ?? ('Role #' . $role->id);
+
+                return [
+                    'id' => (int) $role->id,
+                    'value' => (int) $role->id,
+                    'label' => $label,
+                ];
+            })
+            ->values();
+    }
+
+    private function getAssignmentUserOptions(
+        array $roleIds = [],
+        ?string $search = null,
+        int $limit = 100
+    ) {
+        $columns = $this->assignmentUserColumns();
+
+        $query = User::query()->select($columns);
+
+        if (Schema::hasColumn('users', 'role_id')) {
+            $query->where(function ($q) {
+                $q->whereNull('role_id')
+                    ->orWhere('role_id', '!=', 1);
+            });
+
+            if (!empty($roleIds)) {
+                $query->whereIn('role_id', $roleIds);
+            }
+        }
+
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                foreach (['first_name', 'last_name', 'name', 'email'] as $column) {
+                    if (Schema::hasColumn('users', $column)) {
+                        $q->orWhere($column, 'like', "%{$search}%");
+                    }
+                }
+            });
+        }
+
+        return $query
+            ->limit($limit)
+            ->get()
+            ->map(fn($user) => $this->formatAssignmentUserOption($user))
+            ->values();
+    }
+
+    private function assignmentUserColumns(): array
+    {
+        $columns = ['id'];
+
+        foreach (['first_name', 'last_name', 'name', 'email', 'role_id'] as $column) {
+            if (Schema::hasColumn('users', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        return $columns;
+    }
+
+    private function formatAssignmentUserOption($user): array
+    {
+        $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+
+        $label = $fullName
+            ?: ($user->name ?? null)
+            ?: ($user->email ?? null)
+            ?: ('User #' . $user->id);
+
+        return [
+            'id' => (int) $user->id,
+            'value' => (int) $user->id,
+            'label' => $label,
+            'email' => $user->email ?? null,
+            'role_id' => $user->role_id ?? null,
+            'is_anonymous_user' => ($user->email ?? null) === 'anonymous@system.local'
+                || ($user->name ?? null) === 'Anonymous User'
+                || ($user->first_name ?? null) === 'Anonymous',
+        ];
+    }
+    public function userAssignmentOptions(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+                'post_type' => ['nullable', 'string'],
+                'post_type_slug' => ['nullable', 'string'],
+
+                'dynamic_post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+
+                'role_id' => ['nullable', 'integer'],
+                'role_ids' => ['nullable', 'array'],
+                'role_ids.*' => ['nullable', 'integer'],
+
+                'search' => ['nullable', 'string', 'max:255'],
+                'listing_search' => ['nullable', 'string', 'max:255'],
+                'user_search' => ['nullable', 'string', 'max:255'],
+
+                'status' => ['nullable', 'string'],
+                'live_status' => ['nullable', 'string'],
+                'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+            ]);
+
+            $limit = max(1, min((int) $request->get('limit', 100), 500));
+
+            $postType = $this->resolveAssignmentPostType($request);
+
+            $listingSearch = $request->listing_search ?: $request->search;
+            $userSearch = $request->user_search ?: $request->search;
+
+            $roleIds = $this->normalizeAssignmentRoleIds($request);
+
+            $listings = $this->getAssignmentListingOptions(
+                postType: $postType,
+                search: $listingSearch,
+                status: $request->status,
+                liveStatus: $request->live_status,
+                limit: $limit
+            );
+
+            $roles = $this->getAssignmentRoleOptions();
+
+            $users = $this->getAssignmentUserOptions(
+                roleIds: $roleIds,
+                search: $userSearch,
+                limit: $limit
+            );
+
+            $anonymousUser = $this->getAnonymousUser();
+
+            // If selected role has no users, show Anonymous User from users table.
+            if ($users->isEmpty() && $anonymousUser) {
+                $users = collect([
+                    $this->formatAssignmentUserOption($anonymousUser),
+                ]);
+            }
+
+            $selectedAssignedUsers = [];
+            $selectedAssignedUserIds = [];
+
+            if ($request->filled('dynamic_post_id') && Schema::hasTable('dynamic_post_user')) {
+                $selectedPost = DynamicPost::find((int) $request->dynamic_post_id);
+
+                if ($selectedPost) {
+                    $selectedAssignedUsers = $this->formatAssignedUsers($selectedPost);
+                    $selectedAssignedUserIds = collect($selectedAssignedUsers)
+                        ->pluck('id')
+                        ->values()
+                        ->toArray();
+                }
+            }
+
+            return $this->successResponse('Dynamic post user assignment options fetched successfully.', [
+                'post_type' => $postType ? [
+                    'id' => (int) $postType->id,
+                    'name' => $postType->name,
+                    'slug' => $postType->slug,
+                ] : null,
+
+                'listings' => $listings,
+                'roles' => $roles,
+                'users' => $users,
+
+                'anonymous_user' => $anonymousUser
+                    ? $this->formatAssignmentUserOption($anonymousUser)
+                    : null,
+
+                'selected' => [
+                    'dynamic_post_id' => $request->filled('dynamic_post_id')
+                        ? (int) $request->dynamic_post_id
+                        : null,
+                    'assigned_user_ids' => $selectedAssignedUserIds,
+                    'assigned_users' => $selectedAssignedUsers,
+                ],
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (Throwable $e) {
+            return $this->errorResponse(
+                'Unable to fetch dynamic post user assignment options.',
+                500,
+                $e->getMessage()
+            );
+        }
+    }
 }
