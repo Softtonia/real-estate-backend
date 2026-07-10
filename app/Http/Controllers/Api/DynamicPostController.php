@@ -363,24 +363,24 @@ class DynamicPostController extends Controller
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
             $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
             $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
+
             $relationshipPayloadPresent = $this->hasRelationshipPayload($request->all());
+
             $relationshipPostTypes = $relationshipPayloadPresent
                 ? $this->normalizeRelationshipPostTypeInputs($request->all())
                 : [];
+
+            $hasKeywordPayload = $this->hasKeywordPayload($validated);
 
             $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
             $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
             $this->validateDependentTaxonomySelections($taxonomyTermIds);
             $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
-            if ($this->hasKeywordPayload($validated)) {
-                $this->validatePostTypeKeywordSupport($postType);
 
-                $this->syncKeywordsForDynamicPost(
-                    post: $post,
-                    postType: $postType,
-                    input: $this->getKeywordPayload($validated)
-                );
+            if ($hasKeywordPayload) {
+                $this->validatePostTypeKeywordSupport($postType);
             }
+
             if ($relationshipPayloadPresent && empty($relationshipPostTypes)) {
                 throw ValidationException::withMessages([
                     'relationship_post_types' => [
@@ -409,7 +409,15 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields, $postType, $relationshipPostTypes) {
+            $post = DB::transaction(function () use (
+                $validated,
+                $slug,
+                $taxonomyTermIds,
+                $customFields,
+                $postType,
+                $relationshipPostTypes,
+                $hasKeywordPayload
+            ) {
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
                 $postData['slug'] = $slug;
@@ -424,10 +432,16 @@ class DynamicPostController extends Controller
                 $post = DynamicPost::create($postData);
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
-                $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
-                if ($this->hasKeywordPayload($validated)) {
-                    $this->validatePostTypeKeywordSupport($postType);
 
+                $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
+
+                if (!empty($customFields)) {
+                    $this->saveCustomFieldValues($post->id, 'post', $customFields);
+                }
+
+                $this->syncDynamicPostAssignedUsers($post, $validated);
+
+                if ($hasKeywordPayload) {
                     $this->syncKeywordsForDynamicPost(
                         post: $post,
                         postType: $postType,
@@ -569,6 +583,7 @@ class DynamicPostController extends Controller
             $validated = $this->validatePost($request, true);
 
             $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
+
             $postType = PostType::with('taxonomies')->find($postTypeId);
 
             if (!$postType) {
@@ -577,10 +592,15 @@ class DynamicPostController extends Controller
 
             $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
 
-            $hasTaxonomyPayload = array_key_exists('taxonomies', $validated) || array_key_exists('taxonomy_term_ids', $validated);
+            $hasTaxonomyPayload = array_key_exists('taxonomies', $validated)
+                || array_key_exists('taxonomy_term_ids', $validated);
+
             $rawRequestData = $request->all();
+
             $hasRelationshipPayload = $this->hasRelationshipPayload($rawRequestData);
+
             $submittedTaxonomies = $validated['taxonomies'] ?? [];
+
             $relationshipPostTypes = $hasRelationshipPayload
                 ? $this->normalizeRelationshipPostTypeInputs($rawRequestData)
                 : null;
@@ -606,13 +626,22 @@ class DynamicPostController extends Controller
             if (is_array($customFields)) {
                 $effectiveTermIds = is_array($taxonomyTermIds)
                     ? $taxonomyTermIds
-                    : $post->taxonomyTerms()->pluck('taxonomy_terms.id')->map(fn($id) => (int) $id)->toArray();
+                    : $post->taxonomyTerms()
+                    ->pluck('taxonomy_terms.id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
 
                 $this->validateSubmittedCustomFieldsForPostType($postType, $effectiveTermIds, $customFields);
             }
 
             if (is_array($relationshipPostTypes)) {
                 $this->validateSubmittedRelationshipPostTypes($postType, $relationshipPostTypes, $post->id);
+            }
+
+            $hasKeywordPayload = $this->hasKeywordPayload($validated);
+
+            if ($hasKeywordPayload) {
+                $this->validatePostTypeKeywordSupport($postType);
             }
 
             $newSlug = $post->slug;
@@ -638,12 +667,28 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields, $relationshipPostTypes) {
+            $hasAssignedUserPayload = $this->hasAssignedUserPayload($request->all());
+
+            DB::transaction(function () use (
+                $post,
+                $validated,
+                $newSlug,
+                $taxonomyTermIds,
+                $customFields,
+                $relationshipPostTypes,
+                $hasAssignedUserPayload,
+                $postType,
+                $hasKeywordPayload
+            ) {
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
                 $postData['slug'] = $newSlug;
 
-                if (($postData['status'] ?? null) === 'published' && empty($postData['published_at']) && empty($post->published_at)) {
+                if (
+                    ($postData['status'] ?? null) === 'published'
+                    && empty($postData['published_at'])
+                    && empty($post->published_at)
+                ) {
                     $postData['published_at'] = now();
                 }
 
@@ -660,6 +705,18 @@ class DynamicPostController extends Controller
                 if (is_array($customFields)) {
                     $this->saveCustomFieldValues($post->id, 'post', $customFields);
                 }
+
+                if ($hasAssignedUserPayload) {
+                    $this->syncDynamicPostAssignedUsers($post, $validated);
+                }
+
+                if ($hasKeywordPayload) {
+                    $this->syncKeywordsForDynamicPost(
+                        post: $post,
+                        postType: $postType,
+                        input: $this->getKeywordPayload($validated)
+                    );
+                }
             });
 
             return $this->successResponse(
@@ -674,7 +731,194 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to update dynamic post.', 500, $e->getMessage());
         }
     }
+    private function hasAssignedUserPayload(array $payload): bool
+    {
+        return array_key_exists('user_ids', $payload)
+            || array_key_exists('role_ids', $payload)
+            || array_key_exists('anonymous', $payload);
+    }
 
+    private function syncDynamicPostAssignedUsers(DynamicPost $post, array $payload): void
+    {
+        if (!Schema::hasTable('dynamic_post_user')) {
+            throw ValidationException::withMessages([
+                'dynamic_post_user' => [
+                    'dynamic_post_user pivot table does not exist. Please run migration first.',
+                ],
+            ]);
+        }
+
+        $userIds = collect($payload['user_ids'] ?? [])
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $roleIds = collect($payload['role_ids'] ?? [])
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($roleIds->isNotEmpty()) {
+            $this->assertAssignmentRolesExist($roleIds->toArray());
+
+            if (Schema::hasColumn('users', 'role_id')) {
+                $roleUserIds = User::query()
+                    ->whereIn('role_id', $roleIds->toArray())
+                    ->pluck('id')
+                    ->map(fn($id) => (int) $id);
+
+                $userIds = $userIds
+                    ->merge($roleUserIds)
+                    ->unique()
+                    ->values();
+            }
+        }
+
+        $anonymousUser = $this->getAnonymousUser();
+
+        if (!empty($payload['anonymous']) && $anonymousUser) {
+            $userIds->push((int) $anonymousUser->id);
+        }
+
+        // Important:
+        // If admin selected role but role has no users,
+        // or admin selected no user,
+        // then assign Anonymous User from users table.
+        if ($userIds->isEmpty() && $anonymousUser) {
+            $userIds->push((int) $anonymousUser->id);
+        }
+
+        if ($userIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'user_ids' => [
+                    'No user selected/found and Anonymous User does not exist in users table.',
+                ],
+            ]);
+        }
+
+        $now = now();
+
+        $rows = $userIds
+            ->unique()
+            ->map(fn($userId) => [
+                'dynamic_post_id' => (int) $post->id,
+                'user_id' => (int) $userId,
+                'assigned_by' => Auth::id(),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])
+            ->values()
+            ->toArray();
+
+        DB::table('dynamic_post_user')
+            ->where('dynamic_post_id', $post->id)
+            ->delete();
+
+        DB::table('dynamic_post_user')->insert($rows);
+    }
+
+    private function getAnonymousUser(): ?User
+    {
+        $query = User::query();
+
+        $query->where(function ($q) {
+            if (Schema::hasColumn('users', 'email')) {
+                $q->where('email', 'anonymous@system.local');
+            }
+
+            if (Schema::hasColumn('users', 'name')) {
+                $q->orWhere('name', 'Anonymous User');
+            }
+
+            if (Schema::hasColumn('users', 'first_name')) {
+                $q->orWhere('first_name', 'Anonymous');
+            }
+        });
+
+        return $query->first();
+    }
+
+    private function assertAssignmentRolesExist(array $roleIds): void
+    {
+        $roleIds = collect($roleIds)
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($roleIds)) {
+            return;
+        }
+
+        if (!Schema::hasTable('roles')) {
+            throw ValidationException::withMessages([
+                'role_ids' => [
+                    'Roles table does not exist.',
+                ],
+            ]);
+        }
+
+        $existingRoleIds = DB::table('roles')
+            ->whereIn('id', $roleIds)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->toArray();
+
+        $missingRoleIds = array_values(array_diff($roleIds, $existingRoleIds));
+
+        if (!empty($missingRoleIds)) {
+            throw ValidationException::withMessages([
+                'role_ids' => [
+                    'Invalid role ids: ' . implode(', ', $missingRoleIds),
+                ],
+            ]);
+        }
+    }
+
+    private function formatAssignedUsers(DynamicPost $post): array
+    {
+        if (!Schema::hasTable('dynamic_post_user')) {
+            return [];
+        }
+
+        $columns = ['users.id'];
+
+        foreach (['first_name', 'last_name', 'name', 'email', 'role_id'] as $column) {
+            if (Schema::hasColumn('users', $column)) {
+                $columns[] = 'users.' . $column;
+            }
+        }
+
+        return User::query()
+            ->select($columns)
+            ->join('dynamic_post_user', 'users.id', '=', 'dynamic_post_user.user_id')
+            ->where('dynamic_post_user.dynamic_post_id', $post->id)
+            ->orderBy('users.id')
+            ->get()
+            ->map(function ($user) {
+                $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+
+                $label = $fullName
+                    ?: ($user->name ?? null)
+                    ?: ($user->email ?? null)
+                    ?: ('User #' . $user->id);
+
+                return [
+                    'id' => (int) $user->id,
+                    'value' => (int) $user->id,
+                    'label' => $label,
+                    'email' => $user->email ?? null,
+                    'role_id' => $user->role_id ?? null,
+                    'is_anonymous_user' => ($user->email ?? null) === 'anonymous@system.local'
+                        || ($user->name ?? null) === 'Anonymous User',
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
     public function destroy(int|string $dynamicPost): JsonResponse
     {
         try {
@@ -1569,6 +1813,11 @@ class DynamicPostController extends Controller
             'keyword' => ['nullable'],
             'keywords' => ['nullable'],
             'keywords.*' => ['nullable'],
+            'user_ids' => ['nullable', 'array'],
+            'user_ids.*' => ['nullable', 'integer', 'exists:users,id'],
+            'role_ids' => ['nullable', 'array'],
+            'role_ids.*' => ['nullable', 'integer'],
+            'anonymous' => ['nullable', 'boolean'],
             'excerpt' => ['nullable', 'string'],
             'content' => ['nullable', 'string'],
             'featured_image_id' => ['nullable', 'integer'],
@@ -1852,7 +2101,10 @@ class DynamicPostController extends Controller
             $validated['gallery_images'],
             $validated['post_type'],
             $validated['keyword'],
-            $validated['keywords']
+            $validated['keywords'],
+            $validated['user_ids'],
+            $validated['role_ids'],
+            $validated['anonymous']
         );
 
         if (array_key_exists('gallery_image_ids', $validated)) {
@@ -4142,7 +4394,11 @@ class DynamicPostController extends Controller
         $data['selected_relationship_post_types'] = $this->formatRelationshipPostTypesForFrontend($post);
         $data['selected_keywords'] = $this->formatSelectedKeywords($post);
         $data['keywords'] = $data['selected_keywords'];
-
+        $data['assigned_users'] = $this->formatAssignedUsers($post);
+        $data['assigned_user_ids'] = collect($data['assigned_users'])
+            ->pluck('id')
+            ->values()
+            ->toArray();
         return $data;
     }
 
@@ -4441,6 +4697,18 @@ class DynamicPostController extends Controller
         PostType $postType,
         mixed $input
     ): void {
+        if (
+            !Schema::hasTable('keywords')
+            || !Schema::hasTable('keyword_post_type')
+            || !Schema::hasTable('keyword_dynamic_post')
+        ) {
+            throw ValidationException::withMessages([
+                'keywords' => [
+                    'Keyword tables are missing. Please run keyword migrations first.',
+                ],
+            ]);
+        }
+
         $normalized = $this->normalizeSubmittedKeywords($input);
 
         if (empty($normalized)) {
@@ -4455,16 +4723,26 @@ class DynamicPostController extends Controller
 
         foreach ($normalized as $item) {
             $keyword = null;
-            $keywordText = null;
 
             if (!empty($item['id'])) {
                 $keyword = Keyword::find((int) $item['id']);
-                $keywordText = $keyword?->keyword;
+
+                if (!$keyword) {
+                    throw ValidationException::withMessages([
+                        'keywords' => [
+                            'Invalid keyword id: ' . $item['id'],
+                        ],
+                    ]);
+                }
             }
 
-            if (!$keyword && !empty($item['keyword'])) {
-                $keywordText = Keyword::normalizeKeyword($item['keyword']);
+            $keywordText = Keyword::normalizeKeyword($item['keyword'] ?? $keyword?->keyword ?? '');
 
+            if ($keywordText === '') {
+                continue;
+            }
+
+            if (!$keyword) {
                 $keyword = $this->findExistingKeywordForDynamicPost(
                     keyword: $keywordText,
                     postTypeId: (int) $postType->id,
@@ -4472,19 +4750,21 @@ class DynamicPostController extends Controller
                 );
             }
 
-            $keywordText = Keyword::normalizeKeyword($keywordText);
+            $payload = [
+                'keyword' => $keywordText,
+                'status' => $item['status'] ?? $keyword?->status ?? 'active',
+                'avg_search_volume' => array_key_exists('avg_search_volume', $item)
+                    ? $item['avg_search_volume']
+                    : ($keyword?->avg_search_volume ?? null),
+                'avg_ranking' => array_key_exists('avg_ranking', $item)
+                    ? $item['avg_ranking']
+                    : ($keyword?->avg_ranking ?? null),
+            ];
 
-            if ($keywordText === '') {
-                continue;
-            }
-
-            if (!$keyword) {
-                $keyword = Keyword::create([
-                    'keyword' => $keywordText,
-                    'status' => 'active',
-                    'avg_search_volume' => null,
-                    'avg_ranking' => null,
-                ]);
+            if ($keyword) {
+                $keyword->update($payload);
+            } else {
+                $keyword = Keyword::create($payload);
             }
 
             $keyword->postTypes()->syncWithoutDetaching([
@@ -4503,14 +4783,19 @@ class DynamicPostController extends Controller
             ->values()
             ->toArray();
 
+        if (empty($keywordIds)) {
+            DB::table('keyword_dynamic_post')
+                ->where('dynamic_post_id', $post->id)
+                ->delete();
+
+            return;
+        }
+
         DB::table('keyword_dynamic_post')
             ->where('dynamic_post_id', $post->id)
-            ->when(!empty($keywordIds), function ($query) use ($keywordIds) {
-                $query->whereNotIn('keyword_id', $keywordIds);
-            })
+            ->whereNotIn('keyword_id', $keywordIds)
             ->delete();
     }
-
     private function normalizeSubmittedKeywords(mixed $input): array
     {
         if (is_null($input) || $input === '') {
@@ -4544,6 +4829,9 @@ class DynamicPostController extends Controller
                 $items[] = [
                     'id' => (int) $item,
                     'keyword' => null,
+                    'status' => null,
+                    'avg_search_volume' => null,
+                    'avg_ranking' => null,
                 ];
 
                 continue;
@@ -4556,6 +4844,9 @@ class DynamicPostController extends Controller
                     $items[] = [
                         'id' => null,
                         'keyword' => $keyword,
+                        'status' => 'active',
+                        'avg_search_volume' => null,
+                        'avg_ranking' => null,
                     ];
                 }
 
@@ -4568,6 +4859,8 @@ class DynamicPostController extends Controller
 
                 if (!empty($item['id']) && is_numeric($item['id'])) {
                     $id = (int) $item['id'];
+                } elseif (!empty($item['keyword_id']) && is_numeric($item['keyword_id'])) {
+                    $id = (int) $item['keyword_id'];
                 }
 
                 foreach (['keyword', 'label', 'name', 'title', 'value'] as $key) {
@@ -4577,10 +4870,35 @@ class DynamicPostController extends Controller
                     }
                 }
 
+                $status = $item['status'] ?? 'active';
+
+                if (!in_array($status, ['active', 'inactive'], true)) {
+                    $status = 'active';
+                }
+
+                $avgSearchVolume = null;
+
+                if (array_key_exists('avg_search_volume', $item) && $item['avg_search_volume'] !== '' && $item['avg_search_volume'] !== null) {
+                    $avgSearchVolume = is_numeric($item['avg_search_volume'])
+                        ? (int) $item['avg_search_volume']
+                        : null;
+                }
+
+                $avgRanking = null;
+
+                if (array_key_exists('avg_ranking', $item) && $item['avg_ranking'] !== '' && $item['avg_ranking'] !== null) {
+                    $avgRanking = is_numeric($item['avg_ranking'])
+                        ? round((float) $item['avg_ranking'], 2)
+                        : null;
+                }
+
                 if ($id || $keyword) {
                     $items[] = [
                         'id' => $id,
                         'keyword' => $keyword,
+                        'status' => $status,
+                        'avg_search_volume' => $avgSearchVolume,
+                        'avg_ranking' => $avgRanking,
                     ];
                 }
             }
