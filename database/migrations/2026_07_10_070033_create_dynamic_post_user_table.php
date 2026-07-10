@@ -26,8 +26,10 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->unique(['dynamic_post_id', 'user_id'], 'dynamic_post_user_unique');
-            $table->index('dynamic_post_id');
+            // Only one user per listing
+            $table->unique('dynamic_post_id', 'dynamic_post_single_user_unique');
+
+            // One user can have many listings
             $table->index('user_id');
         });
     }
