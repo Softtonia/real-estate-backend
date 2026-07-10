@@ -100,6 +100,7 @@ use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
+use App\Http\Controllers\Api\ListingUserAssignmentController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
 use App\Http\Controllers\Template\PageBuilderContextController;
@@ -328,7 +329,17 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
 
 // Route::middleware(['throttle:60,1','auth:sanctum'])->prefix('admin')->group(function () {
 // dd(1);
+Route::get('listing-user-assignment-options', [ListingUserAssignmentController::class, 'options'])
+    ->middleware(['throttle:60,1', 'admin.token']);
 
+Route::post('listing-user-assignment', [ListingUserAssignmentController::class, 'save'])
+    ->middleware(['throttle:60,1', 'admin.token']);
+
+Route::get('listing-user-assignment/{dynamicPost}', [ListingUserAssignmentController::class, 'show'])
+    ->middleware(['throttle:60,1', 'admin.token']);
+
+Route::get('user-assigned-listings', [ListingUserAssignmentController::class, 'userListings'])
+    ->middleware(['throttle:60,1']);
 Route::middleware(['validate.api.client'])->group(function () {
 
     Route::middleware(['admin'])->prefix('admin')->group(function () {

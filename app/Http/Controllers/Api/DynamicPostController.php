@@ -709,6 +709,11 @@ class DynamicPostController extends Controller
                         ->where('dynamic_post_id', $post->id)
                         ->delete();
                 }
+                if (Schema::hasTable('dynamic_post_user')) {
+                    DB::table('dynamic_post_user')
+                        ->where('dynamic_post_id', $post->id)
+                        ->delete();
+                }
                 $post->taxonomyTerms()->detach();
                 $post->delete();
             });
@@ -771,7 +776,11 @@ class DynamicPostController extends Controller
                 DB::table('post_taxonomy_terms')
                     ->whereIn('dynamic_post_id', $existingIds)
                     ->delete();
-
+                if (Schema::hasTable('dynamic_post_user')) {
+                    DB::table('dynamic_post_user')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->delete();
+                }
                 return DynamicPost::whereIn('id', $existingIds)->delete();
             });
 

@@ -9,47 +9,49 @@ use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 use Illuminate\Contracts\Auth\CanResetPassword;
 use Illuminate\Auth\Notifications\ResetPassword as ResetPasswordNotification;
+use App\Models\DynamicPost;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class User extends Authenticatable implements CanResetPassword
 {
-use HasApiTokens, HasFactory, Notifiable, HasRoles;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
-// protected $fillable = [
-//         'first_name',
-//         'last_name',
-//         'fullname',
-//         'email',
-//         'password',
-//         'role_id',
-//         'phone',
-//         'api_token',
-//         'country_code',
-//         'requestId',
-// 	    'email_otp',
-//         'email_otp_expires_at',
-//         'deactive_reason',
-//         'token_created_at',
-//         'unique_id',
-//         'isapproved','google_id','user_name'
-//     ];
+    // protected $fillable = [
+    //         'first_name',
+    //         'last_name',
+    //         'fullname',
+    //         'email',
+    //         'password',
+    //         'role_id',
+    //         'phone',
+    //         'api_token',
+    //         'country_code',
+    //         'requestId',
+    // 	    'email_otp',
+    //         'email_otp_expires_at',
+    //         'deactive_reason',
+    //         'token_created_at',
+    //         'unique_id',
+    //         'isapproved','google_id','user_name'
+    //     ];
 
-        protected $table='users';
-        protected $guarded=[];
+    protected $table = 'users';
+    protected $guarded = [];
 
-        protected $hidden = [
+    protected $hidden = [
         'password',
         'remember_token',
-        ];
+    ];
 
-        protected $casts = [
+    protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
-        ];
+    ];
 
     // Define the hasPermission method to simplify permission checks
     public function hasPermission($permissionName)
     {
-    return $this->hasPermissionTo($permissionName);
+        return $this->hasPermissionTo($permissionName);
     }
 
     // Relationships
@@ -61,40 +63,40 @@ use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
     public function ticket()
     {
-    return $this->hasMany(Ticket::class);
+        return $this->hasMany(Ticket::class);
     }
 
     // If your email column is not named 'email', override the getEmailForPasswordReset method
     public function getEmailForPasswordReset()
     {
-    return $this->email;
+        return $this->email;
     }
 
     // Override the sendPasswordResetNotification method
     public function sendPasswordResetNotification($token)
     {
-    $this->notify(new ResetPasswordNotification($token));
+        $this->notify(new ResetPasswordNotification($token));
     }
 
     // User.php
     public function uniqueIds()
     {
-    return $this->belongsToMany(UniqueID::class, 'user_has_unique_ids');
+        return $this->belongsToMany(UniqueID::class, 'user_has_unique_ids');
     }
 
     // UniqueID.php
     public function users()
     {
-    return $this->belongsToMany(User::class, 'user_has_unique_ids');
+        return $this->belongsToMany(User::class, 'user_has_unique_ids');
     }
 
     public function uniqueId()
     {
-    return $this->belongsTo(UniqueID::class);
+        return $this->belongsTo(UniqueID::class);
     }
     public function userDetails()
     {
-    return $this->hasOne(UserDetail::class, 'user_id');
+        return $this->hasOne(UserDetail::class, 'user_id');
     }
 
     public function joinRequestsAsAgent()
@@ -118,7 +120,7 @@ use HasApiTokens, HasFactory, Notifiable, HasRoles;
         return $this->hasOne(UserDetail::class, 'user_id');
     }
 
-     public function assignedProjects()
+    public function assignedProjects()
     {
         return $this->hasMany(ProjectList::class, 'developer_id');
     }
@@ -129,15 +131,18 @@ use HasApiTokens, HasFactory, Notifiable, HasRoles;
         return $this->hasMany(Developerlist::class);
     }
 
-    public function country(){
+    public function country()
+    {
         return $this->belongsTo(Country::class);
     }
 
-    public function state(){
+    public function state()
+    {
         return $this->belongsTo(State::class);
     }
 
-    public function city(){
+    public function city()
+    {
         return $this->belongsTo(City::class);
     }
 
@@ -147,7 +152,7 @@ use HasApiTokens, HasFactory, Notifiable, HasRoles;
     }
 
 
-      /**
+    /**
      * Get the properties for the user.
      */
     public function properties()
@@ -162,5 +167,15 @@ use HasApiTokens, HasFactory, Notifiable, HasRoles;
     {
         return $this->hasMany(Project::class, 'user_id');
     }
-
+    public function assignedListings(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            DynamicPost::class,
+            'dynamic_post_user',
+            'user_id',
+            'dynamic_post_id'
+        )
+            ->withPivot(['assigned_by'])
+            ->withTimestamps();
+    }
 }

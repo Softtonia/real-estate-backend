@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class DynamicPost extends Model
 {
@@ -251,6 +253,17 @@ class DynamicPost extends Model
             'related_post_id'
         )
             ->withPivot('related_post_type_id')
+            ->withTimestamps();
+    }
+    public function assignedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            User::class,
+            'dynamic_post_user',
+            'dynamic_post_id',
+            'user_id'
+        )
+            ->withPivot(['assigned_by'])
             ->withTimestamps();
     }
 }
