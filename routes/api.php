@@ -920,7 +920,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
     Route::get('dynamic-post-keyword-suggestions', [DynamicPostController::class, 'keywordSuggestions']);
 
-    Route::get('dynamic-post-user-assignment-options', [DynamicPostController::class, 'userAssignmentOptions']);
+    Route::get('dynamic-post-assignment-users', [DynamicPostController::class, 'assignmentUsers']);
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
     Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])->whereNumber('dynamicPost');
