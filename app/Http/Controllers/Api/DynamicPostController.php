@@ -734,8 +734,8 @@ class DynamicPostController extends Controller
     }
     private function hasAssignedUserPayload(array $payload): bool
     {
-        return array_key_exists('user_ids', $payload)
-            || array_key_exists('role_ids', $payload)
+        return array_key_exists('user_id', $payload)
+            || array_key_exists('role_id', $payload)
             || array_key_exists('anonymous', $payload);
     }
 
@@ -749,75 +749,53 @@ class DynamicPostController extends Controller
             ]);
         }
 
-        $userIds = collect($payload['user_ids'] ?? [])
-            ->filter()
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values();
-
-        $roleIds = collect($payload['role_ids'] ?? [])
-            ->filter()
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values();
-
-        if ($roleIds->isNotEmpty()) {
-            $this->assertAssignmentRolesExist($roleIds->toArray());
-
-            if (Schema::hasColumn('users', 'role_id')) {
-                $roleUserIds = User::query()
-                    ->whereIn('role_id', $roleIds->toArray())
-                    ->pluck('id')
-                    ->map(fn($id) => (int) $id);
-
-                $userIds = $userIds
-                    ->merge($roleUserIds)
-                    ->unique()
-                    ->values();
-            }
-        }
+        $selectedUserId = !empty($payload['user_id'])
+            ? (int) $payload['user_id']
+            : null;
 
         $anonymousUser = $this->getAnonymousUser();
 
         if (!empty($payload['anonymous']) && $anonymousUser) {
-            $userIds->push((int) $anonymousUser->id);
+            $selectedUserId = (int) $anonymousUser->id;
         }
 
-        // Important:
-        // If admin selected role but role has no users,
-        // or admin selected no user,
-        // then assign Anonymous User from users table.
-        if ($userIds->isEmpty() && $anonymousUser) {
-            $userIds->push((int) $anonymousUser->id);
+        // If admin selected role but did not select user, check whether role has users.
+        // If role has no users, assign Anonymous User.
+        if (!$selectedUserId && !empty($payload['role_id'])) {
+            $roleId = (int) $payload['role_id'];
+            $this->assertAssignmentRolesExist([$roleId]);
+
+            $roleUserId = User::query()
+                ->where('role_id', $roleId)
+                ->value('id');
+
+            $selectedUserId = $roleUserId ? (int) $roleUserId : null;
         }
 
-        if ($userIds->isEmpty()) {
+        // Final fallback: anonymous user.
+        if (!$selectedUserId && $anonymousUser) {
+            $selectedUserId = (int) $anonymousUser->id;
+        }
+
+        if (!$selectedUserId) {
             throw ValidationException::withMessages([
-                'user_ids' => [
+                'user_id' => [
                     'No user selected/found and Anonymous User does not exist in users table.',
                 ],
             ]);
         }
 
-        $now = now();
-
-        $rows = $userIds
-            ->unique()
-            ->map(fn($userId) => [
-                'dynamic_post_id' => (int) $post->id,
-                'user_id' => (int) $userId,
-                'assigned_by' => Auth::id(),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ])
-            ->values()
-            ->toArray();
-
         DB::table('dynamic_post_user')
             ->where('dynamic_post_id', $post->id)
             ->delete();
 
-        DB::table('dynamic_post_user')->insert($rows);
+        DB::table('dynamic_post_user')->insert([
+            'dynamic_post_id' => (int) $post->id,
+            'user_id' => (int) $selectedUserId,
+            'assigned_by' => Auth::id(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function getAnonymousUser(): ?User
@@ -1814,10 +1792,8 @@ class DynamicPostController extends Controller
             'keyword' => ['nullable'],
             'keywords' => ['nullable'],
             'keywords.*' => ['nullable'],
-            'user_ids' => ['nullable', 'array'],
-            'user_ids.*' => ['nullable', 'integer', 'exists:users,id'],
-            'role_ids' => ['nullable', 'array'],
-            'role_ids.*' => ['nullable', 'integer'],
+            'user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'role_id' => ['nullable', 'integer'],
             'anonymous' => ['nullable', 'boolean'],
             'excerpt' => ['nullable', 'string'],
             'content' => ['nullable', 'string'],
@@ -2103,8 +2079,8 @@ class DynamicPostController extends Controller
             $validated['post_type'],
             $validated['keyword'],
             $validated['keywords'],
-            $validated['user_ids'],
-            $validated['role_ids'],
+            $validated['user_id'],
+            $validated['role_id'],
             $validated['anonymous']
         );
 
@@ -5193,109 +5169,81 @@ class DynamicPostController extends Controller
                 || ($user->first_name ?? null) === 'Anonymous',
         ];
     }
-    public function userAssignmentOptions(Request $request): JsonResponse
+    public function assignmentUsers(Request $request): JsonResponse
     {
         try {
             $request->validate([
-                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
-                'post_type' => ['nullable', 'string'],
-                'post_type_slug' => ['nullable', 'string'],
-
-                'dynamic_post_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
-
                 'role_id' => ['nullable', 'integer'],
-                'role_ids' => ['nullable', 'array'],
-                'role_ids.*' => ['nullable', 'integer'],
-
                 'search' => ['nullable', 'string', 'max:255'],
-                'listing_search' => ['nullable', 'string', 'max:255'],
-                'user_search' => ['nullable', 'string', 'max:255'],
-
-                'status' => ['nullable', 'string'],
-                'live_status' => ['nullable', 'string'],
-                'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+                'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
             ]);
 
-            $limit = max(1, min((int) $request->get('limit', 100), 500));
+            $limit = min((int) $request->get('limit', 100), 200);
 
-            $postType = $this->resolveAssignmentPostType($request);
+            $query = User::query();
 
-            $listingSearch = $request->listing_search ?: $request->search;
-            $userSearch = $request->user_search ?: $request->search;
+            $columns = ['id'];
 
-            $roleIds = $this->normalizeAssignmentRoleIds($request);
-
-            $listings = $this->getAssignmentListingOptions(
-                postType: $postType,
-                search: $listingSearch,
-                status: $request->status,
-                liveStatus: $request->live_status,
-                limit: $limit
-            );
-
-            $roles = $this->getAssignmentRoleOptions();
-
-            $users = $this->getAssignmentUserOptions(
-                roleIds: $roleIds,
-                search: $userSearch,
-                limit: $limit
-            );
-
-            $anonymousUser = $this->getAnonymousUser();
-
-            // If selected role has no users, show Anonymous User from users table.
-            if ($users->isEmpty() && $anonymousUser) {
-                $users = collect([
-                    $this->formatAssignmentUserOption($anonymousUser),
-                ]);
-            }
-
-            $selectedAssignedUsers = [];
-            $selectedAssignedUserIds = [];
-
-            if ($request->filled('dynamic_post_id') && Schema::hasTable('dynamic_post_user')) {
-                $selectedPost = DynamicPost::find((int) $request->dynamic_post_id);
-
-                if ($selectedPost) {
-                    $selectedAssignedUsers = $this->formatAssignedUsers($selectedPost);
-                    $selectedAssignedUserIds = collect($selectedAssignedUsers)
-                        ->pluck('id')
-                        ->values()
-                        ->toArray();
+            foreach (['first_name', 'last_name', 'name', 'email', 'role_id'] as $column) {
+                if (Schema::hasColumn('users', $column)) {
+                    $columns[] = $column;
                 }
             }
 
-            return $this->successResponse('Dynamic post user assignment options fetched successfully.', [
-                'post_type' => $postType ? [
-                    'id' => (int) $postType->id,
-                    'name' => $postType->name,
-                    'slug' => $postType->slug,
-                ] : null,
+            $query->select($columns);
 
-                'listings' => $listings,
-                'roles' => $roles,
-                'users' => $users,
+            if ($request->filled('role_id') && Schema::hasColumn('users', 'role_id')) {
+                $query->where('role_id', (int) $request->role_id);
+            }
 
-                'anonymous_user' => $anonymousUser
-                    ? $this->formatAssignmentUserOption($anonymousUser)
-                    : null,
+            if (Schema::hasColumn('users', 'role_id')) {
+                $query->where(function ($q) {
+                    $q->whereNull('role_id')
+                        ->orWhere('role_id', '!=', 1);
+                });
+            }
 
-                'selected' => [
-                    'dynamic_post_id' => $request->filled('dynamic_post_id')
-                        ? (int) $request->dynamic_post_id
+            if ($request->filled('search')) {
+                $search = trim((string) $request->search);
+
+                $query->where(function ($q) use ($search) {
+                    foreach (['first_name', 'last_name', 'name', 'email'] as $column) {
+                        if (Schema::hasColumn('users', $column)) {
+                            $q->orWhere($column, 'like', "%{$search}%");
+                        }
+                    }
+                });
+            }
+
+            $users = $query
+                ->limit($limit)
+                ->get()
+                ->map(fn($user) => $this->formatAssignmentUserOption($user))
+                ->values();
+
+            $anonymousUser = $this->getAnonymousUser();
+
+            if ($users->isEmpty() && $anonymousUser) {
+                $users = collect([
+                    $this->formatAssignmentUserOption($anonymousUser, true),
+                ]);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Users fetched successfully.',
+                'data' => [
+                    'selection_type' => 'single',
+                    'users' => $users,
+                    'anonymous_user' => $anonymousUser
+                        ? $this->formatAssignmentUserOption($anonymousUser, true)
                         : null,
-                    'assigned_user_ids' => $selectedAssignedUserIds,
-                    'assigned_users' => $selectedAssignedUsers,
                 ],
             ]);
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
         } catch (Throwable $e) {
-            return $this->errorResponse(
-                'Unable to fetch dynamic post user assignment options.',
-                500,
-                $e->getMessage()
-            );
+            return $this->errorResponse('Unable to fetch users.', 500, $e->getMessage());
         }
     }
 }
