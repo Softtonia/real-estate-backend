@@ -5270,6 +5270,8 @@ class DynamicPostController extends Controller
     private function createFrontendUserForListing(Request $request): User
     {
         $validated = $request->validate([
+            'role_id' => ['nullable', 'integer', 'exists:roles,id'],
+
             'user' => ['required', 'array'],
             'user.first_name' => ['required', 'string', 'max:100'],
             'user.last_name' => ['nullable', 'string', 'max:100'],
@@ -5284,7 +5286,7 @@ class DynamicPostController extends Controller
                 'unique:users,email',
             ],
             'user.password' => ['required', 'string', 'min:8'],
-            'user.role_id' => ['required', 'integer', 'exists:roles,id'],
+            'user.role_id' => ['nullable', 'integer', 'exists:roles,id'],
             'user.user_name' => [
                 'nullable',
                 'string',
@@ -5297,11 +5299,21 @@ class DynamicPostController extends Controller
 
         $userData = $validated['user'];
 
-        $role = Role::find((int) $userData['role_id']);
+        $roleId = $validated['role_id']
+            ?? $userData['role_id']
+            ?? null;
+
+        if (!$roleId) {
+            throw ValidationException::withMessages([
+                'role_id' => ['Please select a role.'],
+            ]);
+        }
+
+        $role = Role::find((int) $roleId);
 
         if (!$role) {
             throw ValidationException::withMessages([
-                'user.role_id' => ['Invalid role selected.'],
+                'role_id' => ['Invalid role selected.'],
             ]);
         }
 
@@ -5428,5 +5440,79 @@ class DynamicPostController extends Controller
         }
 
         return $username;
+    }
+    public function frontendListingRoleDropdown(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'search' => ['nullable', 'string', 'max:255'],
+                'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
+            ]);
+
+            if (!Schema::hasTable('roles')) {
+                return $this->successResponse('Roles fetched successfully.', [
+                    'count' => 0,
+                    'options' => [],
+                ]);
+            }
+
+            $limit = min((int) $request->get('limit', 100), 200);
+            $blockedRoleIds = $this->blockedAssignmentRoleIds();
+
+            $query = DB::table('roles');
+
+            if (!empty($blockedRoleIds)) {
+                $query->whereNotIn('id', $blockedRoleIds);
+            }
+
+            if ($request->filled('search')) {
+                $search = trim((string) $request->search);
+
+                $query->where(function ($q) use ($search) {
+                    foreach (['name', 'slug', 'role_name'] as $column) {
+                        if (Schema::hasColumn('roles', $column)) {
+                            $q->orWhere($column, 'like', "%{$search}%");
+                        }
+                    }
+                });
+            }
+
+            if (Schema::hasColumn('roles', 'status')) {
+                $query->where(function ($q) {
+                    $q->where('status', true)
+                        ->orWhere('status', 1)
+                        ->orWhere('status', 'active');
+                });
+            }
+
+            $roles = $query
+                ->orderBy('id', 'asc')
+                ->limit($limit)
+                ->get();
+
+            $options = $roles->map(function ($role) {
+                $label = $role->name
+                    ?? $role->role_name
+                    ?? $role->slug
+                    ?? ('Role #' . $role->id);
+
+                return [
+                    'id' => (int) $role->id,
+                    'value' => (int) $role->id,
+                    'label' => $label,
+                    'name' => $label,
+                    'slug' => $role->slug ?? null,
+                ];
+            })->values();
+
+            return $this->successResponse('Roles fetched successfully.', [
+                'count' => $options->count(),
+                'options' => $options,
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to fetch roles.', 500, $e->getMessage());
+        }
     }
 }
