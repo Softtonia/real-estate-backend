@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Schema;
 use Throwable;
 use App\Models\SiteSetting;
 use App\Models\Keyword;
+use App\Models\User;
 
 class DynamicPostController extends Controller
 {
