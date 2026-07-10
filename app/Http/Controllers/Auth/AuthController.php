@@ -291,4 +291,89 @@ class AuthController extends Controller
             ], 500);
         }
     }
+    public function verifyRegisterOtp(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'otp' => ['required', 'digits:4'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $authorizationHeader = $request->header('Authorization');
+
+        if (!$authorizationHeader || !str_starts_with($authorizationHeader, 'Bearer ')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Authorization token is required. Use Bearer token.',
+            ], 401);
+        }
+
+        $token = trim(substr($authorizationHeader, 7));
+
+        if ($token === '') {
+            return response()->json([
+                'status' => false,
+                'message' => 'API token is missing.',
+            ], 401);
+        }
+
+        $user = User::with('role:id,name')
+            ->where('api_token', $token)
+            ->first();
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid API token.',
+            ], 401);
+        }
+
+        $otpRecord = DB::table('otps')
+            ->where('user_id', $user->id)
+            ->where('otp', $request->otp)
+            ->where('isOTPVerified', false)
+            ->first();
+
+        if (!$otpRecord) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid OTP.',
+            ], 400);
+        }
+
+        if (!empty($otpRecord->expire_date_time) && Carbon::parse($otpRecord->expire_date_time)->isPast()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'OTP expired. Please request a new OTP.',
+            ], 400);
+        }
+
+        DB::transaction(function () use ($user, $otpRecord) {
+            $user->forceFill([
+                'is_otp_verified' => true,
+                'token_created_at' => now(),
+            ])->save();
+
+            DB::table('otps')
+                ->where('id', $otpRecord->id)
+                ->update([
+                    'isOTPVerified' => true,
+                ]);
+        });
+
+        return response()->json([
+            'status' => true,
+            'message' => 'OTP verified successfully.',
+            'api_token' => $user->api_token,
+            'user_id' => $user->id,
+            'role' => optional($user->role)->name,
+            'kyc' => $user->kyc,
+        ], 200);
+    }
 }
