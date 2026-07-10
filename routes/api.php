@@ -329,17 +329,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
 
 // Route::middleware(['throttle:60,1','auth:sanctum'])->prefix('admin')->group(function () {
 // dd(1);
-Route::get('listing-user-assignment-options', [ListingUserAssignmentController::class, 'options'])
-    ->middleware(['throttle:60,1', 'admin.token']);
 
-Route::post('listing-user-assignment', [ListingUserAssignmentController::class, 'save'])
-    ->middleware(['throttle:60,1', 'admin.token']);
-
-Route::get('listing-user-assignment/{dynamicPost}', [ListingUserAssignmentController::class, 'show'])
-    ->middleware(['throttle:60,1', 'admin.token']);
-
-Route::get('user-assigned-listings', [ListingUserAssignmentController::class, 'userListings'])
-    ->middleware(['throttle:60,1']);
 Route::middleware(['validate.api.client'])->group(function () {
 
     Route::middleware(['admin'])->prefix('admin')->group(function () {
@@ -930,6 +920,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
     Route::get('dynamic-post-keyword-suggestions', [DynamicPostController::class, 'keywordSuggestions']);
 
+    Route::get('dynamic-post-user-assignment-options', [DynamicPostController::class, 'userAssignmentOptions']);
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
     Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])->whereNumber('dynamicPost');
