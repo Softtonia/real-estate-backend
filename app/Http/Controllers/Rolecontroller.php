@@ -506,4 +506,122 @@ class Rolecontroller extends Controller
             'data' => $role
         ], 200);
     }
+    public function checkUserDuplicate(Request $request)
+    {
+        try {
+            // Get Bearer token
+            $requestToken = $request->bearerToken();
+
+            if (!$requestToken) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Please provide a valid Bearer API token.'
+                ], 422);
+            }
+
+            // Authenticate API user
+            $authenticatedUser = User::where('api_token', $requestToken)->first();
+
+            if (!$authenticatedUser) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized. Invalid API token.'
+                ], 401);
+            }
+
+            // At least email or phone is required
+            $validatedData = $request->validate([
+                'email' => [
+                    'nullable',
+                    'required_without:phone',
+                    'email',
+                    'max:255',
+                ],
+                'phone' => [
+                    'nullable',
+                    'required_without:email',
+                    'string',
+                    'max:20',
+                ],
+                // Pass user_id while editing a user
+                'user_id' => [
+                    'nullable',
+                    'integer',
+                    'exists:users,id',
+                ],
+            ]);
+
+            $userId = $validatedData['user_id'] ?? null;
+
+            $email = isset($validatedData['email'])
+                ? strtolower(trim($validatedData['email']))
+                : null;
+
+            $phone = isset($validatedData['phone'])
+                ? preg_replace('/[^0-9]/', '', $validatedData['phone'])
+                : null;
+
+            $emailExists = false;
+            $phoneExists = false;
+
+            // Check duplicate email
+            if ($email) {
+                $emailQuery = User::whereRaw('LOWER(email) = ?', [$email]);
+
+                if ($userId) {
+                    $emailQuery->where('id', '!=', $userId);
+                }
+
+                $emailExists = $emailQuery->exists();
+            }
+
+            // Check duplicate phone
+            if ($phone) {
+                $phoneQuery = User::where('phone', $phone);
+
+                if ($userId) {
+                    $phoneQuery->where('id', '!=', $userId);
+                }
+
+                $phoneExists = $phoneQuery->exists();
+            }
+
+            $duplicateFields = [];
+
+            if ($emailExists) {
+                $duplicateFields[] = 'email';
+            }
+
+            if ($phoneExists) {
+                $duplicateFields[] = 'phone';
+            }
+
+            $hasDuplicate = $emailExists || $phoneExists;
+
+            return response()->json([
+                'status' => true,
+                'duplicate' => $hasDuplicate,
+                'message' => $hasDuplicate
+                    ? implode(' and ', array_map('ucfirst', $duplicateFields)) . ' already exists.'
+                    : 'Email and phone number are available.',
+                'data' => [
+                    'email_exists' => $emailExists,
+                    'phone_exists' => $phoneExists,
+                    'duplicate_fields' => $duplicateFields,
+                ]
+            ], 200);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to check duplicate details.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

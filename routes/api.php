@@ -179,8 +179,6 @@ Route::middleware(['validate.api.client'])->group(function () {
 
     Route::post('/register', [AuthController::class, 'register'])->middleware(['throttle:60,1']);
 
-    Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp'])
-        ->middleware(['throttle:60,1']);
     Route::post('/store-otp-verification-data', [UserController::class, 'storeOtpVerificationData'])->middleware(['throttle:60,1']);
 
     Route::post('login', [AuthController::class, 'login'])->middleware(['throttle:60,1']);
@@ -1043,7 +1041,9 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
         ->whereNumber('dynamicPost');
     Route::get('dynamic-posts/template/{slug}', [TemplateResolveController::class, 'showDynamicPostTemplateBySlug']);
 });
-Route::middleware(['validate.api.client'])->group(function () {
+Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::get('frontend/listing-roles', [DynamicPostController::class, 'frontendListingRoleDropdown']);
     Route::post('frontend/listings', [DynamicPostController::class, 'storeFrontendListing']);
+    Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
+    Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
 });
