@@ -369,11 +369,13 @@ class AuthController extends Controller
 
         return response()->json([
             'status' => true,
-            'message' => 'OTP verified successfully.',
+            'message' => 'OTP verified successfully. Please log in to continue.',
             'api_token' => $user->api_token,
             'user_id' => $user->id,
             'role' => optional($user->role)->name,
             'kyc' => $user->kyc,
+            'redirect_to' => 'login',
+            'is_login' => false,
         ], 200);
     }
 }
