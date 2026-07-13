@@ -3,942 +3,987 @@
 namespace App\Http\Controllers\Ticket;
 
 use App\Http\Controllers\Controller;
+use App\Models\Property;
 use App\Models\SiteSetting;
-use Illuminate\Http\Request;
 use App\Models\Ticket;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\File;
+use App\Models\TicketAttachment;
+use App\Models\TicketResponse;
+use App\Models\TicketStatus;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Log;
-use DB;
-use App\Models\TicketStatus;
-use App\Models\Property;
-use App\Models\Response;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+
 class TicketController extends Controller
 {
-
-
-    public function index(Request $request)
-    {
-        $perPage = request()->get('per_page', 10); // Default to 10 if not provided
-        // Fetch all tickets with raised_by user details, assigned_to user details, and priority name
-        $query = DB::table('tickets')
-            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
-            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
-            ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
-            ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
-            ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
-            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
-            ->select(
-                'raised_users.id as raised_by_id',
-                'raised_users.first_name as raised_user_name',
-                'assigned_users.id as assigned_to_id',
-                'assigned_users.first_name as assigned_user_fullname',
-                'tickets.*',
-                'ticket_priorities.ticket_priority',
-                'ticket_status.ticket_status_name',
-                'ticket_types.ticket_type_name',
-                'ticket_departments.ticket_department_name'
-            );
-           $tickets = $query->paginate($perPage);
-
-
-        // Check if no tickets found
-      if ($tickets->total() === 0) {
-            return response()->json([
-                'status' => false,
-                'message' => 'No tickets found',
-                'data' => [],
-            ], 200);
-        }
-
-
-
-
-
-        $formattedTickets = [];
-
-        // Loop through each ticket
-        foreach ($tickets as $ticket) {
-
-            $mediaUrl = $ticket->media_attachment
-                ? url('attachments/' . $ticket->media_attachment)
-                : null;
-            // Create an array to hold formatted ticket data
-            $formattedTicket = [
-                'id' => $ticket->id,
-                'raised_by' => $ticket->raised_by_id,
-                'raised_by_name' => $ticket->raised_user_name,
-                'user_id' => $ticket->assigned_to_id,
-                'user_name' => $ticket->assigned_user_fullname,
-                'status_id' => $ticket->status_id,
-                'status_name' => $ticket->ticket_status_name,
-                'priority_id' => $ticket->priority_id,
-                'priority_name' => $ticket->ticket_priority,
-                'ticket_number' => $ticket->ticket_number,
-                'subject' => $ticket->subject,
-                'message' => $ticket->message,
-                'ticket_type_id' => $ticket->ticket_type_id,
-                'ticket_type_name' => $ticket->ticket_type_name,
-                'ticket_department_id' => $ticket->ticket_department_id,
-                'ticket_department_name' => $ticket->ticket_department_name,
-                'media_attachment' => $ticket->media_attachment,
-                'media_attachment_url' => $mediaUrl,
-                'created_at' => $ticket->created_at,
-                'updated_at' => $ticket->updated_at
-            ];
-
-
-            // Add the formatted ticket to the array of formatted tickets
-            $formattedTickets[] = $formattedTicket;
-        }
-
-        // Return the formatted tickets as JSON response
-        return response()->json([ 
-            'data' => $formattedTickets,
-            'meta' => [
-                'current_page' => $tickets->currentPage(),
-                'per_page' => $tickets->perPage(),
-                'total' => $tickets->total(),
-                'last_page' => $tickets->lastPage(),
-            ],
-            'links' => [
-                'first' => $tickets->url(1),
-                'last' => $tickets->url($tickets->lastPage()),
-                'prev' => $tickets->previousPageUrl(),
-                'next' => $tickets->nextPageUrl(),
-            ],
-        ], 200);
-    }
-
-
-
-    public function store(Request $request)
-    {
-
-        $authUser = $request->user();
-
-        $validator = Validator::make($request->all(), [
-            'raised_by' => 'required|exists:users,id',
-            'user_id' => 'required|exists:users,id',
-            'subject' => 'nullable|string',
-            'message' => 'nullable|string',
-            'ticket_type_id' => 'required|',
-            'priority_id' => 'required|exists:ticket_priorities,id',
-            'status_id' => 'nullable|exists:ticket_status,id',
-            'media_attachment' => $request->hasFile('media_attachment') ? 'file|max:10240' : '',
-            'ticket_department_id' => 'required|exists:ticket_departments,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        // Authorization check
-
-        if (!$authUser->role || strtolower($authUser->role->name) !== 'admin') {
-            if ($request->user_id != $authUser->id || $request->raised_by != $authUser->id) {
-                return response()->json([
-                    'error' => 'You can only create tickets for yourself'
-                ], 403);
-            }
-        }
-
-
-        // Generate random 4-digit number for ticket_number
-        // $ticketNumber = str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
-
-        // Generate ticket number with prefix
-        $prefix = optional(SiteSetting::first())->ticket_prefix ?? 'TCKT';
-        $ticketNumber = $this->generateUniqueTicketNumber($prefix);
-
-
-        // Set default status_id to 'open'
-        $data = $request->all();
-        $data['ticket_number'] = $ticketNumber;
-
-        // if ($request->hasFile('media_attachment')) {
-        //     $file = $request->file('media_attachment');
-        //     $extension = $file->getClientOriginalExtension();
-        //     $fileName = time() . '.' . $extension;
-        //     $file->storeAs('attachments', $fileName);
-        //     $data['media_attachment'] = $fileName;
-        // }
-
-        // Store directly inside public/attachments/
-        if ($request->hasFile('media_attachment')) {
-            $file = $request->file('media_attachment');
-            $extension = $file->getClientOriginalExtension();
-            $fileName = time() . '.' . $extension;
-            $destinationPath = public_path('attachments');
-
-            // Ensure the directory exists
-            if (!file_exists($destinationPath)) {
-                mkdir($destinationPath, 0755, true);
-            }
-
-            $file->move($destinationPath, $fileName);
-            $data['media_attachment'] = $fileName;
-        }
-
-
-        // Create the ticket with appropriate ID field
-        $ticket = Ticket::create($data);
-
-        // Customize the response to include only specific fields
-        $response = $ticket;
-
-        return response()->json($response, 201); // 201 Created status code
-    }
-
-    // Helper function to generate unique ticket number
-    private function generateUniqueTicketNumber($prefix)
-    {
-        do {
-            $number = sprintf('%s%s%04d', $prefix, date('Ym'), rand(1, 9999));
-        } while (Ticket::where('ticket_number', $number)->exists());
-
-        return $number;
-    }
-
-
-
-    public function show(Request $request)
-    {
-        // Fetch the ticket with raised_by user details
-        $id = $request->id;
-        $ticket = DB::table('tickets')
-            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
-            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
-            ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
-            ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
-            ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
-            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
-            ->select(
-                'raised_users.id as raised_by_id',
-                'raised_users.first_name as raised_user_name',
-                'assigned_users.id as assigned_to_id',
-                'assigned_users.first_name as assigned_user_fullname',
-                'tickets.*',
-                'ticket_priorities.ticket_priority',
-                'ticket_status.ticket_status_name',
-                'ticket_types.ticket_type_name',
-                'ticket_departments.ticket_department_name'
-            )->where('tickets.id', $id)->get()->first();
-        // ->first();
-
-        if (!$ticket) {
-            return response()->json(['error' => 'Ticket not found'], 200);
-        }
-
-        $formattedTicket = [
-            'id' => $ticket->id,
-            'raised_by' => $ticket->raised_by_id,
-            'raised_by_name' => $ticket->raised_user_name,
-            'user_id' => $ticket->assigned_to_id,
-            'user_name' => $ticket->assigned_user_fullname,
-            'status_id' => $ticket->status_id,
-            'status_name' => $ticket->ticket_status_name,
-            'priority_id' => $ticket->priority_id,
-            'priority_name' => $ticket->ticket_priority,
-            'ticket_number' => $ticket->ticket_number,
-            'subject' => $ticket->subject,
-            'message' => $ticket->message,
-            'ticket_type_id' => $ticket->ticket_type_id,
-            'ticket_type_name' => $ticket->ticket_type_name,
-            'ticket_department_id' => $ticket->ticket_department_id,
-            'ticket_department_name' => $ticket->ticket_department_name,
-            'media_attachment' => $ticket->media_attachment,
-            'created_at' => $ticket->created_at,
-            'updated_at' => $ticket->updated_at
-        ];
-
-        // Return the formatted ticket as JSON response
-        return response()->json($formattedTicket, 200);
-    }
-
-
-    public function update(Request $request)
-    {
-        $authUser = $request->user();
-
-        $validator = Validator::make($request->all(), [
-            'raised_by' => 'exists:users,id',
-            'user_id' => 'exists:users,id',
-            'subject' => 'nullable|string',
-            'message' => 'nullable|string',
-            'ticket_type_id' => 'nullable',
-            'priority_id' => 'exists:ticket_priorities,id',
-            'status_id' => 'nullable|exists:ticket_status,id',
-            'media_attachment' => $request->hasFile('media_attachment') ? 'file|max:10240' : '',
-            'ticket_department_id' => 'nullable|exists:ticket_departments,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        // Authorization check
-
-        if (!$authUser->role || strtolower($authUser->role->name) !== 'admin') {
-            if ($request->user_id != $authUser->id || $request->raised_by != $authUser->id) {
-                return response()->json([
-                    'error' => 'You can only update tickets for yourself'
-                ], 403);
-            }
-        }
-
-        $id = $request->id;
-
-        if (!Ticket::where('id', $id)->exists()) {
-            return response()->json(['error' => 'Invalid Ticket Id'], 404);
-        }
-
-        $ticket = Ticket::findOrFail($id);
-
-        // Update ticket data
-        $ticket->fill($request->all());
-
-        // If ticket_type_id is services, remove service_id from data
-        if ($ticket->ticket_type_id === 'services') {
-            $ticket->ticket_type_id = 'services';
-        }
-
-        // If ticket_type_id is property, ensure property_id exists
-        if ($ticket->ticket_type_id === 'property' && !$ticket->property_id) {
-            return response()->json(['errors' => ['property_id' => ['The property_id field is required.']]], 422);
-        }
-
-        // Handle media attachment
-       
-
-
-        if ($request->hasFile('media_attachment')) {
-            $file = $request->file('media_attachment');
-            $extension = $file->getClientOriginalExtension();
-            $fileName = time() . '.' . $extension;
-            $destinationPath = public_path('attachments');
-
-            // Create directory if it doesn't exist
-            if (!file_exists($destinationPath)) {
-                mkdir($destinationPath, 0755, true);
-            }
-
-            // Move the new file
-            $file->move($destinationPath, $fileName);
-
-            // Delete old file if exists
-            if ($ticket->media_attachment && file_exists($destinationPath . '/' . $ticket->media_attachment)) {
-                unlink($destinationPath . '/' . $ticket->media_attachment);
-            }
-
-            // Save new file name
-            $ticket->media_attachment = $fileName;
-        }
-
-
-
-
-        // Save the updated ticket
-        $ticket->save();
-
-        // Customize the response
-        $response = $ticket;
-
-        return response()->json($response, 200); // 200 OK status code
-    }
-
-
-
-
-    ## new delete code by id 15-07-2025 ##
-
-    public function destroy(Request $request)
-    {
-        $user = $request->user(); // Authenticated user
-        $isAdmin = $user->role && strcasecmp($user->role->name, 'admin') === 0;
-
-        // Validate ticket_id
-        $request->validate([
-            'id' => 'required|integer|exists:tickets,id'
-        ]);
-
-        // Find the ticket
-        $ticket = Ticket::find($request->id);
-
-        if (!$ticket) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Ticket not found.'
-            ], 200);
-        }
-
-        // Authorization check
-        if (
-            !$isAdmin &&
-            $ticket->user_id !== $user->id &&
-            $ticket->raised_by !== $user->id
-        ) {
-            return response()->json([
-                'status' => false,
-                'message' => 'You are only allowed to delete your own tickets.'
-            ], 403);
-        }
-
-        // Delete the ticket
-        $ticket->delete(); // Use forceDelete() if SoftDeletes is used and you want permanent deletion
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Ticket deleted successfully.'
-        ], 200);
-    }
-
-
-
-    public function respond(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'ticket_id' => 'required|exists:tickets,id',
-            'user_id' => 'required|exists:users,id',
-            'message' => 'required|string',
-            'message_by' => 'required',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['error' => $validator->errors()], 422);
-        }
-
-        // Check if a response already exists for this ticket
-        if (!Ticket::where('id', $request->ticket_id)->exists()) {
-            return response()->json(['error' => 'Invalid Ticket Id'], 422);
-        }
-
-        // Find the ticket by ID
-        $ticket = Ticket::findOrFail($request->ticket_id);
-
-
-
-        // Create a new response
-        $response = new Response();
-        $response->ticket_id = $ticket->id;
-        $response->user_id = $request->user_id;
-        $response->message = $request->input('message');
-        $response->message_by = $request->input('message_by');
-        $response->save();
-
-        // Return a JSON response indicating success
-        return response()->json(['message' => 'Response submitted successfully.', 'data' => $response]);
-    }
-
-
-
-    public function respondlist(Request $request)
-    {
-        // Validate request parameters
-        $request->validate([
-            ['ticket_id' => 'required|exists:tickets,id'],
-            ['ticket_id.exists' => 'Ticket not found']
-        ]);
-
-        // Retrieve responses for the specified ticket
-        $ticket_id = $request->ticket_id;
-
-
-
-        $responses = DB::table('tickets_response')
-            ->where('ticket_id', $ticket_id)
-            ->join('users', 'tickets_response.user_id', '=', 'users.id')
-            ->join('tickets', 'tickets.id', '=', 'tickets_response.ticket_id')
-            ->selectRaw("
-            CONCAT_WS(' ', users.first_name, users.last_name)  AS user_name,
-            tickets_response.*,
-            tickets.subject       AS ticket_subject,
-            tickets.message       AS ticket_message,
-            tickets.ticket_type_id
-        ")->get();
-
-        if ($responses->isEmpty()) {
-            return response()->json([
-                'error' => 'No responses found for this ticket.'
-            ], 200);
-        }
-
-        // Return responses as JSON
-        return response()->json(['responses' => $responses], 200);
-    }
-
-
-
-    public function updateTicketStatus(Request $request)
-    {
-
-        $authUser = $request->user();
-
-
-        $validator = Validator::make($request->all(), [
-            'ticket_id' => 'required|exists:tickets,id',
-            'status_id' => 'required|exists:ticket_status,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['error' => $validator->errors()], 422);
-        }
-
-
-
-
-
-        // Check if a response already exists for this ticket
-        if (!Ticket::where('id', $request->ticket_id)->exists()) {
-            return response()->json(['error' => 'Invalid Ticket Id'], 422);
-        }
-
-        $ticket = Ticket::findOrFail($request->ticket_id);
-        $isAdmin = $authUser->role && strcasecmp($authUser->role->name, 'admin') === 0;
-
-
-        if (
-            !$isAdmin &&
-            $ticket->user_id !== $authUser->id &&
-            $ticket->raised_by !== $authUser->id
-        ) {
-
-            return response()->json([
-                'error' => 'You are only allowed to delete your own tickets.'
-            ], 403);
-        }
-        $ticket->status_id = $request->status_id;
-        $ticket->update();
-
-        // Customize the response
-        $response = ['status' => true, 'message' => 'Status updated successfully.'];
-
-        return response()->json($response, 200);
-    }
-
-
-    // get tickect by user token
-
-
-    public function getTicketByToken(Request $request)
-    {
-        $user = $request->user(); // Get user from token
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unauthorized',
-            ], 401);
-        }
-
-        $userId = $user->id;
-
-        $tickets = DB::table('tickets')
-            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
-            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
-            ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
-            ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
-            ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
-            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
-            ->select(
-                'raised_users.id as raised_by_id',
-                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_user_name"),
-                'assigned_users.id as assigned_to_id',
-                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_fullname"),
-                'tickets.*',
-                'ticket_priorities.ticket_priority',
-                'ticket_status.ticket_status_name',
-                'ticket_types.ticket_type_name',
-                'ticket_departments.ticket_department_name'
-            )
-            ->where('tickets.user_id', $userId)
-            ->get();
-
-        if ($tickets->isEmpty()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'No tickets found for this user',
-                'data' => []
-            ], 200);
-        }
-
-        $formattedTickets = [];
-
-        foreach ($tickets as $ticket) {
-            $formattedTickets[] = [
-                'id' => $ticket->id,
-                'raised_by' => $ticket->raised_by_id,
-                'raised_by_name' => $ticket->raised_user_name,
-                'user_id' => $ticket->assigned_to_id,
-                'user_name' => $ticket->assigned_user_fullname,
-                'status_id' => $ticket->status_id,
-                'status_name' => $ticket->ticket_status_name,
-                'priority_id' => $ticket->priority_id,
-                'priority_name' => $ticket->ticket_priority,
-                'ticket_number' => $ticket->ticket_number,
-                'subject' => $ticket->subject,
-                'message' => $ticket->message,
-                'ticket_type_id' => $ticket->ticket_type_id,
-                'ticket_type_name' => $ticket->ticket_type_name,
-                'ticket_department_id' => $ticket->ticket_department_id,
-                'ticket_department_name' => $ticket->ticket_department_name,
-                'media_attachment' => $ticket->media_attachment,
-                'created_at' => $ticket->created_at,
-                'updated_at' => $ticket->updated_at
-            ];
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Tickets fetched successfully',
-            'data' => $formattedTickets
-        ], 200);
-    }
-
-
-    // ticket response history
-
-    public function ticketResponseHistory1($ticketId)
-    {
-        // Step 1: Fetch ticket details (main ticket information)
-        $ticket = DB::table('tickets')
-            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
-            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
-            ->where('tickets.id', $ticketId)
-            ->select(
-                'tickets.id',
-                'tickets.ticket_number',
-                'tickets.subject',
-                'tickets.message',
-                'tickets.status_id',
-                'tickets.priority_id',
-                'tickets.media_attachment',
-                'tickets.ticket_type_id',
-                'tickets.ticket_department_id',
-                'tickets.created_at',
-                'tickets.updated_at',
-                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_by_name"),
-                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_name")
-            )
-            ->first();
-
-        if (!$ticket) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Ticket not found',
-                'data' => []
-            ], 200);
-        }
-
-        // Step 2: Fetch responses for this ticket (history)
-        $responses = DB::table('tickets_response')
-            ->join('users', 'tickets_response.user_id', '=', 'users.id')
-            ->where('tickets_response.ticket_id', $ticketId)
-            ->select(
-                'tickets_response.id',
-                'tickets_response.message',
-                'tickets_response.message_by',
-                'tickets_response.created_at',
-                // 'tickets_response.media_attachment',
-                DB::raw("CONCAT_WS(' ', users.first_name, users.last_name) as user_name")
-            )
-            ->orderBy('tickets_response.created_at', 'asc')
-            ->get();
-
-        // Step 3: Format the data into chat history
-        $chatHistory = [];
-
-        // Initial message (ticket's main message)
-        $chatHistory[] = [
-            'message' => $ticket->message,
-            'media_attachment' => $ticket->media_attachment,
-            'user_name' => $ticket->raised_by_name,
-            'message_by' => 'raised_by',
-            'created_at' => $ticket->created_at,
-        ];
-
-        // Responses (user/admin replies)
-        foreach ($responses as $response) {
-            $chatHistory[] = [
-                'message' => $response->message,
-                'media_attachment' => $response->media_attachment ?? null,
-                'user_name' => $response->user_name,
-                'message_by' => $response->message_by,
-                'created_at' => $response->created_at,
-            ];
-        }
-
-        // Step 4: Return the final response with ticket and chat history
-        return response()->json([
-            'status' => true,
-            'message' => 'Ticket response history fetched successfully',
-            'data' => [
-                'ticket_id' => $ticket->id,
-                'ticket_number' => $ticket->ticket_number,
-                'subject' => $ticket->subject,
-                'status_id' => $ticket->status_id,
-                'priority_id' => $ticket->priority_id,
-                'ticket_type_id' => $ticket->ticket_type_id,
-                'ticket_department_id' => $ticket->ticket_department_id,
-                'media_attachment' => $ticket->media_attachment,
-                'created_at' => $ticket->created_at,
-                'updated_at' => $ticket->updated_at,
-                'raised_by_name' => $ticket->raised_by_name,
-                'assigned_user_name' => $ticket->assigned_user_name,
-                'chat_history' => $chatHistory
-            ]
-        ], 200);
-    }
-
-    
-
-
-
-    // use Illuminate\Support\Facades\Storage;
-
-    public function ticketResponseHistory($ticketId)
-    {
-        // Fetch ticket details (main ticket information)
-        $ticket = DB::table('tickets')
-            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
-            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
-            ->where('tickets.id', $ticketId)
-            ->select(
-                'tickets.id',
-                'tickets.ticket_number',
-                'tickets.subject',
-                'tickets.message',
-                'tickets.status_id',
-                'tickets.priority_id',
-                'tickets.media_attachment',
-                'tickets.ticket_type_id',
-                'tickets.ticket_department_id',
-                'tickets.created_at',
-                'tickets.updated_at',
-                DB::raw("CONCAT_WS(' ', raised_users.first_name, raised_users.last_name) as raised_by_name"),
-                DB::raw("CONCAT_WS(' ', assigned_users.first_name, assigned_users.last_name) as assigned_user_name")
-            )
-            ->first();
-
-        if (!$ticket) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Ticket not found',
-                'data' => []
-            ], 200);
-        }
-
-        // Fetch ticket responses
-        $responses = DB::table('tickets_response')
-            ->join('users', 'tickets_response.user_id', '=', 'users.id')
-            ->where('tickets_response.ticket_id', $ticketId)
-            ->select(
-                'tickets_response.id',
-                'tickets_response.message',
-                'tickets_response.message_by',
-                'tickets_response.created_at',
-                DB::raw("CONCAT_WS(' ', users.first_name, users.last_name) as user_name")
-            )
-            ->orderBy('tickets_response.created_at', 'asc')
-            ->get();
-
-        // Build media URL if file exists in public/attachments
-        $ticketMediaUrl = null;
-        if (!empty($ticket->media_attachment)) {
-            $attachmentPath = public_path('attachments/' . $ticket->media_attachment);
-
-            if (file_exists($attachmentPath)) {
-                $ticketMediaUrl = config('app.url') . '/attachments/' . $ticket->media_attachment;
-            }
-        }
-
-        // Build chat history
-        $chatHistory = [];
-
-        // Add the original ticket message
-        $chatHistory[] = [
-            'message' => $ticket->message,
-            'media_attachment' => $ticketMediaUrl,
-            'user_name' => $ticket->raised_by_name,
-            'message_by' => 'raised_by',
-            'created_at' => $ticket->created_at,
-        ];
-
-        // Add all responses
-        foreach ($responses as $response) {
-            $chatHistory[] = [
-                'message' => $response->message,
-                'media_attachment' => null, // No attachment in responses
-                'user_name' => $response->user_name,
-                'message_by' => $response->message_by,
-                'created_at' => $response->created_at,
-            ];
-        }
-
-        // Return final formatted data
-        return response()->json([
-            'status' => true,
-            'message' => 'Ticket response history fetched successfully',
-            'data' => [
-                'ticket_id' => $ticket->id,
-                'ticket_number' => $ticket->ticket_number,
-                'subject' => $ticket->subject,
-                'status_id' => $ticket->status_id,
-                'priority_id' => $ticket->priority_id,
-                'ticket_type_id' => $ticket->ticket_type_id,
-                'ticket_department_id' => $ticket->ticket_department_id,
-                'media_attachment' => $ticketMediaUrl,
-                'created_at' => $ticket->created_at,
-                'updated_at' => $ticket->updated_at,
-                'raised_by_name' => $ticket->raised_by_name,
-                'assigned_user_name' => $ticket->assigned_user_name,
-                'chat_history' => $chatHistory,
-            ]
-        ], 200);
-    }
-
-
-    ## Bulk Delete Tickets 15-07-2025 ##
-
-    public function bulkDestroy(Request $request)
+    private const MAX_ATTACHMENTS = 5;
+    private const MAX_FILE_SIZE_KB = 10240;
+
+    private const TICKET_RELATIONS = [
+        'raisedBy:id,first_name,last_name,email',
+        'assignedTo:id,first_name,last_name,email',
+        'status.media',
+        'priority.media',
+        'type.media',
+        'department.media',
+        'attachments',
+        'ccUsers:id,first_name,last_name,email',
+        'property',
+    ];
+
+    public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $isAdmin = $user->role && strcasecmp($user->role->name, 'admin') === 0;
 
-        // Validate input
-        $request->validate([
-            'ids' => 'required|array',
-            'ids.*' => 'integer|exists:tickets,id',
-        ]);
+        if (!$user) {
+            return $this->error('Unauthenticated.', 401);
+        }
 
-        $ticketIds = $request->ids;
-        $deleted = [];
-        $skipped = [];
+        $query = $this->buildTicketQuery($request)
+            ->visibleTo($user);
 
-        foreach ($ticketIds as $ticketId) {
-            $ticket = Ticket::find($ticketId);
+        return $this->paginatedResponse(
+            $query->paginate($this->perPage($request))
+        );
+    }
 
-            if (!$ticket) {
-                $skipped[] = ['id' => $ticketId, 'reason' => 'Not found'];
-                continue;
-            }
+    public function store(Request $request): JsonResponse
+    {
+        $user = $request->user();
 
-            if (
-                !$isAdmin &&
-                $ticket->user_id !== $user->id &&
-                $ticket->raised_by !== $user->id
-            ) {
-                $skipped[] = ['id' => $ticketId, 'reason' => 'Unauthorized'];
-                continue;
-            }
+        if (!$user) {
+            return $this->error('Unauthenticated.', 401);
+        }
 
-            $ticket->delete(); // or $ticket->forceDelete() if using SoftDeletes
-            $deleted[] = $ticketId;
+        $validator = Validator::make(
+            $request->all(),
+            $this->storeRules()
+        );
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $validated = $validator->validated();
+
+        if (count($this->requestFiles($request)) > self::MAX_ATTACHMENTS) {
+            return $this->validationError([
+                'attachments' => [
+                    'A ticket can contain a maximum of '
+                    . self::MAX_ATTACHMENTS
+                    . ' attachments.',
+                ],
+            ]);
+        }
+
+        $isAdmin = Ticket::userIsAdmin($user);
+
+        if (
+            !$isAdmin
+            && isset($validated['user_id'])
+            && $validated['user_id'] !== null
+            && (int) $validated['user_id'] !== (int) $user->id
+        ) {
+            return $this->error(
+                'You cannot assign a ticket to another user.',
+                403
+            );
+        }
+
+        $statusId = $validated['status_id']
+            ?? $this->defaultStatusId();
+
+        if (!$statusId) {
+            return $this->validationError([
+                'status_id' => [
+                    'No default ticket status exists. Create a New or Open status first.',
+                ],
+            ]);
+        }
+
+        $raisedBy = $isAdmin
+            ? ($validated['raised_by'] ?? $user->id)
+            : $user->id;
+
+        $uploadedPaths = [];
+
+        try {
+            $ticket = DB::transaction(function () use (
+                $request,
+                $validated,
+                $statusId,
+                $raisedBy,
+                &$uploadedPaths
+            ): Ticket {
+                $ticket = Ticket::create([
+                    'ticket_number' => $this->generateUniqueTicketNumber(),
+                    'raised_by' => $raisedBy,
+                    'user_id' => $validated['user_id'] ?? null,
+                    'subject' => $validated['subject'],
+                    'message' => $validated['message'],
+                    'status_id' => $statusId,
+                    'priority_id' => $validated['priority_id'],
+                    'ticket_type_id' => $validated['ticket_type_id'],
+                    'ticket_department_id' => $validated['ticket_department_id'],
+                    'due_date' => $validated['due_date'] ?? null,
+                    'property_id' => $validated['property_id'] ?? null,
+                ]);
+
+                $ticket->ccUsers()->sync(
+                    $validated['cc_user_ids'] ?? []
+                );
+
+                foreach ($this->requestFiles($request) as $file) {
+                    $attachment = $this->storeAttachment(
+                        $ticket,
+                        $file
+                    );
+
+                    $uploadedPaths[] = $attachment->file_path;
+                }
+
+                return $ticket;
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('public')->delete($uploadedPaths);
+            report($exception);
+
+            return $this->error(
+                'Failed to create ticket.',
+                500
+            );
         }
 
         return response()->json([
             'status' => true,
-            'message' => 'Bulk delete completed.',
-            'deleted_ids' => $deleted,
-            'skipped' => $skipped,
-        ], 200);
+            'message' => 'Ticket created successfully.',
+            'data' => $this->loadTicket($ticket),
+        ], 201);
     }
 
-
-    ## Search By Ticket Number 15-07-2025 ##
-
-    public function searchByTicketNumber(Request $request)
+    public function show(Request $request): JsonResponse
     {
-        $request->validate([
-            'search' => 'required|string'
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer|exists:tickets,id',
         ]);
 
-        $ticketNumber = $request->search;
-        $perPage = $request->input('per_page', 10); // Default to 10 if not provided
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
 
-        // Fetch matching tickets using LIKE for partial match
-        $query = DB::table('tickets')
-            ->join('users as raised_users', 'tickets.raised_by', '=', 'raised_users.id')
-            ->join('users as assigned_users', 'tickets.user_id', '=', 'assigned_users.id')
-            ->join('ticket_priorities', 'tickets.priority_id', '=', 'ticket_priorities.id')
-            ->join('ticket_status', 'tickets.status_id', '=', 'ticket_status.id')
-            ->join('ticket_types', 'tickets.ticket_type_id', '=', 'ticket_types.id')
-            ->join('ticket_departments', 'tickets.ticket_department_id', '=', 'ticket_departments.id')
-            ->select(
-                'raised_users.id as raised_by_id',
-                'raised_users.first_name as raised_user_name',
-                'assigned_users.id as assigned_to_id',
-                'assigned_users.first_name as assigned_user_fullname',
-                'tickets.*',
-                'ticket_priorities.ticket_priority',
-                'ticket_status.ticket_status_name',
-                'ticket_types.ticket_type_name',
-                'ticket_departments.ticket_department_name'
-            )
-            ->where('tickets.ticket_number', 'like', "%$ticketNumber%");
-        $tickets= $query->paginate($perPage);
+        $ticket = Ticket::with(self::TICKET_RELATIONS)
+            ->find($request->integer('id'));
 
-        // If no ticket found
-        if ($tickets->total() === 0) {
+        if (!$ticket) {
+            return $this->error('Ticket not found.', 404);
+        }
+
+        if (!$this->canAccess($request, $ticket)) {
+            return $this->error(
+                'You are not allowed to view this ticket.',
+                403
+            );
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket fetched successfully.',
+            'data' => $this->ticketPayload($ticket),
+        ]);
+    }
+
+    public function update(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->error('Unauthenticated.', 401);
+        }
+
+        $validator = Validator::make(
+            $request->all(),
+            $this->updateRules()
+        );
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $validated = $validator->validated();
+
+        $ticket = Ticket::with(['attachments', 'ccUsers'])
+            ->find($validated['id']);
+
+        if (!$ticket) {
+            return $this->error('Ticket not found.', 404);
+        }
+
+        if (!$ticket->isVisibleTo($user)) {
+            return $this->error(
+                'You are not allowed to update this ticket.',
+                403
+            );
+        }
+
+        $isAdmin = Ticket::userIsAdmin($user);
+
+        if (!$isAdmin) {
+            foreach ([
+                'raised_by',
+                'user_id',
+                'priority_id',
+                'ticket_type_id',
+                'ticket_department_id',
+            ] as $adminField) {
+                unset($validated[$adminField]);
+            }
+        }
+
+        $removeAttachmentIds = array_values(
+            array_unique($validated['remove_attachment_ids'] ?? [])
+        );
+
+        $removableAttachments = $ticket->attachments()
+            ->whereIn('id', $removeAttachmentIds)
+            ->get();
+
+        if (count($removeAttachmentIds) !== $removableAttachments->count()) {
+            return $this->validationError([
+                'remove_attachment_ids' => [
+                    'One or more attachment IDs do not belong to this ticket.',
+                ],
+            ]);
+        }
+
+        $newFiles = $this->requestFiles($request);
+
+        $remainingAttachmentCount = $ticket->attachments->count()
+            - $removableAttachments->count()
+            + count($newFiles);
+
+        if ($remainingAttachmentCount > self::MAX_ATTACHMENTS) {
+            return $this->validationError([
+                'attachments' => [
+                    'A ticket can contain a maximum of '
+                    . self::MAX_ATTACHMENTS
+                    . ' attachments.',
+                ],
+            ]);
+        }
+
+        $uploadedPaths = [];
+        $pathsToDelete = $removableAttachments
+            ->pluck('file_path')
+            ->all();
+
+        try {
+            DB::transaction(function () use (
+                $ticket,
+                $validated,
+                $isAdmin,
+                $removableAttachments,
+                $newFiles,
+                &$uploadedPaths
+            ): void {
+                $updateData = [];
+
+                foreach ([
+                    'subject',
+                    'message',
+                    'status_id',
+                    'priority_id',
+                    'ticket_type_id',
+                    'ticket_department_id',
+                    'due_date',
+                    'property_id',
+                ] as $field) {
+                    if (array_key_exists($field, $validated)) {
+                        $updateData[$field] = $validated[$field];
+                    }
+                }
+
+                if ($isAdmin) {
+                    foreach (['raised_by', 'user_id'] as $field) {
+                        if (array_key_exists($field, $validated)) {
+                            $updateData[$field] = $validated[$field];
+                        }
+                    }
+                }
+
+                if ($updateData !== []) {
+                    $ticket->update($updateData);
+                }
+
+                if (array_key_exists('cc_user_ids', $validated)) {
+                    $ticket->ccUsers()->sync(
+                        $validated['cc_user_ids'] ?? []
+                    );
+                }
+
+                foreach ($removableAttachments as $attachment) {
+                    $attachment->delete();
+                }
+
+                foreach ($newFiles as $file) {
+                    $attachment = $this->storeAttachment(
+                        $ticket,
+                        $file
+                    );
+
+                    $uploadedPaths[] = $attachment->file_path;
+                }
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('public')->delete($uploadedPaths);
+            report($exception);
+
+            return $this->error(
+                'Failed to update ticket.',
+                500
+            );
+        }
+
+        Storage::disk('public')->delete($pathsToDelete);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket updated successfully.',
+            'data' => $this->loadTicket($ticket),
+        ]);
+    }
+
+    public function destroy(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer|exists:tickets,id',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $ticket = Ticket::with('attachments')
+            ->find($request->integer('id'));
+
+        if (!$ticket) {
+            return $this->error('Ticket not found.', 404);
+        }
+
+        if (!$this->canAccess($request, $ticket)) {
+            return $this->error(
+                'You are not allowed to delete this ticket.',
+                403
+            );
+        }
+
+        $paths = $ticket->attachments
+            ->pluck('file_path')
+            ->all();
+
+        try {
+            DB::transaction(function () use ($ticket): void {
+                $ticket->delete();
+            });
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return $this->error(
+                'Failed to delete ticket.',
+                500
+            );
+        }
+
+        Storage::disk('public')->delete($paths);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket deleted successfully.',
+        ]);
+    }
+
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->error('Unauthenticated.', 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1|max:100',
+            'ids.*' => 'required|integer|distinct|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $requestedIds = array_values($validator->validated()['ids']);
+
+        $tickets = Ticket::with(['attachments', 'ccUsers'])
+            ->whereIn('id', $requestedIds)
+            ->get();
+
+        $notFoundIds = array_values(
+            array_diff($requestedIds, $tickets->pluck('id')->all())
+        );
+
+        $unauthorizedIds = $tickets
+            ->reject(fn (Ticket $ticket): bool => $ticket->isVisibleTo($user))
+            ->pluck('id')
+            ->values()
+            ->all();
+
+        if ($unauthorizedIds !== []) {
             return response()->json([
                 'status' => false,
-                'message' => 'No matching tickets found',
-                'data' => []
-            ], 200);
+                'message' => 'Some tickets cannot be deleted by this user.',
+                'unauthorized_ids' => $unauthorizedIds,
+            ], 403);
         }
 
-        // Format all matched tickets
-        $formattedTickets = $tickets->map(function ($ticket) {
-            return [
-                'id' => $ticket->id,
-                'raised_by' => $ticket->raised_by_id,
-                'raised_by_name' => $ticket->raised_user_name,
-                'user_id' => $ticket->assigned_to_id,
-                'user_name' => $ticket->assigned_user_fullname,
-                'status_id' => $ticket->status_id,
-                'status_name' => $ticket->ticket_status_name,
-                'priority_id' => $ticket->priority_id,
-                'priority_name' => $ticket->ticket_priority,
-                'ticket_number' => $ticket->ticket_number,
-                'subject' => $ticket->subject,
-                'message' => $ticket->message,
-                'ticket_type_id' => $ticket->ticket_type_id,
-                'ticket_type_name' => $ticket->ticket_type_name,
-                'ticket_department_id' => $ticket->ticket_department_id,
-                'ticket_department_name' => $ticket->ticket_department_name,
-                'media_attachment' => $ticket->media_attachment,
-                'media_attachment_url' => $ticket->media_attachment
-                    ? url('attachments/' . $ticket->media_attachment)
-                    : null,
-                'created_at' => $ticket->created_at,
-                'updated_at' => $ticket->updated_at
-            ];
-        });
+        $paths = $tickets
+            ->flatMap(fn (Ticket $ticket) => $ticket->attachments->pluck('file_path'))
+            ->values()
+            ->all();
+
+        try {
+            DB::transaction(function () use ($tickets): void {
+                foreach ($tickets as $ticket) {
+                    $ticket->delete();
+                }
+            });
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return $this->error(
+                'Failed to delete tickets.',
+                500
+            );
+        }
+
+        Storage::disk('public')->delete($paths);
 
         return response()->json([
             'status' => true,
-            'message' => 'Matching tickets found',
-            'data' => $formattedTickets,
-            'meta' => [
-                'current_page' => $tickets->currentPage(),
-                'per_page' => $tickets->perPage(),
-                'total' => $tickets->total(),
-                'last_page' => $tickets->lastPage(),
-            ],
-            'links' => [
-                'first' => $tickets->url(1),
-                'last' => $tickets->url($tickets->lastPage()),
-                'prev' => $tickets->previousPageUrl(),
-                'next' => $tickets->nextPageUrl(),
-            ],
-        ], 200);
+            'message' => 'Tickets deleted successfully.',
+            'requested_ids' => $requestedIds,
+            'deleted_ids' => $tickets->pluck('id')->values(),
+            'deleted_count' => $tickets->count(),
+            'not_found_ids' => $notFoundIds,
+        ]);
     }
 
+    public function searchByTicketNumber(Request $request): JsonResponse
+    {
+        return $this->index($request);
+    }
 
+    public function getTicketByToken(Request $request): JsonResponse
+    {
+        $user = $request->user();
 
+        if (!$user) {
+            return $this->error('Unauthenticated.', 401);
+        }
 
+        $query = $this->buildTicketQuery($request)
+            ->where(function (Builder $builder) use ($user): void {
+                $builder
+                    ->where('raised_by', $user->id)
+                    ->orWhere('user_id', $user->id)
+                    ->orWhereHas('ccUsers', function (Builder $ccQuery) use ($user): void {
+                        $ccQuery->where('users.id', $user->id);
+                    });
+            });
 
+        return $this->paginatedResponse(
+            $query->paginate($this->perPage($request))
+        );
+    }
 
+    public function updateTicketStatus(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'ticket_id' => 'required|integer|exists:tickets,id',
+            'status_id' => 'required|integer|exists:ticket_status,id',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $ticket = Ticket::with('ccUsers')
+            ->find($request->integer('ticket_id'));
+
+        if (!$ticket) {
+            return $this->error('Ticket not found.', 404);
+        }
+
+        if (!$this->canAccess($request, $ticket)) {
+            return $this->error(
+                'You are not allowed to update this ticket status.',
+                403
+            );
+        }
+
+        $ticket->update([
+            'status_id' => $request->integer('status_id'),
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket status updated successfully.',
+            'data' => $this->loadTicket($ticket),
+        ]);
+    }
+
+    public function respond(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'ticket_id' => 'required|integer|exists:tickets,id',
+            'message' => 'required|string|max:10000',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->error('Unauthenticated.', 401);
+        }
+
+        $ticket = Ticket::with('ccUsers')
+            ->find($request->integer('ticket_id'));
+
+        if (!$ticket) {
+            return $this->error('Ticket not found.', 404);
+        }
+
+        if (!$ticket->isVisibleTo($user)) {
+            return $this->error(
+                'You are not allowed to respond to this ticket.',
+                403
+            );
+        }
+
+        $response = TicketResponse::create([
+            'ticket_id' => $ticket->id,
+            'user_id' => $user->id,
+            'message' => (string) $request->input('message'),
+            'message_by' => Ticket::userIsAdmin($user)
+                ? 'admin'
+                : 'user',
+        ]);
+
+        $response->load('user:id,first_name,last_name,email');
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Response submitted successfully.',
+            'data' => $response,
+        ], 201);
+    }
+
+    public function respondlist(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'ticket_id' => 'required|integer|exists:tickets,id',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $ticket = Ticket::with('ccUsers')
+            ->find($request->integer('ticket_id'));
+
+        if (!$ticket) {
+            return $this->error('Ticket not found.', 404);
+        }
+
+        if (!$this->canAccess($request, $ticket)) {
+            return $this->error(
+                'You are not allowed to view these responses.',
+                403
+            );
+        }
+
+        $responses = TicketResponse::with(
+            'user:id,first_name,last_name,email'
+        )
+            ->where('ticket_id', $ticket->id)
+            ->orderBy('created_at')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket responses fetched successfully.',
+            'data' => $responses,
+        ]);
+    }
+
+    public function ticketResponseHistory(
+        Request $request,
+        int $ticketId
+    ): JsonResponse {
+        $ticket = Ticket::with(array_merge(
+            self::TICKET_RELATIONS,
+            ['responses.user:id,first_name,last_name,email']
+        ))->find($ticketId);
+
+        if (!$ticket) {
+            return $this->error('Ticket not found.', 404);
+        }
+
+        if (!$this->canAccess($request, $ticket)) {
+            return $this->error(
+                'You are not allowed to view this ticket history.',
+                403
+            );
+        }
+
+        $history = collect([
+            [
+                'id' => null,
+                'message' => $ticket->message,
+                'message_by' => 'raised_by',
+                'user' => $ticket->raisedBy,
+                'attachments' => $ticket->attachments,
+                'created_at' => $ticket->created_at,
+            ],
+        ])->concat(
+            $ticket->responses->map(
+                fn (TicketResponse $response): array => [
+                    'id' => $response->id,
+                    'message' => $response->message,
+                    'message_by' => $response->message_by,
+                    'user' => $response->user,
+                    'attachments' => [],
+                    'created_at' => $response->created_at,
+                ]
+            )
+        )->sortBy('created_at')->values();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Ticket response history fetched successfully.',
+            'data' => [
+                'ticket' => $this->ticketPayload($ticket),
+                'chat_history' => $history,
+            ],
+        ]);
+    }
+
+    private function buildTicketQuery(Request $request): Builder
+    {
+        $query = Ticket::query()
+            ->with(self::TICKET_RELATIONS);
+
+        $search = trim((string) $request->input('search', ''));
+
+        if ($search !== '') {
+            $query->where(function (Builder $builder) use ($search): void {
+                $builder
+                    ->where('ticket_number', 'like', "%{$search}%")
+                    ->orWhere('subject', 'like', "%{$search}%")
+                    ->orWhere('message', 'like', "%{$search}%");
+            });
+        }
+
+        $filterMap = [
+            'status_id' => 'status_id',
+            'priority_id' => 'priority_id',
+            'ticket_type_id' => 'ticket_type_id',
+            'ticket_department_id' => 'ticket_department_id',
+            'user_id' => 'user_id',
+            'raised_by' => 'raised_by',
+            'property_id' => 'property_id',
+        ];
+
+        foreach ($filterMap as $requestKey => $column) {
+            if ($request->filled($requestKey)) {
+                $query->where(
+                    $column,
+                    $request->integer($requestKey)
+                );
+            }
+        }
+
+        if ($request->filled('due_from')) {
+            $query->whereDate('due_date', '>=', $request->input('due_from'));
+        }
+
+        if ($request->filled('due_to')) {
+            $query->whereDate('due_date', '<=', $request->input('due_to'));
+        }
+
+        $allowedSorts = [
+            'created_at',
+            'updated_at',
+            'due_date',
+            'ticket_number',
+            'status_id',
+            'priority_id',
+        ];
+
+        $sortBy = in_array(
+            $request->input('sort_by'),
+            $allowedSorts,
+            true
+        )
+            ? $request->input('sort_by')
+            : 'created_at';
+
+        $sortDirection = strtolower(
+            (string) $request->input('sort_direction', 'desc')
+        ) === 'asc'
+            ? 'asc'
+            : 'desc';
+
+        return $query->orderBy($sortBy, $sortDirection);
+    }
+
+    private function storeRules(): array
+    {
+        return [
+            'raised_by' => 'nullable|integer|exists:users,id',
+            'user_id' => 'nullable|integer|exists:users,id',
+            'subject' => 'required|string|max:200',
+            'message' => 'required|string|max:50000',
+            'status_id' => 'nullable|integer|exists:ticket_status,id',
+            'priority_id' => 'required|integer|exists:ticket_priorities,id',
+            'ticket_type_id' => 'required|integer|exists:ticket_types,id',
+            'ticket_department_id' => 'required|integer|exists:ticket_departments,id',
+            'due_date' => 'nullable|date_format:Y-m-d',
+            'property_id' => [
+                'nullable',
+                'integer',
+                Rule::exists((new Property())->getTable(), 'id'),
+            ],
+            'cc_user_ids' => 'nullable|array|max:50',
+            'cc_user_ids.*' => 'integer|distinct|exists:users,id',
+            'attachments' => 'nullable|array|max:' . self::MAX_ATTACHMENTS,
+            'attachments.*' => $this->attachmentRule(),
+            'media_attachment' => [
+                'nullable',
+                $this->attachmentRule(),
+            ],
+        ];
+    }
+
+    private function updateRules(): array
+    {
+        return [
+            'id' => 'required|integer|exists:tickets,id',
+            'raised_by' => 'sometimes|nullable|integer|exists:users,id',
+            'user_id' => 'sometimes|nullable|integer|exists:users,id',
+            'subject' => 'sometimes|required|string|max:200',
+            'message' => 'sometimes|required|string|max:50000',
+            'status_id' => 'sometimes|nullable|integer|exists:ticket_status,id',
+            'priority_id' => 'sometimes|nullable|integer|exists:ticket_priorities,id',
+            'ticket_type_id' => 'sometimes|nullable|integer|exists:ticket_types,id',
+            'ticket_department_id' => 'sometimes|required|integer|exists:ticket_departments,id',
+            'due_date' => 'sometimes|nullable|date_format:Y-m-d',
+            'property_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                Rule::exists((new Property())->getTable(), 'id'),
+            ],
+            'cc_user_ids' => 'sometimes|nullable|array|max:50',
+            'cc_user_ids.*' => 'integer|distinct|exists:users,id',
+            'attachments' => 'nullable|array|max:' . self::MAX_ATTACHMENTS,
+            'attachments.*' => $this->attachmentRule(),
+            'media_attachment' => [
+                'nullable',
+                $this->attachmentRule(),
+            ],
+            'remove_attachment_ids' => 'nullable|array|max:' . self::MAX_ATTACHMENTS,
+            'remove_attachment_ids.*' => 'integer|distinct|exists:ticket_attachments,id',
+        ];
+    }
+
+    private function attachmentRule(): string
+    {
+        return 'file|mimes:png,jpg,jpeg,pdf,doc,docx,xls,xlsx|max:'
+            . self::MAX_FILE_SIZE_KB;
+    }
+
+    /**
+     * @return array<int, UploadedFile>
+     */
+    private function requestFiles(Request $request): array
+    {
+        $files = $request->file('attachments', []);
+
+        if (!is_array($files)) {
+            $files = [$files];
+        }
+
+        if ($request->hasFile('media_attachment')) {
+            $files[] = $request->file('media_attachment');
+        }
+
+        return array_values(
+            array_filter(
+                $files,
+                fn ($file): bool => $file instanceof UploadedFile
+                    && $file->isValid()
+            )
+        );
+    }
+
+    private function storeAttachment(
+        Ticket $ticket,
+        UploadedFile $file
+    ): TicketAttachment {
+        $path = $file->store(
+            "tickets/{$ticket->id}",
+            'public'
+        );
+
+        return $ticket->attachments()->create([
+            'original_name' => $file->getClientOriginalName(),
+            'file_path' => $path,
+            'mime_type' => $file->getMimeType(),
+            'file_size' => $file->getSize(),
+        ]);
+    }
+
+    private function defaultStatusId(): ?int
+    {
+        $status = TicketStatus::query()
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereRaw('LOWER(ticket_status_name) = ?', ['new'])
+                    ->orWhereRaw('LOWER(ticket_status_name) = ?', ['open']);
+            })
+            ->orderBy('display_order')
+            ->first();
+
+        $status ??= TicketStatus::query()
+            ->orderBy('display_order')
+            ->first();
+
+        return $status?->id;
+    }
+
+    private function generateUniqueTicketNumber(): string
+    {
+        $prefix = trim(
+            (string) (optional(SiteSetting::first())->ticket_prefix ?? 'TCKT')
+        );
+
+        $prefix = $prefix !== ''
+            ? Str::upper(Str::slug($prefix, ''))
+            : 'TCKT';
+
+        do {
+            $ticketNumber = sprintf(
+                '%s-%s-%s',
+                $prefix,
+                now()->format('Ym'),
+                Str::upper(Str::random(6))
+            );
+        } while (
+            Ticket::where('ticket_number', $ticketNumber)->exists()
+        );
+
+        return $ticketNumber;
+    }
+
+    private function canAccess(Request $request, Ticket $ticket): bool
+    {
+        $user = $request->user();
+
+        return $user !== null
+            && $ticket->isVisibleTo($user);
+    }
+
+    private function loadTicket(Ticket $ticket): array
+    {
+        $ticket->refresh();
+        $ticket->load(self::TICKET_RELATIONS);
+
+        return $this->ticketPayload($ticket);
+    }
+
+    private function ticketPayload(Ticket $ticket): array
+    {
+        $payload = $ticket->toArray();
+        $firstAttachment = $ticket->attachments->first();
+
+        // Temporary compatibility fields for the old frontend.
+        $payload['media_attachment'] = $firstAttachment?->original_name
+            ?? $ticket->media_attachment;
+
+        $payload['media_attachment_url'] = $firstAttachment?->file_url
+            ?? (
+                $ticket->media_attachment
+                    ? url('attachments/' . $ticket->media_attachment)
+                    : null
+            );
+
+        return $payload;
+    }
+
+    private function perPage(Request $request): int
+    {
+        return min(
+            max((int) $request->input('per_page', 10), 1),
+            100
+        );
+    }
+
+    private function paginatedResponse($paginator): JsonResponse
+    {
+        $items = collect($paginator->items())
+            ->map(
+                fn (Ticket $ticket): array => $this->ticketPayload($ticket)
+            )
+            ->values();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Tickets fetched successfully.',
+            'data' => $items,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+            ],
+            'links' => [
+                'first' => $paginator->url(1),
+                'last' => $paginator->url($paginator->lastPage()),
+                'prev' => $paginator->previousPageUrl(),
+                'next' => $paginator->nextPageUrl(),
+            ],
+        ]);
+    }
+
+    private function validationError(array $errors): JsonResponse
+    {
+        return response()->json([
+            'status' => false,
+            'message' => 'Validation failed.',
+            'errors' => $errors,
+        ], 422);
+    }
+
+    private function error(string $message, int $status): JsonResponse
+    {
+        return response()->json([
+            'status' => false,
+            'message' => $message,
+        ], $status);
+    }
 }

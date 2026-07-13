@@ -518,6 +518,16 @@ class DynamicPostController extends Controller
                 ]);
             }
 
+            if (
+                !Schema::hasTable('keywords')
+                || !Schema::hasTable('keyword_post_type')
+            ) {
+                return $this->successResponse('Keyword suggestions fetched successfully.', [
+                    'count' => 0,
+                    'options' => [],
+                ]);
+            }
+
             $postType = PostType::query()
                 ->where(function ($q) use ($request) {
                     if ($request->filled('post_type_id')) {
@@ -550,8 +560,15 @@ class DynamicPostController extends Controller
                 ->orderBy('keywords.keyword', 'asc');
 
             if ($request->filled('search')) {
-                $search = trim((string) $request->search);
-                $query->where('keywords.keyword', 'like', "%{$search}%");
+                $search = Keyword::normalizeKeyword((string) $request->search);
+                $search = mb_strtolower(trim($search));
+
+                if ($search !== '') {
+                    // Starting words only
+                    // Example search "lux" => luxury flat, luxury home
+                    // It will NOT return "best luxury flat"
+                    $query->whereRaw('LOWER(keywords.keyword) LIKE ?', [$search . '%']);
+                }
             }
 
             $keywords = $query
@@ -4575,7 +4592,13 @@ class DynamicPostController extends Controller
 
         foreach ($normalized as $item) {
             $keyword = null;
+            $keywordText = null;
 
+            /*
+         |--------------------------------------------------------------------------
+         | Case 1: Existing keyword selected from dropdown by id
+         |--------------------------------------------------------------------------
+         */
             if (!empty($item['id'])) {
                 $keyword = Keyword::find((int) $item['id']);
 
@@ -4586,39 +4609,56 @@ class DynamicPostController extends Controller
                         ],
                     ]);
                 }
+
+                $keywordText = Keyword::normalizeKeyword($keyword->keyword);
             }
 
-            $keywordText = Keyword::normalizeKeyword($item['keyword'] ?? $keyword?->keyword ?? '');
+            /*
+         |--------------------------------------------------------------------------
+         | Case 2: New text typed or existing text typed
+         |--------------------------------------------------------------------------
+         | Important:
+         | Do not search by dynamic_post_id here.
+         | Otherwise same keyword will be duplicated for every listing.
+         |--------------------------------------------------------------------------
+         */
+            if (!$keyword) {
+                $keywordText = Keyword::normalizeKeyword($item['keyword'] ?? '');
+
+                if ($keywordText === '') {
+                    continue;
+                }
+
+                $keyword = $this->findExistingKeywordByText($keywordText);
+            }
+
+            $keywordText = Keyword::normalizeKeyword($keywordText);
 
             if ($keywordText === '') {
                 continue;
             }
 
+            /*
+         |--------------------------------------------------------------------------
+         | Case 3: Keyword does not exist, create it
+         |--------------------------------------------------------------------------
+         */
             if (!$keyword) {
-                $keyword = $this->findExistingKeywordForDynamicPost(
-                    keyword: $keywordText,
-                    postTypeId: (int) $postType->id,
-                    dynamicPostId: (int) $post->id
-                );
-            }
-
-            $payload = [
-                'keyword' => $keywordText,
-                'status' => $item['status'] ?? $keyword?->status ?? 'active',
-                'avg_search_volume' => array_key_exists('avg_search_volume', $item)
-                    ? $item['avg_search_volume']
-                    : ($keyword?->avg_search_volume ?? null),
-                'avg_ranking' => array_key_exists('avg_ranking', $item)
-                    ? $item['avg_ranking']
-                    : ($keyword?->avg_ranking ?? null),
-            ];
-
-            if ($keyword) {
-                $keyword->update($payload);
+                $keyword = Keyword::create([
+                    'keyword' => $keywordText,
+                    'status' => $item['status'] ?? 'active',
+                    'avg_search_volume' => $item['avg_search_volume'] ?? null,
+                    'avg_ranking' => $item['avg_ranking'] ?? null,
+                ]);
             } else {
-                $keyword = Keyword::create($payload);
+                $this->updateKeywordOptionalData($keyword, $item);
             }
 
+            /*
+         |--------------------------------------------------------------------------
+         | Attach keyword with post type and dynamic post
+         |--------------------------------------------------------------------------
+         */
             $keyword->postTypes()->syncWithoutDetaching([
                 (int) $postType->id,
             ]);
@@ -4647,6 +4687,43 @@ class DynamicPostController extends Controller
             ->where('dynamic_post_id', $post->id)
             ->whereNotIn('keyword_id', $keywordIds)
             ->delete();
+    }
+    private function findExistingKeywordByText(string $keyword): ?Keyword
+    {
+        $keyword = Keyword::normalizeKeyword($keyword);
+
+        if ($keyword === '') {
+            return null;
+        }
+
+        return Keyword::query()
+            ->whereRaw('LOWER(keyword) = ?', [mb_strtolower($keyword)])
+            ->orderBy('id', 'asc')
+            ->first();
+    }
+
+    private function updateKeywordOptionalData(Keyword $keyword, array $item): void
+    {
+        $payload = [];
+
+        if (
+            array_key_exists('status', $item)
+            && in_array($item['status'], ['active', 'inactive'], true)
+        ) {
+            $payload['status'] = $item['status'];
+        }
+
+        if (array_key_exists('avg_search_volume', $item)) {
+            $payload['avg_search_volume'] = $item['avg_search_volume'];
+        }
+
+        if (array_key_exists('avg_ranking', $item)) {
+            $payload['avg_ranking'] = $item['avg_ranking'];
+        }
+
+        if (!empty($payload)) {
+            $keyword->update($payload);
+        }
     }
     private function normalizeSubmittedKeywords(mixed $input): array
     {
@@ -4730,7 +4807,11 @@ class DynamicPostController extends Controller
 
                 $avgSearchVolume = null;
 
-                if (array_key_exists('avg_search_volume', $item) && $item['avg_search_volume'] !== '' && $item['avg_search_volume'] !== null) {
+                if (
+                    array_key_exists('avg_search_volume', $item)
+                    && $item['avg_search_volume'] !== ''
+                    && $item['avg_search_volume'] !== null
+                ) {
                     $avgSearchVolume = is_numeric($item['avg_search_volume'])
                         ? (int) $item['avg_search_volume']
                         : null;
@@ -4738,7 +4819,11 @@ class DynamicPostController extends Controller
 
                 $avgRanking = null;
 
-                if (array_key_exists('avg_ranking', $item) && $item['avg_ranking'] !== '' && $item['avg_ranking'] !== null) {
+                if (
+                    array_key_exists('avg_ranking', $item)
+                    && $item['avg_ranking'] !== ''
+                    && $item['avg_ranking'] !== null
+                ) {
                     $avgRanking = is_numeric($item['avg_ranking'])
                         ? round((float) $item['avg_ranking'], 2)
                         : null;
@@ -4772,10 +4857,15 @@ class DynamicPostController extends Controller
         int $postTypeId,
         int $dynamicPostId
     ): ?Keyword {
+        $keyword = Keyword::normalizeKeyword($keyword);
+
+        if ($keyword === '') {
+            return null;
+        }
+
         return Keyword::query()
-            ->where('keyword', $keyword)
-            ->whereHas('postTypes', fn($query) => $query->where('post_types.id', $postTypeId))
-            ->whereHas('dynamicPosts', fn($query) => $query->where('dynamic_posts.id', $dynamicPostId))
+            ->whereRaw('LOWER(keyword) = ?', [mb_strtolower($keyword)])
+            ->orderBy('id', 'asc')
             ->first();
     }
 
