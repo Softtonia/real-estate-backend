@@ -31,12 +31,17 @@ class KeywordController extends Controller
 
         $this->applyFilters($query, $request);
 
-        $perPage = min((int) $request->get('per_page', 15), 100);
+        $perPage = min(
+            max((int) $request->get('per_page', 15), 1),
+            100
+        );
 
-        $keywords = $query->latest()->paginate($perPage);
+        $keywords = $query
+            ->latest()
+            ->paginate($perPage);
 
         $keywords->getCollection()->transform(
-            fn(Keyword $keyword) => $this->formatKeywordforget($keyword)
+            fn(Keyword $keyword) => $this->formatKeyword($keyword)
         );
 
         return response()->json([
