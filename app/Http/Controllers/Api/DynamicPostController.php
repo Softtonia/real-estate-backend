@@ -4592,11 +4592,13 @@ class DynamicPostController extends Controller
 
         foreach ($normalized as $item) {
             $keyword = null;
-            $keywordText = null;
 
             /*
          |--------------------------------------------------------------------------
-         | Case 1: Existing keyword selected from dropdown by id
+         | Existing keyword selected from dropdown
+         |--------------------------------------------------------------------------
+         | Payload example:
+         | { "id": 5, "label": "luxury flat", "value": "luxury flat" }
          |--------------------------------------------------------------------------
          */
             if (!empty($item['id'])) {
@@ -4610,60 +4612,70 @@ class DynamicPostController extends Controller
                     ]);
                 }
 
-                $keywordText = Keyword::normalizeKeyword($keyword->keyword);
-            }
+                /*
+             | Existing keyword selected:
+             | Do not remove old relations.
+             | Just attach this listing also.
+             */
+                $keyword->postTypes()->syncWithoutDetaching([
+                    (int) $postType->id,
+                ]);
 
-            /*
-         |--------------------------------------------------------------------------
-         | Case 2: New text typed or existing text typed
-         |--------------------------------------------------------------------------
-         | Important:
-         | Do not search by dynamic_post_id here.
-         | Otherwise same keyword will be duplicated for every listing.
-         |--------------------------------------------------------------------------
-         */
-            if (!$keyword) {
-                $keywordText = Keyword::normalizeKeyword($item['keyword'] ?? '');
+                $keyword->dynamicPosts()->syncWithoutDetaching([
+                    (int) $post->id,
+                ]);
 
-                if ($keywordText === '') {
-                    continue;
-                }
+                $keywordIds[] = (int) $keyword->id;
 
-                $keyword = $this->findExistingKeywordByText($keywordText);
-            }
-
-            $keywordText = Keyword::normalizeKeyword($keywordText);
-
-            if ($keywordText === '') {
                 continue;
             }
 
             /*
          |--------------------------------------------------------------------------
-         | Case 3: Keyword does not exist, create it
+         | New typed keyword
+         |--------------------------------------------------------------------------
+         | Payload example:
+         | "ready to move flat"
+         |
+         | This will save keyword with current:
+         | - keyword_type = post_types.id
+         | - listing/post_type = dynamic_posts.id
          |--------------------------------------------------------------------------
          */
-            if (!$keyword) {
-                $keyword = Keyword::create([
-                    'keyword' => $keywordText,
-                    'status' => $item['status'] ?? 'active',
-                    'avg_search_volume' => $item['avg_search_volume'] ?? null,
-                    'avg_ranking' => $item['avg_ranking'] ?? null,
-                ]);
+            $keywordText = Keyword::normalizeKeyword($item['keyword'] ?? '');
+
+            if ($keywordText === '') {
+                continue;
+            }
+
+            $keyword = $this->findExistingKeywordForDynamicPost(
+                keyword: $keywordText,
+                postTypeId: (int) $postType->id,
+                dynamicPostId: (int) $post->id
+            );
+
+            $payloadForSave = [
+                'keyword' => $keywordText,
+                'status' => $item['status'] ?? 'active',
+                'avg_search_volume' => $item['avg_search_volume'] ?? null,
+                'avg_ranking' => $item['avg_ranking'] ?? null,
+            ];
+
+            if ($keyword) {
+                $keyword->update($payloadForSave);
             } else {
-                $this->updateKeywordOptionalData($keyword, $item);
+                $keyword = Keyword::create($payloadForSave);
             }
 
             /*
-         |--------------------------------------------------------------------------
-         | Attach keyword with post type and dynamic post
-         |--------------------------------------------------------------------------
+         | Same relation style as KeywordController store.
+         | New keyword belongs to current post type and current listing.
          */
-            $keyword->postTypes()->syncWithoutDetaching([
+            $keyword->postTypes()->sync([
                 (int) $postType->id,
             ]);
 
-            $keyword->dynamicPosts()->syncWithoutDetaching([
+            $keyword->dynamicPosts()->sync([
                 (int) $post->id,
             ]);
 
@@ -4683,6 +4695,10 @@ class DynamicPostController extends Controller
             return;
         }
 
+        /*
+     | Remove only unselected keywords from this listing.
+     | It will not delete keyword from keywords table.
+     */
         DB::table('keyword_dynamic_post')
             ->where('dynamic_post_id', $post->id)
             ->whereNotIn('keyword_id', $keywordIds)
@@ -4865,7 +4881,12 @@ class DynamicPostController extends Controller
 
         return Keyword::query()
             ->whereRaw('LOWER(keyword) = ?', [mb_strtolower($keyword)])
-            ->orderBy('id', 'asc')
+            ->whereHas('postTypes', function ($query) use ($postTypeId) {
+                $query->where('post_types.id', $postTypeId);
+            })
+            ->whereHas('dynamicPosts', function ($query) use ($dynamicPostId) {
+                $query->where('dynamic_posts.id', $dynamicPostId);
+            })
             ->first();
     }
 
@@ -4874,6 +4895,8 @@ class DynamicPostController extends Controller
         if (!Schema::hasTable('keywords') || !Schema::hasTable('keyword_dynamic_post')) {
             return [];
         }
+
+        $post->loadMissing('postType');
 
         return Keyword::query()
             ->join('keyword_dynamic_post', 'keywords.id', '=', 'keyword_dynamic_post.keyword_id')
@@ -4895,6 +4918,21 @@ class DynamicPostController extends Controller
                 'status' => $keyword->status,
                 'avg_search_volume' => $keyword->avg_search_volume,
                 'avg_ranking' => $keyword->avg_ranking,
+
+                'keyword_type' => $post->postType ? [
+                    'id' => (int) $post->postType->id,
+                    'name' => $post->postType->name,
+                    'slug' => $post->postType->slug,
+                ] : null,
+
+                'post_type' => [
+                    'id' => (int) $post->id,
+                    'post_type_id' => (int) $post->post_type_id,
+                    'title' => $post->title,
+                    'slug' => $post->slug,
+                    'status' => $post->status ?? null,
+                    'live_status' => $post->live_status ?? null,
+                ],
             ])
             ->values()
             ->toArray();
