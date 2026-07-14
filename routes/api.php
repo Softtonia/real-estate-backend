@@ -98,6 +98,7 @@ use App\Http\Controllers\Api\DynamicCustomFieldController;
 use App\Http\Controllers\Api\PostTaxonomyTermController;
 use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
+use App\Http\Controllers\Api\DynamicPostCsvController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\ListingUserAssignmentController;
@@ -925,6 +926,9 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
     Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
+    Route::get('dynamic-posts/template-csv', [DynamicPostCsvController::class, 'template']);
+    Route::get('dynamic-posts/export-csv', [DynamicPostCsvController::class, 'export']);
+    Route::post('dynamic-posts/import-csv', [DynamicPostCsvController::class, 'import']);
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])->whereNumber('dynamicPost');
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])->whereNumber('dynamicPost');
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])->whereNumber('dynamicPost');
