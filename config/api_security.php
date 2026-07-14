@@ -23,5 +23,34 @@ return [
     'expired_ip_block_retention_days' => (int) env('API_EXPIRED_IP_BLOCK_RETENTION_DAYS', 7),
 
     'cleanup_chunk_size' => (int) env('API_CLEANUP_CHUNK_SIZE', 1000),
+        'fixed_tokens' => [
+        'FIXED_ADMIN_PANEL_TOKEN' => env('FIXED_ADMIN_PANEL_TOKEN'),
+
+        'FIXED_LOCAL_REACT_ADMIN_TOKEN' => env(
+            'FIXED_LOCAL_REACT_ADMIN_TOKEN'
+        ),
+
+        'FIXED_LOCAL_API_TOKEN' => env('FIXED_LOCAL_API_TOKEN'),
+
+        'FIXED_BUSINESS_LIVE_TOKEN' => env(
+            'FIXED_BUSINESS_LIVE_TOKEN'
+        ),
+
+        'FIXED_BUSINESS_LOCAL_TOKEN' => env(
+            'FIXED_BUSINESS_LOCAL_TOKEN'
+        ),
+
+        'FIXED_LOCAL_NEXTJS_TOKEN' => env(
+            'FIXED_LOCAL_NEXTJS_TOKEN'
+        ),
+
+        'FIXED_HOLIPLACES_WEBSITE_TOKEN' => env(
+            'FIXED_HOLIPLACES_WEBSITE_TOKEN'
+        ),
+
+        'FIXED_MOBILE_APPLICATION_TOKEN' => env(
+            'FIXED_MOBILE_APPLICATION_TOKEN'
+        ),
+    ],
 
 ];

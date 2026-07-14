@@ -6,29 +6,39 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class ApplicationPasswordTableSeeder extends Seeder
 {
+    /**
+     * Seed fixed application passwords from configuration.
+     */
     public function run(): void
     {
         if (! Schema::hasTable('application_passwords')) {
-            $this->command?->warn('application_passwords table not found.');
+            $this->command?->warn(
+                'application_passwords table not found.'
+            );
+
             return;
         }
 
         if (! Schema::hasTable('api_clients')) {
-            $this->command?->warn('api_clients table not found.');
+            $this->command?->warn(
+                'api_clients table not found.'
+            );
+
             return;
         }
 
         $now = Carbon::now();
 
         /*
-         * Important:
-         * api_client_slug must match api_clients.slug exactly.
-         * fixed_key_name keeps your old fixed names unchanged.
+         * api_client_slug must exactly match api_clients.slug.
+         *
+         * fixed_key_name is used as the stable identifier for updating
+         * an existing fixed application password.
          */
-
         $passwords = [
             [
                 'fixed_key_name' => 'fixed_admin_panel',
@@ -88,113 +98,267 @@ class ApplicationPasswordTableSeeder extends Seeder
             ],
         ];
 
+        $applicationPasswordColumns = Schema::getColumnListing(
+            'application_passwords'
+        );
+
+        $apiClientHasDeletedAt = Schema::hasColumn(
+            'api_clients',
+            'deleted_at'
+        );
+
         foreach ($passwords as $password) {
-            $client = DB::table('api_clients')
-                ->where('slug', $password['api_client_slug'])
-                ->whereNull('deleted_at')
-                ->first();
+            try {
+                $clientQuery = DB::table('api_clients')
+                    ->where('slug', $password['api_client_slug']);
 
-            if (! $client) {
-                $this->command?->warn(
-                    "API client not found for {$password['fixed_key_name']}: {$password['api_client_slug']}"
+                if ($apiClientHasDeletedAt) {
+                    $clientQuery->whereNull('deleted_at');
+                }
+
+                $client = $clientQuery->first();
+
+                if (! $client) {
+                    $this->command?->warn(
+                        sprintf(
+                            'API client not found for %s. Expected slug: %s',
+                            $password['fixed_key_name'],
+                            $password['api_client_slug']
+                        )
+                    );
+
+                    continue;
+                }
+
+                $plainToken = $this->getTokenFromConfig(
+                    $password['env_key']
                 );
-                continue;
-            }
 
-            $plainToken = $this->getTokenFromEnv($password['env_key']);
+                if ($plainToken === '') {
+                    $this->command?->warn(
+                        sprintf(
+                            'Token missing for %s. Config key: api_security.fixed_tokens.%s',
+                            $password['fixed_key_name'],
+                            $password['env_key']
+                        )
+                    );
 
-            if ($plainToken === '') {
-                $this->command?->warn(
-                    "Token missing for {$password['fixed_key_name']}. Env key: {$password['env_key']}"
-                );
-                continue;
-            }
+                    continue;
+                }
 
-            $data = [
-                'api_client_id' => $client->id,
-                'name' => $password['name'],
-                'token_hash' => hash('sha256', $plainToken),
-                'token_prefix' => $this->tokenPrefix($plainToken),
-                'abilities' => json_encode($password['abilities'], JSON_UNESCAPED_SLASHES),
-                'expires_at' => null,
-                'revoked_at' => null,
-                'updated_at' => $now,
-            ];
-
-            if (Schema::hasColumn('application_passwords', 'fixed_key_name')) {
-                $data['fixed_key_name'] = $password['fixed_key_name'];
-            }
-
-            if (Schema::hasColumn('application_passwords', 'last_used_at')) {
-                $data['last_used_at'] = null;
-            }
-
-            if (Schema::hasColumn('application_passwords', 'last_used_ip')) {
-                $data['last_used_ip'] = null;
-            }
-
-            if (Schema::hasColumn('application_passwords', 'last_user_agent')) {
-                $data['last_user_agent'] = null;
-            }
-
-            $data = $this->onlyExistingColumns('application_passwords', $data);
-
-            $match = Schema::hasColumn('application_passwords', 'fixed_key_name')
-                ? ['fixed_key_name' => $password['fixed_key_name']]
-                : [
+                $data = [
                     'api_client_id' => $client->id,
                     'name' => $password['name'],
+
+                    /*
+                     * Store only a SHA-256 hash in the database.
+                     * Never store the complete plain token.
+                     */
+                    'token_hash' => hash('sha256', $plainToken),
+
+                    /*
+                     * This is only used to identify the token.
+                     */
+                    'token_prefix' => $this->tokenPrefix($plainToken),
+
+                    'abilities' => json_encode(
+                        $password['abilities'],
+                        JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                    ),
+
+                    'expires_at' => null,
+                    'revoked_at' => null,
+                    'updated_at' => $now,
                 ];
 
-            $existing = DB::table('application_passwords')
-                ->where($match)
-                ->first();
+                if (
+                    in_array(
+                        'fixed_key_name',
+                        $applicationPasswordColumns,
+                        true
+                    )
+                ) {
+                    $data['fixed_key_name'] =
+                        $password['fixed_key_name'];
+                }
 
-            if ($existing) {
-                DB::table('application_passwords')
-                    ->where('id', $existing->id)
-                    ->update($data);
+                if (
+                    in_array(
+                        'last_used_at',
+                        $applicationPasswordColumns,
+                        true
+                    )
+                ) {
+                    $data['last_used_at'] = null;
+                }
 
-                $action = 'Updated';
-            } else {
-                $data['created_at'] = $now;
+                if (
+                    in_array(
+                        'last_used_ip',
+                        $applicationPasswordColumns,
+                        true
+                    )
+                ) {
+                    $data['last_used_ip'] = null;
+                }
 
-                DB::table('application_passwords')
-                    ->insert($this->onlyExistingColumns('application_passwords', $data));
+                if (
+                    in_array(
+                        'last_user_agent',
+                        $applicationPasswordColumns,
+                        true
+                    )
+                ) {
+                    $data['last_user_agent'] = null;
+                }
 
-                $action = 'Created';
+                $data = $this->onlyExistingColumns(
+                    $data,
+                    $applicationPasswordColumns
+                );
+
+                /*
+                 * Prefer fixed_key_name as the permanent identifier.
+                 * Fall back to api_client_id and name for older schemas.
+                 */
+                if (
+                    in_array(
+                        'fixed_key_name',
+                        $applicationPasswordColumns,
+                        true
+                    )
+                ) {
+                    $match = [
+                        'fixed_key_name' =>
+                            $password['fixed_key_name'],
+                    ];
+                } else {
+                    $match = [
+                        'api_client_id' => $client->id,
+                        'name' => $password['name'],
+                    ];
+                }
+
+                $existing = DB::table('application_passwords')
+                    ->where($match)
+                    ->first();
+
+                DB::transaction(
+                    function () use (
+                        $existing,
+                        $data,
+                        $now,
+                        $applicationPasswordColumns
+                    ): void {
+                        if ($existing) {
+                            DB::table('application_passwords')
+                                ->where('id', $existing->id)
+                                ->update($data);
+
+                            return;
+                        }
+
+                        if (
+                            in_array(
+                                'created_at',
+                                $applicationPasswordColumns,
+                                true
+                            )
+                        ) {
+                            $data['created_at'] = $now;
+                        }
+
+                        DB::table('application_passwords')
+                            ->insert(
+                                $this->onlyExistingColumns(
+                                    $data,
+                                    $applicationPasswordColumns
+                                )
+                            );
+                    }
+                );
+
+                $action = $existing ? 'Updated' : 'Created';
+
+                $this->command?->info(
+                    sprintf(
+                        '%s %s: %s',
+                        $action,
+                        $password['fixed_key_name'],
+                        $password['name']
+                    )
+                );
+
+                $this->command?->line(
+                    'Client Slug: ' .
+                    $password['api_client_slug']
+                );
+
+                $this->command?->line(
+                    'Token Prefix: ' .
+                    $this->tokenPrefix($plainToken)
+                );
+
+                $this->command?->newLine();
+            } catch (Throwable $exception) {
+                report($exception);
+
+                $this->command?->error(
+                    sprintf(
+                        'Failed to seed %s: %s',
+                        $password['fixed_key_name'],
+                        $exception->getMessage()
+                    )
+                );
             }
-
-            $this->command?->info("{$action} {$password['fixed_key_name']}: {$password['name']}");
-            $this->command?->line("Fixed Key Name: {$password['fixed_key_name']}");
-            $this->command?->line("Client Slug: {$password['api_client_slug']}");
-            $this->command?->line("Token Prefix: " . $this->tokenPrefix($plainToken));
-            $this->command?->newLine();
         }
     }
 
-    private function getTokenFromEnv(string $envKey): string
+    /**
+     * Get the plain token from Laravel configuration.
+     *
+     * Do not call env() from seeders because it may return null
+     * when Laravel configuration is cached.
+     */
+    private function getTokenFromConfig(string $envKey): string
     {
-        $fromConfig = config('api_security.fixed_tokens.' . $envKey);
+        $token = config(
+            'api_security.fixed_tokens.' . $envKey
+        );
 
-        if (! empty($fromConfig)) {
-            return trim((string) $fromConfig);
+        if (! is_string($token)) {
+            return '';
         }
 
-        return trim((string) env($envKey, ''));
+        return trim($token);
     }
 
+    /**
+     * Return a safe token identifier.
+     */
     private function tokenPrefix(string $plainToken): string
     {
         return substr($plainToken, 0, 24);
     }
 
-    private function onlyExistingColumns(string $table, array $data): array
-    {
-        return collect($data)
-            ->filter(function ($value, $column) use ($table) {
-                return Schema::hasColumn($table, $column);
-            })
-            ->all();
+    /**
+     * Remove fields that do not exist in the current table schema.
+     */
+    private function onlyExistingColumns(
+        array $data,
+        array $existingColumns
+    ): array {
+        return array_filter(
+            $data,
+            static fn (
+                mixed $value,
+                string $column
+            ): bool => in_array(
+                $column,
+                $existingColumns,
+                true
+            ),
+            ARRAY_FILTER_USE_BOTH
+        );
     }
 }
