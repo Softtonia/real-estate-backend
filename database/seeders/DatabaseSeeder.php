@@ -21,7 +21,6 @@ class DatabaseSeeder extends Seeder
         $this->call(RoleSeeder::class);
         $this->call(AdminSeeder::class);
         $this->call(MailConfigSeeder::class);
-        $this->call(ModelsTableSeeder::class);
         // $this->call(MediaSeeder::class);
         // $this->call(ImportKeywordsSeeder::class);
         $this->call(TicketDepartmentsSeeder::class);
