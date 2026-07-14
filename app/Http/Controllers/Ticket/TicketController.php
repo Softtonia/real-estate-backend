@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class TicketController extends Controller
 {
@@ -46,7 +48,10 @@ class TicketController extends Controller
             $user = $request->user();
 
             if (!$user) {
-                return $this->unauthenticatedResponse();
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthenticated.',
+                ], 401);
             }
 
             $this->normalizeTicketRequest($request);
@@ -57,9 +62,11 @@ class TicketController extends Controller
             );
 
             if ($validator->fails()) {
-                return $this->validationResponse(
-                    $validator->errors()
-                );
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed.',
+                    'errors' => $validator->errors(),
+                ], 422);
             }
 
             $validated = $validator->validated();
@@ -104,7 +111,7 @@ class TicketController extends Controller
                     'message' => 'No ticket status is configured.',
                     'errors' => [
                         'status_id' => [
-                            'A valid ticket status is required.',
+                            'Create a ticket status before creating tickets.',
                         ],
                     ],
                 ], 422);
@@ -116,9 +123,7 @@ class TicketController extends Controller
                 $raisedBy,
                 $statusId
             ) {
-                $settings = SiteSetting::query()->first();
-
-                $prefix = $settings?->ticket_prefix ?: 'TCKT';
+                $prefix = optional(SiteSetting::first())->ticket_prefix ?: 'TCKT';
 
                 $ticket = Ticket::create([
                     'ticket_number' => $this->generateUniqueTicketNumber($prefix),
@@ -134,11 +139,9 @@ class TicketController extends Controller
                     'property_id' => $validated['property_id'] ?? null,
                 ]);
 
-                if (method_exists($ticket, 'ccUsers')) {
-                    $ticket->ccUsers()->sync(
-                        $validated['cc_user_ids'] ?? []
-                    );
-                }
+                $ticket->ccUsers()->sync(
+                    $validated['cc_user_ids'] ?? []
+                );
 
                 $this->storeAttachments($ticket, $request);
                 $this->syncLegacyAttachmentColumn($ticket);
@@ -146,20 +149,28 @@ class TicketController extends Controller
                 return $ticket;
             });
 
-            $ticket = $ticket->fresh($this->relations());
-
             return response()->json([
                 'status' => true,
                 'message' => 'Ticket created successfully.',
-                'data' => $this->formatTicket($ticket),
+                'data' => $this->formatTicket(
+                    $ticket->fresh($this->relations())
+                ),
             ], 201);
-        } catch (\Throwable $exception) {
-            report($exception);
+        } catch (Throwable $exception) {
+            Log::error('Ticket creation failed', [
+                'message' => $exception->getMessage(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'request' => $request->except([
+                    'attachments',
+                    'media_attachment',
+                ]),
+            ]);
 
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to create ticket.',
-                'error' => app()->environment('local')
+                'error' => config('app.debug')
                     ? $exception->getMessage()
                     : null,
             ], 500);
@@ -1016,15 +1027,10 @@ class TicketController extends Controller
             return false;
         }
 
-        if (!method_exists($user, 'role')) {
-            return false;
-        }
+        $roleName = optional($user->role)->name;
 
-        $role = $user->relationLoaded('role')
-            ? $user->role
-            : $user->role()->first();
-
-        return strtolower((string) ($role?->name ?? '')) === 'admin';
+        return is_string($roleName)
+            && strcasecmp($roleName, 'admin') === 0;
     }
 
     private function userName($user): ?string
