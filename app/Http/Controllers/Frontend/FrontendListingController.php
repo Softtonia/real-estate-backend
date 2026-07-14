@@ -25,10 +25,30 @@ class FrontendListingController extends Controller
         'property-status',
     ];
 
-    public function taxonomies(): JsonResponse
+    public function taxonomies(Request $request): JsonResponse
     {
         try {
+            $request->validate([
+                'selected_term_ids' => [
+                    'nullable',
+                    'array',
+                ],
+                'selected_term_ids.*' => [
+                    'integer',
+                    'exists:taxonomy_terms,id',
+                ],
+            ]);
+
             $definedSlugs = self::ALLOWED_TAXONOMY_SLUGS;
+
+            $selectedTermIds = collect(
+                $request->input('selected_term_ids', [])
+            )
+                ->filter(fn($id) => is_numeric($id))
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->toArray();
 
             $taxonomies = Taxonomy::query()
                 ->select([
@@ -51,9 +71,23 @@ class FrontendListingController extends Controller
                                 'slug',
                                 'description',
                                 'parent_id',
+                                'relation_with_taxonomy_id',
                                 'sort_order',
                             ])
                             ->where('status', true)
+                            ->with([
+                                'relationValues' => function ($relationQuery) {
+                                    $relationQuery
+                                        ->select([
+                                            'taxonomy_terms.id',
+                                            'taxonomy_terms.taxonomy_id',
+                                            'taxonomy_terms.name',
+                                            'taxonomy_terms.slug',
+                                        ])
+                                        ->where('taxonomy_terms.status', true)
+                                        ->wherePivot('status', true);
+                                },
+                            ])
                             ->orderBy('sort_order')
                             ->orderBy('name');
                     },
@@ -71,7 +105,52 @@ class FrontendListingController extends Controller
                         : $position;
                 })
                 ->values()
-                ->map(function ($taxonomy) {
+                ->map(function ($taxonomy) use ($selectedTermIds) {
+                    $terms = $taxonomy->terms;
+
+                    $hasDependentTerms = $terms->contains(
+                        function ($term) {
+                            return !empty($term->relation_with_taxonomy_id) || $term->relationValues->isNotEmpty();
+                        }
+                    );
+
+                    if ($hasDependentTerms) {
+                        if (empty($selectedTermIds)) {
+                            $terms = collect();
+                        } else {
+                            $terms = $terms
+                                ->filter(function ($term) use (
+                                    $selectedTermIds
+                                ) {
+                                    $relatedTermIds = $term
+                                        ->relationValues
+                                        ->pluck('id')
+                                        ->map(fn($id) => (int) $id)
+                                        ->values()
+                                        ->toArray();
+
+                                    if (empty($relatedTermIds)) {
+                                        return false;
+                                    }
+
+                                    return count(
+                                        array_intersect(
+                                            $relatedTermIds,
+                                            $selectedTermIds
+                                        )
+                                    ) > 0;
+                                })
+                                ->values();
+                        }
+                    }
+
+                    $dependsOnTaxonomyIds = $taxonomy->terms
+                        ->pluck('relation_with_taxonomy_id')
+                        ->filter()
+                        ->map(fn($id) => (int) $id)
+                        ->unique()
+                        ->values();
+
                     return [
                         'id' => (int) $taxonomy->id,
                         'name' => $taxonomy->name,
@@ -80,19 +159,43 @@ class FrontendListingController extends Controller
                         'description' => $taxonomy->description,
                         'hierarchical' => (bool) $taxonomy->hierarchical,
 
-                        'terms' => $taxonomy->terms
+                        'is_dependent' => $hasDependentTerms,
+
+                        'depends_on_taxonomy_ids' =>
+                        $dependsOnTaxonomyIds,
+
+                        'selected_term_ids' => $selectedTermIds,
+
+                        'terms' => $terms
                             ->map(function ($term) {
                                 return [
                                     'id' => (int) $term->id,
-                                    'taxonomy_id' => (int) $term->taxonomy_id,
+                                    'taxonomy_id' =>
+                                    (int) $term->taxonomy_id,
                                     'name' => $term->name,
                                     'label' => $term->name,
                                     'value' => (int) $term->id,
                                     'slug' => $term->slug,
-                                    'description' => $term->description,
+                                    'description' =>
+                                    $term->description,
+
                                     'parent_id' => $term->parent_id
                                         ? (int) $term->parent_id
                                         : null,
+
+                                    'relation_with_taxonomy_id' =>
+                                    $term->relation_with_taxonomy_id
+                                        ? (int) $term
+                                            ->relation_with_taxonomy_id
+                                        : null,
+
+                                    'relation_value_term_ids' =>
+                                    $term->relationValues
+                                        ->pluck('id')
+                                        ->map(
+                                            fn($id) => (int) $id
+                                        )
+                                        ->values(),
                                 ];
                             })
                             ->values(),
@@ -101,18 +204,25 @@ class FrontendListingController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Listing taxonomies fetched successfully.',
+                'message' =>
+                'Listing taxonomies fetched successfully.',
                 'data' => $taxonomies,
             ]);
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'errors' => $exception->errors(),
+            ], 422);
         } catch (Throwable $exception) {
             return response()->json([
                 'status' => false,
-                'message' => 'Unable to fetch listing taxonomies.',
+                'message' =>
+                'Unable to fetch listing taxonomies.',
                 'error' => $exception->getMessage(),
             ], 500);
         }
     }
-
     public function store(Request $request): JsonResponse
     {
         try {
