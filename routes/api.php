@@ -40,10 +40,10 @@ use App\Http\Controllers\Permissioncontroller;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\ResetPasswordController;
 use App\Http\Controllers\Ticket\TicketController;
-use App\Http\Controllers\Ticket\ticketstatuscontroller;
-use App\Http\Controllers\Ticket\ticketprioritycontroller;
-use App\Http\Controllers\Ticket\TicketTypeController;
 use App\Http\Controllers\Ticket\TicketDepartmentController;
+use App\Http\Controllers\Ticket\TicketPriorityController;
+use App\Http\Controllers\Ticket\TicketStatusController;
+use App\Http\Controllers\Ticket\TicketTypeController;
 use App\Http\Controllers\Agent\AgentController;
 use App\Http\Controllers\Media\MediaController;
 use App\Http\Controllers\Builder\Buildercontroller;
@@ -411,63 +411,61 @@ Route::middleware(['validate.api.client'])->group(function () {
 
 
 
-    // Ticket Route will start from here
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->post('tickets-create', [TicketController::class, 'store']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->get('tickets-list', [TicketController::class, 'index']);
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->post('tickets-update', [TicketController::class, 'update']);
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->post('tickets-delete', [TicketController::class, 'destroy']);
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->post('tickets-bulk-delete', [TicketController::class, 'bulkDestroy']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->post('get-tickets-by-id', [TicketController::class, 'show']);
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->post('tickets-search', [TicketController::class, 'searchByTicketNumber']);
+    Route::middleware(['throttle:60,1'])->group(function () {
+        Route::middleware('adminOrCurrentUser')->group(function () {
+            Route::post('tickets-create', [TicketController::class, 'store']);
+            Route::post('tickets-update', [TicketController::class, 'update']);
+            Route::post('tickets-delete', [TicketController::class, 'destroy']);
+            Route::post('tickets-bulk-delete', [TicketController::class, 'bulkDestroy']);
+            Route::post('tickets-search', [TicketController::class, 'searchByTicketNumber']);
+            Route::post('get-tickets-by-token', [TicketController::class, 'getTicketByToken']);
+            Route::post('update-tickets-status', [TicketController::class, 'updateTicketStatus']);
+            Route::get('tickets-response-list-history/{ticketId}', [TicketController::class, 'ticketResponseHistory']);
+        });
+        Route::middleware('allrole.token')->group(function () {
+            Route::get('tickets-list', [TicketController::class, 'index']);
+            Route::post('get-tickets-by-id', [TicketController::class, 'show']);
+            Route::post('tickets/respond', [TicketController::class, 'respond']);
+            Route::get('tickets-respond-list', [TicketController::class, 'respondlist']);
+        });
+        Route::middleware('admin.token')->group(function () {
+            Route::post('tickets-status-create', [TicketStatusController::class, 'store']);
+            Route::post('tickets-status-update', [TicketStatusController::class, 'update']);
+            Route::post('tickets-status-delete', [TicketStatusController::class, 'destroy']);
+            Route::post('tickets-status-bulk-delete', [TicketStatusController::class, 'bulkDelete']);
+            Route::post('get-tickets-status-byid', [TicketStatusController::class, 'show']);
+        });
+        Route::get('tickets-status-list', [TicketStatusController::class, 'index']);
+        Route::get('search-tickets-status-name', [TicketStatusController::class, 'searchTicketStatusName']);
+        Route::middleware('admin.token')->group(function () {
+            Route::post('tickets-department-create', [TicketDepartmentController::class, 'store']);
+            Route::post('tickets-department-update', [TicketDepartmentController::class, 'update']);
+            Route::get('search-tickets-department-list', [TicketDepartmentController::class, 'searchDepartment']);
+            Route::post('tickets-department-delete', [TicketDepartmentController::class, 'destroy']);
+            Route::post('get-tickets-department-byid', [TicketDepartmentController::class, 'show']);
+            Route::post('tickets-department-bulk-delete', [TicketDepartmentController::class, 'bulkDestroy']);
+        });
+        Route::get('tickets-department-list', [TicketDepartmentController::class, 'index']);
 
-
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->post('get-tickets-by-token', [TicketController::class, 'getTicketByToken']);
-
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->post('update-tickets-status', [TicketController::class, 'updateTicketStatus']);
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-status-create', [ticketstatuscontroller::class, 'store']);  //Done By softtonia
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-status-update', [ticketstatuscontroller::class, 'update']); //Done By softtonia
-    Route::get('tickets-status-list', [ticketstatuscontroller::class, 'index'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-status-delete', [ticketstatuscontroller::class, 'destroy']); //Done By softtonia
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-status-bulk-delete', [ticketstatuscontroller::class, 'bulkDelete']);
-    Route::get('search-tickets-status-name', [ticketstatuscontroller::class, 'searchTicketStatusName'])->middleware(['throttle:60,1']);
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('get-tickets-status-byid', [ticketstatuscontroller::class, 'show']); //Done By softtonia
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-department-create', [TicketDepartmentController::class, 'store']);  //Done By softtonia
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-department-update', [TicketDepartmentController::class, 'update']); //Done By softtonia
-    Route::get('tickets-department-list', [TicketDepartmentController::class, 'index'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('search-tickets-department-list', [TicketDepartmentController::class, 'searchDepartment']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-department-delete', [TicketDepartmentController::class, 'destroy']); //Done By softtonia
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('get-tickets-department-byid', [TicketDepartmentController::class, 'show']); //Done By softtonia
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-department-bulk-delete', [TicketDepartmentController::class, 'bulkDestroy']);
-
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-priority-create', [ticketprioritycontroller::class, 'store']); //Done By softtonia
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-priority-update', [ticketprioritycontroller::class, 'update']); //Done By softtonia
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('tickets-priority-list', [ticketprioritycontroller::class, 'index']); //Done By softtonia
-    Route::post('tickets-priority-delete', [ticketprioritycontroller::class, 'destroy'])->middleware(['throttle:60,1']); //Done By softtonia
-    Route::post('tickets-priority-bulk-delete', [ticketprioritycontroller::class, 'bulkDelete'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('get-tickets-priority-byid', [ticketprioritycontroller::class, 'show']); //Done By softtonia
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('search-tickets-priority', [ticketprioritycontroller::class, 'searchTicketPriority']);
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-type-create', [TicketTypeController::class, 'store']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-type-update', [TicketTypeController::class, 'update']);
-    Route::get('tickets-type-list', [TicketTypeController::class, 'index'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('tickets-type-delete', [TicketTypeController::class, 'destroy']);
-    Route::post('get-tickets-type-byid', [TicketTypeController::class, 'show'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->delete('/tickets-type-bulk-delete', [TicketTypeController::class, 'bulkDelete']);
-    Route::get('search-tickets-type', [TicketTypeController::class, 'searchTicketType'])->middleware(['throttle:60,1']);
-
-
-    Route::middleware(['throttle:60,1', 'allrole.token'])->post('tickets/respond', [TicketController::class, 'respond']);
-    Route::get('tickets-respond-list', [TicketController::class, 'respondlist'])->middleware(['throttle:60,1']);
-    // ticket response history
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->get('/tickets-response-list-history/{ticketId}', [TicketController::class, 'ticketResponseHistory']);
-
-    // Ticket Route will end from here
+        Route::middleware('admin.token')->group(function () {
+            Route::post('tickets-priority-create', [TicketPriorityController::class, 'store']);
+            Route::post('tickets-priority-update', [TicketPriorityController::class, 'update']);
+            Route::get('tickets-priority-list', [TicketPriorityController::class, 'index']);
+            Route::post('tickets-priority-delete', [TicketPriorityController::class, 'destroy']);
+            Route::post('tickets-priority-bulk-delete', [TicketPriorityController::class, 'bulkDelete']);
+            Route::post('get-tickets-priority-byid', [TicketPriorityController::class, 'show']);
+            Route::get('search-tickets-priority', [TicketPriorityController::class, 'searchTicketPriority']);
+        });
+        Route::middleware('admin.token')->group(function () {
+            Route::post('tickets-type-create', [TicketTypeController::class, 'store']);
+            Route::post('tickets-type-update', [TicketTypeController::class, 'update']);
+            Route::post('tickets-type-delete', [TicketTypeController::class, 'destroy']);
+            Route::delete('tickets-type-bulk-delete', [TicketTypeController::class, 'bulkDelete']);
+        });
+        Route::get('tickets-type-list', [TicketTypeController::class, 'index']);
+        Route::post('get-tickets-type-byid', [TicketTypeController::class, 'show']);
+        Route::get('search-tickets-type', [TicketTypeController::class, 'searchTicketType']);
+    });
 
     // Agent Route will start from here
     Route::post('agent-store', [AgentController::class, 'store'])->middleware(['throttle:60,1']);

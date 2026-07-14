@@ -6,25 +6,21 @@ use App\Models\TicketPriority;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class TicketPriorityController extends AbstractTicketLookupController
+class TicketPriorityController extends BaseTicketLookupController
 {
-    protected function modelClass(): string
-    {
-        return TicketPriority::class;
-    }
-
-    protected function nameColumn(): string
-    {
-        return 'ticket_priority';
-    }
-
-    protected function ticketForeignKey(): string
-    {
-        return 'priority_id';
-    }
+    protected string $modelClass = TicketPriority::class;
+    protected string $table = 'ticket_priorities';
+    protected string $nameColumn = 'ticket_priority';
+    protected string $resourceName = 'ticket priority';
+    protected string $ticketForeignKey = 'priority_id';
 
     public function searchTicketPriority(Request $request): JsonResponse
     {
         return $this->search($request);
+    }
+
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        return $this->bulkDestroy($request);
     }
 }

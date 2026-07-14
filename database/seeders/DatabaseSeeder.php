@@ -22,8 +22,8 @@ class DatabaseSeeder extends Seeder
         $this->call(AdminSeeder::class);
         $this->call(MailConfigSeeder::class);
         $this->call(ModelsTableSeeder::class);
-        $this->call(MediaSeeder::class);
-        $this->call(ImportKeywordsSeeder::class);
+        // $this->call(MediaSeeder::class);
+        // $this->call(ImportKeywordsSeeder::class);
         $this->call(TicketDepartmentsSeeder::class);
         $this->call(TicketTypesTableSeeder::class);
         $this->call(TicketPrioritiesTableSeeder::class);
@@ -41,5 +41,8 @@ class DatabaseSeeder extends Seeder
         $this->call(TaxonomySeeder::class);
         $this->call(PostTypeTaxonomySeeder::class);
         $this->call(TaxonomyTermSeeder::class);
+         $this->call([
+            TicketModuleSeeder::class,
+        ]);
     }
 }

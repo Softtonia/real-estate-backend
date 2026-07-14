@@ -6,35 +6,16 @@ use App\Models\TicketDepartment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class TicketDepartmentController extends AbstractTicketLookupController
+class TicketDepartmentController extends BaseTicketLookupController
 {
-    protected function modelClass(): string
-    {
-        return TicketDepartment::class;
-    }
-
-    protected function nameColumn(): string
-    {
-        return 'ticket_department_name';
-    }
-
-    protected function ticketForeignKey(): string
-    {
-        return 'ticket_department_id';
-    }
-
-    protected function iconRequired(): bool
-    {
-        return false;
-    }
+    protected string $modelClass = TicketDepartment::class;
+    protected string $table = 'ticket_departments';
+    protected string $nameColumn = 'ticket_department_name';
+    protected string $resourceName = 'department';
+    protected string $ticketForeignKey = 'ticket_department_id';
 
     public function searchDepartment(Request $request): JsonResponse
     {
         return $this->search($request);
-    }
-
-    public function bulkDestroy(Request $request): JsonResponse
-    {
-        return $this->bulkDelete($request);
     }
 }
