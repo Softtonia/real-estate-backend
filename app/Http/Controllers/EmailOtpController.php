@@ -21,14 +21,26 @@ class EmailOtpController extends Controller
      */
     public function generateOtp(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'email' => ['required', 'email'],
-        ]);
+        $validator = Validator::make(
+            $request->all(),
+            [
+                'email' => [
+                    'required',
+                    'email',
+                    'exists:users,email',
+                ],
+            ],
+            [
+                'email.required' => 'Email address is required.',
+                'email.email' => 'Please enter a valid email address.',
+                'email.exists' => 'This email is not registered in our system.',
+            ]
+        );
 
         if ($validator->fails()) {
             return response()->json([
                 'status' => false,
-                'message' => 'Validation failed.',
+                'message' => $validator->errors()->first('email'),
                 'errors' => $validator->errors(),
             ], 422);
         }
@@ -36,16 +48,15 @@ class EmailOtpController extends Controller
         try {
             $email = strtolower(trim($request->input('email')));
 
-            $user = User::where('email', $email)->first();
+            $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
 
             if (!$user) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Email not found in users table.',
+                    'message' => 'This email is not registered in our system.',
                 ], 404);
             }
 
-            // Prevent repeated OTP requests for 1 minute.
             $cacheKey = "otp_request_{$user->id}";
 
             if (Cache::has($cacheKey)) {
@@ -55,7 +66,6 @@ class EmailOtpController extends Controller
                 ], 429);
             }
 
-            // Generate secure 4-digit OTP.
             $otp = random_int(1000, 9999);
             $expiryTime = Carbon::now()->addMinutes(10);
 
@@ -72,10 +82,12 @@ class EmailOtpController extends Controller
                 ]
             );
 
-            // Limit OTP requests for 60 seconds.
-            Cache::put($cacheKey, true, now()->addSeconds(60));
+            Cache::put(
+                $cacheKey,
+                true,
+                now()->addSeconds(60)
+            );
 
-            // Cache active mail configuration for 5 minutes.
             $settings = Cache::remember('mail_config', 300, function () {
                 return DB::table('mail_configs')
                     ->where('status', 1)
