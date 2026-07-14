@@ -25,7 +25,7 @@ class Ticket extends Model
     ];
 
     protected $casts = [
-        'due_date' => 'date:Y-m-d',
+        'due_date' => 'date',
     ];
 
     public function raisedBy(): BelongsTo

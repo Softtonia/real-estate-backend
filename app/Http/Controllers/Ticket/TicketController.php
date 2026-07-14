@@ -42,72 +42,83 @@ class TicketController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        if (!$user) {
-            return $this->unauthenticatedResponse();
-        }
-
-        $this->normalizeTicketRequest($request);
-
-        $validator = Validator::make($request->all(), $this->storeRules());
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator->errors());
-        }
-
-        $validated = $validator->validated();
-
-        if ($this->incomingFilesCount($request) > 5) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => [
-                    'attachments' => ['A maximum of 5 files is allowed.'],
-                ],
-            ], 422);
-        }
-
-        $isAdmin = $this->isAdmin($user);
-
-        $raisedBy = $isAdmin
-            ? (int) ($validated['raised_by'] ?? $user->id)
-            : (int) $user->id;
-
-        if (
-            !$isAdmin &&
-            isset($validated['user_id']) &&
-            (int) $validated['user_id'] !== (int) $user->id
-        ) {
-            return response()->json([
-                'status' => false,
-                'message' => 'You cannot assign a ticket to another user.',
-            ], 403);
-        }
-
-        $statusId = $validated['status_id'] ?? TicketStatus::query()
-            ->orderBy('display_order')
-            ->orderBy('id')
-            ->value('id');
-
-        if (!$statusId) {
-            return response()->json([
-                'status' => false,
-                'message' => 'No ticket status is configured. Create a status before creating tickets.',
-                'errors' => [
-                    'status_id' => ['A valid ticket status is required.'],
-                ],
-            ], 422);
-        }
-
         try {
+            $user = $request->user();
+
+            if (!$user) {
+                return $this->unauthenticatedResponse();
+            }
+
+            $this->normalizeTicketRequest($request);
+
+            $validator = Validator::make(
+                $request->all(),
+                $this->storeRules()
+            );
+
+            if ($validator->fails()) {
+                return $this->validationResponse(
+                    $validator->errors()
+                );
+            }
+
+            $validated = $validator->validated();
+
+            if ($this->incomingFilesCount($request) > 5) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed.',
+                    'errors' => [
+                        'attachments' => [
+                            'A maximum of 5 files is allowed.',
+                        ],
+                    ],
+                ], 422);
+            }
+
+            $isAdmin = $this->isAdmin($user);
+
+            $raisedBy = $isAdmin
+                ? (int) ($validated['raised_by'] ?? $user->id)
+                : (int) $user->id;
+
+            if (
+                !$isAdmin &&
+                isset($validated['user_id']) &&
+                (int) $validated['user_id'] !== (int) $user->id
+            ) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You cannot assign a ticket to another user.',
+                ], 403);
+            }
+
+            $statusId = $validated['status_id'] ?? TicketStatus::query()
+                ->orderBy('display_order')
+                ->orderBy('id')
+                ->value('id');
+
+            if (!$statusId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No ticket status is configured.',
+                    'errors' => [
+                        'status_id' => [
+                            'A valid ticket status is required.',
+                        ],
+                    ],
+                ], 422);
+            }
+
             $ticket = DB::transaction(function () use (
                 $request,
                 $validated,
                 $raisedBy,
                 $statusId
             ) {
-                $prefix = optional(SiteSetting::first())->ticket_prefix ?: 'TCKT';
+                $settings = SiteSetting::query()->first();
+
+                $prefix = $settings?->ticket_prefix ?: 'TCKT';
 
                 $ticket = Ticket::create([
                     'ticket_number' => $this->generateUniqueTicketNumber($prefix),
@@ -123,17 +134,24 @@ class TicketController extends Controller
                     'property_id' => $validated['property_id'] ?? null,
                 ]);
 
-                $ticket->ccUsers()->sync($validated['cc_user_ids'] ?? []);
+                if (method_exists($ticket, 'ccUsers')) {
+                    $ticket->ccUsers()->sync(
+                        $validated['cc_user_ids'] ?? []
+                    );
+                }
+
                 $this->storeAttachments($ticket, $request);
                 $this->syncLegacyAttachmentColumn($ticket);
 
                 return $ticket;
             });
 
+            $ticket = $ticket->fresh($this->relations());
+
             return response()->json([
                 'status' => true,
                 'message' => 'Ticket created successfully.',
-                'data' => $this->formatTicket($ticket->fresh($this->relations())),
+                'data' => $this->formatTicket($ticket),
             ], 201);
         } catch (\Throwable $exception) {
             report($exception);
@@ -141,6 +159,9 @@ class TicketController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to create ticket.',
+                'error' => app()->environment('local')
+                    ? $exception->getMessage()
+                    : null,
             ], 500);
         }
     }
@@ -206,7 +227,7 @@ class TicketController extends Controller
 
         $removeIds = array_map('intval', $validated['remove_attachment_ids'] ?? []);
         $remainingAttachments = $ticket->attachments
-            ->reject(fn (TicketAttachment $attachment) => in_array((int) $attachment->id, $removeIds, true))
+            ->reject(fn(TicketAttachment $attachment) => in_array((int) $attachment->id, $removeIds, true))
             ->count();
 
         if ($remainingAttachments + $this->incomingFilesCount($request) > 5) {
@@ -370,7 +391,7 @@ class TicketController extends Controller
             ->whereIn('id', $requestedIds)
             ->get();
 
-        $existingIds = $tickets->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $existingIds = $tickets->pluck('id')->map(fn($id) => (int) $id)->all();
         $notFoundIds = array_values(array_diff($requestedIds, $existingIds));
         $deniedIds = [];
         $deletedIds = [];
@@ -442,7 +463,9 @@ class TicketController extends Controller
                 $query
                     ->where('raised_by', $user->id)
                     ->orWhere('user_id', $user->id)
-                    ->orWhereHas('ccUsers', fn (Builder $ccQuery) =>
+                    ->orWhereHas(
+                        'ccUsers',
+                        fn(Builder $ccQuery) =>
                         $ccQuery->where('users.id', $user->id)
                     );
             })
@@ -897,7 +920,9 @@ class TicketController extends Controller
             'ticket_type_name' => $ticket->type?->ticket_type_name,
             'ticket_department_id' => $ticket->ticket_department_id,
             'ticket_department_name' => $ticket->department?->ticket_department_name,
-            'due_date' => $ticket->due_date?->format('Y-m-d'),
+            'due_date' => $ticket->due_date
+                ? Carbon::parse($ticket->due_date)->format('Y-m-d')
+                : null,
             'property_id' => $ticket->property_id,
             'property' => $ticket->property,
             'cc_users' => $ticket->ccUsers,
@@ -957,7 +982,9 @@ class TicketController extends Controller
             $builder
                 ->where('raised_by', $user->id)
                 ->orWhere('user_id', $user->id)
-                ->orWhereHas('ccUsers', fn (Builder $ccQuery) =>
+                ->orWhereHas(
+                    'ccUsers',
+                    fn(Builder $ccQuery) =>
                     $ccQuery->where('users.id', $user->id)
                 );
         });
@@ -985,7 +1012,19 @@ class TicketController extends Controller
 
     private function isAdmin($user): bool
     {
-        return (bool) ($user->role && strcasecmp($user->role->name, 'admin') === 0);
+        if (!$user) {
+            return false;
+        }
+
+        if (!method_exists($user, 'role')) {
+            return false;
+        }
+
+        $role = $user->relationLoaded('role')
+            ? $user->role
+            : $user->role()->first();
+
+        return strtolower((string) ($role?->name ?? '')) === 'admin';
     }
 
     private function userName($user): ?string
@@ -1009,7 +1048,7 @@ class TicketController extends Controller
         return response()->json([
             'status' => true,
             'data' => collect($tickets->items())
-                ->map(fn (Ticket $ticket) => $this->formatTicket($ticket))
+                ->map(fn(Ticket $ticket) => $this->formatTicket($ticket))
                 ->values(),
             'meta' => [
                 'current_page' => $tickets->currentPage(),
