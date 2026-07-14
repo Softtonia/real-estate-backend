@@ -610,7 +610,7 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::middleware(['throttle:60,1', 'admin.token'])->get('get-faq-by-id/{id}', [FaqController::class, 'getdatabyId']); //Done By softtonia
 
     // Otp Route
-    Route::middleware(['throttle:60,1', 'validate.api.client'])->post('/verify-email-otp', [OtpController::class, 'emailVerifyOtp']);
+    Route::middleware(['throttle:60,1', 'validate.api.client'])->post('/verify-email-otp', [EmailOtpController::class, 'verifyOtp']);
     Route::middleware(['throttle:60,1', 'validate.api.client'])->get('/resend-email-otp', [OtpController::class, 'resendOtp']);
 
 

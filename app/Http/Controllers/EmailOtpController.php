@@ -195,4 +195,100 @@ class EmailOtpController extends Controller
             ], 500);
         }
     }
+    /**
+     * Verify email OTP.
+     */
+    public function verifyOtp(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => ['required', 'email'],
+            'email_otp' => ['required', 'digits:4'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $email = strtolower(trim($request->input('email')));
+            $emailOtp = $request->input('email_otp');
+
+            $user = User::where('email', $email)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Email not found in users table.',
+                ], 404);
+            }
+
+            // Find the latest OTP record for this user.
+            $otpRecord = DB::table('otps')
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$otpRecord) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'OTP not found. Please request a new OTP.',
+                ], 404);
+            }
+
+            // Check whether the OTP has expired.
+            if (Carbon::parse($otpRecord->expire_date_time)->isPast()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'OTP has expired. Please request a new OTP.',
+                ], 400);
+            }
+
+            // Check whether the entered OTP is correct.
+            if ((string) $otpRecord->otp !== (string) $emailOtp) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid OTP.',
+                ], 400);
+            }
+
+            // Check whether the OTP is already verified.
+            if ((bool) $otpRecord->isOTPVerified) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'OTP is already verified.',
+                    'data' => [
+                        'email' => $user->email,
+                        'otp_verified' => true,
+                    ],
+                ], 200);
+            }
+
+            // Mark OTP as verified.
+            DB::table('otps')
+                ->where('id', $otpRecord->id)
+                ->update([
+                    'isOTPVerified' => true,
+                    'updated_at' => now(),
+                ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'OTP verified successfully.',
+                'data' => [
+                    'email' => $user->email,
+                    'otp_verified' => true,
+                ],
+            ], 200);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to verify OTP. Please try again.',
+            ], 500);
+        }
+    }
 }
