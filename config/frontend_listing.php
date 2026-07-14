@@ -4,11 +4,10 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Frontend listing taxonomies
+    | Frontend taxonomies
     |--------------------------------------------------------------------------
     |
-    | Only these taxonomies will be displayed and accepted through the
-    | frontend listing form.
+    | Only these taxonomies will be displayed and accepted.
     |
     */
 
@@ -20,12 +19,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default listing statuses
+    | Fixed listing post type
     |--------------------------------------------------------------------------
+    |
+    | Dynamic posts may still require post_type_id in the database.
+    | We use one fixed listing post type ID, but we do not check its attached
+    | taxonomies.
+    |
     */
 
-    'default_status' => 'draft',
+    'post_type_id' => env('FRONTEND_LISTING_POST_TYPE_ID', 1),
 
-    'default_live_status' => 'submit',
+    /*
+    |--------------------------------------------------------------------------
+    | Listing status
+    |--------------------------------------------------------------------------
+    |
+    | User requested that frontend listings should not be stored as draft.
+    |
+    */
+
+    'status' => 'published',
+
+    'live_status' => 'submit',
 
 ];

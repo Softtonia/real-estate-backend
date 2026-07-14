@@ -11,15 +11,37 @@ class StoreFrontendListingRequest extends FormRequest
         return auth()->check();
     }
 
+    protected function prepareForValidation(): void
+    {
+        foreach (
+            [
+                'taxonomies',
+                'gallery_image_ids',
+                'custom_fields',
+            ] as $field
+        ) {
+            $value = $this->input($field);
+
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $decoded = json_decode($value, true);
+
+            if (
+                json_last_error() === JSON_ERROR_NONE
+                && is_array($decoded)
+            ) {
+                $this->merge([
+                    $field => $decoded,
+                ]);
+            }
+        }
+    }
+
     public function rules(): array
     {
         return [
-            'post_type_id' => [
-                'required',
-                'integer',
-                'exists:post_types,id',
-            ],
-
             'title' => [
                 'required',
                 'string',
@@ -43,63 +65,50 @@ class StoreFrontendListingRequest extends FormRequest
             ],
 
             /*
-             * Expected format:
+             * Payload:
              *
-             * taxonomies: {
-             *     "property-type": [1],
-             *     "purpose": [5],
-             *     "property-status": [8]
-             * }
+             * "taxonomies": [
+             *     {
+             *         "taxonomy_id": 1,
+             *         "taxonomy_term_id": 10
+             *     },
+             *     {
+             *         "taxonomy_id": 2,
+             *         "taxonomy_term_id": 20
+             *     }
+             * ]
              */
 
             'taxonomies' => [
                 'required',
                 'array',
-            ],
-
-            'taxonomies.property-type' => [
-                'required',
-                'array',
                 'min:1',
             ],
 
-            'taxonomies.property-type.*' => [
+            'taxonomies.*.taxonomy_id' => [
                 'required',
+                'integer',
+                'exists:taxonomies,id',
+            ],
+
+            'taxonomies.*.taxonomy_term_id' => [
+                'required_without:taxonomies.*.taxonomy_term_ids',
+                'nullable',
                 'integer',
                 'exists:taxonomy_terms,id',
             ],
 
-            'taxonomies.purpose' => [
-                'required',
-                'array',
-                'min:1',
-            ],
-
-            'taxonomies.purpose.*' => [
-                'required',
-                'integer',
-                'exists:taxonomy_terms,id',
-            ],
-
-            'taxonomies.property-status' => [
-                'required',
-                'array',
-                'min:1',
-            ],
-
-            'taxonomies.property-status.*' => [
-                'required',
-                'integer',
-                'exists:taxonomy_terms,id',
-            ],
-
-            /*
-             * Optional custom fields.
-             */
-
-            'custom_fields' => [
+            'taxonomies.*.taxonomy_term_ids' => [
+                'required_without:taxonomies.*.taxonomy_term_id',
                 'nullable',
                 'array',
+                'min:1',
+            ],
+
+            'taxonomies.*.taxonomy_term_ids.*' => [
+                'required',
+                'integer',
+                'exists:taxonomy_terms,id',
             ],
 
             'featured_image_id' => [
@@ -115,54 +124,21 @@ class StoreFrontendListingRequest extends FormRequest
             'gallery_image_ids.*' => [
                 'integer',
             ],
+
+            'custom_fields' => [
+                'nullable',
+                'array',
+            ],
         ];
     }
 
     public function messages(): array
     {
         return [
-            'taxonomies.property-type.required' => 'Please select a property type.',
-            'taxonomies.purpose.required' => 'Please select the property purpose.',
-            'taxonomies.property-status.required' => 'Please select the property status.',
+            'taxonomies.required' => 'Please select listing taxonomies.',
+            'taxonomies.*.taxonomy_id.required' => 'Taxonomy ID is required.',
+            'taxonomies.*.taxonomy_term_id.required_without' => 'Please select a taxonomy term.',
+            'taxonomies.*.taxonomy_term_ids.required_without' => 'Please select at least one taxonomy term.',
         ];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        $taxonomies = $this->input('taxonomies', []);
-
-        if (is_string($taxonomies)) {
-            $decoded = json_decode($taxonomies, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $this->merge([
-                    'taxonomies' => $decoded,
-                ]);
-            }
-        }
-
-        $galleryImageIds = $this->input('gallery_image_ids');
-
-        if (is_string($galleryImageIds)) {
-            $decoded = json_decode($galleryImageIds, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $this->merge([
-                    'gallery_image_ids' => $decoded,
-                ]);
-            }
-        }
-
-        $customFields = $this->input('custom_fields');
-
-        if (is_string($customFields)) {
-            $decoded = json_decode($customFields, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $this->merge([
-                    'custom_fields' => $decoded,
-                ]);
-            }
-        }
     }
 }

@@ -2,13 +2,10 @@
 
 namespace App\Services;
 
-use App\Models\CustomFieldValue;
 use App\Models\DynamicPost;
-use App\Models\PostType;
 use App\Models\Taxonomy;
 use App\Models\TaxonomyTerm;
 use App\Models\User;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -16,79 +13,225 @@ use Illuminate\Validation\ValidationException;
 
 class FrontendListingService
 {
-    public function getFormOptions(
-        int|string $postTypeIdentifier
-    ): array {
-        $postType = $this->findPostType($postTypeIdentifier);
+    /**
+     * API 1:
+     * Return only predefined active taxonomies.
+     */
+    public function getTaxonomies(): array
+    {
+        $allowedSlugs = $this->allowedTaxonomySlugs();
 
-        $taxonomies = $this->getAllowedTaxonomiesForPostType(
-            $postType
-        );
+        $taxonomies = Taxonomy::query()
+            ->select([
+                'id',
+                'name',
+                'slug',
+                'description',
+                'hierarchical',
+                'sort_order',
+                'status',
+            ])
+            ->whereIn('slug', $allowedSlugs)
+            ->where('status', true)
+            ->get()
+            ->sortBy(function (Taxonomy $taxonomy) use ($allowedSlugs) {
+                $position = array_search(
+                    $taxonomy->slug,
+                    $allowedSlugs,
+                    true
+                );
+
+                return $position === false
+                    ? PHP_INT_MAX
+                    : $position;
+            })
+            ->values();
 
         return [
-            'post_type' => [
-                'id' => (int) $postType->id,
-                'name' => $postType->name,
-                'slug' => $postType->slug,
-            ],
+            'count' => $taxonomies->count(),
 
-            'taxonomy_fields' => $taxonomies
+            'taxonomies' => $taxonomies
                 ->map(function (Taxonomy $taxonomy) {
-                    return $this->formatTaxonomyField($taxonomy);
+                    return [
+                        'id' => (int) $taxonomy->id,
+                        'value' => (int) $taxonomy->id,
+                        'name' => $taxonomy->name,
+                        'label' => $taxonomy->name,
+                        'slug' => $taxonomy->slug,
+                        'description' => $taxonomy->description,
+                        'hierarchical' => (bool) $taxonomy->hierarchical,
+                    ];
                 })
                 ->values()
                 ->toArray(),
         ];
     }
 
-    public function create(
+    /**
+     * API 2:
+     * Return active terms for one selected allowed taxonomy.
+     */
+    public function getTerms(
+        int|string $taxonomyIdentifier,
+        ?string $search = null
+    ): array {
+        $allowedSlugs = $this->allowedTaxonomySlugs();
+
+        $taxonomy = Taxonomy::query()
+            ->select([
+                'id',
+                'name',
+                'slug',
+                'description',
+                'hierarchical',
+                'status',
+            ])
+            ->where('status', true)
+            ->whereIn('slug', $allowedSlugs)
+            ->where(function ($query) use ($taxonomyIdentifier) {
+                if (is_numeric($taxonomyIdentifier)) {
+                    $query->where(
+                        'id',
+                        (int) $taxonomyIdentifier
+                    );
+                } else {
+                    $query->where(
+                        'slug',
+                        (string) $taxonomyIdentifier
+                    );
+                }
+            })
+            ->first();
+
+        if (!$taxonomy) {
+            throw ValidationException::withMessages([
+                'taxonomy' => [
+                    'Selected taxonomy is not available for frontend listings.',
+                ],
+            ]);
+        }
+
+        $terms = TaxonomyTerm::query()
+            ->select([
+                'id',
+                'taxonomy_id',
+                'parent_id',
+                'relation_with_taxonomy_id',
+                'name',
+                'slug',
+                'description',
+                'sort_order',
+                'status',
+            ])
+            ->where('taxonomy_id', $taxonomy->id)
+            ->where('status', true)
+            ->when(
+                filled($search),
+                function ($query) use ($search) {
+                    $query->where(function ($subQuery) use ($search) {
+                        $subQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('slug', 'like', "%{$search}%");
+                    });
+                }
+            )
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+        return [
+            'taxonomy' => [
+                'id' => (int) $taxonomy->id,
+                'name' => $taxonomy->name,
+                'slug' => $taxonomy->slug,
+                'hierarchical' => (bool) $taxonomy->hierarchical,
+            ],
+
+            'count' => $terms->count(),
+
+            'terms' => $terms
+                ->map(function (TaxonomyTerm $term) {
+                    return [
+                        'id' => (int) $term->id,
+                        'value' => (int) $term->id,
+                        'taxonomy_id' => (int) $term->taxonomy_id,
+                        'parent_id' => $term->parent_id
+                            ? (int) $term->parent_id
+                            : null,
+                        'relation_with_taxonomy_id' =>
+                            $term->relation_with_taxonomy_id
+                                ? (int) $term->relation_with_taxonomy_id
+                                : null,
+                        'name' => $term->name,
+                        'label' => $term->name,
+                        'slug' => $term->slug,
+                        'description' => $term->description,
+                    ];
+                })
+                ->values()
+                ->toArray(),
+        ];
+    }
+
+    /**
+     * API 3:
+     * Create the listing without checking post-type taxonomy relationships.
+     */
+    public function createListing(
         array $validated,
         User $user
     ): DynamicPost {
-        $postType = PostType::query()
-            ->findOrFail($validated['post_type_id']);
-
-        $taxonomyTermIds = $this->validateAndResolveTaxonomyTerms(
-            $postType,
-            $validated['taxonomies'] ?? []
+        $selectedTerms = $this->validateAndResolveTerms(
+            $validated['taxonomies']
         );
 
+        $postTypeId = (int) config(
+            'frontend_listing.post_type_id'
+        );
+
+        if ($postTypeId <= 0) {
+            throw ValidationException::withMessages([
+                'post_type_id' => [
+                    'Frontend listing post type is not configured.',
+                ],
+            ]);
+        }
+
         $slug = $this->generateUniqueSlug(
-            postTypeId: (int) $postType->id,
-            title: $validated['title'],
-            requestedSlug: $validated['slug'] ?? null
+            $validated['slug'] ?? $validated['title'],
+            $postTypeId
         );
 
         return DB::transaction(function () use (
             $validated,
-            $postType,
             $user,
+            $postTypeId,
             $slug,
-            $taxonomyTermIds
+            $selectedTerms
         ) {
             $postData = [
-                'post_type_id' => (int) $postType->id,
+                'post_type_id' => $postTypeId,
                 'title' => $validated['title'],
                 'slug' => $slug,
                 'excerpt' => $validated['excerpt'] ?? null,
                 'content' => $validated['content'] ?? null,
 
                 /*
-                 * Frontend user cannot publish directly.
+                 * Listing will not be stored as draft.
                  */
                 'status' => config(
-                    'frontend_listing.default_status',
-                    'draft'
+                    'frontend_listing.status',
+                    'published'
                 ),
 
                 'live_status' => config(
-                    'frontend_listing.default_live_status',
+                    'frontend_listing.live_status',
                     'submit'
                 ),
 
                 'author_id' => (int) $user->id,
                 'user_id' => (int) $user->id,
-                'published_at' => null,
+                'published_at' => now(),
             ];
 
             if (
@@ -118,7 +261,7 @@ class FrontendListingService
                 )
             ) {
                 $postData['listing_code'] =
-                    $this->generateListingCode($postType);
+                    $this->generateListingCode();
             }
 
             if (
@@ -130,353 +273,190 @@ class FrontendListingService
                 $postData['sort_order'] = 0;
             }
 
-            $post = DynamicPost::create($postData);
+            $post = DynamicPost::query()->create($postData);
 
-            $post->taxonomyTerms()->sync(
-                $taxonomyTermIds
+            /*
+             * Directly attach selected terms.
+             *
+             * No validation against:
+             * post_type_taxonomies
+             * PostType::taxonomies()
+             * PostType::activeTaxonomies()
+             */
+            $this->syncTerms(
+                $post,
+                $selectedTerms
             );
 
-            $this->assignUser($post, $user);
-
-            $this->saveCustomFields(
+            $this->assignListingUser(
                 $post,
-                $validated['custom_fields'] ?? []
+                $user
             );
 
             return $post->fresh()->load([
-                'postType',
                 'taxonomyTerms.taxonomy',
             ]);
         });
     }
 
-    public function formatListing(
-        DynamicPost $post
-    ): array {
-        $post->loadMissing([
-            'postType',
-            'taxonomyTerms.taxonomy',
-        ]);
-
-        $allowedSlugs = $this->allowedTaxonomySlugs();
-
-        $selectedTaxonomies = $post->taxonomyTerms
-            ->filter(function (TaxonomyTerm $term) use ($allowedSlugs) {
-                return $term->taxonomy
-                    && in_array(
-                        $term->taxonomy->slug,
-                        $allowedSlugs,
-                        true
-                    );
-            })
-            ->groupBy(function (TaxonomyTerm $term) {
-                return $term->taxonomy->slug;
-            })
-            ->map(function (
-                Collection $terms,
-                string $taxonomySlug
-            ) {
-                $taxonomy = $terms->first()->taxonomy;
-
-                return [
-                    'taxonomy_id' => (int) $taxonomy->id,
-                    'taxonomy_name' => $taxonomy->name,
-                    'taxonomy_slug' => $taxonomySlug,
-
-                    'terms' => $terms
-                        ->map(function (TaxonomyTerm $term) {
-                            return [
-                                'id' => (int) $term->id,
-                                'name' => $term->name,
-                                'slug' => $term->slug,
-                            ];
-                        })
-                        ->values()
-                        ->toArray(),
-                ];
-            })
-            ->values()
-            ->toArray();
-
-        return [
-            'id' => (int) $post->id,
-            'listing_code' => $post->listing_code ?? null,
-            'title' => $post->title,
-            'slug' => $post->slug,
-            'excerpt' => $post->excerpt ?? null,
-            'content' => $post->content ?? null,
-            'status' => $post->status,
-            'live_status' => $post->live_status,
-
-            'post_type' => [
-                'id' => (int) $post->postType->id,
-                'name' => $post->postType->name,
-                'slug' => $post->postType->slug,
-            ],
-
-            'selected_taxonomies' => $selectedTaxonomies,
-
-            'created_at' => optional(
-                $post->created_at
-            )->toISOString(),
-        ];
-    }
-
-    private function findPostType(
-        int|string $identifier
-    ): PostType {
-        $postType = PostType::query()
-            ->where(function ($query) use ($identifier) {
-                if (is_numeric($identifier)) {
-                    $query->where(
-                        'id',
-                        (int) $identifier
-                    );
-                }
-
-                $query->orWhere(
-                    'slug',
-                    (string) $identifier
-                );
-
-                $query->orWhere(
-                    'name',
-                    (string) $identifier
-                );
-            })
-            ->first();
-
-        if (!$postType) {
-            throw ValidationException::withMessages([
-                'post_type' => [
-                    'Post type not found.',
-                ],
-            ]);
-        }
-
-        return $postType;
-    }
-
-    private function getAllowedTaxonomiesForPostType(
-        PostType $postType
-    ): Collection {
-        $allowedSlugs = $this->allowedTaxonomySlugs();
-
-        return $postType
-            ->taxonomies()
-            ->wherePivot('status', true)
-            ->where('taxonomies.status', true)
-            ->whereIn('taxonomies.slug', $allowedSlugs)
-            ->with([
-                'terms' => function ($query) {
-                    $query
-                        ->where('status', true)
-                        ->orderBy('sort_order')
-                        ->orderBy('name');
-                },
-            ])
-            ->orderBy('post_type_taxonomies.sort_order')
-            ->orderBy('taxonomies.sort_order')
-            ->get();
-    }
-
-    private function formatTaxonomyField(
-        Taxonomy $taxonomy
-    ): array {
-        return [
-            'taxonomy_id' => (int) $taxonomy->id,
-            'name' => $taxonomy->name,
-            'label' => $taxonomy->name,
-            'slug' => $taxonomy->slug,
-            'request_key' => sprintf(
-                'taxonomies.%s',
-                $taxonomy->slug
-            ),
-
-            'type' => 'select',
-
-            /*
-             * Change to true when multiple values should be accepted.
-             */
-            'multiple' => false,
-
-            'required' => true,
-
-            'options' => $taxonomy->terms
-                ->map(function (TaxonomyTerm $term) {
-                    return [
-                        'id' => (int) $term->id,
-                        'value' => (int) $term->id,
-                        'label' => $term->name,
-                        'name' => $term->name,
-                        'slug' => $term->slug,
-                    ];
-                })
-                ->values()
-                ->toArray(),
-        ];
-    }
-
-    private function validateAndResolveTaxonomyTerms(
-        PostType $postType,
+    /**
+     * Validate:
+     *
+     * - Taxonomy is one of allowed frontend taxonomies.
+     * - Taxonomy is active.
+     * - Term is active.
+     * - Term belongs to the submitted taxonomy.
+     *
+     * It does not check post-type taxonomy assignments.
+     */
+    private function validateAndResolveTerms(
         array $submittedTaxonomies
     ): array {
-        $allowedTaxonomies = $this
-            ->getAllowedTaxonomiesForPostType($postType)
-            ->keyBy('slug');
+        $allowedTaxonomies = Taxonomy::query()
+            ->select([
+                'id',
+                'name',
+                'slug',
+            ])
+            ->whereIn(
+                'slug',
+                $this->allowedTaxonomySlugs()
+            )
+            ->where('status', true)
+            ->get()
+            ->keyBy('id');
 
-        $allowedSlugs = $this->allowedTaxonomySlugs();
-
-        /*
-         * Reject unexpected taxonomy keys.
-         */
-        $unexpectedSlugs = array_diff(
-            array_keys($submittedTaxonomies),
-            $allowedSlugs
-        );
-
-        if (!empty($unexpectedSlugs)) {
+        if ($allowedTaxonomies->isEmpty()) {
             throw ValidationException::withMessages([
                 'taxonomies' => [
-                    'Only Property Type, Purpose and Property Status are allowed.',
+                    'No frontend listing taxonomies are available.',
                 ],
             ]);
         }
 
-        $allTermIds = [];
+        $resolvedTerms = [];
 
-        foreach ($allowedSlugs as $slug) {
-            $taxonomy = $allowedTaxonomies->get($slug);
+        foreach ($submittedTaxonomies as $index => $item) {
+            $taxonomyId = (int) (
+                $item['taxonomy_id'] ?? 0
+            );
+
+            $taxonomy = $allowedTaxonomies->get(
+                $taxonomyId
+            );
 
             if (!$taxonomy) {
                 throw ValidationException::withMessages([
-                    "taxonomies.{$slug}" => [
-                        "The {$slug} taxonomy is not attached to this post type.",
+                    "taxonomies.{$index}.taxonomy_id" => [
+                        'This taxonomy is not allowed for frontend listings.',
                     ],
                 ]);
             }
 
-            $submittedTermIds = collect(
-                $submittedTaxonomies[$slug] ?? []
-            )
-                ->filter(fn($id) => is_numeric($id))
-                ->map(fn($id) => (int) $id)
+            $termIds = [];
+
+            if (!empty($item['taxonomy_term_id'])) {
+                $termIds[] = (int) $item['taxonomy_term_id'];
+            }
+
+            if (!empty($item['taxonomy_term_ids'])) {
+                foreach ($item['taxonomy_term_ids'] as $termId) {
+                    if (is_numeric($termId)) {
+                        $termIds[] = (int) $termId;
+                    }
+                }
+            }
+
+            $termIds = collect($termIds)
+                ->filter()
                 ->unique()
                 ->values()
                 ->toArray();
 
-            if (empty($submittedTermIds)) {
+            if (empty($termIds)) {
                 throw ValidationException::withMessages([
-                    "taxonomies.{$slug}" => [
-                        "{$taxonomy->name} is required.",
+                    "taxonomies.{$index}" => [
+                        "Please select a term for {$taxonomy->name}.",
                     ],
                 ]);
             }
 
-            $validTermIds = TaxonomyTerm::query()
+            $terms = TaxonomyTerm::query()
+                ->select([
+                    'id',
+                    'taxonomy_id',
+                    'name',
+                    'slug',
+                ])
+                ->whereIn('id', $termIds)
                 ->where(
                     'taxonomy_id',
-                    $taxonomy->id
+                    $taxonomyId
                 )
-                ->whereIn('id', $submittedTermIds)
                 ->where('status', true)
+                ->get();
+
+            $validTermIds = $terms
                 ->pluck('id')
                 ->map(fn($id) => (int) $id)
                 ->toArray();
 
-            $invalidTermIds = array_diff(
-                $submittedTermIds,
-                $validTermIds
+            $invalidTermIds = array_values(
+                array_diff(
+                    $termIds,
+                    $validTermIds
+                )
             );
 
             if (!empty($invalidTermIds)) {
                 throw ValidationException::withMessages([
-                    "taxonomies.{$slug}" => [
-                        'One or more selected taxonomy terms are invalid.',
+                    "taxonomies.{$index}.taxonomy_term_ids" => [
+                        'Some selected terms are inactive or do not belong to the selected taxonomy.',
                     ],
                 ]);
             }
 
-            $allTermIds = array_merge(
-                $allTermIds,
-                $validTermIds
-            );
+            foreach ($terms as $term) {
+                $resolvedTerms[] = [
+                    'term_id' => (int) $term->id,
+                    'taxonomy_id' => (int) $term->taxonomy_id,
+                ];
+            }
         }
 
-        return array_values(
-            array_unique($allTermIds)
+        return collect($resolvedTerms)
+            ->unique('term_id')
+            ->values()
+            ->toArray();
+    }
+
+    private function syncTerms(
+        DynamicPost $post,
+        array $selectedTerms
+    ): void {
+        $syncData = [];
+
+        foreach ($selectedTerms as $selectedTerm) {
+            $syncData[$selectedTerm['term_id']] = [
+                'taxonomy_id' =>
+                    $selectedTerm['taxonomy_id'],
+            ];
+        }
+
+        $post->taxonomyTerms()->sync(
+            $syncData
         );
     }
 
-    private function generateUniqueSlug(
-        int $postTypeId,
-        string $title,
-        ?string $requestedSlug = null
-    ): string {
-        $baseSlug = Str::slug(
-            $requestedSlug ?: $title
-        );
-
-        if ($baseSlug === '') {
-            $baseSlug = 'listing';
-        }
-
-        $slug = $baseSlug;
-        $counter = 1;
-
-        while (
-            DynamicPost::query()
-                ->where('post_type_id', $postTypeId)
-                ->where('slug', $slug)
-                ->exists()
-        ) {
-            $slug = $baseSlug . '-' . $counter;
-            $counter++;
-        }
-
-        return $slug;
-    }
-
-    private function generateListingCode(
-        PostType $postType
-    ): string {
-        $prefix = strtoupper(
-            substr(
-                preg_replace(
-                    '/[^A-Za-z0-9]/',
-                    '',
-                    $postType->slug ?: $postType->name
-                ),
-                0,
-                3
-            )
-        );
-
-        $prefix = $prefix ?: 'LST';
-
-        do {
-            $listingCode = sprintf(
-                '%s-%s',
-                $prefix,
-                strtoupper(Str::random(8))
-            );
-        } while (
-            DynamicPost::query()
-                ->where(
-                    'listing_code',
-                    $listingCode
-                )
-                ->exists()
-        );
-
-        return $listingCode;
-    }
-
-    private function assignUser(
+    private function assignListingUser(
         DynamicPost $post,
         User $user
     ): void {
-        if (!Schema::hasTable('dynamic_post_user')) {
+        if (
+            !Schema::hasTable(
+                'dynamic_post_user'
+            )
+        ) {
             return;
         }
 
@@ -487,41 +467,54 @@ class FrontendListingService
                     'user_id' => $user->id,
                 ],
                 [
-                    'updated_at' => now(),
                     'created_at' => now(),
+                    'updated_at' => now(),
                 ]
             );
     }
 
-    private function saveCustomFields(
-        DynamicPost $post,
-        array $customFields
-    ): void {
-        if (
-            empty($customFields)
-            || !Schema::hasTable('custom_field_values')
+    private function generateUniqueSlug(
+        string $value,
+        int $postTypeId
+    ): string {
+        $baseSlug = Str::slug($value);
+
+        if ($baseSlug === '') {
+            $baseSlug = 'listing';
+        }
+
+        $slug = $baseSlug;
+        $counter = 1;
+
+        while (
+            DynamicPost::query()
+                ->where(
+                    'post_type_id',
+                    $postTypeId
+                )
+                ->where('slug', $slug)
+                ->exists()
         ) {
-            return;
+            $slug = $baseSlug . '-' . $counter;
+            $counter++;
         }
 
-        foreach ($customFields as $fieldId => $value) {
-            if (!is_numeric($fieldId)) {
-                continue;
-            }
+        return $slug;
+    }
 
-            CustomFieldValue::query()->updateOrCreate(
-                [
-                    'custom_field_id' => (int) $fieldId,
-                    'entity_type' => 'post',
-                    'entity_id' => (int) $post->id,
-                ],
-                [
-                    'value' => is_array($value)
-                        ? json_encode($value)
-                        : $value,
-                ]
+    private function generateListingCode(): string
+    {
+        do {
+            $code = 'LST-' . strtoupper(
+                Str::random(8)
             );
-        }
+        } while (
+            DynamicPost::query()
+                ->where('listing_code', $code)
+                ->exists()
+        );
+
+        return $code;
     }
 
     private function allowedTaxonomySlugs(): array

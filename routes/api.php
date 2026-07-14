@@ -104,6 +104,7 @@ use App\Http\Controllers\Api\ListingUserAssignmentController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
 use App\Http\Controllers\Frontend\FrontendListingController;
+use App\Http\Controllers\Frontend\FrontendListingTaxonomyController;
 use App\Http\Controllers\Template\PageBuilderContextController;
 use App\Http\Controllers\Template\TemplateConflictController;
 use App\Http\Controllers\Template\TemplateDuplicateController;
@@ -1045,10 +1046,9 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('frontend/listings', [DynamicPostController::class, 'storeFrontendListing']);
     Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
     Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
-    Route::prefix('frontend/listings')
-        ->name('frontend.listings.')
-        ->group(function () {
-            Route::get('form-options/{postType}', [FrontendListingController::class, 'formOptions'])->name('form-options');
-            Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
-        });
+    Route::prefix('frontend')->name('frontend.listings.')->group(function () {
+        Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
+        Route::get('/taxonomies/{taxonomy}/terms', [FrontendListingController::class, 'terms'])->name('terms');
+        Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
+    });
 });
