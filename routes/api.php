@@ -1052,7 +1052,6 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
     Route::prefix('frontend')->name('frontend.listings.')->group(function () {
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
-        Route::get('/taxonomies/{taxonomy}/terms', [FrontendListingController::class, 'terms'])->name('terms');
         Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
     });
 });

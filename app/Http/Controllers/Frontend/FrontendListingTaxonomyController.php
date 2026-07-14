@@ -22,6 +22,7 @@ class FrontendListingTaxonomyController extends Controller
                     'property-type',
                     'purpose',
                     'property-status',
+                    'property',
                 ]
             );
 

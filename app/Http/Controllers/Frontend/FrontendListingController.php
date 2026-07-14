@@ -19,6 +19,7 @@ class FrontendListingController extends Controller
     private const LISTING_POST_TYPE_ID = 1;
 
     private const ALLOWED_TAXONOMY_SLUGS = [
+        'property',
         'property-type',
         'purpose',
         'property-status',
@@ -439,12 +440,12 @@ class FrontendListingController extends Controller
 
         while (
             DynamicPost::query()
-                ->where(
-                    'post_type_id',
-                    self::LISTING_POST_TYPE_ID
-                )
-                ->where('slug', $slug)
-                ->exists()
+            ->where(
+                'post_type_id',
+                self::LISTING_POST_TYPE_ID
+            )
+            ->where('slug', $slug)
+            ->exists()
         ) {
             $slug = $baseSlug . '-' . $counter;
             $counter++;
@@ -461,8 +462,8 @@ class FrontendListingController extends Controller
             );
         } while (
             DynamicPost::query()
-                ->where('listing_code', $code)
-                ->exists()
+            ->where('listing_code', $code)
+            ->exists()
         );
 
         return $code;
