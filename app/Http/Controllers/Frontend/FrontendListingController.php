@@ -37,6 +37,7 @@ class FrontendListingController extends Controller
             ]);
 
             $definedSlugs = self::ALLOWED_TAXONOMY_SLUGS;
+
             $selectedPropertyTermId = $request->input('property_term_id');
 
             $selectedPropertyTerm = null;
@@ -57,7 +58,7 @@ class FrontendListingController extends Controller
                 }
 
                 $selectedPropertyTerm = TaxonomyTerm::query()
-                    ->where('id', $selectedPropertyTermId)
+                    ->where('id', (int) $selectedPropertyTermId)
                     ->where('taxonomy_id', $propertyTaxonomy->id)
                     ->where('status', true)
                     ->first();
@@ -106,27 +107,15 @@ class FrontendListingController extends Controller
                                 'slug',
                                 'description',
                                 'parent_id',
-                                'sort_order',
                                 'status',
                             ])
                             ->where('status', true)
-                            ->orderBy('sort_order')
                             ->orderBy('id');
                     },
                 ])
+                ->orderBy('sort_order')
+                ->orderBy('id')
                 ->get()
-                ->sortBy(function ($taxonomy) use ($definedSlugs) {
-                    $position = array_search(
-                        $taxonomy->slug,
-                        $definedSlugs,
-                        true
-                    );
-
-                    return $position === false
-                        ? PHP_INT_MAX
-                        : $position;
-                })
-                ->values()
                 ->map(function ($taxonomy) use (
                     $selectedPropertyTerm,
                     $propertyTypeRootTerm
@@ -134,15 +123,13 @@ class FrontendListingController extends Controller
                     $terms = $taxonomy->terms;
 
                     if ($taxonomy->slug === 'property-type') {
-                        if (!$selectedPropertyTerm) {
-                            $terms = collect();
-                        } elseif (!$propertyTypeRootTerm) {
+                        if (!$selectedPropertyTerm || !$propertyTypeRootTerm) {
                             $terms = collect();
                         } else {
                             $terms = $terms
                                 ->filter(function ($term) use ($propertyTypeRootTerm) {
-                                    return (int) $term->parent_id
-                                        === (int) $propertyTypeRootTerm->id;
+                                    return (int) $term->parent_id ===
+                                        (int) $propertyTypeRootTerm->id;
                                 })
                                 ->values();
                         }
@@ -155,8 +142,10 @@ class FrontendListingController extends Controller
                         'slug' => $taxonomy->slug,
                         'description' => $taxonomy->description,
                         'hierarchical' => (bool) $taxonomy->hierarchical,
+                        'sort_order' => (int) ($taxonomy->sort_order ?? 0),
 
-                        'is_dependent' => $taxonomy->slug === 'property-type',
+                        'is_dependent' =>
+                        $taxonomy->slug === 'property-type',
 
                         'depends_on_taxonomy_slug' =>
                         $taxonomy->slug === 'property-type'
@@ -200,13 +189,14 @@ class FrontendListingController extends Controller
                             })
                             ->values(),
                     ];
-                });
+                })
+                ->values();
 
             return response()->json([
                 'status' => true,
                 'message' => 'Listing taxonomies fetched successfully.',
                 'data' => $taxonomies,
-            ]);
+            ], 200);
         } catch (ValidationException $exception) {
             return response()->json([
                 'status' => false,
