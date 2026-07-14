@@ -8,19 +8,35 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TicketPriority extends Model
 {
+    protected $table = 'ticket_priorities';
+
     protected $fillable = [
         'icon_id',
         'ticket_priority',
         'display_order',
     ];
 
+    protected $casts = [
+        'id' => 'integer',
+        'icon_id' => 'integer',
+        'display_order' => 'integer',
+    ];
+
     public function media(): BelongsTo
     {
-        return $this->belongsTo(Media::class, 'icon_id');
+        return $this->belongsTo(
+            Media::class,
+            'icon_id',
+            'id'
+        );
     }
 
     public function tickets(): HasMany
     {
-        return $this->hasMany(Ticket::class, 'priority_id');
+        return $this->hasMany(
+            Ticket::class,
+            'priority_id',
+            'id'
+        );
     }
 }

@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Ticket extends Model
 {
+    protected $table = 'tickets';
+
     protected $fillable = [
         'ticket_number',
         'raised_by',
@@ -25,47 +27,87 @@ class Ticket extends Model
     ];
 
     protected $casts = [
-        'due_date' => 'date',
+        'id' => 'integer',
+        'raised_by' => 'integer',
+        'user_id' => 'integer',
+        'status_id' => 'integer',
+        'priority_id' => 'integer',
+        'ticket_type_id' => 'integer',
+        'ticket_department_id' => 'integer',
+        'property_id' => 'integer',
+        'due_date' => 'date:Y-m-d',
     ];
 
     public function raisedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'raised_by');
+        return $this->belongsTo(
+            User::class,
+            'raised_by',
+            'id'
+        );
     }
 
     public function assignedTo(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(
+            User::class,
+            'user_id',
+            'id'
+        );
     }
 
     public function status(): BelongsTo
     {
-        return $this->belongsTo(TicketStatus::class, 'status_id');
+        return $this->belongsTo(
+            TicketStatus::class,
+            'status_id',
+            'id'
+        );
     }
 
     public function priority(): BelongsTo
     {
-        return $this->belongsTo(TicketPriority::class, 'priority_id');
+        return $this->belongsTo(
+            TicketPriority::class,
+            'priority_id',
+            'id'
+        );
     }
 
     public function type(): BelongsTo
     {
-        return $this->belongsTo(TicketType::class, 'ticket_type_id');
+        return $this->belongsTo(
+            TicketType::class,
+            'ticket_type_id',
+            'id'
+        );
     }
 
     public function department(): BelongsTo
     {
-        return $this->belongsTo(TicketDepartment::class, 'ticket_department_id');
+        return $this->belongsTo(
+            TicketDepartment::class,
+            'ticket_department_id',
+            'id'
+        );
     }
 
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class, 'property_id');
+        return $this->belongsTo(
+            Property::class,
+            'property_id',
+            'id'
+        );
     }
 
     public function attachments(): HasMany
     {
-        return $this->hasMany(TicketAttachment::class);
+        return $this->hasMany(
+            TicketAttachment::class,
+            'ticket_id',
+            'id'
+        );
     }
 
     public function ccUsers(): BelongsToMany
@@ -75,11 +117,18 @@ class Ticket extends Model
             'ticket_cc_users',
             'ticket_id',
             'user_id'
-        )->withTimestamps();
+        );
+
+        // Do not use withTimestamps() unless ticket_cc_users
+        // has created_at and updated_at columns.
     }
 
     public function responses(): HasMany
     {
-        return $this->hasMany(TicketResponse::class);
+        return $this->hasMany(
+            TicketResponse::class,
+            'ticket_id',
+            'id'
+        );
     }
 }

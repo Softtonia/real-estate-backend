@@ -16,13 +16,27 @@ class TicketStatus extends Model
         'display_order',
     ];
 
+    protected $casts = [
+        'id' => 'integer',
+        'icon_id' => 'integer',
+        'display_order' => 'integer',
+    ];
+
     public function media(): BelongsTo
     {
-        return $this->belongsTo(Media::class, 'icon_id');
+        return $this->belongsTo(
+            Media::class,
+            'icon_id',
+            'id'
+        );
     }
 
     public function tickets(): HasMany
     {
-        return $this->hasMany(Ticket::class, 'status_id');
+        return $this->hasMany(
+            Ticket::class,
+            'status_id',
+            'id'
+        );
     }
 }
