@@ -220,7 +220,7 @@ class GoogleAuthController extends Controller
                      * You can directly use this for redirect.
                      */
                     'redirect_to' => $isNewUser
-                        ? '/set-role'
+                        ? '/dashboard'
                         : '/dashboard',
                 ],
             ]);
