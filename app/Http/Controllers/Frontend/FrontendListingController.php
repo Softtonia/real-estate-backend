@@ -31,24 +31,14 @@ class FrontendListingController extends Controller
             $request->validate([
                 'selected_term_ids' => [
                     'nullable',
-                    'array',
-                ],
-                'selected_term_ids.*' => [
-                    'integer',
-                    'exists:taxonomy_terms,id',
                 ],
             ]);
 
             $definedSlugs = self::ALLOWED_TAXONOMY_SLUGS;
 
-            $selectedTermIds = collect(
-                $request->input('selected_term_ids', [])
-            )
-                ->filter(fn($id) => is_numeric($id))
-                ->map(fn($id) => (int) $id)
-                ->unique()
-                ->values()
-                ->toArray();
+            $selectedTermIds = $this->normalizeSelectedTermIds(
+                $request->input('selected_term_ids')
+            );
 
             $selectedTerms = TaxonomyTerm::query()
                 ->select([
@@ -277,6 +267,80 @@ class FrontendListingController extends Controller
             ], 500);
         }
     }
+    private function normalizeSelectedTermIds(
+        array|string|int|null $value
+    ): array {
+        if ($value === null || $value === '') {
+            return [];
+        }
+
+        if (is_int($value)) {
+            $value = [$value];
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+
+            if ($value === '') {
+                return [];
+            }
+
+            $decoded = json_decode($value, true);
+
+            if (
+                json_last_error() === JSON_ERROR_NONE
+                && is_array($decoded)
+            ) {
+                $value = $decoded;
+            } else {
+                $value = explode(',', $value);
+            }
+        }
+
+        $termIds = collect($value)
+            ->flatten()
+            ->map(function ($id) {
+                return is_string($id)
+                    ? trim($id)
+                    : $id;
+            })
+            ->filter(function ($id) {
+                return $id !== ''
+                    && $id !== null
+                    && is_numeric($id);
+            })
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($termIds)) {
+            return [];
+        }
+
+        $existingTermIds = TaxonomyTerm::query()
+            ->whereIn('id', $termIds)
+            ->where('status', true)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->toArray();
+
+        $invalidTermIds = array_values(
+            array_diff($termIds, $existingTermIds)
+        );
+
+        if (!empty($invalidTermIds)) {
+            throw ValidationException::withMessages([
+                'selected_term_ids' => [
+                    'Invalid or inactive taxonomy term IDs: '
+                        . implode(', ', $invalidTermIds),
+                ],
+            ]);
+        }
+
+        return $termIds;
+    }
     private function resolveFrontendRelationshipType(
         array $parentTaxonomyIds,
         array $childTaxonomyIds
@@ -348,9 +412,9 @@ class FrontendListingController extends Controller
                         ->toArray();
 
                     return !empty(array_intersect(
-                            $relationValueIds,
-                            $parentSelectedTermIds
-                        ));
+                        $relationValueIds,
+                        $parentSelectedTermIds
+                    ));
                 })
                 ->values();
         }
