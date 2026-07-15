@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
-use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class DynamicPost extends Model
@@ -24,6 +23,12 @@ class DynamicPost extends Model
         'published_at',
         'sort_order',
         'listing_code',
+
+        // Location fields
+        'country_id',
+        'state_id',
+        'city_id',
+        'area_locality',
     ];
 
     protected $casts = [
@@ -36,6 +41,12 @@ class DynamicPost extends Model
         'sort_order' => 'integer',
         'status' => 'string',
         'live_status' => 'string',
+
+        // Location casts
+        'country_id' => 'integer',
+        'state_id' => 'integer',
+        'city_id' => 'integer',
+        'area_locality' => 'string',
     ];
 
     protected static function booted(): void
@@ -68,13 +79,51 @@ class DynamicPost extends Model
         return $this->belongsTo(PostType::class, 'post_type_id');
     }
 
-    /**
-     * Keyword groups attached to this specific dynamic post / listing (keyword_type = 'listing').
-     */
-    public function keywords()
+    /*
+    |--------------------------------------------------------------------------
+    | Location Relations
+    |--------------------------------------------------------------------------
+    */
+
+    public function country()
     {
-        return $this->hasMany(Keyword::class, 'dynamic_post_id');
+        return $this->belongsTo(Country::class, 'country_id');
     }
+
+    public function state()
+    {
+        return $this->belongsTo(State::class, 'state_id');
+    }
+
+    public function city()
+    {
+        return $this->belongsTo(City::class, 'city_id');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Keywords
+    |--------------------------------------------------------------------------
+    | Your keyword system uses pivot table:
+    | keyword_dynamic_post
+    |--------------------------------------------------------------------------
+    */
+
+    public function keywords(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Keyword::class,
+            'keyword_dynamic_post',
+            'dynamic_post_id',
+            'keyword_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Parent / Children
+    |--------------------------------------------------------------------------
+    */
 
     public function parent()
     {
@@ -115,6 +164,12 @@ class DynamicPost extends Model
             ->where('entity_type', 'post');
     }
 
+    public function repeaterValues()
+    {
+        return $this->hasMany(CustomFieldRepeaterValue::class, 'entity_id')
+            ->where('entity_type', 'post');
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Taxonomy Relations
@@ -147,6 +202,47 @@ class DynamicPost extends Model
             'taxonomy_id'
         )
             ->withPivot('taxonomy_term_id')
+            ->withTimestamps();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dynamic Post Relationships
+    |--------------------------------------------------------------------------
+    */
+
+    public function relationships()
+    {
+        return $this->hasMany(DynamicPostRelationship::class, 'dynamic_post_id');
+    }
+
+    public function relatedPosts()
+    {
+        return $this->belongsToMany(
+            DynamicPost::class,
+            'dynamic_post_relationships',
+            'dynamic_post_id',
+            'related_post_id'
+        )
+            ->withPivot('related_post_type_id')
+            ->withTimestamps();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Assigned Users
+    |--------------------------------------------------------------------------
+    */
+
+    public function assignedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            User::class,
+            'dynamic_post_user',
+            'dynamic_post_id',
+            'user_id'
+        )
+            ->withPivot(['assigned_by'])
             ->withTimestamps();
     }
 
@@ -211,6 +307,27 @@ class DynamicPost extends Model
 
     /*
     |--------------------------------------------------------------------------
+    | Location Scopes
+    |--------------------------------------------------------------------------
+    */
+
+    public function scopeByCountry($query, $countryId)
+    {
+        return $query->where('country_id', $countryId);
+    }
+
+    public function scopeByState($query, $stateId)
+    {
+        return $query->where('state_id', $stateId);
+    }
+
+    public function scopeByCity($query, $cityId)
+    {
+        return $query->where('city_id', $cityId);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Helpers
     |--------------------------------------------------------------------------
     */
@@ -233,37 +350,5 @@ class DynamicPost extends Model
     public function isUnderReview(): bool
     {
         return $this->live_status === 'under_review';
-    }
-    public function repeaterValues()
-    {
-        return $this->hasMany(CustomFieldRepeaterValue::class, 'entity_id')
-            ->where('entity_type', 'post');
-    }
-    public function relationships()
-    {
-        return $this->hasMany(DynamicPostRelationship::class, 'dynamic_post_id');
-    }
-
-    public function relatedPosts()
-    {
-        return $this->belongsToMany(
-            DynamicPost::class,
-            'dynamic_post_relationships',
-            'dynamic_post_id',
-            'related_post_id'
-        )
-            ->withPivot('related_post_type_id')
-            ->withTimestamps();
-    }
-    public function assignedUsers(): BelongsToMany
-    {
-        return $this->belongsToMany(
-            User::class,
-            'dynamic_post_user',
-            'dynamic_post_id',
-            'user_id'
-        )
-            ->withPivot(['assigned_by'])
-            ->withTimestamps();
     }
 }

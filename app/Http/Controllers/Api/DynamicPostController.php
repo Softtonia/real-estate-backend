@@ -30,6 +30,9 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\Role;
 use App\Models\UniqueID;
 use App\Models\UserDetail;
+use App\Models\Country;
+use App\Models\State;
+use App\Models\City;
 
 class DynamicPostController extends Controller
 {
@@ -356,8 +359,18 @@ class DynamicPostController extends Controller
     {
         try {
             $validated = $this->validatePost($request);
-
             $postType = PostType::with('taxonomies')->find($validated['post_type_id']);
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
+
+            $hasLocationPayload = $this->hasLocationPayload($validated);
+
+            if ($hasLocationPayload) {
+                $this->validatePostTypeLocationSupport($postType);
+                $validated = $this->prepareLocationForSave($validated);
+            }
 
             if (!$postType) {
                 return $this->errorResponse('Post type not found.', 404);
@@ -633,10 +646,11 @@ class DynamicPostController extends Controller
 
             $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
 
-            $postType = PostType::with('taxonomies')->find($postTypeId);
+            $hasLocationPayload = $this->hasLocationPayload($validated);
 
-            if (!$postType) {
-                return $this->errorResponse('Post type not found.', 404);
+            if ($hasLocationPayload) {
+                $this->validatePostTypeLocationSupport($postType);
+                $validated = $this->prepareLocationForSave($validated);
             }
 
             $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
@@ -1704,6 +1718,11 @@ class DynamicPostController extends Controller
             'live_status' => ['nullable', Rule::in(['approve', 'reject', 'under_review', 'disapprove', 'modify_review', 'submit'])],
             'author_id' => ['nullable', 'integer', 'exists:users,id'],
             'parent_id' => ['nullable', 'integer', 'exists:dynamic_posts,id'],
+
+            'country_id' => ['nullable', 'integer', 'exists:countries,id'],
+            'state_id' => ['nullable', 'integer', 'exists:states,id'],
+            'city_id' => ['nullable', 'integer', 'exists:cities,id'],
+            'area_locality' => ['nullable', 'string', 'max:255'],
             'relationship_post_types' => ['nullable', 'array'],
             'relationship_post_types.*.post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
             'relationship_post_types.*.related_post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
@@ -3761,6 +3780,9 @@ class DynamicPostController extends Controller
                 return match ($item) {
                     'editor' => 'content',
                     'keyword' => 'keywords',
+                    'locations',
+                    'location_field',
+                    'location_fields' => 'location',
                     default => $item,
                 };
             })
@@ -3776,6 +3798,7 @@ class DynamicPostController extends Controller
             'excerpt' => in_array('excerpt', $supports, true),
             'gallery' => in_array('gallery', $supports, true),
             'keywords' => in_array('keywords', $supports, true),
+            'location' => in_array('location', $supports, true),
         ];
     }
 
@@ -3949,6 +3972,50 @@ class DynamicPostController extends Controller
                 'key' => 'gallery_image_ids',
                 'label' => 'Gallery',
                 'enabled' => $supports['gallery'] ?? false,
+            ],
+            [
+                'key' => 'location',
+                'label' => 'Location',
+                'enabled' => $supports['location'] ?? false,
+                'type' => 'group',
+                'fields' => [
+                    [
+                        'key' => 'country_id',
+                        'label' => 'Country',
+                        'type' => 'select',
+                        'request_key' => 'country_id',
+                        'multiple' => false,
+                        'nullable' => true,
+                        'options_api' => 'countries',
+                    ],
+                    [
+                        'key' => 'state_id',
+                        'label' => 'State',
+                        'type' => 'select',
+                        'request_key' => 'state_id',
+                        'multiple' => false,
+                        'nullable' => true,
+                        'depends_on' => 'country_id',
+                        'options_api' => 'states/{country_id}',
+                    ],
+                    [
+                        'key' => 'city_id',
+                        'label' => 'City',
+                        'type' => 'select',
+                        'request_key' => 'city_id',
+                        'multiple' => false,
+                        'nullable' => true,
+                        'depends_on' => 'state_id',
+                        'options_api' => 'cities/{state_id}',
+                    ],
+                    [
+                        'key' => 'area_locality',
+                        'label' => 'Area / Locality',
+                        'type' => 'text',
+                        'request_key' => 'area_locality',
+                        'nullable' => true,
+                    ],
+                ],
             ],
             [
                 'key' => 'keywords',
@@ -4268,6 +4335,7 @@ class DynamicPostController extends Controller
         $data['selected_keywords'] = $this->formatSelectedKeywords($post);
         $data['keywords'] = $data['selected_keywords'];
         $data['user_id'] = $this->formatAssignedUser($post);
+        $data['location'] = $this->formatLocationForDynamicPost($post);
         return $data;
     }
 
@@ -5642,5 +5710,144 @@ class DynamicPostController extends Controller
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to fetch roles.', 500, $e->getMessage());
         }
+    }
+    private function hasLocationPayload(array $payload): bool
+    {
+        return array_key_exists('country_id', $payload)
+            || array_key_exists('state_id', $payload)
+            || array_key_exists('city_id', $payload)
+            || array_key_exists('area_locality', $payload);
+    }
+
+    private function validatePostTypeLocationSupport(PostType $postType): void
+    {
+        $supports = $this->normalizePostTypeSupports($postType->supports ?? []);
+
+        if (!($supports['location'] ?? false)) {
+            throw ValidationException::withMessages([
+                'location' => [
+                    'This post type does not support location. Please enable Location in post type supports.',
+                ],
+            ]);
+        }
+    }
+
+    private function prepareLocationForSave(array $validated): array
+    {
+        $cityId = $validated['city_id'] ?? null;
+        $stateId = $validated['state_id'] ?? null;
+        $countryId = $validated['country_id'] ?? null;
+
+        if (!empty($cityId)) {
+            $city = City::query()
+                ->with('state')
+                ->find((int) $cityId);
+
+            if (!$city) {
+                throw ValidationException::withMessages([
+                    'city_id' => ['Selected city does not exist.'],
+                ]);
+            }
+
+            if (!empty($stateId) && (int) $stateId !== (int) $city->state_id) {
+                throw ValidationException::withMessages([
+                    'city_id' => ['Selected city does not belong to selected state.'],
+                ]);
+            }
+
+            $validated['state_id'] = (int) $city->state_id;
+
+            if ($city->state) {
+                if (!empty($countryId) && (int) $countryId !== (int) $city->state->country_id) {
+                    throw ValidationException::withMessages([
+                        'city_id' => ['Selected city does not belong to selected country.'],
+                    ]);
+                }
+
+                $validated['country_id'] = (int) $city->state->country_id;
+            }
+
+            return $validated;
+        }
+
+        if (!empty($stateId)) {
+            $state = State::query()->find((int) $stateId);
+
+            if (!$state) {
+                throw ValidationException::withMessages([
+                    'state_id' => ['Selected state does not exist.'],
+                ]);
+            }
+
+            if (!empty($countryId) && (int) $countryId !== (int) $state->country_id) {
+                throw ValidationException::withMessages([
+                    'state_id' => ['Selected state does not belong to selected country.'],
+                ]);
+            }
+
+            $validated['country_id'] = (int) $state->country_id;
+        }
+
+        return $validated;
+    }
+
+    private function formatLocationForDynamicPost(DynamicPost $post): array
+    {
+        $countryId = $post->country_id ?? null;
+        $stateId = $post->state_id ?? null;
+        $cityId = $post->city_id ?? null;
+
+        $country = $countryId
+            ? Country::query()->select('id', 'name')->find((int) $countryId)
+            : null;
+
+        $state = $stateId
+            ? State::query()->select('id', 'name', 'country_id')->find((int) $stateId)
+            : null;
+
+        $city = $cityId
+            ? City::query()->select('id', 'name', 'state_id')->find((int) $cityId)
+            : null;
+
+        $fullAddress = collect([
+            $post->area_locality ?? null,
+            $city?->name,
+            $state?->name,
+            $country?->name,
+        ])
+            ->filter()
+            ->values()
+            ->implode(', ');
+
+        return [
+            'country_id' => $country ? (int) $country->id : null,
+            'country_name' => $country?->name,
+
+            'state_id' => $state ? (int) $state->id : null,
+            'state_name' => $state?->name,
+
+            'city_id' => $city ? (int) $city->id : null,
+            'city_name' => $city?->name,
+
+            'area_locality' => $post->area_locality ?? null,
+            'full_address' => $fullAddress ?: null,
+
+            'country' => $country ? [
+                'id' => (int) $country->id,
+                'name' => $country->name,
+            ] : null,
+
+            'state' => $state ? [
+                'id' => (int) $state->id,
+                'name' => $state->name,
+                'country_id' => (int) $state->country_id,
+            ] : null,
+
+            'city' => $city ? [
+                'id' => (int) $city->id,
+                'name' => $city->name,
+                'state_id' => (int) $city->state_id,
+            ] : null,
+        ];
     }
 }

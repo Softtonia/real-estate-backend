@@ -1130,6 +1130,10 @@ class PostTypeController extends Controller
                 'label' => 'Keywords',
                 'value' => 'keywords',
             ],
+            [
+                'label' => 'Location',
+                'value' => 'location',
+            ],
         ];
     }
 
@@ -1144,6 +1148,7 @@ class PostTypeController extends Controller
             'excerpt',
             'gallery',
             'keywords',
+            'location',
         ];
     }
 
