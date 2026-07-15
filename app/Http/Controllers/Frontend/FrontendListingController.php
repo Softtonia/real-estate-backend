@@ -29,8 +29,11 @@ class FrontendListingController extends Controller
     {
         try {
             $request->validate([
-                'property_term_id' => [
+                'selected_term_ids' => [
                     'nullable',
+                    'array',
+                ],
+                'selected_term_ids.*' => [
                     'integer',
                     'exists:taxonomy_terms,id',
                 ],
@@ -38,53 +41,27 @@ class FrontendListingController extends Controller
 
             $definedSlugs = self::ALLOWED_TAXONOMY_SLUGS;
 
-            $selectedPropertyTermId = $request->input('property_term_id');
+            $selectedTermIds = collect(
+                $request->input('selected_term_ids', [])
+            )
+                ->filter(fn($id) => is_numeric($id))
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->toArray();
 
-            $selectedPropertyTerm = null;
-            $propertyTypeRootTerm = null;
-
-            if ($selectedPropertyTermId) {
-                $propertyTaxonomy = Taxonomy::query()
-                    ->where('slug', 'property')
-                    ->where('status', true)
-                    ->first();
-
-                if (!$propertyTaxonomy) {
-                    throw ValidationException::withMessages([
-                        'property_term_id' => [
-                            'Property taxonomy was not found.',
-                        ],
-                    ]);
-                }
-
-                $selectedPropertyTerm = TaxonomyTerm::query()
-                    ->where('id', (int) $selectedPropertyTermId)
-                    ->where('taxonomy_id', $propertyTaxonomy->id)
-                    ->where('status', true)
-                    ->first();
-
-                if (!$selectedPropertyTerm) {
-                    throw ValidationException::withMessages([
-                        'property_term_id' => [
-                            'The selected term does not belong to the Property taxonomy.',
-                        ],
-                    ]);
-                }
-
-                $propertyTypeTaxonomy = Taxonomy::query()
-                    ->where('slug', 'property-type')
-                    ->where('status', true)
-                    ->first();
-
-                if ($propertyTypeTaxonomy) {
-                    $propertyTypeRootTerm = TaxonomyTerm::query()
-                        ->where('taxonomy_id', $propertyTypeTaxonomy->id)
-                        ->whereNull('parent_id')
-                        ->where('slug', $selectedPropertyTerm->slug)
-                        ->where('status', true)
-                        ->first();
-                }
-            }
+            $selectedTerms = TaxonomyTerm::query()
+                ->select([
+                    'id',
+                    'taxonomy_id',
+                    'parent_id',
+                    'name',
+                    'slug',
+                ])
+                ->whereIn('id', $selectedTermIds)
+                ->where('status', true)
+                ->get()
+                ->groupBy('taxonomy_id');
 
             $taxonomies = Taxonomy::query()
                 ->select([
@@ -94,46 +71,90 @@ class FrontendListingController extends Controller
                     'description',
                     'hierarchical',
                     'sort_order',
+                    'is_relationship',
+                    'is_parent',
                 ])
                 ->whereIn('slug', $definedSlugs)
                 ->where('status', true)
                 ->with([
+                    'activeParents:id,name,slug,sort_order',
+                    'activeChildren:id,name,slug,sort_order',
+
                     'terms' => function ($query) {
                         $query
                             ->select([
                                 'id',
                                 'taxonomy_id',
+                                'parent_id',
+                                'relation_with_taxonomy_id',
                                 'name',
                                 'slug',
                                 'description',
-                                'parent_id',
                                 'status',
                             ])
                             ->where('status', true)
+                            ->with([
+                                'relationValues' => function ($relationQuery) {
+                                    $relationQuery
+                                        ->select([
+                                            'taxonomy_terms.id',
+                                            'taxonomy_terms.taxonomy_id',
+                                            'taxonomy_terms.name',
+                                            'taxonomy_terms.slug',
+                                        ])
+                                        ->where('taxonomy_terms.status', true)
+                                        ->wherePivot('status', true);
+                                },
+                            ])
                             ->orderBy('id');
                     },
                 ])
                 ->orderBy('sort_order')
                 ->orderBy('id')
-                ->get()
-                ->map(function ($taxonomy) use (
-                    $selectedPropertyTerm,
-                    $propertyTypeRootTerm
-                ) {
-                    $terms = $taxonomy->terms;
+                ->get();
 
-                    if ($taxonomy->slug === 'property-type') {
-                        if (!$selectedPropertyTerm || !$propertyTypeRootTerm) {
-                            $terms = collect();
-                        } else {
-                            $terms = $terms
-                                ->filter(function ($term) use ($propertyTypeRootTerm) {
-                                    return (int) $term->parent_id ===
-                                        (int) $propertyTypeRootTerm->id;
-                                })
-                                ->values();
-                        }
+            $data = $taxonomies
+                ->map(function (Taxonomy $taxonomy) use (
+                    $selectedTerms,
+                    $selectedTermIds
+                ) {
+                    $parentTaxonomyIds = $taxonomy
+                        ->activeParents
+                        ->pluck('id')
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray();
+
+                    $childTaxonomyIds = $taxonomy
+                        ->activeChildren
+                        ->pluck('id')
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray();
+
+                    $parentSelectedTerms = collect();
+
+                    foreach ($parentTaxonomyIds as $parentTaxonomyId) {
+                        $parentSelectedTerms = $parentSelectedTerms->merge(
+                            $selectedTerms->get(
+                                $parentTaxonomyId,
+                                collect()
+                            )
+                        );
                     }
+
+                    $parentSelectedTermIds = $parentSelectedTerms
+                        ->pluck('id')
+                        ->map(fn($id) => (int) $id)
+                        ->unique()
+                        ->values()
+                        ->toArray();
+
+                    $terms = $this->resolveFrontendTaxonomyTerms(
+                        $taxonomy,
+                        $parentSelectedTerms,
+                        $parentSelectedTermIds
+                    );
 
                     return [
                         'id' => (int) $taxonomy->id,
@@ -144,47 +165,88 @@ class FrontendListingController extends Controller
                         'hierarchical' => (bool) $taxonomy->hierarchical,
                         'sort_order' => (int) ($taxonomy->sort_order ?? 0),
 
+                        'is_relationship' =>
+                        (bool) $taxonomy->is_relationship,
+
+                        'is_parent' =>
+                        $childTaxonomyIds !== [],
+
                         'is_dependent' =>
-                        $taxonomy->slug === 'property-type',
+                        $parentTaxonomyIds !== [],
 
-                        'depends_on_taxonomy_slug' =>
-                        $taxonomy->slug === 'property-type'
-                            ? 'property'
-                            : null,
+                        'relationship_type' =>
+                        $this->resolveFrontendRelationshipType(
+                            $parentTaxonomyIds,
+                            $childTaxonomyIds
+                        ),
 
-                        'selected_property_term' =>
-                        $taxonomy->slug === 'property-type'
-                            && $selectedPropertyTerm
-                            ? [
-                                'id' => (int) $selectedPropertyTerm->id,
-                                'name' => $selectedPropertyTerm->name,
-                                'slug' => $selectedPropertyTerm->slug,
-                            ]
-                            : null,
+                        'parent_taxonomy_ids' =>
+                        $parentTaxonomyIds,
 
-                        'matched_parent_term' =>
-                        $taxonomy->slug === 'property-type'
-                            && $propertyTypeRootTerm
-                            ? [
-                                'id' => (int) $propertyTypeRootTerm->id,
-                                'name' => $propertyTypeRootTerm->name,
-                                'slug' => $propertyTypeRootTerm->slug,
-                            ]
-                            : null,
+                        'parent_taxonomies' =>
+                        $taxonomy->activeParents
+                            ->map(function ($parent) {
+                                return [
+                                    'id' => (int) $parent->id,
+                                    'name' => $parent->name,
+                                    'slug' => $parent->slug,
+                                ];
+                            })
+                            ->values(),
+
+                        'child_taxonomy_ids' =>
+                        $childTaxonomyIds,
+
+                        'child_taxonomies' =>
+                        $taxonomy->activeChildren
+                            ->map(function ($child) {
+                                return [
+                                    'id' => (int) $child->id,
+                                    'name' => $child->name,
+                                    'slug' => $child->slug,
+                                ];
+                            })
+                            ->values(),
+
+                        'depends_on_taxonomy_ids' =>
+                        $parentTaxonomyIds,
+
+                        'selected_term_ids' =>
+                        $selectedTermIds,
+
+                        'selected_parent_term_ids' =>
+                        $parentSelectedTermIds,
 
                         'terms' => $terms
-                            ->map(function ($term) {
+                            ->map(function (TaxonomyTerm $term) {
                                 return [
                                     'id' => (int) $term->id,
-                                    'taxonomy_id' => (int) $term->taxonomy_id,
+                                    'taxonomy_id' =>
+                                    (int) $term->taxonomy_id,
                                     'name' => $term->name,
                                     'label' => $term->name,
                                     'value' => (int) $term->id,
                                     'slug' => $term->slug,
-                                    'description' => $term->description,
+                                    'description' =>
+                                    $term->description,
+
                                     'parent_id' => $term->parent_id
                                         ? (int) $term->parent_id
                                         : null,
+
+                                    'relation_with_taxonomy_id' =>
+                                    $term->relation_with_taxonomy_id
+                                        ? (int) $term
+                                            ->relation_with_taxonomy_id
+                                        : null,
+
+                                    'relation_value_term_ids' =>
+                                    $term->relationValues
+                                        ->pluck('id')
+                                        ->map(
+                                            fn($id) => (int) $id
+                                        )
+                                        ->values(),
                                 ];
                             })
                             ->values(),
@@ -194,8 +256,9 @@ class FrontendListingController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Listing taxonomies fetched successfully.',
-                'data' => $taxonomies,
+                'message' =>
+                'Listing taxonomies fetched successfully.',
+                'data' => $data,
             ], 200);
         } catch (ValidationException $exception) {
             return response()->json([
@@ -206,10 +269,146 @@ class FrontendListingController extends Controller
         } catch (Throwable $exception) {
             return response()->json([
                 'status' => false,
-                'message' => 'Unable to fetch listing taxonomies.',
-                'error' => $exception->getMessage(),
+                'message' =>
+                'Unable to fetch listing taxonomies.',
+                'error' => config('app.debug')
+                    ? $exception->getMessage()
+                    : null,
             ], 500);
         }
+    }
+    private function resolveFrontendRelationshipType(
+        array $parentTaxonomyIds,
+        array $childTaxonomyIds
+    ): string {
+        $hasParents = !empty($parentTaxonomyIds);
+        $hasChildren = !empty($childTaxonomyIds);
+
+        if ($hasParents && $hasChildren) {
+            return 'parent_and_child';
+        }
+
+        if ($hasChildren) {
+            return 'parent';
+        }
+
+        if ($hasParents) {
+            return 'child';
+        }
+
+        return 'standalone';
+    }
+    private function resolveFrontendTaxonomyTerms(
+        Taxonomy $taxonomy,
+        $parentSelectedTerms,
+        array $parentSelectedTermIds
+    ) {
+        $terms = $taxonomy->terms;
+
+        /*
+     * Taxonomy has no parent taxonomy.
+     * Return its active terms normally.
+     */
+        if ($taxonomy->activeParents->isEmpty()) {
+            return $terms->values();
+        }
+
+        /*
+     * Dependent taxonomy:
+     * hide terms until a parent taxonomy term is selected.
+     */
+        if (empty($parentSelectedTermIds)) {
+            return collect();
+        }
+
+        /*
+     * First preference:
+     * use taxonomy_term_relations.
+     */
+        $relationFilteredTerms = $terms
+            ->filter(function (TaxonomyTerm $term) use (
+                $parentSelectedTermIds
+            ) {
+                $relationValueIds = $term
+                    ->relationValues
+                    ->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->values()
+                    ->toArray();
+
+                if (empty($relationValueIds)) {
+                    return false;
+                }
+
+                return count(
+                    array_intersect(
+                        $relationValueIds,
+                        $parentSelectedTermIds
+                    )
+                ) > 0;
+            })
+            ->values();
+
+        if ($relationFilteredTerms->isNotEmpty()) {
+            return $relationFilteredTerms;
+        }
+
+        /*
+     * Second preference:
+     * hierarchy fallback.
+     *
+     * Example:
+     * Property term Commercial
+     * matches Property Type root term Commercial.
+     * Return children of that matching root term.
+     */
+        $selectedParentSlugs = $parentSelectedTerms
+            ->pluck('slug')
+            ->filter()
+            ->map(fn($slug) => (string) $slug)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (!empty($selectedParentSlugs)) {
+            $matchedRootIds = $terms
+                ->filter(function (TaxonomyTerm $term) use (
+                    $selectedParentSlugs
+                ) {
+                    return is_null($term->parent_id)
+                        && in_array(
+                            $term->slug,
+                            $selectedParentSlugs,
+                            true
+                        );
+                })
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->values()
+                ->toArray();
+
+            if (!empty($matchedRootIds)) {
+                return $terms
+                    ->filter(function (TaxonomyTerm $term) use (
+                        $matchedRootIds
+                    ) {
+                        return $term->parent_id
+                            && in_array(
+                                (int) $term->parent_id,
+                                $matchedRootIds,
+                                true
+                            );
+                    })
+                    ->values();
+            }
+        }
+
+        /*
+     * No term-level relationship exists.
+     *
+     * Return empty instead of incorrectly returning every term.
+     */
+        return collect();
     }
     public function store(Request $request): JsonResponse
     {
