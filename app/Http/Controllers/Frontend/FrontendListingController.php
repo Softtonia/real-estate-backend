@@ -23,6 +23,7 @@ class FrontendListingController extends Controller
         'property-type',
         'purpose',
         'property-status',
+        "amenities"
     ];
 
     public function taxonomies(Request $request): JsonResponse
