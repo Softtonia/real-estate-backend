@@ -303,64 +303,65 @@ class FrontendListingController extends Controller
         $parentSelectedTerms,
         array $parentSelectedTermIds
     ) {
-        $terms = $taxonomy->terms;
+        $terms = $taxonomy->terms->values();
 
         /*
-     * Taxonomy has no parent taxonomy.
-     * Return its active terms normally.
+     * Standalone or top-level taxonomy:
+     * return all active terms.
      */
         if ($taxonomy->activeParents->isEmpty()) {
-            return $terms->values();
+            return $terms;
         }
 
         /*
      * Dependent taxonomy:
-     * hide terms until a parent taxonomy term is selected.
+     * do not show terms until its parent taxonomy term is selected.
      */
         if (empty($parentSelectedTermIds)) {
             return collect();
         }
 
         /*
-     * First preference:
-     * use taxonomy_term_relations.
+     * Check whether this taxonomy actually has term-level relations.
      */
-        $relationFilteredTerms = $terms
-            ->filter(function (TaxonomyTerm $term) use (
-                $parentSelectedTermIds
-            ) {
-                $relationValueIds = $term
-                    ->relationValues
-                    ->pluck('id')
-                    ->map(fn($id) => (int) $id)
-                    ->values()
-                    ->toArray();
+        $hasTermRelations = $terms->contains(
+            function (TaxonomyTerm $term) {
+                return $term->relationValues->isNotEmpty()
+                    || !empty($term->relation_with_taxonomy_id);
+            }
+        );
 
-                if (empty($relationValueIds)) {
-                    return false;
-                }
+        /*
+     * When term-level relationships exist,
+     * return only terms connected with selected parent terms.
+     */
+        if ($hasTermRelations) {
+            return $terms
+                ->filter(function (TaxonomyTerm $term) use (
+                    $parentSelectedTermIds
+                ) {
+                    $relationValueIds = $term
+                        ->relationValues
+                        ->pluck('id')
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray();
 
-                return count(
-                    array_intersect(
-                        $relationValueIds,
-                        $parentSelectedTermIds
-                    )
-                ) > 0;
-            })
-            ->values();
-
-        if ($relationFilteredTerms->isNotEmpty()) {
-            return $relationFilteredTerms;
+                    return !empty(array_intersect(
+                            $relationValueIds,
+                            $parentSelectedTermIds
+                        ));
+                })
+                ->values();
         }
 
         /*
-     * Second preference:
-     * hierarchy fallback.
+     * Hierarchy fallback.
      *
      * Example:
-     * Property term Commercial
-     * matches Property Type root term Commercial.
-     * Return children of that matching root term.
+     * Property Commercial
+     * matches Property Type root Commercial,
+     * then returns children of that root.
      */
         $selectedParentSlugs = $parentSelectedTerms
             ->pluck('slug')
@@ -392,7 +393,7 @@ class FrontendListingController extends Controller
                     ->filter(function (TaxonomyTerm $term) use (
                         $matchedRootIds
                     ) {
-                        return $term->parent_id
+                        return !is_null($term->parent_id)
                             && in_array(
                                 (int) $term->parent_id,
                                 $matchedRootIds,
@@ -403,12 +404,7 @@ class FrontendListingController extends Controller
             }
         }
 
-        /*
-     * No term-level relationship exists.
-     *
-     * Return empty instead of incorrectly returning every term.
-     */
-        return collect();
+        return $terms;
     }
     public function store(Request $request): JsonResponse
     {
