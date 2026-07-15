@@ -201,60 +201,151 @@ class TaxonomyController extends Controller
         }
     }
 
-    public function update(Request $request, Taxonomy $taxonomy): JsonResponse
-    {
+    public function update(
+        Request $request,
+        Taxonomy $taxonomy
+    ): JsonResponse {
         DB::beginTransaction();
 
         try {
-            $validated = $request->validate($this->updateValidationRules($request));
+            $validated = $request->validate(
+                $this->updateValidationRules($request)
+            );
 
+            /*
+         * Resolve the final relationship status.
+         *
+         * When a field is not submitted, preserve its current value.
+         */
+            $newIsRelationship = array_key_exists(
+                'is_relationship',
+                $validated
+            )
+                ? $request->boolean('is_relationship')
+                : (bool) $taxonomy->is_relationship;
+
+            /*
+         * A standalone taxonomy can never be a parent.
+         */
+            $newIsParent = $newIsRelationship
+                ? (
+                    array_key_exists('is_parent', $validated)
+                    ? $request->boolean('is_parent')
+                    : (bool) $taxonomy->is_parent
+                )
+                : false;
+
+            /*
+         * Parent taxonomy:
+         * - parent_ids must be empty
+         * - child_taxonomy_ids may contain selected children
+         *
+         * Child taxonomy:
+         * - child_taxonomy_ids must be empty
+         * - parent_ids must contain selected parents
+         */
             $relationshipPayload = [
-                'is_relationship' => array_key_exists('is_relationship', $validated)
-                    ? ($request->boolean('is_relationship') ? 1 : 0)
-                    : ((bool) $taxonomy->is_relationship ? 1 : 0),
+                'is_relationship' => $newIsRelationship,
+                'is_parent' => $newIsParent,
 
-                'is_parent' => array_key_exists('is_parent', $validated)
-                    ? ($request->boolean('is_parent') ? 1 : 0)
-                    : ((bool) $taxonomy->is_parent ? 1 : 0),
+                'parent_ids' => $newIsRelationship && !$newIsParent
+                    ? (
+                        array_key_exists('parent_ids', $validated)
+                        ? $this->cleanIds(
+                            $validated['parent_ids'] ?? []
+                        )
+                        : $taxonomy
+                        ->parents()
+                        ->pluck('taxonomies.id')
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray()
+                    )
+                    : [],
 
-                'parent_ids' => array_key_exists('parent_ids', $validated)
-                    ? $validated['parent_ids']
-                    : $taxonomy->parents()->pluck('taxonomies.id')->toArray(),
-
-                'child_taxonomy_ids' => array_key_exists('child_taxonomy_ids', $validated)
-                    ? $validated['child_taxonomy_ids']
-                    : null,
+                'child_taxonomy_ids' => $newIsRelationship && $newIsParent
+                    ? (
+                        array_key_exists(
+                            'child_taxonomy_ids',
+                            $validated
+                        )
+                        ? $this->cleanIds(
+                            $validated['child_taxonomy_ids'] ?? []
+                        )
+                        : $taxonomy
+                        ->children()
+                        ->pluck('taxonomies.id')
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray()
+                    )
+                    : [],
             ];
 
-            if ($response = $this->validateRelationshipData($relationshipPayload, $taxonomy)) {
+            /*
+         * Validate final relationship configuration before changing
+         * any taxonomy or pivot records.
+         */
+            if (
+                $response = $this->validateRelationshipData(
+                    $relationshipPayload,
+                    $taxonomy
+                )
+            ) {
                 DB::rollBack();
+
                 return $response;
             }
 
             $updateData = [];
 
-            foreach (['name', 'description', 'sort_order'] as $field) {
+            /*
+         * Standard editable fields.
+         */
+            foreach (
+                [
+                    'name',
+                    'description',
+                    'sort_order',
+                ] as $field
+            ) {
                 if (array_key_exists($field, $validated)) {
                     $updateData[$field] = $validated[$field];
                 }
             }
 
+            /*
+         * Boolean fields.
+         */
             if (array_key_exists('is_default', $validated)) {
-                $updateData['is_default'] = $request->boolean('is_default') ? 1 : 0;
+                $updateData['is_default'] = $request->boolean(
+                    'is_default'
+                );
             }
 
             if (array_key_exists('hierarchical', $validated)) {
-                $updateData['hierarchical'] = $request->boolean('hierarchical') ? 1 : 0;
+                $updateData['hierarchical'] = $request->boolean(
+                    'hierarchical'
+                );
             }
 
             if (array_key_exists('status', $validated)) {
-                $updateData['status'] = $request->boolean('status') ? 1 : 0;
+                $updateData['status'] = $request->boolean(
+                    'status'
+                );
             }
 
-            if (array_key_exists('slug', $validated) && !empty($validated['slug'])) {
+            /*
+         * Update slug only when it is explicitly submitted.
+         */
+            if (
+                array_key_exists('slug', $validated)
+                && filled($validated['slug'])
+            ) {
                 $slug = Str::slug($validated['slug']);
 
-                $slugExists = Taxonomy::where('slug', $slug)
+                $slugExists = Taxonomy::query()
+                    ->where('slug', $slug)
                     ->where('id', '!=', $taxonomy->id)
                     ->exists();
 
@@ -265,7 +356,9 @@ class TaxonomyController extends Controller
                         'status' => false,
                         'message' => 'Taxonomy slug already exists.',
                         'errors' => [
-                            'slug' => ["{$slug} already exists. Please use a different slug."],
+                            'slug' => [
+                                "{$slug} already exists. Please use a different slug.",
+                            ],
                         ],
                     ], 422);
                 }
@@ -273,59 +366,124 @@ class TaxonomyController extends Controller
                 $updateData['slug'] = $slug;
             }
 
-            $updateData['is_relationship'] = $relationshipPayload['is_relationship'];
-            $updateData['is_parent'] = $relationshipPayload['is_relationship']
-                ? $relationshipPayload['is_parent']
-                : 0;
+            /*
+         * When name changes and slug is not explicitly submitted,
+         * preserve the existing slug.
+         *
+         * Remove this condition if you want the slug to regenerate
+         * automatically whenever the name changes.
+         */
+            $updateData['is_relationship'] = $newIsRelationship;
+            $updateData['is_parent'] = $newIsParent;
 
             $taxonomy->update($updateData);
+
             $taxonomy = $taxonomy->fresh();
 
-            if (!$taxonomy->is_relationship) {
-                $this->detachAllTaxonomyRelationships($taxonomy);
-            } elseif ($taxonomy->is_parent) {
+            /*
+         * Synchronize the final relationship role.
+         */
+            if (!$newIsRelationship) {
+                /*
+             * Standalone:
+             * remove all incoming and outgoing relationships.
+             */
+                $this->detachAllTaxonomyRelationships(
+                    $taxonomy
+                );
+            } elseif ($newIsParent) {
+                /*
+             * Parent:
+             * it cannot retain any parent relationships.
+             */
+                $oldParentIds = $taxonomy
+                    ->parents()
+                    ->pluck('taxonomies.id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
+
                 $taxonomy->parents()->detach();
 
-                if (array_key_exists('child_taxonomy_ids', $validated)) {
-                    $this->syncChildTaxonomies($taxonomy, $validated['child_taxonomy_ids'] ?? []);
-                }
-            } else {
-                $this->detachChildTaxonomies($taxonomy);
+                $this->syncChildTaxonomies(
+                    $taxonomy,
+                    $relationshipPayload['child_taxonomy_ids']
+                );
 
-                if (
-                    array_key_exists('parent_ids', $validated) ||
-                    array_key_exists('is_relationship', $validated) ||
-                    array_key_exists('is_parent', $validated)
-                ) {
-                    $this->syncParentTaxonomies($taxonomy, $relationshipPayload['parent_ids'] ?? []);
-                }
+                /*
+             * Taxonomies detached as old parents may need their
+             * relationship flags recalculated.
+             */
+                $this->recalculateRelationshipFlags(
+                    $oldParentIds
+                );
+            } else {
+                /*
+             * Child:
+             * it cannot retain outgoing child relationships.
+             */
+                $oldChildIds = $taxonomy
+                    ->children()
+                    ->pluck('taxonomies.id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
+
+                $taxonomy->children()->detach();
+
+                $this->syncParentTaxonomies(
+                    $taxonomy,
+                    $relationshipPayload['parent_ids']
+                );
+
+                /*
+             * Taxonomies detached as old children may need their
+             * relationship flags recalculated.
+             */
+                $this->recalculateRelationshipFlags(
+                    $oldChildIds
+                );
             }
+
+            /*
+         * Recalculate current taxonomy flags from actual pivot records.
+         */
+            $this->recalculateRelationshipFlags([
+                (int) $taxonomy->id,
+            ]);
 
             DB::commit();
 
-            $taxonomy = $taxonomy->fresh()->load([
-                'creator:id,first_name,last_name,email',
-                'parents:id,name,slug,is_relationship,is_parent,status',
-                'children:id,name,slug,is_relationship,is_parent,status,sort_order',
-            ]);
+            $taxonomy = $taxonomy
+                ->fresh()
+                ->load([
+                    'creator:id,first_name,last_name,email',
+
+                    'parents:id,name,slug,is_relationship,is_parent,status,sort_order',
+
+                    'children:id,name,slug,is_relationship,is_parent,status,sort_order',
+                ]);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Taxonomy updated successfully.',
-                'data' => $this->formatTaxonomy($taxonomy),
+                'data' => $this->formatTaxonomy(
+                    $taxonomy
+                ),
             ], 200);
-        } catch (ValidationException $e) {
+        } catch (ValidationException $exception) {
             DB::rollBack();
 
             return response()->json([
                 'status' => false,
                 'message' => 'Validation failed.',
-                'errors' => $e->errors(),
+                'errors' => $exception->errors(),
             ], 422);
-        } catch (\Throwable $e) {
+        } catch (Throwable $exception) {
             DB::rollBack();
 
-            return $this->serverErrorResponse('Unable to update taxonomy.', $e);
+            return $this->serverErrorResponse(
+                'Unable to update taxonomy.',
+                $exception
+            );
         }
     }
 
@@ -739,12 +897,27 @@ class TaxonomyController extends Controller
         ];
     }
 
-    private function validateRelationshipData(array $data, ?Taxonomy $currentTaxonomy = null): ?JsonResponse
-    {
-        $isRelationship = (bool) ($data['is_relationship'] ?? false);
-        $isParent = (bool) ($data['is_parent'] ?? false);
-        $parentIds = $this->cleanIds($data['parent_ids'] ?? []);
-        $childTaxonomyIds = $this->cleanIds($data['child_taxonomy_ids'] ?? []);
+    private function validateRelationshipData(
+        array $data,
+        ?Taxonomy $currentTaxonomy = null
+    ): ?JsonResponse {
+        $isRelationship = filter_var(
+            $data['is_relationship'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        $isParent = $isRelationship && filter_var(
+            $data['is_parent'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        $parentIds = $this->cleanIds(
+            $data['parent_ids'] ?? []
+        );
+
+        $childTaxonomyIds = $this->cleanIds(
+            $data['child_taxonomy_ids'] ?? []
+        );
 
         if (!$isRelationship) {
             return null;
@@ -755,135 +928,367 @@ class TaxonomyController extends Controller
                 'status' => false,
                 'message' => 'Child taxonomy must have at least one parent taxonomy.',
                 'errors' => [
-                    'parent_ids' => ['parent_ids is required when is_parent is false.'],
+                    'parent_ids' => [
+                        'Please select at least one parent taxonomy.',
+                    ],
                 ],
             ], 422);
         }
 
-        if ($currentTaxonomy && in_array($currentTaxonomy->id, $parentIds)) {
+        if ($currentTaxonomy) {
+            $currentTaxonomyId = (int) $currentTaxonomy->id;
+
+            if (in_array($currentTaxonomyId, $parentIds, true)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid parent taxonomy.',
+                    'errors' => [
+                        'parent_ids' => [
+                            'A taxonomy cannot be its own parent.',
+                        ],
+                    ],
+                ], 422);
+            }
+
+            if (
+                in_array(
+                    $currentTaxonomyId,
+                    $childTaxonomyIds,
+                    true
+                )
+            ) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid child taxonomy.',
+                    'errors' => [
+                        'child_taxonomy_ids' => [
+                            'A taxonomy cannot be its own child.',
+                        ],
+                    ],
+                ], 422);
+            }
+        }
+
+        if ($isParent && !empty($parentIds)) {
             return response()->json([
                 'status' => false,
-                'message' => 'Invalid parent taxonomy.',
+                'message' => 'Parent taxonomy cannot receive parent_ids.',
                 'errors' => [
-                    'parent_ids' => ['A taxonomy cannot be parent of itself.'],
+                    'parent_ids' => [
+                        'Remove parent_ids when Mark as Parent is enabled.',
+                    ],
                 ],
             ], 422);
         }
 
-        if ($currentTaxonomy && in_array($currentTaxonomy->id, $childTaxonomyIds)) {
+        if (!$isParent && !empty($childTaxonomyIds)) {
             return response()->json([
                 'status' => false,
-                'message' => 'Invalid child taxonomy selection.',
+                'message' => 'Child taxonomy cannot receive child_taxonomy_ids.',
                 'errors' => [
-                    'child_taxonomy_ids' => ['A taxonomy cannot be child of itself.'],
+                    'child_taxonomy_ids' => [
+                        'Remove child_taxonomy_ids when Mark as Parent is disabled.',
+                    ],
                 ],
             ], 422);
         }
 
-        if (!$isParent && !empty($parentIds)) {
-            Taxonomy::whereIn('id', $parentIds)->update([
-                'is_relationship' => true,
-                'is_parent' => true,
-                'updated_at' => now(),
-            ]);
+        if (!empty($parentIds)) {
+            $validParentIds = Taxonomy::query()
+                ->whereIn('id', $parentIds)
+                ->where('status', true)
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            $invalidParentIds = array_values(
+                array_diff($parentIds, $validParentIds)
+            );
+
+            if (!empty($invalidParentIds)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid parent taxonomy selection.',
+                    'errors' => [
+                        'parent_ids' => [
+                            'One or more selected parent taxonomies are unavailable.',
+                        ],
+                    ],
+                ], 422);
+            }
+
+            $invalidRoleParentIds = Taxonomy::query()
+                ->whereIn('id', $parentIds)
+                ->whereHas('parents')
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            if (!empty($invalidRoleParentIds)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'A child taxonomy cannot be selected as a parent.',
+                    'errors' => [
+                        'parent_ids' => [
+                            'One or more selected taxonomies are already children of another taxonomy.',
+                        ],
+                    ],
+                ], 422);
+            }
         }
 
-        if ($isParent && !empty($childTaxonomyIds)) {
-            Taxonomy::whereIn('id', $childTaxonomyIds)->update([
-                'is_relationship' => true,
-                'is_parent' => false,
-                'updated_at' => now(),
-            ]);
+        if (!empty($childTaxonomyIds)) {
+            $validChildIds = Taxonomy::query()
+                ->whereIn('id', $childTaxonomyIds)
+                ->where('status', true)
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            $invalidChildIds = array_values(
+                array_diff(
+                    $childTaxonomyIds,
+                    $validChildIds
+                )
+            );
+
+            if (!empty($invalidChildIds)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid child taxonomy selection.',
+                    'errors' => [
+                        'child_taxonomy_ids' => [
+                            'One or more selected child taxonomies are unavailable.',
+                        ],
+                    ],
+                ], 422);
+            }
+
+            $parentRoleChildIds = Taxonomy::query()
+                ->whereIn('id', $childTaxonomyIds)
+                ->whereHas('children')
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            if (!empty($parentRoleChildIds)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'A parent taxonomy cannot be selected as a child.',
+                    'errors' => [
+                        'child_taxonomy_ids' => [
+                            'One or more selected taxonomies already have child taxonomies.',
+                        ],
+                    ],
+                ], 422);
+            }
         }
 
         return null;
     }
 
-    private function syncChildTaxonomies(Taxonomy $parentTaxonomy, array $childTaxonomyIds): void
-    {
-        $childTaxonomyIds = array_values(array_diff($this->cleanIds($childTaxonomyIds), [$parentTaxonomy->id]));
+    private function syncChildTaxonomies(
+        Taxonomy $parentTaxonomy,
+        array $childTaxonomyIds
+    ): void {
+        $childTaxonomyIds = array_values(
+            array_diff(
+                $this->cleanIds($childTaxonomyIds),
+                [(int) $parentTaxonomy->id]
+            )
+        );
 
-        $oldChildIds = $parentTaxonomy->children()
+        $oldChildIds = $parentTaxonomy
+            ->children()
             ->pluck('taxonomies.id')
+            ->map(fn($id) => (int) $id)
             ->toArray();
 
         $parentTaxonomy->children()->sync(
             $this->makeSyncData($childTaxonomyIds)
         );
 
+        $parentTaxonomy->update([
+            'is_relationship' => true,
+            'is_parent' => true,
+        ]);
+
         if (!empty($childTaxonomyIds)) {
-            Taxonomy::whereIn('id', $childTaxonomyIds)->update([
-                'is_relationship' => true,
-                'is_parent' => false,
-                'updated_at' => now(),
-            ]);
+            Taxonomy::query()
+                ->whereIn('id', $childTaxonomyIds)
+                ->update([
+                    'is_relationship' => true,
+                    'is_parent' => false,
+                    'updated_at' => now(),
+                ]);
         }
 
-        $this->markDetachedChildrenAsStandalone($oldChildIds, $childTaxonomyIds);
+        $affectedIds = array_values(
+            array_unique(
+                array_merge(
+                    $oldChildIds,
+                    $childTaxonomyIds,
+                    [(int) $parentTaxonomy->id]
+                )
+            )
+        );
+
+        $this->recalculateRelationshipFlags($affectedIds);
     }
 
-    private function syncParentTaxonomies(Taxonomy $childTaxonomy, array $parentIds): void
-    {
-        $parentIds = array_values(array_diff($this->cleanIds($parentIds), [$childTaxonomy->id]));
+    private function syncParentTaxonomies(
+        Taxonomy $childTaxonomy,
+        array $parentIds
+    ): void {
+        $parentIds = array_values(
+            array_diff(
+                $this->cleanIds($parentIds),
+                [(int) $childTaxonomy->id]
+            )
+        );
+
+        $oldParentIds = $childTaxonomy
+            ->parents()
+            ->pluck('taxonomies.id')
+            ->map(fn($id) => (int) $id)
+            ->toArray();
 
         $childTaxonomy->parents()->sync(
             $this->makeSyncData($parentIds)
         );
 
+        $childTaxonomy->update([
+            'is_relationship' => true,
+            'is_parent' => false,
+        ]);
+
         if (!empty($parentIds)) {
-            Taxonomy::whereIn('id', $parentIds)->update([
-                'is_relationship' => true,
-                'is_parent' => true,
-                'updated_at' => now(),
-            ]);
+            Taxonomy::query()
+                ->whereIn('id', $parentIds)
+                ->update([
+                    'is_relationship' => true,
+                    'is_parent' => true,
+                    'updated_at' => now(),
+                ]);
         }
+
+        $affectedIds = array_values(
+            array_unique(
+                array_merge(
+                    $oldParentIds,
+                    $parentIds,
+                    [(int) $childTaxonomy->id]
+                )
+            )
+        );
+
+        $this->recalculateRelationshipFlags($affectedIds);
     }
 
-    private function detachAllTaxonomyRelationships(Taxonomy $taxonomy): void
-    {
-        $oldChildIds = $taxonomy->children()
+    private function detachAllTaxonomyRelationships(
+        Taxonomy $taxonomy
+    ): void {
+        $oldParentIds = $taxonomy
+            ->parents()
             ->pluck('taxonomies.id')
+            ->map(fn($id) => (int) $id)
+            ->toArray();
+
+        $oldChildIds = $taxonomy
+            ->children()
+            ->pluck('taxonomies.id')
+            ->map(fn($id) => (int) $id)
             ->toArray();
 
         $taxonomy->parents()->detach();
         $taxonomy->children()->detach();
 
-        $this->markDetachedChildrenAsStandalone($oldChildIds, []);
+        $taxonomy->update([
+            'is_relationship' => false,
+            'is_parent' => false,
+        ]);
+
+        $affectedIds = array_values(
+            array_unique(
+                array_merge(
+                    $oldParentIds,
+                    $oldChildIds,
+                    [(int) $taxonomy->id]
+                )
+            )
+        );
+
+        $this->recalculateRelationshipFlags($affectedIds);
     }
 
-    private function detachChildTaxonomies(Taxonomy $taxonomy): void
-    {
-        $oldChildIds = $taxonomy->children()
+    private function detachChildTaxonomies(
+        Taxonomy $taxonomy
+    ): void {
+        $oldChildIds = $taxonomy
+            ->children()
             ->pluck('taxonomies.id')
+            ->map(fn($id) => (int) $id)
             ->toArray();
 
         $taxonomy->children()->detach();
 
-        $this->markDetachedChildrenAsStandalone($oldChildIds, []);
+        $affectedIds = array_values(
+            array_unique(
+                array_merge(
+                    $oldChildIds,
+                    [(int) $taxonomy->id]
+                )
+            )
+        );
+
+        $this->recalculateRelationshipFlags($affectedIds);
     }
 
-    private function markDetachedChildrenAsStandalone(array $oldChildIds, array $currentChildIds): void
-    {
-        $detachedIds = array_values(array_diff($oldChildIds, $currentChildIds));
+    private function recalculateRelationshipFlags(
+        array $taxonomyIds
+    ): void {
+        $taxonomyIds = $this->cleanIds($taxonomyIds);
 
-        if (empty($detachedIds)) {
+        if (empty($taxonomyIds)) {
             return;
         }
 
-        $standaloneIds = Taxonomy::whereIn('id', $detachedIds)
-            ->whereDoesntHave('parents')
-            ->pluck('id')
-            ->toArray();
+        $taxonomies = Taxonomy::query()
+            ->whereIn('id', $taxonomyIds)
+            ->withCount([
+                'parents',
+                'children',
+            ])
+            ->get();
 
-        if (!empty($standaloneIds)) {
-            Taxonomy::whereIn('id', $standaloneIds)->update([
+        foreach ($taxonomies as $taxonomy) {
+            $hasParents = (int) $taxonomy->parents_count > 0;
+            $hasChildren = (int) $taxonomy->children_count > 0;
+
+            if ($hasChildren) {
+                $taxonomy->update([
+                    'is_relationship' => true,
+                    'is_parent' => true,
+                ]);
+
+                continue;
+            }
+
+            if ($hasParents) {
+                $taxonomy->update([
+                    'is_relationship' => true,
+                    'is_parent' => false,
+                ]);
+
+                continue;
+            }
+
+            $taxonomy->update([
                 'is_relationship' => false,
                 'is_parent' => false,
-                'updated_at' => now(),
             ]);
         }
     }
-
     private function makeSyncData(array $ids): array
     {
         $syncData = [];
@@ -970,13 +1375,30 @@ class TaxonomyController extends Controller
         ];
     }
 
-    private function getRelationshipType(Taxonomy $taxonomy): string
-    {
-        if (!$taxonomy->is_relationship) {
-            return 'standalone';
+    private function getRelationshipType(
+        Taxonomy $taxonomy
+    ): string {
+        $hasParents = $taxonomy->relationLoaded('parents')
+            ? $taxonomy->parents->isNotEmpty()
+            : $taxonomy->parents()->exists();
+
+        $hasChildren = $taxonomy->relationLoaded('children')
+            ? $taxonomy->children->isNotEmpty()
+            : $taxonomy->children()->exists();
+
+        if ($hasChildren && $hasParents) {
+            return 'conflict';
         }
 
-        return $taxonomy->is_parent ? 'parent' : 'child';
+        if ($hasChildren) {
+            return 'parent';
+        }
+
+        if ($hasParents) {
+            return 'child';
+        }
+
+        return 'standalone';
     }
 
     private function serverErrorResponse(string $message, \Throwable $e): JsonResponse
