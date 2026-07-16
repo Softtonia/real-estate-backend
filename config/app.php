@@ -156,7 +156,7 @@ return [
     */
     'frontend_url' => env(
         'FRONTEND_URL',
-        'https://heliplaces.com'
+        'https://holiplaces.com'
     ),
 
     'providers' => ServiceProvider::defaultProviders()->merge([
