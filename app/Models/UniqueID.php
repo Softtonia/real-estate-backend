@@ -9,5 +9,7 @@ class UniqueID extends Model
 {
     use HasFactory;
     protected $table = 'unique_ids';
-
+    protected $fillable = [
+        'unique_id',
+    ];
 }

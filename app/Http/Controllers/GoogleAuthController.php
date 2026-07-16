@@ -7,6 +7,7 @@ use App\Models\UniqueID;
 use App\Models\User;
 use App\Models\UserDetail;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -19,7 +20,7 @@ use Throwable;
 class GoogleAuthController extends Controller
 {
     /**
-     * Generate the Google authentication URL.
+     * Generate Google authentication URL.
      */
     public function redirectToGoogle(): JsonResponse
     {
@@ -40,15 +41,23 @@ class GoogleAuthController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to generate Google login URL.',
-                'error' => app()->isLocal()
+                'error' => config('app.debug')
                     ? $e->getMessage()
                     : null,
             ], 500);
         }
     }
 
-
-    public function handleGoogleCallback()
+    /**
+     * Handle Google OAuth callback.
+     *
+     * Existing user:
+     * Redirect directly to Google success page.
+     *
+     * New user:
+     * Redirect to role-selection page.
+     */
+    public function handleGoogleCallback(): RedirectResponse
     {
         try {
             $googleUser = Socialite::driver('google')
@@ -56,12 +65,17 @@ class GoogleAuthController extends Controller
                 ->user();
 
             $googleId = trim((string) $googleUser->getId());
-            $email = strtolower(trim((string) $googleUser->getEmail()));
+            $email = strtolower(
+                trim((string) $googleUser->getEmail())
+            );
 
             if ($googleId === '' || $email === '') {
-                return $this->frontendRedirect('/auth/login', [
-                    'google_error' => 'missing_information',
-                ]);
+                return $this->frontendRedirect(
+                    '/auth/login',
+                    [
+                        'google_error' => 'missing_information',
+                    ]
+                );
             }
 
             $googleNames = $this->extractGoogleNames(
@@ -70,14 +84,13 @@ class GoogleAuthController extends Controller
             );
 
             /*
-         * Find registered user.
-         *
-         * It checks:
-         * 1. Google ID
-         * 2. Normalized email with lowercase and trimmed spaces
-         */
+             * Find existing user through Google ID or email.
+             */
             $user = User::query()
-                ->where(function ($query) use ($googleId, $email) {
+                ->where(function ($query) use (
+                    $googleId,
+                    $email
+                ) {
                     $query
                         ->where('google_id', $googleId)
                         ->orWhereRaw(
@@ -87,11 +100,7 @@ class GoogleAuthController extends Controller
                 })
                 ->first();
 
-            /*
-         * Temporary production debugging.
-         * Check storage/logs/laravel.log after Google login.
-         */
-            logger()->info('Google login user check', [
+            logger()->info('Google user lookup completed', [
                 'google_id' => $googleId,
                 'google_email' => $email,
                 'matched_user_id' => $user?->id,
@@ -100,31 +109,14 @@ class GoogleAuthController extends Controller
             ]);
 
             /*
-         * EXISTING REGISTERED USER
-         */
-            if ($user) {
-                $updateData = [
-                    'google_id' => $googleId,
-                    'is_otp_verified' => true,
-                ];
-
-                if (empty($user->first_name)) {
-                    $updateData['first_name'] =
-                        $googleNames['first_name'];
-                }
-
-                if (
-                    empty($user->last_name) &&
-                    !empty($googleNames['last_name'])
-                ) {
-                    $updateData['last_name'] =
-                        $googleNames['last_name'];
-                }
-
-                /*
-             * Do not update role_id.
+             * Existing registered user.
              */
-                $user->forceFill($updateData)->save();
+            if ($user) {
+                $this->updateExistingGoogleUser(
+                    $user,
+                    $googleId,
+                    $googleNames
+                );
 
                 $loginCode = Str::random(64);
 
@@ -144,8 +136,8 @@ class GoogleAuthController extends Controller
             }
 
             /*
-         * NEW UNREGISTERED USER
-         */
+             * New unregistered user.
+             */
             $registrationToken = Str::random(64);
 
             Cache::store('redis')->put(
@@ -155,7 +147,6 @@ class GoogleAuthController extends Controller
                     'email' => $email,
                     'first_name' => $googleNames['first_name'],
                     'last_name' => $googleNames['last_name'],
-                    'full_name' => $googleNames['full_name'],
                 ],
                 now()->addMinutes(15)
             );
@@ -170,19 +161,25 @@ class GoogleAuthController extends Controller
         } catch (Throwable $e) {
             report($e);
 
-            logger()->error('Google login callback failed', [
+            logger()->error('Google callback failed', [
+                'exception' => get_class($e),
                 'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
 
-            return $this->frontendRedirect('/auth/login', [
-                'google_error' => 'login_failed',
-            ]);
+            return $this->frontendRedirect(
+                '/auth/login',
+                [
+                    'google_error' => 'login_failed',
+                ]
+            );
         }
     }
 
     /**
-     * Existing registered user exchanges one-time code
-     * for the actual API token.
+     * Exchange the existing user's temporary Redis code
+     * for an API token.
      */
     public function exchangeGoogleLoginCode(
         Request $request
@@ -197,8 +194,8 @@ class GoogleAuthController extends Controller
         ]);
 
         /*
-         * Pull reads and deletes the Redis key.
-         * The code can only be used once.
+         * pull() retrieves and removes the Redis value.
+         * The login code can only be used once.
          */
         $userId = Cache::store('redis')->pull(
             'google_login:' . $validated['code']
@@ -209,6 +206,7 @@ class GoogleAuthController extends Controller
                 'status' => false,
                 'message' => 'Google login code is invalid or expired.',
                 'is_registered' => false,
+                'requires_role_selection' => false,
             ], 401);
         }
 
@@ -219,6 +217,7 @@ class GoogleAuthController extends Controller
                 'status' => false,
                 'message' => 'User account was not found.',
                 'is_registered' => false,
+                'requires_role_selection' => false,
             ], 404);
         }
 
@@ -236,7 +235,8 @@ class GoogleAuthController extends Controller
     }
 
     /**
-     * Register a new Google user after role selection.
+     * Complete a new Google user's registration
+     * after role selection.
      */
     public function completeGoogleRegistration(
         Request $request
@@ -266,17 +266,19 @@ class GoogleAuthController extends Controller
                 'status' => false,
                 'message' => 'Registration session has expired. Please log in with Google again.',
                 'is_registered' => false,
+                'requires_role_selection' => true,
             ], 401);
         }
 
         /*
-         * Prevent the user from selecting admin role.
+         * Prevent admin role selection.
          */
         if ((int) $validated['role_id'] === 1) {
             return response()->json([
                 'status' => false,
                 'message' => 'You are not allowed to select this role.',
                 'is_registered' => false,
+                'requires_role_selection' => true,
             ], 403);
         }
 
@@ -290,66 +292,58 @@ class GoogleAuthController extends Controller
                 'status' => false,
                 'message' => 'The selected role is invalid.',
                 'is_registered' => false,
+                'requires_role_selection' => true,
             ], 422);
         }
 
         try {
-            /*
-             * Check again before registration.
-             *
-             * This prevents duplicate users when the same request
-             * is submitted more than once.
-             */
-            $existingUser = User::query()
-                ->where(
-                    'google_id',
-                    $googleData['google_id']
-                )
-                ->orWhereRaw(
-                    'LOWER(email) = ?',
-                    [strtolower($googleData['email'])]
-                )
-                ->first();
-
-            if ($existingUser) {
-                /*
-                 * Do not overwrite the existing user's role.
-                 */
-                $existingUser->forceFill([
-                    'google_id' =>
-                    $googleData['google_id'],
-                    'is_otp_verified' => true,
-                ])->save();
-
-                Cache::store('redis')->forget(
-                    'google_registration:'
-                        . $registrationToken
-                );
-
-                $this->createOrRefreshApiToken(
-                    $existingUser
-                );
-
-                $existingUser->loadMissing('role');
-
-                return response()->json([
-                    'status' => true,
-                    'message' => 'User was already registered. Login successful.',
-                    'is_registered' => true,
-                    'requires_role_selection' => false,
-                    'data' => $this->userResponse(
-                        $existingUser
-                    ),
-                ]);
-            }
-
-            $user = DB::transaction(function () use (
+            $result = DB::transaction(function () use (
                 $googleData,
                 $role
             ) {
                 /*
-                 * Lock the role row to prevent duplicate
-                 * role-based unique IDs.
+                 * Recheck user inside transaction.
+                 */
+                $existingUser = User::query()
+                    ->where(function ($query) use ($googleData) {
+                        $query
+                            ->where(
+                                'google_id',
+                                $googleData['google_id']
+                            )
+                            ->orWhereRaw(
+                                'LOWER(TRIM(email)) = ?',
+                                [
+                                    strtolower(
+                                        trim($googleData['email'])
+                                    ),
+                                ]
+                            );
+                    })
+                    ->first();
+
+                if ($existingUser) {
+                    $this->updateExistingGoogleUser(
+                        $existingUser,
+                        $googleData['google_id'],
+                        [
+                            'first_name' =>
+                                $googleData['first_name'] ?? null,
+
+                            'last_name' =>
+                                $googleData['last_name'] ?? null,
+                        ]
+                    );
+
+                    return [
+                        'user' => $existingUser,
+                        'created' => false,
+                    ];
+                }
+
+                /*
+                 * Lock role row so unique IDs for the same
+                 * role are generated one at a time.
                  */
                 $lockedRole = Role::query()
                     ->whereKey($role->id)
@@ -360,49 +354,61 @@ class GoogleAuthController extends Controller
                     $lockedRole
                 );
 
-                $username = $this->generateUniqueUsername(
-                    $googleData['first_name'],
-                    $googleData['last_name'] ?? null,
-                    $googleData['email']
+                /*
+                 * Create user without user_name because
+                 * the supplied users table has no user_name column.
+                 */
+                $user = new User();
+
+                $user->first_name =
+                    $googleData['first_name'] ?? null;
+
+                $user->last_name =
+                    $googleData['last_name'] ?? null;
+
+                $user->email = strtolower(
+                    trim($googleData['email'])
                 );
 
-                $user = User::create([
-                    'first_name' =>
-                    $googleData['first_name'],
+                $user->google_id =
+                    $googleData['google_id'];
 
-                    'last_name' =>
-                    $googleData['last_name'] ?: null,
+                $user->role_id = $lockedRole->id;
 
-                    'email' => strtolower(
-                        $googleData['email']
-                    ),
+                $user->password = Hash::make(
+                    Str::random(40)
+                );
 
-                    'user_name' => $username,
-                    'google_id' =>
-                    $googleData['google_id'],
+                $user->isapproved = 1;
+                $user->is_otp_verified = true;
+                $user->kyc = 0;
+                $user->created_by = 0;
+                $user->unique_id = $uniqueId;
 
-                    'role_id' => $lockedRole->id,
+                $user->save();
 
-                    'password' => Hash::make(
-                        Str::random(40)
-                    ),
+                /*
+                 * Create user details without relying on
+                 * UserDetail::$fillable.
+                 */
+                $userDetail = new UserDetail();
+                $userDetail->user_id = $user->id;
+                $userDetail->role_id = $lockedRole->id;
+                $userDetail->save();
 
-                    'isapproved' => 1,
-                    'is_otp_verified' => true,
-                    'kyc' => 0,
-                    'unique_id' => $uniqueId,
-                ]);
-
-                UserDetail::create([
-                    'user_id' => $user->id,
-                    'role_id' => $lockedRole->id,
-                ]);
-
-                return $user;
+                return [
+                    'user' => $user,
+                    'created' => true,
+                ];
             });
 
+            /** @var User $user */
+            $user = $result['user'];
+            $created = $result['created'];
+
             /*
-             * Remove the temporary registration data.
+             * Registration token is removed only after
+             * successful completion.
              */
             Cache::store('redis')->forget(
                 'google_registration:' . $registrationToken
@@ -414,30 +420,82 @@ class GoogleAuthController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Registration and login successful.',
+                'message' => $created
+                    ? 'Registration and login successful.'
+                    : 'User was already registered. Login successful.',
+
                 'is_registered' => true,
                 'requires_role_selection' => false,
                 'data' => $this->userResponse($user),
-            ], 201);
+            ], $created ? 201 : 200);
         } catch (Throwable $e) {
             report($e);
+
+            logger()->error(
+                'Google registration failed',
+                [
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'role_id' => $validated['role_id'],
+                    'google_email' =>
+                        $googleData['email'] ?? null,
+                ]
+            );
 
             return response()->json([
                 'status' => false,
                 'message' => 'Google registration failed.',
                 'is_registered' => false,
+                'requires_role_selection' => true,
 
-                // Temporary debugging
-                'exception' => get_class($e),
-                'error' => $e->getMessage(),
-                'file' => basename($e->getFile()),
-                'line' => $e->getLine(),
+                'error' => config('app.debug')
+                    ? $e->getMessage()
+                    : null,
             ], 500);
         }
     }
 
     /**
-     * Correctly separate first and last names.
+     * Update an existing user without changing their role.
+     */
+    private function updateExistingGoogleUser(
+        User $user,
+        string $googleId,
+        array $googleNames
+    ): void {
+        $user->google_id = $googleId;
+        $user->is_otp_verified = true;
+
+        /*
+         * Only fill missing names.
+         * Do not replace manually updated names.
+         */
+        if (
+            empty($user->first_name) &&
+            !empty($googleNames['first_name'])
+        ) {
+            $user->first_name =
+                $googleNames['first_name'];
+        }
+
+        if (
+            empty($user->last_name) &&
+            !empty($googleNames['last_name'])
+        ) {
+            $user->last_name =
+                $googleNames['last_name'];
+        }
+
+        /*
+         * Existing role_id is deliberately not changed.
+         */
+        $user->save();
+    }
+
+    /**
+     * Separate Google first and last names.
      *
      * Vijay Kumar:
      * first_name = Vijay
@@ -451,21 +509,23 @@ class GoogleAuthController extends Controller
         object $googleUser,
         string $email
     ): array {
-        $rawGoogleUser = $googleUser->user ?? [];
+        $rawGoogleUser = is_array($googleUser->user ?? null)
+            ? $googleUser->user
+            : [];
 
-        $firstName = trim(
+        $firstName = Str::squish(
             (string) (
                 $rawGoogleUser['given_name'] ?? ''
             )
         );
 
-        $lastName = trim(
+        $lastName = Str::squish(
             (string) (
                 $rawGoogleUser['family_name'] ?? ''
             )
         );
 
-        $fullName = trim(
+        $fullName = Str::squish(
             (string) (
                 $googleUser->getName()
                 ?: $googleUser->getNickname()
@@ -474,8 +534,8 @@ class GoogleAuthController extends Controller
         );
 
         /*
-         * Fallback when Google does not provide given_name
-         * or family_name separately.
+         * Fallback when Google does not return
+         * given_name and family_name separately.
          */
         $nameParts = preg_split(
             '/\s+/u',
@@ -484,34 +544,26 @@ class GoogleAuthController extends Controller
             PREG_SPLIT_NO_EMPTY
         );
 
-        if (!$firstName) {
+        if ($firstName === '') {
             $firstName = $nameParts[0]
                 ?? Str::before($email, '@');
         }
 
-        if (!$lastName && isset($nameParts[1])) {
+        if (
+            $lastName === '' &&
+            isset($nameParts[1])
+        ) {
             $lastName = $nameParts[1];
         }
 
-        $firstName = Str::title(
-            Str::lower(trim($firstName))
-        );
-
-        $lastName = $lastName
-            ? Str::title(Str::lower(trim($lastName)))
-            : null;
-
         return [
-            'first_name' => $firstName,
-            'last_name' => $lastName,
-            'full_name' => trim(
-                $firstName . ' ' . ($lastName ?? '')
-            ),
+            'first_name' => $firstName ?: null,
+            'last_name' => $lastName ?: null,
         ];
     }
 
     /**
-     * Generate or refresh API token after 24 hours.
+     * Create or refresh API token after 24 hours.
      */
     private function createOrRefreshApiToken(
         User $user
@@ -524,73 +576,34 @@ class GoogleAuthController extends Controller
             )->lte(now()->subHours(24));
         }
 
-        if (!$user->api_token || $tokenExpired) {
-            $user->forceFill([
-                'api_token' => Str::random(80),
-                'token_created_at' => now(),
-            ])->save();
-        }
-    }
-
-    /**
-     * Generate a unique username.
-     */
-    private function generateUniqueUsername(
-        string $firstName,
-        ?string $lastName,
-        string $email
-    ): string {
-        $name = trim(
-            $firstName . ' ' . ($lastName ?? '')
-        );
-
-        $baseUsername = Str::lower($name);
-
-        $baseUsername = preg_replace(
-            '/[^a-z0-9_]/',
-            '',
-            str_replace(' ', '', $baseUsername)
-        );
-
-        if (!$baseUsername) {
-            $baseUsername = preg_replace(
-                '/[^a-z0-9_]/',
-                '',
-                Str::lower(Str::before($email, '@'))
-            );
-        }
-
-        $baseUsername = $baseUsername ?: 'user';
-
-        $username = $baseUsername;
-        $counter = 1;
-
-        while (
-            User::where('user_name', $username)->exists()
+        if (
+            empty($user->api_token) ||
+            $tokenExpired
         ) {
-            $username = $baseUsername . $counter;
-            $counter++;
+            $user->api_token = Str::random(80);
+            $user->token_created_at = now();
+            $user->save();
         }
-
-        return $username;
     }
 
     /**
      * Generate role-based unique ID.
-     *
-     * The role row is already locked in the transaction.
      */
     private function generateUniqueId(
         Role $role
     ): string {
         $prefix = trim((string) $role->prefix);
 
-        if (!$prefix) {
+        if ($prefix === '') {
             throw new \RuntimeException(
                 'The selected role does not have a prefix.'
             );
         }
 
+        /*
+         * The role row is already locked, so another
+         * registration for the same role waits.
+         */
         $lastUniqueId = UniqueID::query()
             ->where(
                 'unique_id',
@@ -604,13 +617,13 @@ class GoogleAuthController extends Controller
 
         if ($lastUniqueId) {
             $numberPart = substr(
-                $lastUniqueId->unique_id,
+                (string) $lastUniqueId->unique_id,
                 strlen($prefix)
             );
 
-            $lastNumber = is_numeric($numberPart)
-                ? (int) $numberPart
-                : 0;
+            if (is_numeric($numberPart)) {
+                $lastNumber = (int) $numberPart;
+            }
         }
 
         $newUniqueId = $prefix . str_pad(
@@ -620,31 +633,36 @@ class GoogleAuthController extends Controller
             STR_PAD_LEFT
         );
 
-        UniqueID::create([
-            'unique_id' => $newUniqueId,
-        ]);
+        /*
+         * Avoid mass-assignment configuration issues.
+         */
+        $uniqueIdModel = new UniqueID();
+        $uniqueIdModel->unique_id = $newUniqueId;
+        $uniqueIdModel->save();
 
         return $newUniqueId;
     }
 
     /**
-     * Generate frontend redirect URL.
+     * Redirect to Next.js frontend.
      */
     private function frontendRedirect(
         string $path,
         array $parameters = []
-    ) {
+    ): RedirectResponse {
         $frontendUrl = rtrim(
-            (string) config('app.frontend_url'),
+            (string) config(
+                'app.frontend_url',
+                'https://holiplaces.com'
+            ),
             '/'
         );
 
-        $url = $frontendUrl . '/' . ltrim(
-            $path,
-            '/'
-        );
+        $url = $frontendUrl
+            . '/'
+            . ltrim($path, '/');
 
-        if (!empty($parameters)) {
+        if ($parameters !== []) {
             $url .= '?' . http_build_query($parameters);
         }
 
@@ -652,20 +670,23 @@ class GoogleAuthController extends Controller
     }
 
     /**
-     * Standard user response.
+     * Standard authenticated-user response.
      */
     private function userResponse(
         User $user
     ): array {
+        $fullName = trim(
+            implode(' ', array_filter([
+                $user->first_name,
+                $user->last_name,
+            ]))
+        );
+
         return [
             'user_id' => $user->id,
             'first_name' => $user->first_name,
             'last_name' => $user->last_name,
-            'full_name' => trim(
-                $user->first_name
-                    . ' '
-                    . ($user->last_name ?? '')
-            ),
+            'full_name' => $fullName,
             'email' => $user->email,
             'role_id' => $user->role_id,
             'role_name' => $user->role?->name,
