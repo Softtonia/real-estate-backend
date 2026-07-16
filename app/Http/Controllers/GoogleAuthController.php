@@ -135,7 +135,7 @@ class GoogleAuthController extends Controller
                 );
 
                 return $this->frontendRedirect(
-                    '/auth/google-success',
+                    '/auth/login/googlecallback',
                     [
                         'is_registered' => 'true',
                         'code' => $loginCode,
