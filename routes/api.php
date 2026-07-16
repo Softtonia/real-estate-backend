@@ -832,20 +832,8 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/business-enquiries/b
 
 
 
-Route::get('auth/google', [
-    GoogleAuthController::class,
-    'redirectToGoogle',
-])->middleware(['throttle:60,1']);
-
-Route::get('auth/google/callback', [
-    GoogleAuthController::class,
-    'handleGoogleCallback',
-])->middleware(['throttle:60,1']);
-
-Route::post('auth/google/register', [
-    GoogleAuthController::class,
-    'registerGoogleUser',
-])->middleware(['throttle:60,1']);
+Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle'])->middleware(['throttle:60,1']);
+Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback'])->middleware(['throttle:60,1']);
 
 // ================= VK Admin CRM Builder APIs =================
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
