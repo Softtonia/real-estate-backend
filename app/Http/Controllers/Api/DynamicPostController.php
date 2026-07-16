@@ -3516,7 +3516,143 @@ class DynamicPostController extends Controller
 
         return $files;
     }
+    public function store(Request $request): JsonResponse
+    {
+        try {
+            $validated = $this->validatePost($request);
 
+            $postType = PostType::with('taxonomies')->find($validated['post_type_id']);
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Location Support
+        |--------------------------------------------------------------------------
+        */
+            $hasLocationPayload = $this->hasLocationPayload($validated);
+
+            if ($hasLocationPayload) {
+                $this->validatePostTypeLocationSupport($postType);
+                $validated = $this->prepareLocationForSave($validated);
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Author
+        |--------------------------------------------------------------------------
+        */
+            if (empty($validated['author_id']) && Auth::id()) {
+                $validated['author_id'] = Auth::id();
+            }
+
+            $validated = $this->prepareBaseMediaForSave($request, $validated, $postType);
+
+            $submittedTaxonomies = $validated['taxonomies'] ?? [];
+            $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
+            $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
+
+            $relationshipPayloadPresent = $this->hasRelationshipPayload($request->all());
+
+            $relationshipPostTypes = $relationshipPayloadPresent
+                ? $this->normalizeRelationshipPostTypeInputs($request->all())
+                : [];
+
+            $hasKeywordPayload = $this->hasKeywordPayload($validated);
+            $hasAssignedUserPayload = $this->hasAssignedUserPayload($request->all());
+
+            $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
+            $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
+            $this->validateDependentTaxonomySelections($taxonomyTermIds);
+            $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
+
+            if ($hasKeywordPayload) {
+                $this->validatePostTypeKeywordSupport($postType);
+            }
+
+            if ($relationshipPayloadPresent && empty($relationshipPostTypes)) {
+                throw ValidationException::withMessages([
+                    'relationship_post_types' => [
+                        'Relationship payload was received but no valid dynamic post IDs were found.',
+                    ],
+                ]);
+            }
+
+            $this->validateSubmittedRelationshipPostTypes($postType, $relationshipPostTypes);
+
+            $slug = !empty($validated['slug'])
+                ? Str::slug($validated['slug'])
+                : Str::slug($validated['title']);
+
+            $slugExists = DynamicPost::where('post_type_id', $validated['post_type_id'])
+                ->where('slug', $slug)
+                ->exists();
+
+            if ($slugExists) {
+                $slug = $slug . '-' . time();
+            }
+
+            $post = DB::transaction(function () use (
+                $validated,
+                $slug,
+                $taxonomyTermIds,
+                $customFields,
+                $postType,
+                $relationshipPostTypes,
+                $hasKeywordPayload,
+                $hasAssignedUserPayload
+            ) {
+                $postData = $this->dynamicPostPayloadForDatabase($validated);
+
+                $postData['slug'] = $slug;
+                $postData['listing_code'] = $this->generateDynamicPostListingCode($postType);
+                $postData['status'] = $postData['status'] ?? 'draft';
+                $postData['live_status'] = $postData['live_status'] ?? 'submit';
+
+                if ($postData['status'] === 'published' && empty($postData['published_at'])) {
+                    $postData['published_at'] = now();
+                }
+
+                $post = DynamicPost::create($postData);
+
+                $this->syncTaxonomyTerms($post, $taxonomyTermIds);
+
+                $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
+
+                if (!empty($customFields)) {
+                    $this->saveCustomFieldValues($post->id, 'post', $customFields);
+                }
+
+                if ($hasAssignedUserPayload) {
+                    $this->syncDynamicPostAssignedUser($post, $validated);
+                }
+
+                if ($hasKeywordPayload) {
+                    $this->syncKeywordsForDynamicPost(
+                        post: $post,
+                        postType: $postType,
+                        input: $this->getKeywordPayload($validated)
+                    );
+                }
+
+                return $post;
+            });
+
+            return $this->successResponse(
+                'Dynamic post created successfully.',
+                $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations)),
+                201
+            );
+        } catch (ValidationException $e) {
+            return $this->validationErrorResponse($e);
+        } catch (QueryException $e) {
+            return $this->databaseErrorResponse($e, 'Database error while creating dynamic post.');
+        } catch (Throwable $e) {
+            return $this->errorResponse('Unable to create dynamic post.', 500, $e->getMessage());
+        }
+    }
     private function storeCustomFieldUploadedFiles(array $files, CustomField $field, PostType $postType): array
     {
         $mediaLimit = (int) ($field->media_limit ?? 1);
