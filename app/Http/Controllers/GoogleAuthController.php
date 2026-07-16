@@ -56,139 +56,137 @@ class GoogleAuthController extends Controller
      * New user:
      * Redirect to role-selection page.
      */
-    public function handleGoogleCallback()
-    {
-        try {
-            $googleUser = Socialite::driver('google')
-                ->stateless()
-                ->user();
+public function handleGoogleCallback()
+{
+    try {
+        $googleUser = Socialite::driver('google')
+            ->stateless()
+            ->user();
 
-            $googleId = $googleUser->getId();
-            $email = strtolower(trim((string) $googleUser->getEmail()));
+        $googleId = trim((string) $googleUser->getId());
+        $email = strtolower(trim((string) $googleUser->getEmail()));
 
-            if (!$googleId || !$email) {
-                return $this->frontendRedirect(
-                    '/auth/login',
-                    [
-                        'google_error' => 'missing_information',
-                    ]
-                );
+        if ($googleId === '' || $email === '') {
+            return $this->frontendRedirect('/auth/login', [
+                'google_error' => 'missing_information',
+            ]);
+        }
+
+        $googleNames = $this->extractGoogleNames(
+            $googleUser,
+            $email
+        );
+
+        /*
+         * Find registered user.
+         *
+         * It checks:
+         * 1. Google ID
+         * 2. Normalized email with lowercase and trimmed spaces
+         */
+        $user = User::query()
+            ->where(function ($query) use ($googleId, $email) {
+                $query
+                    ->where('google_id', $googleId)
+                    ->orWhereRaw(
+                        'LOWER(TRIM(email)) = ?',
+                        [$email]
+                    );
+            })
+            ->first();
+
+        /*
+         * Temporary production debugging.
+         * Check storage/logs/laravel.log after Google login.
+         */
+        logger()->info('Google login user check', [
+            'google_id' => $googleId,
+            'google_email' => $email,
+            'matched_user_id' => $user?->id,
+            'matched_user_email' => $user?->email,
+            'is_registered' => (bool) $user,
+        ]);
+
+        /*
+         * EXISTING REGISTERED USER
+         */
+        if ($user) {
+            $updateData = [
+                'google_id' => $googleId,
+                'is_otp_verified' => true,
+            ];
+
+            if (empty($user->first_name)) {
+                $updateData['first_name'] =
+                    $googleNames['first_name'];
+            }
+
+            if (
+                empty($user->last_name) &&
+                !empty($googleNames['last_name'])
+            ) {
+                $updateData['last_name'] =
+                    $googleNames['last_name'];
             }
 
             /*
-             * Correctly separate Google first name and last name.
-             *
-             * Example:
-             * Google name: Vijay Kumar
-             * first_name: Vijay
-             * last_name: Kumar
+             * Do not update role_id.
              */
-            $googleNames = $this->extractGoogleNames(
-                $googleUser,
-                $email
-            );
+            $user->forceFill($updateData)->save();
 
-            /*
-             * Find existing user using Google ID or email.
-             */
-            $user = User::query()
-                ->where('google_id', $googleId)
-                ->orWhereRaw('LOWER(email) = ?', [$email])
-                ->first();
-
-            /*
-             * Existing registered user.
-             */
-            if ($user) {
-                $updateData = [
-                    'google_id' => $googleId,
-                    'is_otp_verified' => true,
-                ];
-
-                /*
-                 * Do not overwrite names manually updated by the user.
-                 * Only fill them when missing.
-                 */
-                if (empty($user->first_name)) {
-                    $updateData['first_name'] =
-                        $googleNames['first_name'];
-                }
-
-                if (
-                    empty($user->last_name) &&
-                    !empty($googleNames['last_name'])
-                ) {
-                    $updateData['last_name'] =
-                        $googleNames['last_name'];
-                }
-
-                /*
-                 * Never update role_id for an existing user.
-                 */
-                $user->forceFill($updateData)->save();
-
-                /*
-                 * Create one-time login code in Redis.
-                 */
-                $loginCode = Str::random(64);
-
-                Cache::store('redis')->put(
-                    'google_login:' . $loginCode,
-                    $user->id,
-                    now()->addMinutes(5)
-                );
-
-                /*
-                 * Existing user does not visit the role-selection page.
-                 */
-                return $this->frontendRedirect(
-                    '/auth/google-success',
-                    [
-                        'is_registered' => 'true',
-                        'code' => $loginCode,
-                    ]
-                );
-            }
-
-            /*
-             * User is not registered.
-             * Store Google details temporarily in Redis.
-             */
-            $registrationToken = Str::random(64);
+            $loginCode = Str::random(64);
 
             Cache::store('redis')->put(
-                'google_registration:' . $registrationToken,
-                [
-                    'google_id' => $googleId,
-                    'email' => $email,
-                    'first_name' => $googleNames['first_name'],
-                    'last_name' => $googleNames['last_name'],
-                    'full_name' => $googleNames['full_name'],
-                ],
-                now()->addMinutes(15)
+                'google_login:' . $loginCode,
+                $user->id,
+                now()->addMinutes(5)
             );
 
-            /*
-             * Only a new user is sent to role selection.
-             */
             return $this->frontendRedirect(
-                '/auth/login/googlecallback',
+                '/auth/google-success',
                 [
-                    'is_registered' => 'false',
-                    'registration_token' => $registrationToken,
-                ]
-            );
-        } catch (Throwable $e) {
-            report($e);
-
-            return $this->frontendRedirect(
-                '/auth/login',
-                [
-                    'google_error' => 'login_failed',
+                    'is_registered' => 'true',
+                    'code' => $loginCode,
                 ]
             );
         }
+
+        /*
+         * NEW UNREGISTERED USER
+         */
+        $registrationToken = Str::random(64);
+
+        Cache::store('redis')->put(
+            'google_registration:' . $registrationToken,
+            [
+                'google_id' => $googleId,
+                'email' => $email,
+                'first_name' => $googleNames['first_name'],
+                'last_name' => $googleNames['last_name'],
+                'full_name' => $googleNames['full_name'],
+            ],
+            now()->addMinutes(15)
+        );
+
+        return $this->frontendRedirect(
+            '/auth/login/googlecallback',
+            [
+                'is_registered' => 'false',
+                'registration_token' => $registrationToken,
+            ]
+        );
+    } catch (Throwable $e) {
+        report($e);
+
+        logger()->error('Google login callback failed', [
+            'message' => $e->getMessage(),
+        ]);
+
+        return $this->frontendRedirect('/auth/login', [
+            'google_error' => 'login_failed',
+        ]);
     }
+}
 
     /**
      * Existing registered user exchanges one-time code
