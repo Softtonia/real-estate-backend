@@ -426,9 +426,12 @@ class GoogleAuthController extends Controller
                 'status' => false,
                 'message' => 'Google registration failed.',
                 'is_registered' => false,
-                'error' => app()->isLocal()
-                    ? $e->getMessage()
-                    : null,
+
+                // Temporary debugging
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'file' => basename($e->getFile()),
+                'line' => $e->getLine(),
             ], 500);
         }
     }
