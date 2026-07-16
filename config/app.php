@@ -154,6 +154,10 @@ return [
     | this array to grant expanded functionality to your applications.
     |
     */
+    'frontend_url' => env(
+        'FRONTEND_URL',
+        'https://heliplaces.com'
+    ),
 
     'providers' => ServiceProvider::defaultProviders()->merge([
         /*

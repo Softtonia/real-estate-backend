@@ -832,9 +832,45 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/business-enquiries/b
 
 
 
-Route::get('auth/google', [GoogleAuthController::class, 'redirectToGoogle'])->middleware(['throttle:60,1']);
-Route::get('auth/google/callback', [GoogleAuthController::class, 'handleGoogleCallback'])->middleware(['throttle:60,1']);
+Route::middleware(['throttle:60,1'])->group(function () {
 
+    /*
+     * Old route:
+     * Generates Google authentication URL.
+     */
+    Route::get(
+        'auth/google',
+        [GoogleAuthController::class, 'redirectToGoogle']
+    )->name('google.redirect');
+
+    /*
+     * Old route:
+     * Google redirects to this backend URL after authentication.
+     */
+    Route::get(
+        'auth/google/callback',
+        [GoogleAuthController::class, 'handleGoogleCallback']
+    )->name('google.callback');
+
+    /*
+     * Existing registered user:
+     * Frontend exchanges the temporary Redis login code
+     * for the actual API token.
+     */
+    Route::post(
+        'auth/google/exchange',
+        [GoogleAuthController::class, 'exchangeGoogleLoginCode']
+    )->name('google.exchange');
+
+    /*
+     * New Google user only:
+     * Submits role_id and completes registration.
+     */
+    Route::post(
+        'auth/google/complete-registration',
+        [GoogleAuthController::class, 'completeGoogleRegistration']
+    )->name('google.complete-registration');
+});
 // ================= VK Admin CRM Builder APIs =================
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
 
