@@ -621,9 +621,19 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $post->load($this->singlePostRelations);
+            $post->load([
+                'postType',
+                'parent:id,post_type_id,title,slug,status,live_status',
+                'children:id,post_type_id,parent_id,title,slug,status,live_status',
+                'taxonomyTerms.taxonomy',
+                'meta.customField.options',
+                'meta.customField.repeaters.options',
+            ]);
 
-            return $this->successResponse('Dynamic post fetched successfully.', $this->formatDynamicPostResponse($post));
+            return $this->successResponse(
+                'Dynamic post fetched successfully.',
+                $this->formatDynamicPostResponse($post)
+            );
         } catch (QueryException $e) {
             return $this->databaseErrorResponse($e, 'Database error while fetching dynamic post.');
         } catch (Throwable $e) {
@@ -645,6 +655,12 @@ class DynamicPostController extends Controller
             $validated = $this->validatePost($request, true);
 
             $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
+
+            $postType = PostType::with('taxonomies')->find($postTypeId);
+
+            if (!$postType) {
+                return $this->errorResponse('Post type not found.', 404);
+            }
 
             $hasLocationPayload = $this->hasLocationPayload($validated);
 
@@ -1984,30 +2000,47 @@ class DynamicPostController extends Controller
 
     private function dynamicPostPayloadForDatabase(array $validated): array
     {
-        unset(
-            $validated['taxonomy_term_ids'],
-            $validated['taxonomies'],
-            $validated['custom_fields'],
-            $validated['relationship_post_types'],
-            $validated['related_posts'],
-            $validated['featured_image'],
-            $validated['gallery_images'],
-            $validated['post_type'],
-            $validated['keyword'],
-            $validated['keywords'],
-            $validated['user_id'],
-            $validated['assigned_user_id'],
-        );
+        $allowedColumns = [
+            'post_type_id',
+            'title',
+            'slug',
+            'excerpt',
+            'content',
+            'featured_image_id',
+            'gallery_image_ids',
+            'status',
+            'live_status',
+            'author_id',
+            'parent_id',
+            'published_at',
+            'sort_order',
+            'listing_code',
+            'country_id',
+            'state_id',
+            'city_id',
+            'area_locality',
+        ];
 
-        if (array_key_exists('gallery_image_ids', $validated)) {
-            $validated['gallery_image_ids'] = $this->normalizeIds($validated['gallery_image_ids']);
+        $payload = [];
 
-            if (!$this->dynamicPostHasArrayCast('gallery_image_ids')) {
-                $validated['gallery_image_ids'] = json_encode($validated['gallery_image_ids']);
+        foreach ($allowedColumns as $column) {
+            if (
+                array_key_exists($column, $validated)
+                && Schema::hasColumn('dynamic_posts', $column)
+            ) {
+                $payload[$column] = $validated[$column];
             }
         }
 
-        return $validated;
+        if (array_key_exists('gallery_image_ids', $payload)) {
+            $payload['gallery_image_ids'] = $this->normalizeIds($payload['gallery_image_ids']);
+
+            if (!$this->dynamicPostHasArrayCast('gallery_image_ids')) {
+                $payload['gallery_image_ids'] = json_encode($payload['gallery_image_ids']);
+            }
+        }
+
+        return $payload;
     }
 
     private function dynamicPostHasArrayCast(string $field): bool
@@ -4086,81 +4119,128 @@ class DynamicPostController extends Controller
         return [
             [
                 'key' => 'featured_image_id',
+                'field_name_slug' => 'featured_image_id',
+                'request_key' => 'featured_image_id',
                 'label' => 'Featured Image',
+                'field_label' => 'Featured Image',
+                'type' => 'media',
+                'field_type' => 'media',
                 'enabled' => $supports['featured_image'] ?? false,
+                'is_base_field' => true,
             ],
             [
                 'key' => 'title',
+                'field_name_slug' => 'title',
+                'request_key' => 'title',
                 'label' => 'Title',
+                'field_label' => 'Title',
+                'type' => 'text',
+                'field_type' => 'text',
                 'enabled' => $supports['title'] ?? false,
+                'is_base_field' => true,
             ],
             [
                 'key' => 'content',
+                'field_name_slug' => 'content',
+                'request_key' => 'content',
                 'label' => 'Content',
+                'field_label' => 'Content',
+                'type' => 'richtext',
+                'field_type' => 'richtext',
                 'enabled' => $supports['content'] ?? false,
+                'is_base_field' => true,
             ],
             [
                 'key' => 'excerpt',
+                'field_name_slug' => 'excerpt',
+                'request_key' => 'excerpt',
                 'label' => 'Excerpt',
+                'field_label' => 'Excerpt',
+                'type' => 'textarea',
+                'field_type' => 'textarea',
                 'enabled' => $supports['excerpt'] ?? false,
+                'is_base_field' => true,
             ],
             [
                 'key' => 'gallery_image_ids',
+                'field_name_slug' => 'gallery_image_ids',
+                'request_key' => 'gallery_image_ids',
                 'label' => 'Gallery',
+                'field_label' => 'Gallery',
+                'type' => 'gallery',
+                'field_type' => 'gallery',
                 'enabled' => $supports['gallery'] ?? false,
+                'multiple' => true,
+                'is_base_field' => true,
             ],
             [
-                'key' => 'location',
-                'label' => 'Location',
+                'key' => 'country_id',
+                'field_name_slug' => 'country_id',
+                'request_key' => 'country_id',
+                'label' => 'Country',
+                'field_label' => 'Country',
+                'type' => 'select',
+                'field_type' => 'select',
                 'enabled' => $supports['location'] ?? false,
-                'type' => 'group',
-                'fields' => [
-                    [
-                        'key' => 'country_id',
-                        'label' => 'Country',
-                        'type' => 'select',
-                        'request_key' => 'country_id',
-                        'multiple' => false,
-                        'nullable' => true,
-                        'options_api' => 'countries',
-                    ],
-                    [
-                        'key' => 'state_id',
-                        'label' => 'State',
-                        'type' => 'select',
-                        'request_key' => 'state_id',
-                        'multiple' => false,
-                        'nullable' => true,
-                        'depends_on' => 'country_id',
-                        'options_api' => 'states/{country_id}',
-                    ],
-                    [
-                        'key' => 'city_id',
-                        'label' => 'City',
-                        'type' => 'select',
-                        'request_key' => 'city_id',
-                        'multiple' => false,
-                        'nullable' => true,
-                        'depends_on' => 'state_id',
-                        'options_api' => 'cities/{state_id}',
-                    ],
-                    [
-                        'key' => 'area_locality',
-                        'label' => 'Area / Locality',
-                        'type' => 'text',
-                        'request_key' => 'area_locality',
-                        'nullable' => true,
-                    ],
-                ],
+                'multiple' => false,
+                'nullable' => true,
+                'options_api' => 'countries',
+                'is_base_field' => true,
+            ],
+            [
+                'key' => 'state_id',
+                'field_name_slug' => 'state_id',
+                'request_key' => 'state_id',
+                'label' => 'State',
+                'field_label' => 'State',
+                'type' => 'select',
+                'field_type' => 'select',
+                'enabled' => $supports['location'] ?? false,
+                'multiple' => false,
+                'nullable' => true,
+                'depends_on' => 'country_id',
+                'options_api' => 'states/{country_id}',
+                'is_base_field' => true,
+            ],
+            [
+                'key' => 'city_id',
+                'field_name_slug' => 'city_id',
+                'request_key' => 'city_id',
+                'label' => 'City',
+                'field_label' => 'City',
+                'type' => 'select',
+                'field_type' => 'select',
+                'enabled' => $supports['location'] ?? false,
+                'multiple' => false,
+                'nullable' => true,
+                'depends_on' => 'state_id',
+                'options_api' => 'cities/{state_id}',
+                'is_base_field' => true,
+            ],
+            [
+                'key' => 'area_locality',
+                'field_name_slug' => 'area_locality',
+                'request_key' => 'area_locality',
+                'label' => 'Area / Locality',
+                'field_label' => 'Area / Locality',
+                'type' => 'text',
+                'field_type' => 'text',
+                'enabled' => $supports['location'] ?? false,
+                'nullable' => true,
+                'is_base_field' => true,
             ],
             [
                 'key' => 'keywords',
-                'label' => 'Keywords',
-                'enabled' => $supports['keywords'] ?? false,
-                'type' => 'tag_autocomplete',
-                'multiple' => true,
+                'field_name_slug' => 'keywords',
                 'request_key' => 'keywords',
+                'label' => 'Keywords',
+                'field_label' => 'Keywords',
+                'type' => 'tag_autocomplete',
+                'field_type' => 'tag_autocomplete',
+                'enabled' => $supports['keywords'] ?? false,
+                'multiple' => true,
                 'suggestion_api' => 'dynamic-post-keyword-suggestions',
+                'is_base_field' => true,
             ],
         ];
     }
@@ -4450,6 +4530,7 @@ class DynamicPostController extends Controller
         ]);
 
         $data = $post->toArray();
+
         $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
         $data['display_id'] = $post->listing_code ?? null;
 
@@ -4466,12 +4547,29 @@ class DynamicPostController extends Controller
             ->toArray();
 
         $data['gallery_image_files'] = $galleryMedia;
+
         $data['meta'] = $this->formatMetaForFrontend($data['meta'] ?? []);
+
         $data['selected_relationship_post_types'] = $this->formatRelationshipPostTypesForFrontend($post);
+
         $data['selected_keywords'] = $this->formatSelectedKeywords($post);
         $data['keywords'] = $data['selected_keywords'];
-        $data['user_id'] = $this->formatAssignedUser($post);
+
+        $assignedUser = $this->formatAssignedUser($post);
+
+        $data['assigned_user'] = $assignedUser;
+        $data['assigned_user_id'] = $assignedUser['id'] ?? null;
+
+        // Keep user_id as integer for frontend edit form
+        $data['user_id'] = $assignedUser['id'] ?? ($post->author_id ? (int) $post->author_id : null);
+
+        $data['country_id'] = $post->country_id ? (int) $post->country_id : null;
+        $data['state_id'] = $post->state_id ? (int) $post->state_id : null;
+        $data['city_id'] = $post->city_id ? (int) $post->city_id : null;
+        $data['area_locality'] = $post->area_locality ?? null;
+
         $data['location'] = $this->formatLocationForDynamicPost($post);
+
         return $data;
     }
 
