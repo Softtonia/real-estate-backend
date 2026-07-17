@@ -40,11 +40,10 @@ class DynamicPostFormStepController extends Controller
 
             $steps = $this->service->steps($postTypeData);
 
-            $customFields = $this->service->formattedCustomFields($postTypeData, $termIds);
-
+            $customFields = $this->service->formattedCustomFields($postTypeData, $termIds, false);
             $fieldIds = $customFields
                 ->pluck('id')
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->values()
                 ->toArray();
 
@@ -70,8 +69,8 @@ class DynamicPostFormStepController extends Controller
 
             $stepsPayload = $steps->map(function (DynamicPostFormStep $step) use ($fieldsWithMapping) {
                 $stepFields = $fieldsWithMapping
-                    ->filter(fn ($field) => ($field['mapping']['step_key'] ?? null) === $step->step_key)
-                    ->sortBy(fn ($field) => $field['mapping']['sort_order'] ?? 0)
+                    ->filter(fn($field) => ($field['mapping']['step_key'] ?? null) === $step->step_key)
+                    ->sortBy(fn($field) => $field['mapping']['sort_order'] ?? 0)
                     ->values();
 
                 return [
@@ -87,7 +86,7 @@ class DynamicPostFormStepController extends Controller
             })->values();
 
             $unmappedFields = $fieldsWithMapping
-                ->filter(fn ($field) => empty($field['is_mapped']))
+                ->filter(fn($field) => empty($field['is_mapped']))
                 ->values();
 
             return response()->json([
@@ -103,7 +102,6 @@ class DynamicPostFormStepController extends Controller
                     'unmapped_custom_fields' => $unmappedFields,
                 ],
             ]);
-
         } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,
@@ -146,7 +144,6 @@ class DynamicPostFormStepController extends Controller
                     'steps' => $steps,
                 ],
             ]);
-
         } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
@@ -175,9 +172,9 @@ class DynamicPostFormStepController extends Controller
             $termIds = $this->service->normalizeIds($request->input('taxonomy_term_ids'));
 
             $allowedCustomFieldIds = $this->service
-                ->formattedCustomFields($postTypeData, $termIds)
+                ->formattedCustomFields($postTypeData, $termIds, false)
                 ->pluck('id')
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->values()
                 ->toArray();
 
@@ -188,7 +185,6 @@ class DynamicPostFormStepController extends Controller
             );
 
             return $this->builder($request, $postTypeData->id);
-
         } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,
@@ -226,7 +222,11 @@ class DynamicPostFormStepController extends Controller
 
             $steps = $this->service->activeSteps($postTypeData);
 
-            $customFields = $this->service->formattedCustomFields($postTypeData, $termIds);
+            $customFields = $this->service->formattedCustomFields(
+                $postTypeData,
+                $termIds,
+                !empty($termIds)
+            );
 
             $customFieldsById = $customFields->keyBy('id');
 
@@ -239,7 +239,7 @@ class DynamicPostFormStepController extends Controller
 
                 $stepCustomFields = $stepMappings
                     ->sortBy('sort_order')
-                    ->map(fn ($mapping) => $customFieldsById->get((int) $mapping->custom_field_id))
+                    ->map(fn($mapping) => $customFieldsById->get((int) $mapping->custom_field_id))
                     ->filter()
                     ->values();
 
@@ -268,7 +268,6 @@ class DynamicPostFormStepController extends Controller
                     'submit_method' => 'POST',
                 ],
             ]);
-
         } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,

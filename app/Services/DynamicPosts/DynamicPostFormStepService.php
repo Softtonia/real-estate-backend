@@ -10,6 +10,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use App\Models\TaxonomyTerm;
 
 class DynamicPostFormStepService
 {
@@ -54,8 +55,8 @@ class DynamicPostFormStepService
         }
 
         return collect($ids)
-            ->filter(fn ($id) => $id !== null && $id !== '' && is_numeric($id))
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -157,54 +158,241 @@ class DynamicPostFormStepService
             ->get();
     }
 
-    public function formattedCustomFields(PostType $postType, array $taxonomyTermIds = []): Collection
-    {
-        return $this->availableCustomFields($postType, $taxonomyTermIds)
-            ->map(fn ($field) => $this->formatCustomField($field))
+    public function formattedCustomFields(
+        PostType $postType,
+        array $taxonomyTermIds = [],
+        bool $applyTaxonomyConditions = false
+    ): Collection {
+        return $this->availableCustomFields($postType, $taxonomyTermIds, $applyTaxonomyConditions)
+            ->map(fn($field) => $this->formatCustomField($field))
             ->values();
     }
+    public function availableCustomFields(
+        PostType $postType,
+        array $taxonomyTermIds = [],
+        bool $applyTaxonomyConditions = false
+    ): Collection {
+        $selectedTaxonomyIds = $this->selectedTaxonomyIdsFromTerms($taxonomyTermIds);
 
-    public function availableCustomFields(PostType $postType, array $taxonomyTermIds = []): Collection
-    {
-        $query = CustomField::query();
-
-        $relations = [];
-
-        if (method_exists(CustomField::class, 'options')) {
-            $relations[] = 'options';
-        }
-
-        if (method_exists(CustomField::class, 'repeaters')) {
-            $relations[] = 'repeaters.options';
-        }
-
-        if (method_exists(CustomField::class, 'locationRules')) {
-            $relations[] = 'locationRules';
-        }
-
-        if (!empty($relations)) {
-            $query->with($relations);
-        }
-
-        if (Schema::hasColumn('custom_fields', 'status')) {
-            $query->where(function ($q) {
-                $q->where('status', true)
-                    ->orWhere('status', 1)
-                    ->orWhere('status', 'active');
-            });
-        }
-
-        if (Schema::hasColumn('custom_fields', 'sort_order')) {
-            $query->orderBy('sort_order', 'asc');
-        } else {
-            $query->orderBy('id', 'asc');
-        }
-
-        return $query->get()
-            ->filter(fn ($field) => $this->fieldMatchesPostType($field, $postType, $taxonomyTermIds))
+        return CustomField::query()
+            ->with([
+                'group.locationRules' => function ($query) {
+                    $query->where('status', true)
+                        ->whereNull('custom_field_id')
+                        ->orderBy('rule_group', 'asc')
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc');
+                },
+                'options' => function ($query) {
+                    $query->where('status', true)
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc');
+                },
+                'repeaters' => function ($query) {
+                    $query->where('status', true)
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc')
+                        ->with([
+                            'options' => function ($optionQuery) {
+                                $optionQuery->where('status', true)
+                                    ->orderBy('sort_order', 'asc')
+                                    ->orderBy('id', 'asc');
+                            },
+                        ]);
+                },
+                'locationRules' => function ($query) {
+                    $query->where('status', true)
+                        ->whereNotNull('custom_field_id')
+                        ->orderBy('rule_group', 'asc')
+                        ->orderBy('sort_order', 'asc')
+                        ->orderBy('id', 'asc');
+                },
+                'conditions.taxonomy',
+                'conditions.taxonomyTerm',
+            ])
+            ->where('status', true)
+            ->orderBy('sort_order', 'asc')
+            ->orderBy('id', 'asc')
+            ->get()
+            ->filter(function ($field) use (
+                $postType,
+                $taxonomyTermIds,
+                $selectedTaxonomyIds,
+                $applyTaxonomyConditions
+            ) {
+                return $this->fieldLocationRulesMatch(
+                    $field,
+                    (int) $postType->id,
+                    $selectedTaxonomyIds,
+                    $taxonomyTermIds
+                )
+                    && $this->fieldConditionsMatch(
+                        $field,
+                        $taxonomyTermIds,
+                        $applyTaxonomyConditions
+                    );
+            })
             ->values();
     }
+    private function selectedTaxonomyIdsFromTerms(array $selectedTermIds): array
+    {
+        if (empty($selectedTermIds)) {
+            return [];
+        }
 
+        return TaxonomyTerm::query()
+            ->whereIn('id', $selectedTermIds)
+            ->pluck('taxonomy_id')
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function fieldLocationRulesMatch(
+        $field,
+        int $postTypeId,
+        array $selectedTaxonomyIds,
+        array $selectedTermIds
+    ): bool {
+        $groupRules = $field->group?->locationRules ?? collect();
+        $fieldRules = $field->locationRules ?? collect();
+
+        $groupMatched = $groupRules->isEmpty()
+            ? true
+            : $this->locationRuleCollectionMatches(
+                $groupRules,
+                $postTypeId,
+                $selectedTaxonomyIds,
+                $selectedTermIds
+            );
+
+        $fieldMatched = $fieldRules->isEmpty()
+            ? true
+            : $this->locationRuleCollectionMatches(
+                $fieldRules,
+                $postTypeId,
+                $selectedTaxonomyIds,
+                $selectedTermIds
+            );
+
+        return $groupMatched && $fieldMatched;
+    }
+
+    private function locationRuleCollectionMatches(
+        $rules,
+        int $postTypeId,
+        array $selectedTaxonomyIds,
+        array $selectedTermIds
+    ): bool {
+        if ($rules->isEmpty()) {
+            return true;
+        }
+
+        $groupedRules = $rules->groupBy(fn($rule) => $rule->rule_group ?? 1);
+
+        foreach ($groupedRules as $groupRules) {
+            $groupMatched = true;
+
+            foreach ($groupRules as $rule) {
+                if (!$this->singleLocationRuleMatches(
+                    $rule,
+                    $postTypeId,
+                    $selectedTaxonomyIds,
+                    $selectedTermIds
+                )) {
+                    $groupMatched = false;
+                    break;
+                }
+            }
+
+            if ($groupMatched) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function singleLocationRuleMatches(
+        $rule,
+        int $postTypeId,
+        array $selectedTaxonomyIds,
+        array $selectedTermIds
+    ): bool {
+        $operator = $rule->operator ?: 'is_equal_to';
+        $matchType = $rule->match_type ?: 'specific';
+
+        if ($rule->show_if === 'post_type') {
+            $matched = $matchType === 'all'
+                ? true
+                : (int) $rule->post_type_id === $postTypeId;
+
+            return $operator === 'is_not_equal_to' ? !$matched : $matched;
+        }
+
+        if ($rule->show_if === 'taxonomy') {
+            if ($matchType === 'all') {
+                $matched = true;
+            } else {
+                $taxonomyMatched = empty($rule->taxonomy_id)
+                    ? true
+                    : in_array((int) $rule->taxonomy_id, $selectedTaxonomyIds, true);
+
+                $ruleTermIds = $this->normalizeIds($rule->taxonomy_term_ids ?? []);
+
+                $termMatched = empty($ruleTermIds)
+                    ? $taxonomyMatched
+                    : count(array_intersect($ruleTermIds, $selectedTermIds)) > 0;
+
+                $matched = $taxonomyMatched && $termMatched;
+            }
+
+            return $operator === 'is_not_equal_to' ? !$matched : $matched;
+        }
+
+        return false;
+    }
+
+    private function fieldConditionsMatch(
+        $field,
+        array $selectedTermIds,
+        bool $applyTaxonomyConditions = false
+    ): bool {
+        if (!$applyTaxonomyConditions) {
+            return true;
+        }
+
+        $conditions = $field->conditions ?? collect();
+
+        if ($conditions->isEmpty()) {
+            return true;
+        }
+
+        $includeTermIds = $conditions
+            ->filter(fn($condition) => ($condition->operator ?? 'include') === 'include')
+            ->pluck('taxonomy_term_id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->toArray();
+
+        $excludeTermIds = $conditions
+            ->filter(fn($condition) => ($condition->operator ?? 'include') === 'exclude')
+            ->pluck('taxonomy_term_id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->toArray();
+
+        if (!empty($excludeTermIds) && count(array_intersect($excludeTermIds, $selectedTermIds)) > 0) {
+            return false;
+        }
+
+        if (!empty($includeTermIds)) {
+            return count(array_intersect($includeTermIds, $selectedTermIds)) > 0;
+        }
+
+        return true;
+    }
     private function fieldMatchesPostType($field, PostType $postType, array $selectedTermIds = []): bool
     {
         if (
@@ -287,7 +475,7 @@ class DynamicPostFormStepService
             'sort_order' => (int) ($field->sort_order ?? 0),
             'status' => $field->status ?? null,
 
-            'options' => collect($field->options ?? [])->map(fn ($option) => [
+            'options' => collect($field->options ?? [])->map(fn($option) => [
                 'id' => (int) $option->id,
                 'name' => $option->name ?? null,
                 'label' => $option->name ?? null,
@@ -296,14 +484,14 @@ class DynamicPostFormStepService
                 'sort_order' => (int) ($option->sort_order ?? 0),
             ])->values(),
 
-            'repeaters' => collect($field->repeaters ?? [])->map(fn ($repeater) => [
+            'repeaters' => collect($field->repeaters ?? [])->map(fn($repeater) => [
                 'id' => (int) $repeater->id,
                 'field_label' => $repeater->field_label ?? null,
                 'field_name_slug' => $repeater->field_name_slug ?? null,
                 'field_type' => $repeater->field_type ?? null,
                 'required' => (bool) ($repeater->required ?? false),
                 'sort_order' => (int) ($repeater->sort_order ?? 0),
-                'options' => collect($repeater->options ?? [])->map(fn ($option) => [
+                'options' => collect($repeater->options ?? [])->map(fn($option) => [
                     'id' => (int) $option->id,
                     'name' => $option->name ?? null,
                     'value' => $option->value ?? null,
