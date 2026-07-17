@@ -99,6 +99,7 @@ use App\Http\Controllers\Api\PostTaxonomyTermController;
 use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
 use App\Http\Controllers\Api\DynamicPostCsvController;
+use App\Http\Controllers\Api\DynamicPostFormStepController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\ListingUserAssignmentController;
@@ -1062,12 +1063,40 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
         ->whereNumber('dynamicPost');
     Route::get('dynamic-posts/template/{slug}', [TemplateResolveController::class, 'showDynamicPostTemplateBySlug']);
+    Route::get(
+        'dynamic-post-form-steps/{postType}/builder',
+        [DynamicPostFormStepController::class, 'builder']
+    );
+
+    Route::post(
+        'dynamic-post-form-steps/{postType}/steps',
+        [DynamicPostFormStepController::class, 'saveSteps']
+    );
+
+    Route::post(
+        'dynamic-post-form-steps/{postType}/mapping',
+        [DynamicPostFormStepController::class, 'saveMapping']
+    );
 });
 Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::get('frontend/listing-roles', [DynamicPostController::class, 'frontendListingRoleDropdown']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Frontend User Listing Step Form
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        'frontend/dynamic-post-step-form/{postType}',
+        [DynamicPostFormStepController::class, 'frontendForm']
+    );
+
     Route::post('frontend/listings', [DynamicPostController::class, 'storeFrontendListing']);
+
     Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
     Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
+
     Route::prefix('frontend')->name('frontend.listings.')->group(function () {
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
         Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
