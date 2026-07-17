@@ -5,10 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DynamicPost;
 use App\Models\PostType;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -19,13 +18,8 @@ class UserPropertyListingController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $validated = $request->validate([
+            $request->validate([
                 'users_property_listings' => [
-                    'nullable',
-                    'string',
-                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish']),
-                ],
-                'users-Property-listings' => [
                     'nullable',
                     'string',
                     Rule::in(['all', 'active', 'inactive', 'draft', 'publish']),
@@ -34,18 +28,23 @@ class UserPropertyListingController extends Controller
                 'page' => ['nullable', 'integer', 'min:1'],
             ]);
 
-            $userId = Auth::id();
+            $user = $this->resolveCurrentUser($request);
 
-            if (!$userId) {
+            if (!$user) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Unauthenticated user.',
                 ], 401);
             }
 
-            $filter = $request->query('users_property_listings')
-                ?? $request->query('users-Property-listings')
-                ?? 'all';
+            if (!Schema::hasColumn('dynamic_posts', 'author_id')) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'author_id column is required in dynamic_posts table to fetch own uploaded listings.',
+                ], 500);
+            }
+
+            $filter = $request->query('users_property_listings', 'all');
 
             $postType = PostType::query()
                 ->where('slug', 'property-listing')
@@ -66,20 +65,11 @@ class UserPropertyListingController extends Controller
                     'meta.customField.repeaters.options',
                 ])
                 ->where('post_type_id', $postType->id)
-                ->where(function ($userQuery) use ($userId) {
-                    if (Schema::hasColumn('dynamic_posts', 'author_id')) {
-                        $userQuery->where('author_id', $userId);
-                    }
 
-                    if (Schema::hasTable('dynamic_post_user')) {
-                        $userQuery->orWhereExists(function ($subQuery) use ($userId) {
-                            $subQuery->select(DB::raw(1))
-                                ->from('dynamic_post_user')
-                                ->whereColumn('dynamic_post_user.dynamic_post_id', 'dynamic_posts.id')
-                                ->where('dynamic_post_user.user_id', $userId);
-                        });
-                    }
-                });
+                // IMPORTANT:
+                // Only own uploaded listings.
+                // No dynamic_post_user pivot here.
+                ->where('author_id', (int) $user->id);
 
             $this->applyListingFilter($query, $filter);
 
@@ -100,6 +90,11 @@ class UserPropertyListingController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'User property listings fetched successfully.',
+                'current_user' => [
+                    'id' => (int) $user->id,
+                    'name' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) ?: ($user->name ?? null),
+                    'email' => $user->email ?? null,
+                ],
                 'filter' => $filter,
                 'data' => $listings,
             ]);
@@ -117,6 +112,29 @@ class UserPropertyListingController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function resolveCurrentUser(Request $request): ?User
+    {
+        if ($request->user()) {
+            return $request->user();
+        }
+
+        $token = $request->bearerToken();
+
+        if (!$token && $request->filled('api_token')) {
+            $token = $request->api_token;
+        }
+
+        if (!$token) {
+            return null;
+        }
+
+        if (Schema::hasColumn('users', 'api_token')) {
+            return User::where('api_token', $token)->first();
+        }
+
+        return null;
     }
 
     private function applyListingFilter($query, string $filter): void
@@ -147,11 +165,14 @@ class UserPropertyListingController extends Controller
         $data = [
             'id' => (int) $listing->id,
             'post_type_id' => (int) $listing->post_type_id,
+
             'post_type' => [
-                'id' => (int) $listing->postType?->id,
+                'id' => $listing->postType ? (int) $listing->postType->id : null,
                 'name' => $listing->postType?->name,
                 'slug' => $listing->postType?->slug,
             ],
+
+            'author_id' => $listing->author_id ? (int) $listing->author_id : null,
 
             'listing_code' => $listing->listing_code ?? null,
             'display_id' => $listing->listing_code ?? null,
@@ -186,7 +207,7 @@ class UserPropertyListingController extends Controller
         }
 
         if (Schema::hasColumn('dynamic_posts', 'rejected_by')) {
-            $data['rejected_by'] = $listing->rejected_by ?? null;
+            $data['rejected_by'] = $listing->rejected_by ? (int) $listing->rejected_by : null;
         }
 
         return $data;
