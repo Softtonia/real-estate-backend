@@ -42,6 +42,9 @@ class DynamicPostController extends Controller
         'taxonomyTerms.taxonomy',
         'meta.customField.options',
         'meta.customField.repeaters.options',
+        'country:id,name',
+        'state:id,name,country_id',
+        'city:id,name,state_id',
     ];
 
     private array $singlePostRelations = [
@@ -51,6 +54,9 @@ class DynamicPostController extends Controller
         'taxonomyTerms.taxonomy',
         'meta.customField.options',
         'meta.customField.repeaters.options',
+        'country:id,name',
+        'state:id,name,country_id',
+        'city:id,name,state_id',
     ];
 
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
@@ -4118,6 +4124,7 @@ class DynamicPostController extends Controller
                     [
                         'key' => 'country_id',
                         'label' => 'Country',
+                        'enabled' => $supports['location'] ?? false,
                         'type' => 'select',
                         'request_key' => 'country_id',
                         'multiple' => false,
@@ -4127,6 +4134,7 @@ class DynamicPostController extends Controller
                     [
                         'key' => 'state_id',
                         'label' => 'State',
+                        'enabled' => $supports['location'] ?? false,
                         'type' => 'select',
                         'request_key' => 'state_id',
                         'multiple' => false,
@@ -4137,6 +4145,7 @@ class DynamicPostController extends Controller
                     [
                         'key' => 'city_id',
                         'label' => 'City',
+                        'enabled' => $supports['location'] ?? false,
                         'type' => 'select',
                         'request_key' => 'city_id',
                         'multiple' => false,
@@ -4147,6 +4156,7 @@ class DynamicPostController extends Controller
                     [
                         'key' => 'area_locality',
                         'label' => 'Area / Locality',
+                        'enabled' => $supports['location'] ?? false,
                         'type' => 'text',
                         'request_key' => 'area_locality',
                         'nullable' => true,
@@ -4164,7 +4174,67 @@ class DynamicPostController extends Controller
             ],
         ];
     }
+    private function formatLocationForDynamicPost(DynamicPost $post): array
+    {
+        $country = $post->relationLoaded('country')
+            ? $post->country
+            : (!empty($post->country_id)
+                ? Country::query()->select('id', 'name')->find((int) $post->country_id)
+                : null);
 
+        $state = $post->relationLoaded('state')
+            ? $post->state
+            : (!empty($post->state_id)
+                ? State::query()->select('id', 'name', 'country_id')->find((int) $post->state_id)
+                : null);
+
+        $city = $post->relationLoaded('city')
+            ? $post->city
+            : (!empty($post->city_id)
+                ? City::query()->select('id', 'name', 'state_id')->find((int) $post->city_id)
+                : null);
+
+        $fullAddress = collect([
+            $post->area_locality ?? null,
+            $city?->name,
+            $state?->name,
+            $country?->name,
+        ])
+            ->filter()
+            ->values()
+            ->implode(', ');
+
+        return [
+            'country_id' => $country ? (int) $country->id : null,
+            'country_name' => $country?->name,
+
+            'state_id' => $state ? (int) $state->id : null,
+            'state_name' => $state?->name,
+
+            'city_id' => $city ? (int) $city->id : null,
+            'city_name' => $city?->name,
+
+            'area_locality' => $post->area_locality ?? null,
+            'full_address' => $fullAddress ?: null,
+
+            'country' => $country ? [
+                'id' => (int) $country->id,
+                'name' => $country->name,
+            ] : null,
+
+            'state' => $state ? [
+                'id' => (int) $state->id,
+                'name' => $state->name,
+                'country_id' => (int) $state->country_id,
+            ] : null,
+
+            'city' => $city ? [
+                'id' => (int) $city->id,
+                'name' => $city->name,
+                'state_id' => (int) $city->state_id,
+            ] : null,
+        ];
+    }
     private function statusOptions(): array
     {
         return [
@@ -4472,6 +4542,10 @@ class DynamicPostController extends Controller
         $data['keywords'] = $data['selected_keywords'];
         $data['user_id'] = $this->formatAssignedUser($post);
         $data['location'] = $this->formatLocationForDynamicPost($post);
+        $data['country_id'] = $post->country_id ? (int) $post->country_id : null;
+        $data['state_id'] = $post->state_id ? (int) $post->state_id : null;
+        $data['city_id'] = $post->city_id ? (int) $post->city_id : null;
+        $data['area_locality'] = $post->area_locality ?? null;
         return $data;
     }
 
