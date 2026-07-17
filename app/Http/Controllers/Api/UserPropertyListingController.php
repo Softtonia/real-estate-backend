@@ -8,6 +8,7 @@ use App\Models\PostType;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -20,6 +21,11 @@ class UserPropertyListingController extends Controller
         try {
             $request->validate([
                 'users_property_listings' => [
+                    'nullable',
+                    'string',
+                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish']),
+                ],
+                'users-Property-listings' => [
                     'nullable',
                     'string',
                     Rule::in(['all', 'active', 'inactive', 'draft', 'publish']),
@@ -37,6 +43,18 @@ class UserPropertyListingController extends Controller
                 ], 401);
             }
 
+            if ($this->isAdminUser($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Admin token is not allowed for user property listings API.',
+                    'current_user' => [
+                        'id' => (int) $user->id,
+                        'name' => $this->userDisplayName($user),
+                        'email' => $user->email ?? null,
+                    ],
+                ], 403);
+            }
+
             if (!Schema::hasColumn('dynamic_posts', 'author_id')) {
                 return response()->json([
                     'status' => false,
@@ -44,7 +62,9 @@ class UserPropertyListingController extends Controller
                 ], 500);
             }
 
-            $filter = $request->query('users_property_listings', 'all');
+            $filter = $request->query('users_property_listings')
+                ?? $request->query('users-Property-listings')
+                ?? 'all';
 
             $postType = PostType::query()
                 ->where('slug', 'property-listing')
@@ -64,11 +84,7 @@ class UserPropertyListingController extends Controller
                     'meta.customField.options',
                     'meta.customField.repeaters.options',
                 ])
-                ->where('post_type_id', $postType->id)
-
-                // IMPORTANT:
-                // Only own uploaded listings.
-                // No dynamic_post_user pivot here.
+                ->where('post_type_id', (int) $postType->id)
                 ->where('author_id', (int) $user->id);
 
             $this->applyListingFilter($query, $filter);
@@ -92,13 +108,12 @@ class UserPropertyListingController extends Controller
                 'message' => 'User property listings fetched successfully.',
                 'current_user' => [
                     'id' => (int) $user->id,
-                    'name' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) ?: ($user->name ?? null),
+                    'name' => $this->userDisplayName($user),
                     'email' => $user->email ?? null,
                 ],
                 'filter' => $filter,
                 'data' => $listings,
             ]);
-
         } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,
@@ -116,9 +131,14 @@ class UserPropertyListingController extends Controller
 
     private function resolveCurrentUser(Request $request): ?User
     {
-        if ($request->user()) {
-            return $request->user();
-        }
+        /*
+        |--------------------------------------------------------------------------
+        | Very important
+        |--------------------------------------------------------------------------
+        | For this API, always resolve user from Bearer token first.
+        | Do not trust $request->user() first because middleware can resolve admin.
+        |--------------------------------------------------------------------------
+        */
 
         $token = $request->bearerToken();
 
@@ -130,11 +150,13 @@ class UserPropertyListingController extends Controller
             return null;
         }
 
-        if (Schema::hasColumn('users', 'api_token')) {
-            return User::where('api_token', $token)->first();
+        if (!Schema::hasColumn('users', 'api_token')) {
+            return null;
         }
 
-        return null;
+        return User::query()
+            ->where('api_token', $token)
+            ->first();
     }
 
     private function applyListingFilter($query, string $filter): void
@@ -224,5 +246,57 @@ class UserPropertyListingController extends Controller
             'submit' => 'Submitted',
             default => 'Pending',
         };
+    }
+
+    private function userDisplayName(User $user): ?string
+    {
+        $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+
+        return $fullName
+            ?: ($user->name ?? null)
+            ?: ($user->email ?? null);
+    }
+
+    private function isAdminUser(User $user): bool
+    {
+        $blockedRoles = [
+            'admin',
+            'administrator',
+            'super_admin',
+            'super admin',
+            'super-admin',
+        ];
+
+        if (Schema::hasColumn('users', 'role')) {
+            $role = strtolower(trim((string) ($user->role ?? '')));
+
+            if (in_array($role, $blockedRoles, true)) {
+                return true;
+            }
+        }
+
+        if (
+            Schema::hasColumn('users', 'role_id')
+            && !empty($user->role_id)
+            && Schema::hasTable('roles')
+        ) {
+            $role = DB::table('roles')
+                ->where('id', $user->role_id)
+                ->first();
+
+            if ($role) {
+                foreach (['name', 'slug', 'role_name'] as $column) {
+                    if (property_exists($role, $column)) {
+                        $value = strtolower(trim((string) $role->{$column}));
+
+                        if (in_array($value, $blockedRoles, true)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 }
