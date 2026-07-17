@@ -34,7 +34,7 @@ class DynamicPostFormStepController extends Controller
                 ], 404);
             }
 
-            $this->service->ensureDefaultSteps($postTypeData);
+            
 
             $termIds = $this->service->normalizeIds($request->taxonomy_term_ids);
 
@@ -167,7 +167,7 @@ class DynamicPostFormStepController extends Controller
                 ], 404);
             }
 
-            $this->service->ensureDefaultSteps($postTypeData);
+            
 
             $termIds = $this->service->normalizeIds($request->input('taxonomy_term_ids'));
 
@@ -216,7 +216,7 @@ class DynamicPostFormStepController extends Controller
                 ], 404);
             }
 
-            $this->service->ensureDefaultSteps($postTypeData);
+            
 
             $termIds = $this->service->normalizeIds($request->taxonomy_term_ids);
 

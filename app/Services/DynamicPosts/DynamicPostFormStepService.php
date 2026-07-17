@@ -120,6 +120,26 @@ class DynamicPostFormStepService
     public function saveSteps(PostType $postType, array $steps): Collection
     {
         return DB::transaction(function () use ($postType, $steps) {
+            $submittedStepKeys = collect($steps)
+                ->pluck('step_key')
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+
+            DynamicPostFormStepField::query()
+                ->where('post_type_id', (int) $postType->id)
+                ->whereHas('step', function ($query) use ($postType, $submittedStepKeys) {
+                    $query->where('post_type_id', (int) $postType->id)
+                        ->whereNotIn('step_key', $submittedStepKeys);
+                })
+                ->delete();
+
+            DynamicPostFormStep::query()
+                ->where('post_type_id', (int) $postType->id)
+                ->whereNotIn('step_key', $submittedStepKeys)
+                ->delete();
+
             foreach ($steps as $index => $step) {
                 DynamicPostFormStep::updateOrCreate(
                     [
