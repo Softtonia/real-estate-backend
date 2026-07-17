@@ -3,13 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Country;
 use App\Models\DynamicPost;
+use App\Models\MediaFile;
 use App\Models\PostType;
+use App\Models\State;
+use App\Models\City;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -77,9 +82,17 @@ class UserPropertyListingController extends Controller
                 ], 404);
             }
 
+            $baseQuery = DynamicPost::query()
+                ->where('post_type_id', (int) $postType->id)
+                ->where('author_id', (int) $user->id);
+
+            $analytics = $this->buildAnalytics($baseQuery);
+
             $query = DynamicPost::query()
                 ->with([
                     'postType',
+                    'parent:id,post_type_id,title,slug,status,live_status',
+                    'children:id,post_type_id,parent_id,title,slug,status,live_status',
                     'taxonomyTerms.taxonomy',
                     'meta.customField.options',
                     'meta.customField.repeaters.options',
@@ -100,7 +113,7 @@ class UserPropertyListingController extends Controller
             $listings = $query->paginate($perPage);
 
             $listings->getCollection()->transform(function ($listing) {
-                return $this->formatListing($listing);
+                return $this->formatFullDynamicPost($listing);
             });
 
             return response()->json([
@@ -112,6 +125,7 @@ class UserPropertyListingController extends Controller
                     'email' => $user->email ?? null,
                 ],
                 'filter' => $filter,
+                'analytics' => $analytics,
                 'data' => $listings,
             ]);
         } catch (ValidationException $e) {
@@ -131,15 +145,6 @@ class UserPropertyListingController extends Controller
 
     private function resolveCurrentUser(Request $request): ?User
     {
-        /*
-        |--------------------------------------------------------------------------
-        | Very important
-        |--------------------------------------------------------------------------
-        | For this API, always resolve user from Bearer token first.
-        | Do not trust $request->user() first because middleware can resolve admin.
-        |--------------------------------------------------------------------------
-        */
-
         $token = $request->bearerToken();
 
         if (!$token && $request->filled('api_token')) {
@@ -182,57 +187,413 @@ class UserPropertyListingController extends Controller
         };
     }
 
-    private function formatListing(DynamicPost $listing): array
+    private function buildAnalytics($baseQuery): array
     {
-        $data = [
-            'id' => (int) $listing->id,
-            'post_type_id' => (int) $listing->post_type_id,
+        $totalListing = (clone $baseQuery)->count();
 
-            'post_type' => [
-                'id' => $listing->postType ? (int) $listing->postType->id : null,
-                'name' => $listing->postType?->name,
-                'slug' => $listing->postType?->slug,
-            ],
+        $activeQuery = (clone $baseQuery)
+            ->where('status', 'published')
+            ->where('live_status', 'approve');
 
-            'author_id' => $listing->author_id ? (int) $listing->author_id : null,
+        $this->excludeExpiredListings($activeQuery);
 
-            'listing_code' => $listing->listing_code ?? null,
-            'display_id' => $listing->listing_code ?? null,
+        $activeListing = $activeQuery->count();
 
-            'title' => $listing->title ?? null,
-            'slug' => $listing->slug ?? null,
-            'excerpt' => $listing->excerpt ?? null,
-            'content' => $listing->content ?? null,
+        $inactiveListing = (clone $baseQuery)
+            ->where(function ($query) {
+                $query->whereIn('live_status', ['reject', 'disapprove'])
+                    ->orWhereIn('status', ['private', 'archived']);
+            })
+            ->count();
 
-            'status' => $listing->status ?? null,
-            'live_status' => $listing->live_status ?? null,
-            'review_status_label' => $this->reviewStatusLabel($listing->live_status ?? null),
+        $expiredQuery = clone $baseQuery;
+        $hasExpiryColumn = $this->applyExpiredListingFilter($expiredQuery);
 
-            'is_active' => $listing->status === 'published' && $listing->live_status === 'approve',
-            'is_rejected' => in_array($listing->live_status, ['reject', 'disapprove'], true),
+        $expiredListing = $hasExpiryColumn
+            ? $expiredQuery->count()
+            : 0;
 
-            'country_id' => $listing->country_id ? (int) $listing->country_id : null,
-            'state_id' => $listing->state_id ? (int) $listing->state_id : null,
-            'city_id' => $listing->city_id ? (int) $listing->city_id : null,
-            'area_locality' => $listing->area_locality ?? null,
+        $draftListing = (clone $baseQuery)
+            ->where('status', 'draft')
+            ->count();
 
-            'created_at' => $listing->created_at,
-            'updated_at' => $listing->updated_at,
+        $publishedListing = (clone $baseQuery)
+            ->where('status', 'published')
+            ->count();
+
+        $underReviewListing = (clone $baseQuery)
+            ->where('live_status', 'under_review')
+            ->count();
+
+        $rejectedListing = (clone $baseQuery)
+            ->whereIn('live_status', ['reject', 'disapprove'])
+            ->count();
+
+        return [
+            'total_listing' => $totalListing,
+            'active_listing' => $activeListing,
+            'inactive_listing' => $inactiveListing,
+            'expired_listing' => $expiredListing,
+            'draft_listing' => $draftListing,
+            'published_listing' => $publishedListing,
+            'under_review_listing' => $underReviewListing,
+            'rejected_listing' => $rejectedListing,
+        ];
+    }
+
+    private function formatFullDynamicPost(DynamicPost $listing): array
+    {
+        $listing->loadMissing([
+            'postType',
+            'parent:id,post_type_id,title,slug,status,live_status',
+            'children:id,post_type_id,parent_id,title,slug,status,live_status',
+            'taxonomyTerms.taxonomy',
+            'meta.customField.options',
+            'meta.customField.repeaters.options',
+        ]);
+
+        $data = $listing->toArray();
+
+        $data['display_id'] = $listing->listing_code ?? null;
+
+        $data['review_status_label'] = $this->reviewStatusLabel($listing->live_status ?? null);
+        $data['is_active'] = $listing->status === 'published' && $listing->live_status === 'approve';
+        $data['is_rejected'] = in_array($listing->live_status, ['reject', 'disapprove'], true);
+
+        $data['post_type'] = [
+            'id' => $listing->postType ? (int) $listing->postType->id : null,
+            'name' => $listing->postType?->name,
+            'slug' => $listing->postType?->slug,
         ];
 
-        if (Schema::hasColumn('dynamic_posts', 'rejection_reason')) {
-            $data['rejection_reason'] = $listing->rejection_reason ?? null;
-        }
+        $data['location'] = $this->formatLocationForDynamicPost($listing);
 
-        if (Schema::hasColumn('dynamic_posts', 'rejected_at')) {
-            $data['rejected_at'] = $listing->rejected_at ?? null;
-        }
+        /*
+        |--------------------------------------------------------------------------
+        | Location names on top level
+        |--------------------------------------------------------------------------
+        | Frontend asked for location names, not only ids.
+        |--------------------------------------------------------------------------
+        */
+        $data['country'] = $data['location']['country_name'];
+        $data['state'] = $data['location']['state_name'];
+        $data['city'] = $data['location']['city_name'];
+        $data['country_name'] = $data['location']['country_name'];
+        $data['state_name'] = $data['location']['state_name'];
+        $data['city_name'] = $data['location']['city_name'];
+        $data['full_address'] = $data['location']['full_address'];
 
-        if (Schema::hasColumn('dynamic_posts', 'rejected_by')) {
-            $data['rejected_by'] = $listing->rejected_by ? (int) $listing->rejected_by : null;
-        }
+        /*
+        |--------------------------------------------------------------------------
+        | Remove location ids from main response
+        |--------------------------------------------------------------------------
+        */
+        unset($data['country_id'], $data['state_id'], $data['city_id']);
+
+        $featuredMedia = $this->formatMediaFileById($listing->featured_image_id ?? null);
+        $galleryMedia = $this->formatMediaFilesByIds($listing->gallery_image_ids ?? []);
+
+        $data['featured_image'] = $featuredMedia['url'] ?? null;
+        $data['featured_image_media'] = $featuredMedia;
+
+        $data['gallery_images'] = collect($galleryMedia)
+            ->pluck('url')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $data['gallery_image_files'] = $galleryMedia;
+
+        $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($listing);
+
+        $data['meta'] = $this->formatMetaForFrontend($data['meta'] ?? []);
 
         return $data;
+    }
+
+    private function formatLocationForDynamicPost(DynamicPost $post): array
+    {
+        $countryId = $post->country_id ?? null;
+        $stateId = $post->state_id ?? null;
+        $cityId = $post->city_id ?? null;
+
+        $country = $countryId
+            ? Country::query()->select('id', 'name')->find((int) $countryId)
+            : null;
+
+        $state = $stateId
+            ? State::query()->select('id', 'name', 'country_id')->find((int) $stateId)
+            : null;
+
+        $city = $cityId
+            ? City::query()->select('id', 'name', 'state_id')->find((int) $cityId)
+            : null;
+
+        $fullAddress = collect([
+            $post->area_locality ?? null,
+            $city?->name,
+            $state?->name,
+            $country?->name,
+        ])
+            ->filter()
+            ->values()
+            ->implode(', ');
+
+        return [
+            'country_name' => $country?->name,
+            'state_name' => $state?->name,
+            'city_name' => $city?->name,
+            'area_locality' => $post->area_locality ?? null,
+            'full_address' => $fullAddress ?: null,
+        ];
+    }
+
+    private function formatSelectedTaxonomies(DynamicPost $post): array
+    {
+        $terms = $post->taxonomyTerms ?? collect();
+
+        return $terms
+            ->groupBy('taxonomy_id')
+            ->map(function ($taxonomyTerms) {
+                $firstTerm = $taxonomyTerms->first();
+                $taxonomy = $firstTerm->taxonomy;
+
+                if (!$taxonomy) {
+                    return null;
+                }
+
+                return [
+                    'taxonomy_id' => (int) $taxonomy->id,
+                    'taxonomy_name' => $taxonomy->name,
+                    'taxonomy_slug' => $taxonomy->slug,
+                    'selected_term_ids' => $taxonomyTerms
+                        ->pluck('id')
+                        ->map(fn ($id) => (int) $id)
+                        ->values()
+                        ->toArray(),
+                    'selected_terms' => $taxonomyTerms->map(fn ($term) => [
+                        'id' => (int) $term->id,
+                        'name' => $term->name,
+                        'slug' => $term->slug,
+                    ])->values()->toArray(),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray();
+    }
+
+    private function formatMetaForFrontend(array $meta): array
+    {
+        return collect($meta)
+            ->map(function ($item) {
+                $fieldType = $item['custom_field']['field_type'] ?? null;
+
+                if ($fieldType === 'repeater') {
+                    $item['repeaters'] = $this->getRepeaterValuesForMeta(
+                        (int) ($item['entity_id'] ?? 0),
+                        (int) ($item['custom_field_id'] ?? 0)
+                    );
+
+                    $item['value_json'] = null;
+
+                    return $item;
+                }
+
+                $rawValueJson = $item['value_json'] ?? [];
+
+                if (!in_array($fieldType, ['media', 'file'], true)) {
+                    return $item;
+                }
+
+                $mediaFiles = $this->normalizeMediaMetaValue($rawValueJson);
+
+                $mediaUrls = collect($mediaFiles)
+                    ->pluck('url')
+                    ->filter()
+                    ->values()
+                    ->toArray();
+
+                $firstUrl = $mediaUrls[0] ?? null;
+
+                $item['media_files'] = $mediaFiles;
+                $item['media_urls'] = $mediaUrls;
+                $item['value_string'] = $firstUrl;
+                $item['value_text'] = $firstUrl;
+                $item['value_json'] = $firstUrl;
+
+                return $item;
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function normalizeMediaMetaValue(mixed $value): array
+    {
+        if (empty($value)) {
+            return [];
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($value)) {
+            return [];
+        }
+
+        if (isset($value['media']) && is_array($value['media'])) {
+            $value = $value['media'];
+        }
+
+        return collect($value)
+            ->filter(fn ($media) => is_array($media))
+            ->map(function ($media) {
+                $path = $media['path'] ?? null;
+                $url = $media['url'] ?? null;
+
+                if (!$url && $path) {
+                    $url = Storage::disk($media['disk'] ?? 'public')->url($path);
+                }
+
+                return array_merge($media, [
+                    'url' => $url,
+                ]);
+            })
+            ->filter(fn ($media) => !empty($media['url']))
+            ->values()
+            ->toArray();
+    }
+
+    private function getRepeaterValuesForMeta(int $entityId, int $customFieldId): array
+    {
+        if (!Schema::hasTable('custom_field_repeater_values')) {
+            return [];
+        }
+
+        $values = DB::table('custom_field_repeater_values')
+            ->where('entity_type', 'post')
+            ->where('entity_id', $entityId)
+            ->where('custom_field_id', $customFieldId)
+            ->orderBy('row_index')
+            ->orderBy('sort_order')
+            ->get();
+
+        if ($values->isEmpty()) {
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($values as $value) {
+            $rowIndex = property_exists($value, 'row_index') ? (int) $value->row_index : 0;
+            $fieldSlug = $value->field_name_slug ?? null;
+
+            if (!$fieldSlug) {
+                continue;
+            }
+
+            $fieldValue = $value->field_meta_value
+                ?? $value->value_string
+                ?? $value->value_text
+                ?? $value->value_number
+                ?? $value->value_date
+                ?? $value->value_datetime
+                ?? $value->value_json
+                ?? null;
+
+            $decoded = is_string($fieldValue) ? json_decode($fieldValue, true) : null;
+
+            $rows[$rowIndex][$fieldSlug] = json_last_error() === JSON_ERROR_NONE && is_array($decoded)
+                ? $decoded
+                : $fieldValue;
+        }
+
+        ksort($rows);
+
+        return collect($rows)->values()->toArray();
+    }
+
+    private function formatMediaFileById(null|int|string $mediaId): ?array
+    {
+        if (empty($mediaId)) {
+            return null;
+        }
+
+        $media = MediaFile::find((int) $mediaId);
+
+        return $media ? $this->formatMediaFile($media) : null;
+    }
+
+    private function formatMediaFilesByIds(array|string|null $mediaIds): array
+    {
+        $ids = $this->normalizeIds($mediaIds);
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $mediaFiles = MediaFile::whereIn('id', $ids)->get()->keyBy('id');
+
+        return collect($ids)
+            ->map(fn ($id) => $mediaFiles->get((int) $id))
+            ->filter()
+            ->map(fn ($media) => $this->formatMediaFile($media))
+            ->values()
+            ->toArray();
+    }
+
+    private function formatMediaFile(MediaFile $media): array
+    {
+        return [
+            'id' => (int) $media->id,
+            'disk' => $media->disk,
+            'context' => $media->context,
+            'post_type_slug' => $media->post_type_slug,
+            'field_slug' => $media->field_slug,
+            'directory' => $media->directory,
+            'path' => $media->path,
+            'url' => $media->url,
+            'file_name' => $media->file_name,
+            'original_name' => $media->original_name,
+            'mime_type' => $media->mime_type,
+            'extension' => $media->extension,
+            'size' => $media->size,
+            'size_kb' => $media->size ? round($media->size / 1024, 2) : null,
+            'created_at' => optional($media->created_at)->toISOString(),
+            'updated_at' => optional($media->updated_at)->toISOString(),
+        ];
+    }
+
+    private function normalizeIds(array|string|null $ids): array
+    {
+        if (is_null($ids) || $ids === '') {
+            return [];
+        }
+
+        if (is_string($ids)) {
+            $ids = trim($ids);
+
+            if ($ids === '') {
+                return [];
+            }
+
+            $decoded = json_decode($ids, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $ids = $decoded;
+            } else {
+                $ids = str_contains($ids, ',') ? explode(',', $ids) : [$ids];
+            }
+        }
+
+        return collect($ids)
+            ->filter(fn ($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
     }
 
     private function reviewStatusLabel(?string $liveStatus): string
@@ -246,6 +607,55 @@ class UserPropertyListingController extends Controller
             'submit' => 'Submitted',
             default => 'Pending',
         };
+    }
+
+    private function applyExpiredListingFilter($query): bool
+    {
+        $expiryColumn = $this->expiryColumn();
+
+        if ($expiryColumn) {
+            $query->whereNotNull($expiryColumn)
+                ->where($expiryColumn, '<', now());
+
+            return true;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'status')) {
+            $query->where('status', 'expired');
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function excludeExpiredListings($query): void
+    {
+        $expiryColumn = $this->expiryColumn();
+
+        if ($expiryColumn) {
+            $query->where(function ($q) use ($expiryColumn) {
+                $q->whereNull($expiryColumn)
+                    ->orWhere($expiryColumn, '>=', now());
+            });
+        }
+    }
+
+    private function expiryColumn(): ?string
+    {
+        foreach ([
+            'expired_at',
+            'expires_at',
+            'expiry_date',
+            'valid_till',
+            'valid_until',
+        ] as $column) {
+            if (Schema::hasColumn('dynamic_posts', $column)) {
+                return $column;
+            }
+        }
+
+        return null;
     }
 
     private function userDisplayName(User $user): ?string
@@ -298,169 +708,5 @@ class UserPropertyListingController extends Controller
         }
 
         return false;
-    }
-    public function analytics(Request $request): JsonResponse
-    {
-        try {
-            $user = $this->resolveCurrentUser($request);
-
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Unauthenticated user.',
-                ], 401);
-            }
-
-            if ($this->isAdminUser($user)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Admin token is not allowed for user listing analytics API.',
-                    'current_user' => [
-                        'id' => (int) $user->id,
-                        'name' => $this->userDisplayName($user),
-                        'email' => $user->email ?? null,
-                    ],
-                ], 403);
-            }
-
-            if (!Schema::hasColumn('dynamic_posts', 'author_id')) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'author_id column is required in dynamic_posts table to fetch user listing analytics.',
-                ], 500);
-            }
-
-            $postType = PostType::query()
-                ->where('slug', 'property-listing')
-                ->first();
-
-            if (!$postType) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Property listing post type not found.',
-                ], 404);
-            }
-
-            $baseQuery = DynamicPost::query()
-                ->where('post_type_id', (int) $postType->id)
-                ->where('author_id', (int) $user->id);
-
-            $totalListings = (clone $baseQuery)->count();
-
-            $activeListingsQuery = (clone $baseQuery)
-                ->where('status', 'published')
-                ->where('live_status', 'approve');
-
-            $this->excludeExpiredListings($activeListingsQuery);
-
-            $activeListings = $activeListingsQuery->count();
-
-            $inactiveListings = (clone $baseQuery)
-                ->where(function ($query) {
-                    $query->whereIn('live_status', ['reject', 'disapprove'])
-                        ->orWhereIn('status', ['private', 'archived']);
-                })
-                ->count();
-
-            $expiredListingsQuery = clone $baseQuery;
-            $hasExpiryColumn = $this->applyExpiredListingFilter($expiredListingsQuery);
-
-            $expiredListings = $hasExpiryColumn
-                ? $expiredListingsQuery->count()
-                : 0;
-
-            $draftListings = (clone $baseQuery)
-                ->where('status', 'draft')
-                ->count();
-
-            $publishedListings = (clone $baseQuery)
-                ->where('status', 'published')
-                ->count();
-
-            $underReviewListings = (clone $baseQuery)
-                ->where('live_status', 'under_review')
-                ->count();
-
-            $rejectedListings = (clone $baseQuery)
-                ->whereIn('live_status', ['reject', 'disapprove'])
-                ->count();
-
-            return response()->json([
-                'status' => true,
-                'message' => 'User listing analytics fetched successfully.',
-                'current_user' => [
-                    'id' => (int) $user->id,
-                    'name' => $this->userDisplayName($user),
-                    'email' => $user->email ?? null,
-                ],
-                'data' => [
-                    'total_listing' => $totalListings,
-                    'active_listing' => $activeListings,
-                    'inactive_listing' => $inactiveListings,
-                    'expired_listing' => $expiredListings,
-
-                    'draft_listing' => $draftListings,
-                    'published_listing' => $publishedListings,
-                    'under_review_listing' => $underReviewListings,
-                    'rejected_listing' => $rejectedListings,
-                ],
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch user listing analytics.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-    private function applyExpiredListingFilter($query): bool
-    {
-        $expiryColumn = $this->expiryColumn();
-
-        if ($expiryColumn) {
-            $query->whereNotNull($expiryColumn)
-                ->where($expiryColumn, '<', now());
-
-            return true;
-        }
-
-        if (Schema::hasColumn('dynamic_posts', 'status')) {
-            $query->where('status', 'expired');
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private function excludeExpiredListings($query): void
-    {
-        $expiryColumn = $this->expiryColumn();
-
-        if ($expiryColumn) {
-            $query->where(function ($q) use ($expiryColumn) {
-                $q->whereNull($expiryColumn)
-                    ->orWhere($expiryColumn, '>=', now());
-            });
-        }
-    }
-
-    private function expiryColumn(): ?string
-    {
-        foreach (
-            [
-                'expired_at',
-                'expires_at',
-                'expiry_date',
-                'valid_till',
-                'valid_until',
-            ] as $column
-        ) {
-            if (Schema::hasColumn('dynamic_posts', $column)) {
-                return $column;
-            }
-        }
-
-        return null;
     }
 }
