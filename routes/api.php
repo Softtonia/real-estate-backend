@@ -105,6 +105,7 @@ use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\ListingUserAssignmentController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
+use App\Http\Controllers\Api\UserPropertyListingController;
 use App\Http\Controllers\Frontend\FrontendListingController;
 use App\Http\Controllers\Frontend\FrontendListingTaxonomyController;
 use App\Http\Controllers\Template\PageBuilderContextController;
