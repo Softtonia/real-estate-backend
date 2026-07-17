@@ -653,7 +653,16 @@ class DynamicPostController extends Controller
             }
 
             $validated = $this->validatePost($request, true);
-
+            if (
+                in_array(($validated['live_status'] ?? null), ['reject', 'disapprove'], true)
+                && empty($validated['rejection_reason'])
+            ) {
+                throw ValidationException::withMessages([
+                    'rejection_reason' => [
+                        'Rejection reason is required when listing is rejected or disapproved.',
+                    ],
+                ]);
+            }
             $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
 
             $postType = PostType::with('taxonomies')->find($postTypeId);
@@ -669,7 +678,17 @@ class DynamicPostController extends Controller
                 $validated = $this->prepareLocationForSave($validated);
             }
 
-            $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
+            $hasBaseMediaPayload =
+                $request->request->has('featured_image')
+                || $request->files->has('featured_image')
+                || array_key_exists('featured_image_id', $validated)
+                || $request->request->has('gallery_images')
+                || $request->files->has('gallery_images')
+                || array_key_exists('gallery_image_ids', $validated);
+
+            if ($hasBaseMediaPayload) {
+                $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
+            }
 
             $hasTaxonomyPayload = array_key_exists('taxonomies', $validated)
                 || array_key_exists('taxonomy_term_ids', $validated);
@@ -759,10 +778,26 @@ class DynamicPostController extends Controller
                 $postType,
                 $hasKeywordPayload
             ) {
+
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
                 $postData['slug'] = $newSlug;
+                if (
+                    array_key_exists('live_status', $postData)
+                    && in_array($postData['live_status'], ['reject', 'disapprove'], true)
+                ) {
+                    $postData['rejected_by'] = Auth::id();
+                    $postData['rejected_at'] = now();
+                }
 
+                if (
+                    array_key_exists('live_status', $postData)
+                    && !in_array($postData['live_status'], ['reject', 'disapprove'], true)
+                ) {
+                    $postData['rejection_reason'] = null;
+                    $postData['rejected_by'] = null;
+                    $postData['rejected_at'] = null;
+                }
                 if (
                     ($postData['status'] ?? null) === 'published'
                     && empty($postData['published_at'])
@@ -1782,6 +1817,7 @@ class DynamicPostController extends Controller
             'custom_fields.*.repeaters.*.field_name_slug' => ['nullable', 'string'],
             'custom_fields.*.repeaters.*.rows' => ['nullable', 'array'],
             'custom_fields.*.repeaters.*.rows.*' => ['nullable', 'array'],
+            'rejection_reason' => ['nullable', 'string'],
         ]);
     }
 
@@ -2019,6 +2055,9 @@ class DynamicPostController extends Controller
             'state_id',
             'city_id',
             'area_locality',
+            'rejection_reason',
+            'rejected_by',
+            'rejected_at',
         ];
 
         $payload = [];
