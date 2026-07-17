@@ -299,4 +299,168 @@ class UserPropertyListingController extends Controller
 
         return false;
     }
+    public function analytics(Request $request): JsonResponse
+    {
+        try {
+            $user = $this->resolveCurrentUser($request);
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthenticated user.',
+                ], 401);
+            }
+
+            if ($this->isAdminUser($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Admin token is not allowed for user listing analytics API.',
+                    'current_user' => [
+                        'id' => (int) $user->id,
+                        'name' => $this->userDisplayName($user),
+                        'email' => $user->email ?? null,
+                    ],
+                ], 403);
+            }
+
+            if (!Schema::hasColumn('dynamic_posts', 'author_id')) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'author_id column is required in dynamic_posts table to fetch user listing analytics.',
+                ], 500);
+            }
+
+            $postType = PostType::query()
+                ->where('slug', 'property-listing')
+                ->first();
+
+            if (!$postType) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing post type not found.',
+                ], 404);
+            }
+
+            $baseQuery = DynamicPost::query()
+                ->where('post_type_id', (int) $postType->id)
+                ->where('author_id', (int) $user->id);
+
+            $totalListings = (clone $baseQuery)->count();
+
+            $activeListingsQuery = (clone $baseQuery)
+                ->where('status', 'published')
+                ->where('live_status', 'approve');
+
+            $this->excludeExpiredListings($activeListingsQuery);
+
+            $activeListings = $activeListingsQuery->count();
+
+            $inactiveListings = (clone $baseQuery)
+                ->where(function ($query) {
+                    $query->whereIn('live_status', ['reject', 'disapprove'])
+                        ->orWhereIn('status', ['private', 'archived']);
+                })
+                ->count();
+
+            $expiredListingsQuery = clone $baseQuery;
+            $hasExpiryColumn = $this->applyExpiredListingFilter($expiredListingsQuery);
+
+            $expiredListings = $hasExpiryColumn
+                ? $expiredListingsQuery->count()
+                : 0;
+
+            $draftListings = (clone $baseQuery)
+                ->where('status', 'draft')
+                ->count();
+
+            $publishedListings = (clone $baseQuery)
+                ->where('status', 'published')
+                ->count();
+
+            $underReviewListings = (clone $baseQuery)
+                ->where('live_status', 'under_review')
+                ->count();
+
+            $rejectedListings = (clone $baseQuery)
+                ->whereIn('live_status', ['reject', 'disapprove'])
+                ->count();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'User listing analytics fetched successfully.',
+                'current_user' => [
+                    'id' => (int) $user->id,
+                    'name' => $this->userDisplayName($user),
+                    'email' => $user->email ?? null,
+                ],
+                'data' => [
+                    'total_listing' => $totalListings,
+                    'active_listing' => $activeListings,
+                    'inactive_listing' => $inactiveListings,
+                    'expired_listing' => $expiredListings,
+
+                    'draft_listing' => $draftListings,
+                    'published_listing' => $publishedListings,
+                    'under_review_listing' => $underReviewListings,
+                    'rejected_listing' => $rejectedListings,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch user listing analytics.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+    private function applyExpiredListingFilter($query): bool
+    {
+        $expiryColumn = $this->expiryColumn();
+
+        if ($expiryColumn) {
+            $query->whereNotNull($expiryColumn)
+                ->where($expiryColumn, '<', now());
+
+            return true;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'status')) {
+            $query->where('status', 'expired');
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function excludeExpiredListings($query): void
+    {
+        $expiryColumn = $this->expiryColumn();
+
+        if ($expiryColumn) {
+            $query->where(function ($q) use ($expiryColumn) {
+                $q->whereNull($expiryColumn)
+                    ->orWhere($expiryColumn, '>=', now());
+            });
+        }
+    }
+
+    private function expiryColumn(): ?string
+    {
+        foreach (
+            [
+                'expired_at',
+                'expires_at',
+                'expiry_date',
+                'valid_till',
+                'valid_until',
+            ] as $column
+        ) {
+            if (Schema::hasColumn('dynamic_posts', $column)) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
 }

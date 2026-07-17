@@ -1098,6 +1098,7 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
     Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
     Route::get('users-property-listing', [UserPropertyListingController::class, 'index']);
+    Route::get('user-listing-analytics', [UserPropertyListingController::class, 'analytics']);
     Route::prefix('frontend')->name('frontend.listings.')->group(function () {
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
         Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
