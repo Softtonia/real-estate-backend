@@ -1106,6 +1106,9 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         'auth/profile/photo',
         [UserProfileController::class, 'updatePhoto']
     );
+    Route::post('auth/profile/documents/start', [UserProfileController::class, 'startDocumentUpload']);
+    Route::post('auth/profile/documents/file', [UserProfileController::class, 'uploadDocumentFile']);
+    Route::get('auth/profile/documents/progress/{uploadId}', [UserProfileController::class, 'documentUploadProgress']);
     Route::get('frontend/listing-roles', [DynamicPostController::class, 'frontendListingRoleDropdown']);
 
     /*
