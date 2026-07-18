@@ -1134,9 +1134,3 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
     });
 });
-Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
-    Route::get('frontend/locations/countries', [FrontendLocationController::class, 'countries']);
-    Route::get('frontend/locations/states', [FrontendLocationController::class, 'states']);
-    Route::get('frontend/locations/cities', [FrontendLocationController::class, 'cities']);
-    Route::get('frontend/locations/selected', [FrontendLocationController::class, 'selected']);
-});
