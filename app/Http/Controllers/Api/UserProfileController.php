@@ -53,17 +53,9 @@ class UserProfileController extends Controller
             ], 401);
         }
 
-        $validator = Validator::make($request->all(), [
+        $rules = [
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
-            'user_name' => [
-                'nullable',
-                'string',
-                'min:3',
-                'max:20',
-                'regex:/^[a-zA-Z0-9._]+$/',
-                Rule::unique('users', 'user_name')->ignore($user->id),
-            ],
             'email' => [
                 'nullable',
                 'email',
@@ -71,26 +63,36 @@ class UserProfileController extends Controller
             ],
             'phone' => [
                 'nullable',
-                'regex:/^[0-9]{10}$/',
+                'string',
+                'max:20',
                 Rule::unique('users', 'phone')->ignore($user->id),
             ],
             'password' => ['nullable', 'string', 'min:8'],
-            'date_of_birth' => ['nullable', 'date'],
-            'gender' => ['nullable', 'string', 'max:50'],
-            'alternate_number' => ['nullable', 'string', 'max:20'],
-            'no_of_employees' => ['nullable', 'numeric'],
-            'about' => ['nullable', 'string'],
+            'alternate_number' => ['nullable', 'string', 'max:200'],
+            'no_of_employees' => ['nullable', 'integer'],
             'about_us' => ['nullable', 'string'],
-        ], [
+            'bussiness_name' => ['nullable', 'string', 'max:200'],
+            'business_phone' => ['nullable', 'string', 'max:200'],
+            'bussiness_email' => ['nullable', 'email', 'max:200'],
+        ];
+
+        if (Schema::hasColumn('users', 'user_name')) {
+            $rules['user_name'] = [
+                'nullable',
+                'string',
+                'min:3',
+                'max:20',
+                'regex:/^[a-zA-Z0-9._]+$/',
+                Rule::unique('users', 'user_name')->ignore($user->id),
+            ];
+        }
+
+        $validator = Validator::make($request->all(), $rules, [
             'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
+            return $this->validationResponse($validator);
         }
 
         try {
@@ -100,12 +102,9 @@ class UserProfileController extends Controller
                 foreach ([
                     'first_name',
                     'last_name',
-                    'user_name',
                     'email',
                     'phone',
-                    'date_of_birth',
-                    'gender',
-                    'about',
+                    'user_name',
                 ] as $column) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
@@ -128,16 +127,21 @@ class UserProfileController extends Controller
                     'alternate_number',
                     'no_of_employees',
                     'about_us',
+                    'bussiness_name',
+                    'business_phone',
+                    'bussiness_email',
                 ] as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
                 }
 
-                UserDetail::updateOrCreate(
-                    ['user_id' => $user->id],
-                    $detailPayload
-                );
+                if (count($detailPayload) > 1) {
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
             });
 
             $freshUser = User::find($user->id);
@@ -171,41 +175,87 @@ class UserProfileController extends Controller
             'country_id' => ['nullable', 'exists:countries,id'],
             'state_id' => ['nullable', 'exists:states,id'],
             'city_id' => ['nullable', 'exists:cities,id'],
-            'area_locality' => ['nullable', 'string', 'max:255'],
-            'colony' => ['nullable', 'string', 'max:255'],
-            'street_address' => ['nullable', 'string', 'max:255'],
-            'pin_code' => ['nullable', 'numeric', 'digits:6'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'pin_code' => ['nullable', 'string', 'max:20'],
 
             'business_country_id' => ['nullable', 'exists:countries,id'],
             'business_state_id' => ['nullable', 'exists:states,id'],
             'business_city_id' => ['nullable', 'exists:cities,id'],
-            'business_area_locality' => ['nullable', 'string', 'max:255'],
-            'business_colony' => ['nullable', 'string', 'max:255'],
-            'business_street_address' => ['nullable', 'string', 'max:255'],
-            'business_pin_code' => ['nullable', 'numeric', 'digits:6'],
-            'bussiness_address' => ['nullable', 'string'],
-            'address' => ['nullable', 'string'],
+            'bussiness_address' => ['nullable', 'string', 'max:200'],
+            'business_pin_code' => ['nullable', 'string', 'max:20'],
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
+            return $this->validationResponse($validator);
         }
 
         try {
             DB::transaction(function () use ($request, $user) {
+                /*
+                |--------------------------------------------------------------------------
+                | User Details Address
+                |--------------------------------------------------------------------------
+                | Your migration has country_id, state_id, city_id, address, pin_code
+                | in user_details table.
+                |--------------------------------------------------------------------------
+                */
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
+
+                foreach ([
+                    'country_id',
+                    'state_id',
+                    'city_id',
+                    'address',
+                    'pin_code',
+                ] as $column) {
+                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $request->input($column);
+                    }
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Business Address
+                |--------------------------------------------------------------------------
+                */
+                $businessMap = [
+                    'business_country_id' => 'country_id',
+                    'business_state_id' => 'state_id',
+                    'business_city_id' => 'city_id',
+                    'bussiness_address' => 'bussiness_address',
+                    'business_pin_code' => 'pin_code',
+                ];
+
+                foreach ($businessMap as $requestKey => $dbColumn) {
+                    if ($request->has($requestKey) && Schema::hasColumn('user_details', $dbColumn)) {
+                        $detailPayload[$dbColumn] = $request->input($requestKey);
+                    }
+                }
+
+                if (count($detailPayload) > 1) {
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Optional Users Table Address
+                |--------------------------------------------------------------------------
+                | If later you add country_id/state_id/city_id/address/pin_code in users,
+                | this will also save there safely.
+                |--------------------------------------------------------------------------
+                */
                 $userPayload = [];
 
                 foreach ([
                     'country_id',
                     'state_id',
                     'city_id',
-                    'area_locality',
-                    'colony',
-                    'street_address',
+                    'address',
                     'pin_code',
                 ] as $column) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
@@ -216,33 +266,6 @@ class UserProfileController extends Controller
                 if (!empty($userPayload)) {
                     $user->update($userPayload);
                 }
-
-                $detailPayload = [
-                    'user_id' => $user->id,
-                ];
-
-                $map = [
-                    'business_country_id' => 'country_id',
-                    'business_state_id' => 'state_id',
-                    'business_city_id' => 'city_id',
-                    'business_area_locality' => 'area_locality',
-                    'business_colony' => 'colony',
-                    'business_street_address' => 'street_address',
-                    'business_pin_code' => 'pin_code',
-                    'bussiness_address' => 'bussiness_address',
-                    'address' => 'address',
-                ];
-
-                foreach ($map as $requestKey => $dbColumn) {
-                    if ($request->has($requestKey) && Schema::hasColumn('user_details', $dbColumn)) {
-                        $detailPayload[$dbColumn] = $request->input($requestKey);
-                    }
-                }
-
-                UserDetail::updateOrCreate(
-                    ['user_id' => $user->id],
-                    $detailPayload
-                );
             });
 
             $freshUser = User::find($user->id);
@@ -281,15 +304,12 @@ class UserProfileController extends Controller
             'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
             'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
             'business_proof' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
-            'license_number' => ['nullable', 'string', 'max:255'],
+            'license_number' => ['nullable', 'string', 'max:200'],
+            'rera_number' => ['nullable', 'string', 'max:50'],
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
+            return $this->validationResponse($validator);
         }
 
         try {
@@ -298,29 +318,38 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach (['aadhaar_number', 'license_number'] as $column) {
+                foreach ([
+                    'aadhaar_number',
+                    'license_number',
+                    'rera_number',
+                ] as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
                 }
 
-                foreach ([
+                $fileFields = [
                     'aadhaar_front' => 'uploads/kyc/aadhaarFront',
                     'aadhaar_back' => 'uploads/kyc/aadhaarBack',
                     'business_proof' => 'uploads/kyc/businessProof',
-                ] as $field => $directory) {
+                ];
+
+                foreach ($fileFields as $field => $directory) {
                     if ($request->hasFile($field) && Schema::hasColumn('user_details', $field)) {
                         $file = $request->file($field);
                         $fileName = time() . '_' . $field . '_' . str_replace(' ', '_', $file->getClientOriginalName());
                         $file->move(public_path($directory), $fileName);
+
                         $detailPayload[$field] = $directory . '/' . $fileName;
                     }
                 }
 
-                UserDetail::updateOrCreate(
-                    ['user_id' => $user->id],
-                    $detailPayload
-                );
+                if (count($detailPayload) > 1) {
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
 
                 if (Schema::hasColumn('users', 'kyc')) {
                     $user->update([
@@ -361,11 +390,7 @@ class UserProfileController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
+            return $this->validationResponse($validator);
         }
 
         try {
@@ -418,135 +443,79 @@ class UserProfileController extends Controller
 
     private function formatUserProfile(User $user): array
     {
-        $row = DB::table('users')
-            ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
-            ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
-            ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
-            ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
-            ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
-            ->leftJoin('countries as business_countries', 'user_details.country_id', '=', 'business_countries.id')
-            ->leftJoin('states as business_states', 'user_details.state_id', '=', 'business_states.id')
-            ->leftJoin('cities as business_cities', 'user_details.city_id', '=', 'business_cities.id')
-            ->where('users.id', $user->id)
-            ->select([
-                'users.id',
-                'users.first_name',
-                'users.last_name',
-                'users.user_name',
-                'users.email',
-                'users.phone',
-                'users.role_id',
-                'roles.name as role_name',
-                'users.unique_id',
-                'users.isapproved',
-                'users.kyc',
-                'users.is_otp_verified',
-                'users.country_id',
-                'users.state_id',
-                'users.city_id',
-                'user_countries.name as country',
-                'user_states.name as state',
-                'user_cities.name as city',
-                'users.area_locality',
-                'users.colony',
-                'users.street_address',
-                'users.pin_code',
-                'users.about',
-                'users.created_at',
-                'users.updated_at',
-
-                'user_details.bussiness_name',
-                'user_details.bussiness_address',
-                'user_details.bussiness_email',
-                'user_details.business_phone',
-                'user_details.country_id as business_country_id',
-                'user_details.state_id as business_state_id',
-                'user_details.city_id as business_city_id',
-                'business_countries.name as business_country',
-                'business_states.name as business_state',
-                'business_cities.name as business_city',
-                'user_details.area_locality as business_area_locality',
-                'user_details.colony as business_colony',
-                'user_details.street_address as business_street_address',
-                'user_details.pin_code as business_pin_code',
-                'user_details.address',
-                'user_details.profile_photo',
-                'user_details.aadhaar_number',
-                'user_details.aadhaar_front',
-                'user_details.aadhaar_back',
-                'user_details.business_proof',
-                'user_details.license_number',
-                'user_details.alternate_number',
-                'user_details.no_of_employees',
-                'user_details.about_us',
-            ])
+        $detail = UserDetail::query()
+            ->where('user_id', $user->id)
             ->first();
 
-        if (!$row) {
-            return [];
+        $roleName = null;
+
+        if (Schema::hasTable('roles') && !empty($user->role_id)) {
+            $role = DB::table('roles')->where('id', $user->role_id)->first();
+            $roleName = $role->name ?? $role->role_name ?? null;
         }
 
-        $profilePhoto = !empty($row->profile_photo) ? url($row->profile_photo) : null;
-        $aadhaarFront = !empty($row->aadhaar_front) ? url($row->aadhaar_front) : null;
-        $aadhaarBack = !empty($row->aadhaar_back) ? url($row->aadhaar_back) : null;
-        $businessProof = !empty($row->business_proof) ? url($row->business_proof) : null;
+        $countryId = $this->valueFromModel($user, $detail, 'country_id');
+        $stateId = $this->valueFromModel($user, $detail, 'state_id');
+        $cityId = $this->valueFromModel($user, $detail, 'city_id');
+
+        $countryName = $this->locationName('countries', $countryId);
+        $stateName = $this->locationName('states', $stateId);
+        $cityName = $this->locationName('cities', $cityId);
+
+        $profilePhoto = $detail?->profile_photo ? url($detail->profile_photo) : null;
+        $aadhaarFront = $detail?->aadhaar_front ? url($detail->aadhaar_front) : null;
+        $aadhaarBack = $detail?->aadhaar_back ? url($detail->aadhaar_back) : null;
+        $businessProof = $detail?->business_proof ? url($detail->business_proof) : null;
+
+        $firstName = $user->first_name ?? null;
+        $lastName = $user->last_name ?? null;
+
+        $fullName = trim(($firstName ?? '') . ' ' . ($lastName ?? ''));
 
         $raw = [
-            'id' => $row->id,
-            'first_name' => $row->first_name,
-            'last_name' => $row->last_name,
-            'full_name' => trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? '')),
-            'user_name' => $row->user_name,
-            'email' => $row->email,
-            'phone' => $row->phone,
-            'role_id' => $row->role_id,
-            'role_name' => $row->role_name,
-            'unique_id' => $row->unique_id,
-            'isapproved' => $row->isapproved,
-            'account_status' => $this->accountStatusLabel($row->isapproved),
-            'kyc' => $row->kyc,
-            'kyc_status' => $this->kycStatusLabel($row->kyc),
-            'is_otp_verified' => $row->is_otp_verified,
+            'id' => (int) $user->id,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'full_name' => $fullName ?: null,
+            'user_name' => $user->user_name ?? null,
+            'email' => $user->email ?? null,
+            'phone' => $user->phone ?? null,
+            'role_id' => $user->role_id ?? null,
+            'role_name' => $roleName,
+            'unique_id' => $user->unique_id ?? null,
+            'isapproved' => $user->isapproved ?? null,
+            'account_status' => $this->accountStatusLabel($user->isapproved ?? null),
+            'kyc' => $user->kyc ?? 0,
+            'kyc_status' => $this->kycStatusLabel($user->kyc ?? 0),
+            'is_otp_verified' => $user->is_otp_verified ?? false,
 
-            'country_id' => $row->country_id,
-            'state_id' => $row->state_id,
-            'city_id' => $row->city_id,
-            'country' => $row->country,
-            'state' => $row->state,
-            'city' => $row->city,
-            'area_locality' => $row->area_locality,
-            'colony' => $row->colony,
-            'street_address' => $row->street_address,
-            'pin_code' => $row->pin_code,
-            'about' => $row->about,
+            'country_id' => $countryId,
+            'state_id' => $stateId,
+            'city_id' => $cityId,
+            'country' => $countryName,
+            'state' => $stateName,
+            'city' => $cityName,
+            'address' => $detail?->address ?? null,
+            'pin_code' => $detail?->pin_code ?? null,
 
-            'bussiness_name' => $row->bussiness_name,
-            'bussiness_address' => $row->bussiness_address,
-            'bussiness_email' => $row->bussiness_email,
-            'business_phone' => $row->business_phone,
-            'business_country_id' => $row->business_country_id,
-            'business_state_id' => $row->business_state_id,
-            'business_city_id' => $row->business_city_id,
-            'business_country' => $row->business_country,
-            'business_state' => $row->business_state,
-            'business_city' => $row->business_city,
-            'business_area_locality' => $row->business_area_locality,
-            'business_colony' => $row->business_colony,
-            'business_street_address' => $row->business_street_address,
-            'business_pin_code' => $row->business_pin_code,
+            'bussiness_name' => $detail?->bussiness_name ?? null,
+            'business_phone' => $detail?->business_phone ?? null,
+            'bussiness_email' => $detail?->bussiness_email ?? null,
+            'bussiness_address' => $detail?->bussiness_address ?? null,
 
-            'address' => $row->address,
             'profile_photo' => $profilePhoto,
-            'aadhaar_number' => $row->aadhaar_number,
+            'aadhaar_number' => $detail?->aadhaar_number ?? null,
             'aadhaar_front' => $aadhaarFront,
             'aadhaar_back' => $aadhaarBack,
             'business_proof' => $businessProof,
-            'license_number' => $row->license_number,
-            'alternate_number' => $row->alternate_number,
-            'no_of_employees' => $row->no_of_employees,
-            'about_us' => $row->about_us,
-            'created_at' => $row->created_at,
-            'updated_at' => $row->updated_at,
+            'license_number' => $detail?->license_number ?? null,
+            'rera_number' => $detail?->rera_number ?? null,
+            'alternate_number' => $detail?->alternate_number ?? null,
+            'no_of_employees' => $detail?->no_of_employees ?? null,
+            'about_us' => $detail?->about_us ?? null,
+
+            'created_at' => $user->created_at,
+            'updated_at' => $user->updated_at,
         ];
 
         return [
@@ -556,6 +525,30 @@ class UserProfileController extends Controller
                 ->toArray(),
             'profile_completion' => $this->profileCompletion($raw),
         ];
+    }
+
+    private function valueFromModel(User $user, ?UserDetail $detail, string $column): mixed
+    {
+        if (Schema::hasColumn('users', $column) && !empty($user->{$column})) {
+            return $user->{$column};
+        }
+
+        if ($detail && Schema::hasColumn('user_details', $column) && !empty($detail->{$column})) {
+            return $detail->{$column};
+        }
+
+        return null;
+    }
+
+    private function locationName(string $table, mixed $id): ?string
+    {
+        if (empty($id) || !Schema::hasTable($table)) {
+            return null;
+        }
+
+        return DB::table($table)
+            ->where('id', $id)
+            ->value('name');
     }
 
     private function dash(mixed $value): mixed
@@ -572,12 +565,12 @@ class UserProfileController extends Controller
         $fields = [
             'first_name',
             'last_name',
-            'user_name',
             'email',
             'phone',
             'country_id',
             'state_id',
             'city_id',
+            'address',
             'pin_code',
             'profile_photo',
             'aadhaar_number',
@@ -594,7 +587,9 @@ class UserProfileController extends Controller
             }
         }
 
-        $percentage = round(($completed / count($fields)) * 100);
+        $percentage = count($fields) > 0
+            ? round(($completed / count($fields)) * 100)
+            : 0;
 
         return [
             'percentage' => $percentage,
@@ -627,5 +622,14 @@ class UserProfileController extends Controller
             3 => 'Rejected',
             default => 'Pending',
         };
+    }
+
+    private function validationResponse($validator): JsonResponse
+    {
+        return response()->json([
+            'status' => false,
+            'message' => 'Validation failed.',
+            'errors' => $validator->errors(),
+        ], 422);
     }
 }
