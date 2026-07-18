@@ -1063,6 +1063,12 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('keywords-export', [KeywordExportController::class, 'export']);
     Route::get('keywords-template', [KeywordExportController::class, 'template']);
 });
+Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
+    Route::get('frontend/locations/countries', [FrontendLocationController::class, 'countries']);
+    Route::get('frontend/locations/states', [FrontendLocationController::class, 'states']);
+    Route::get('frontend/locations/cities', [FrontendLocationController::class, 'cities']);
+    Route::get('frontend/locations/selected', [FrontendLocationController::class, 'selected']);
+});
 Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
         ->whereNumber('dynamicPost');
