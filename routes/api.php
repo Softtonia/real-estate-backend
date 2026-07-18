@@ -100,6 +100,7 @@ use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
 use App\Http\Controllers\Api\DynamicPostCsvController;
 use App\Http\Controllers\Api\DynamicPostFormStepController;
+use App\Http\Controllers\Api\FrontendLocationController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\ListingUserAssignmentController;
@@ -1131,5 +1132,9 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::prefix('frontend')->name('frontend.listings.')->group(function () {
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
         Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
+        Route::get('locations/countries', [FrontendLocationController::class, 'countries']);
+        Route::get('locations/states', [FrontendLocationController::class, 'states']);
+        Route::get('locations/cities', [FrontendLocationController::class, 'cities']);
+        Route::get('locations/selected', [FrontendLocationController::class, 'selected']);
     });
 });
