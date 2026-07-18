@@ -105,6 +105,7 @@ use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\ListingUserAssignmentController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
+use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\UserPropertyListingController;
 use App\Http\Controllers\Frontend\FrontendListingController;
 use App\Http\Controllers\Frontend\FrontendListingTaxonomyController;
@@ -151,7 +152,7 @@ Route::middleware(['validate.api.client'])
         $applicationPassword = $request->attributes->get('application_password');
 
         return response()->json([
-            'success' => true,
+            -'success' => true,
             'message' => 'Application access verified successfully.',
             'data' => [
                 'api_client' => [
@@ -857,6 +858,30 @@ Route::middleware(['throttle:60,1'])->group(function () {
 });
 // ================= VK Admin CRM Builder APIs =================
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
+    Route::middleware(['throttle:60,1'])->get(
+        'auth/getuser',
+        [UserProfileController::class, 'show']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/personal',
+        [UserProfileController::class, 'updatePersonal']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/address',
+        [UserProfileController::class, 'updateAddress']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/documents',
+        [UserProfileController::class, 'updateDocuments']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/photo',
+        [UserProfileController::class, 'updatePhoto']
+    );
 
     // Templates
     Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);

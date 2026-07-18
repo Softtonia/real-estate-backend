@@ -73,7 +73,7 @@ class UserPropertyListingController extends Controller
 
             $postType = PostType::query()
                 ->where('slug', 'property-listing')
-                ->first();
+                ->first();0=
 
             if (!$postType) {
                 return response()->json([
