@@ -858,30 +858,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 });
 // ================= VK Admin CRM Builder APIs =================
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
-    Route::middleware(['throttle:60,1'])->get(
-        'auth/getuser',
-        [UserProfileController::class, 'show']
-    );
 
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/personal',
-        [UserProfileController::class, 'updatePersonal']
-    );
-
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/address',
-        [UserProfileController::class, 'updateAddress']
-    );
-
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/documents',
-        [UserProfileController::class, 'updateDocuments']
-    );
-
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/photo',
-        [UserProfileController::class, 'updatePhoto']
-    );
 
     // Templates
     Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
@@ -1105,6 +1082,30 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     );
 });
 Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
+    Route::middleware(['throttle:60,1'])->get(
+        'auth/getuser',
+        [UserProfileController::class, 'show']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/personal',
+        [UserProfileController::class, 'updatePersonal']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/address',
+        [UserProfileController::class, 'updateAddress']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/documents',
+        [UserProfileController::class, 'updateDocuments']
+    );
+
+    Route::middleware(['throttle:60,1'])->post(
+        'auth/profile/photo',
+        [UserProfileController::class, 'updatePhoto']
+    );
     Route::get('frontend/listing-roles', [DynamicPostController::class, 'frontendListingRoleDropdown']);
 
     /*
