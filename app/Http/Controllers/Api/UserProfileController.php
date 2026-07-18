@@ -310,11 +310,39 @@ class UserProfileController extends Controller
                 'digits:12',
                 Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
             ],
-            'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
-            'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
-            'business_proof' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
-            'license_number' => ['nullable', 'string', 'max:200'],
-            'rera_number' => ['nullable', 'string', 'max:50'],
+
+            'aadhaar_front' => [
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:10240',
+            ],
+
+            'aadhaar_back' => [
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:10240',
+            ],
+
+            'business_proof' => [
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:10240',
+            ],
+
+            'license_number' => [
+                'nullable',
+                'string',
+                'max:200',
+            ],
+
+            'rera_number' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
         ]);
 
         if ($validator->fails()) {
@@ -327,6 +355,11 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
+                /*
+            |--------------------------------------------------------------------------
+            | Text Document Fields
+            |--------------------------------------------------------------------------
+            */
                 foreach (
                     [
                         'aadhaar_number',
@@ -339,6 +372,17 @@ class UserProfileController extends Controller
                     }
                 }
 
+                /*
+            |--------------------------------------------------------------------------
+            | File Uploads
+            |--------------------------------------------------------------------------
+            | Files will be stored in:
+            | storage/app/public/uploads/kyc/...
+            |
+            | DB will save:
+            | storage/uploads/kyc/...
+            |--------------------------------------------------------------------------
+            */
                 $fileFields = [
                     'aadhaar_front' => 'uploads/kyc/aadhaarFront',
                     'aadhaar_back' => 'uploads/kyc/aadhaarBack',
@@ -348,10 +392,38 @@ class UserProfileController extends Controller
                 foreach ($fileFields as $field => $directory) {
                     if ($request->hasFile($field) && Schema::hasColumn('user_details', $field)) {
                         $file = $request->file($field);
-                        $fileName = time() . '_' . $field . '_' . str_replace(' ', '_', $file->getClientOriginalName());
-                        $file->move(public_path($directory), $fileName);
 
-                        $detailPayload[$field] = $directory . '/' . $fileName;
+                        if (!$file->isValid()) {
+                            throw new \Exception($field . ' upload failed.');
+                        }
+
+                        $extension = strtolower($file->getClientOriginalExtension());
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Short filename
+                    |--------------------------------------------------------------------------
+                    | Avoid long DB path issue.
+                    |--------------------------------------------------------------------------
+                    */
+                        $fileName = 'u'
+                            . $user->id
+                            . '_'
+                            . time()
+                            . '_'
+                            . $field
+                            . '_'
+                            . uniqid()
+                            . '.'
+                            . $extension;
+
+                        Storage::disk('public')->putFileAs(
+                            $directory,
+                            $file,
+                            $fileName
+                        );
+
+                        $detailPayload[$field] = 'storage/' . $directory . '/' . $fileName;
                     }
                 }
 
@@ -362,6 +434,13 @@ class UserProfileController extends Controller
                     );
                 }
 
+                /*
+            |--------------------------------------------------------------------------
+            | KYC Status
+            |--------------------------------------------------------------------------
+            | 1 = KYC In Progress
+            |--------------------------------------------------------------------------
+            */
                 if (Schema::hasColumn('users', 'kyc')) {
                     $user->update([
                         'kyc' => 1,
