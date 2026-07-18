@@ -1124,7 +1124,6 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     );
 
     Route::post('frontend/listings', [DynamicPostController::class, 'storeFrontendListing']);
-
     Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
     Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
     Route::get('users-property-listing', [UserPropertyListingController::class, 'index']);
