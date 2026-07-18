@@ -1124,6 +1124,7 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     );
 
     Route::post('frontend/listings', [DynamicPostController::class, 'storeFrontendListing']);
+
     Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
     Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
     Route::get('users-property-listing', [UserPropertyListingController::class, 'index']);
@@ -1131,9 +1132,11 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::prefix('frontend')->name('frontend.listings.')->group(function () {
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
         Route::middleware('auth:sanctum')->post('/', [FrontendListingController::class, 'store'])->name('store');
-        Route::get('locations/countries', [FrontendLocationController::class, 'countries']);
-        Route::get('locations/states', [FrontendLocationController::class, 'states']);
-        Route::get('locations/cities', [FrontendLocationController::class, 'cities']);
-        Route::get('locations/selected', [FrontendLocationController::class, 'selected']);
+    });
+    Route::prefix('frontend')->group(function () {
+    Route::get('frontend/locations/countries', [FrontendLocationController::class, 'countries']);
+    Route::get('frontend/locations/states', [FrontendLocationController::class, 'states']);
+    Route::get('frontend/locations/cities', [FrontendLocationController::class, 'cities']);
+    Route::get('frontend/locations/selected', [FrontendLocationController::class, 'selected']);
     });
 });
