@@ -181,55 +181,105 @@ class UserProfileController extends Controller
             ], 401);
         }
 
-        $validator = Validator::make($request->all(), [
+        $isOwnerRole = $this->isOwnerUser($user);
+
+        $rules = [
             'country_id' => ['nullable', 'exists:countries,id'],
             'state_id' => ['nullable', 'exists:states,id'],
             'city_id' => ['nullable', 'exists:cities,id'],
+
+            'street_address' => ['nullable', 'string', 'max:255'],
+            'area_locality' => ['nullable', 'string', 'max:255'],
+            'colony' => ['nullable', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:255'],
             'pin_code' => ['nullable', 'string', 'max:20'],
+        ];
 
-            'business_country_id' => ['nullable', 'exists:countries,id'],
-            'business_state_id' => ['nullable', 'exists:states,id'],
-            'business_city_id' => ['nullable', 'exists:cities,id'],
-            'bussiness_address' => ['nullable', 'string', 'max:200'],
-            'business_pin_code' => ['nullable', 'string', 'max:20'],
-        ]);
+        if (!$isOwnerRole) {
+            $rules['business_country_id'] = ['nullable', 'exists:countries,id'];
+            $rules['business_state_id'] = ['nullable', 'exists:states,id'];
+            $rules['business_city_id'] = ['nullable', 'exists:cities,id'];
+            $rules['bussiness_address'] = ['nullable', 'string', 'max:200'];
+            $rules['business_pin_code'] = ['nullable', 'string', 'max:20'];
+        }
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
         }
 
         try {
-            DB::transaction(function () use ($request, $user) {
+            DB::transaction(function () use ($request, $user, $isOwnerRole) {
                 $detailPayload = [
                     'user_id' => $user->id,
                 ];
 
-                foreach (
-                    [
-                        'country_id',
-                        'state_id',
-                        'city_id',
-                        'address',
-                        'pin_code',
-                    ] as $column
-                ) {
+                /*
+            |--------------------------------------------------------------------------
+            | Main Address Fields
+            |--------------------------------------------------------------------------
+            | If area_locality / colony / street_address columns exist, save separately.
+            | If they do not exist, backend will merge them into address column.
+            |--------------------------------------------------------------------------
+            */
+                $addressColumns = [
+                    'country_id',
+                    'state_id',
+                    'city_id',
+                    'street_address',
+                    'area_locality',
+                    'colony',
+                    'address',
+                    'pin_code',
+                ];
+
+                foreach ($addressColumns as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
                 }
 
-                $businessMap = [
-                    'business_country_id' => 'country_id',
-                    'business_state_id' => 'state_id',
-                    'business_city_id' => 'city_id',
-                    'bussiness_address' => 'bussiness_address',
-                    'business_pin_code' => 'pin_code',
-                ];
+                /*
+            |--------------------------------------------------------------------------
+            | Fallback Without DB Change
+            |--------------------------------------------------------------------------
+            | Your database may not have area_locality, colony, street_address.
+            | In that case, save combined address in existing address column.
+            |--------------------------------------------------------------------------
+            */
+                $missingSeparateColumns = !Schema::hasColumn('user_details', 'street_address')
+                    || !Schema::hasColumn('user_details', 'area_locality')
+                    || !Schema::hasColumn('user_details', 'colony');
 
-                foreach ($businessMap as $requestKey => $dbColumn) {
-                    if ($request->has($requestKey) && Schema::hasColumn('user_details', $dbColumn)) {
-                        $detailPayload[$dbColumn] = $request->input($requestKey);
+                if (
+                    $missingSeparateColumns
+                    && Schema::hasColumn('user_details', 'address')
+                    && (
+                        $request->filled('street_address')
+                        || $request->filled('colony')
+                        || $request->filled('area_locality')
+                        || $request->filled('address')
+                    )
+                ) {
+                    $detailPayload['address'] = collect([
+                        $request->input('street_address'),
+                        $request->input('colony'),
+                        $request->input('area_locality'),
+                        $request->input('address'),
+                    ])->filter()->values()->implode(', ');
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Business Address
+            |--------------------------------------------------------------------------
+            | Owner role should not save/show business fields.
+            |--------------------------------------------------------------------------
+            */
+                if (!$isOwnerRole) {
+                    if ($request->has('bussiness_address') && Schema::hasColumn('user_details', 'bussiness_address')) {
+                        $detailPayload['bussiness_address'] = $request->input('bussiness_address');
                     }
                 }
 
@@ -240,6 +290,11 @@ class UserProfileController extends Controller
                     );
                 }
 
+                /*
+            |--------------------------------------------------------------------------
+            | Optional users table fallback
+            |--------------------------------------------------------------------------
+            */
                 $userPayload = [];
 
                 foreach (
@@ -247,6 +302,9 @@ class UserProfileController extends Controller
                         'country_id',
                         'state_id',
                         'city_id',
+                        'street_address',
+                        'area_locality',
+                        'colony',
                         'address',
                         'pin_code',
                     ] as $column
@@ -277,16 +335,7 @@ class UserProfileController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Old Single API: Documents Upload
-    |--------------------------------------------------------------------------
-    | This still works, but for large files use:
-    | 1. startDocumentUpload()
-    | 2. uploadDocumentFile()
-    | 3. documentUploadProgress()
-    |--------------------------------------------------------------------------
-    */
+
     public function updateDocuments(Request $request): JsonResponse
     {
         $user = $this->resolveCurrentUser($request);
@@ -823,6 +872,9 @@ class UserProfileController extends Controller
             'country_id',
             'state_id',
             'city_id',
+            'street_address',
+            'area_locality',
+            'colony',
             'address',
             'pin_code',
             'profile_photo',
@@ -938,10 +990,35 @@ class UserProfileController extends Controller
 
         $firstName = $user->first_name ?? null;
         $lastName = $user->last_name ?? null;
-
         $fullName = trim(($firstName ?? '') . ' ' . ($lastName ?? ''));
 
         $dashboardCounts = $this->profileDashboardCounts($user);
+        $isOwnerRole = $this->isOwnerUser($user);
+
+        /*
+    |--------------------------------------------------------------------------
+    | Address Fields
+    |--------------------------------------------------------------------------
+    | If DB columns exist, values come separately.
+    | If columns do not exist, these will be null and display will show "-".
+    |--------------------------------------------------------------------------
+    */
+        $streetAddress = $this->detailValue($detail, 'street_address');
+        $areaLocality = $this->detailValue($detail, 'area_locality');
+        $colony = $this->detailValue($detail, 'colony');
+        $address = $detail?->address ?? null;
+        $pinCode = $detail?->pin_code ?? null;
+
+        $fullAddress = collect([
+            $streetAddress,
+            $colony,
+            $areaLocality,
+            $address,
+            $cityName,
+            $stateName,
+            $countryName,
+            $pinCode,
+        ])->filter()->values()->implode(', ') ?: null;
 
         $raw = [
             'id' => (int) $user->id,
@@ -971,49 +1048,35 @@ class UserProfileController extends Controller
 
             /*
         |--------------------------------------------------------------------------
-        | Location Names for frontend display
+        | Location Names for display
         |--------------------------------------------------------------------------
         */
             'country' => $countryName,
             'state' => $stateName,
             'city' => $cityName,
-            'address' => $detail?->address ?? null,
-            'pin_code' => $detail?->pin_code ?? null,
+
+            /*
+        |--------------------------------------------------------------------------
+        | Address Detail Fields
+        |--------------------------------------------------------------------------
+        */
+            'street_address' => $streetAddress,
+            'area_locality' => $areaLocality,
+            'colony' => $colony,
+            'address' => $address,
+            'pin_code' => $pinCode,
 
             'location' => [
                 'country' => $countryName,
                 'state' => $stateName,
                 'city' => $cityName,
-                'address' => $detail?->address ?? null,
-                'pin_code' => $detail?->pin_code ?? null,
-                'full_address' => collect([
-                    $detail?->address ?? null,
-                    $cityName,
-                    $stateName,
-                    $countryName,
-                    $detail?->pin_code ?? null,
-                ])->filter()->values()->implode(', ') ?: null,
+                'street_address' => $streetAddress,
+                'area_locality' => $areaLocality,
+                'colony' => $colony,
+                'address' => $address,
+                'pin_code' => $pinCode,
+                'full_address' => $fullAddress,
             ],
-
-            /*
-        |--------------------------------------------------------------------------
-        | Business Details
-        |--------------------------------------------------------------------------
-        */
-            'bussiness_name' => $detail?->bussiness_name ?? null,
-            'business_phone' => $detail?->business_phone ?? null,
-            'bussiness_email' => $detail?->bussiness_email ?? null,
-            'bussiness_address' => $detail?->bussiness_address ?? null,
-
-            /*
-        |--------------------------------------------------------------------------
-        | Because your current user_details table has only one country/state/city set,
-        | business country/state/city names will be same unless separate columns exist later.
-        |--------------------------------------------------------------------------
-        */
-            'business_country' => $countryName,
-            'business_state' => $stateName,
-            'business_city' => $cityName,
 
             /*
         |--------------------------------------------------------------------------
@@ -1031,23 +1094,42 @@ class UserProfileController extends Controller
             'no_of_employees' => $detail?->no_of_employees ?? null,
             'about_us' => $detail?->about_us ?? null,
 
+            /*
+        |--------------------------------------------------------------------------
+        | Frontend Visibility Flags
+        |--------------------------------------------------------------------------
+        */
+            'business_fields_visible' => !$isOwnerRole,
+
             'created_at' => $user->created_at,
             'updated_at' => $user->updated_at,
         ];
 
+        /*
+    |--------------------------------------------------------------------------
+    | Business fields only for non-owner roles
+    |--------------------------------------------------------------------------
+    */
+        if (!$isOwnerRole) {
+            $raw['bussiness_name'] = $detail?->bussiness_name ?? null;
+            $raw['business_phone'] = $detail?->business_phone ?? null;
+            $raw['bussiness_email'] = $detail?->bussiness_email ?? null;
+            $raw['bussiness_address'] = $detail?->bussiness_address ?? null;
+
+            $raw['business_country'] = $countryName;
+            $raw['business_state'] = $stateName;
+            $raw['business_city'] = $cityName;
+        }
+
         $display = collect($raw)
-            ->map(fn($value) => is_array($value) ? $value : $this->dash($value))
+            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
             ->toArray();
 
         /*
     |--------------------------------------------------------------------------
-    | Display should show names only, not IDs
+    | Display should show location names only, not IDs
     |--------------------------------------------------------------------------
     */
-        $display['country'] = $this->dash($countryName);
-        $display['state'] = $this->dash($stateName);
-        $display['city'] = $this->dash($cityName);
-
         unset(
             $display['country_id'],
             $display['state_id'],
@@ -1058,12 +1140,6 @@ class UserProfileController extends Controller
             'raw' => $raw,
             'display' => $display,
             'profile_completion' => $this->profileCompletion($raw),
-
-            /*
-        |--------------------------------------------------------------------------
-        | Dashboard Cards
-        |--------------------------------------------------------------------------
-        */
             'dashboard_counts' => $dashboardCounts,
         ];
     }
@@ -1106,7 +1182,72 @@ class UserProfileController extends Controller
             ], $listingIds),
         ];
     }
+    private function detailValue(?UserDetail $detail, string $column): mixed
+    {
+        if (!$detail || !Schema::hasColumn('user_details', $column)) {
+            return null;
+        }
 
+        return $detail->{$column} ?? null;
+    }
+
+    private function dashArray(array $items): array
+    {
+        return collect($items)
+            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
+            ->toArray();
+    }
+
+    private function isOwnerUser(User $user): bool
+    {
+        /*
+    |--------------------------------------------------------------------------
+    | Case 1: role_id directly stored as owner text
+    |--------------------------------------------------------------------------
+    */
+        $directRole = strtolower(trim((string) ($user->role_id ?? '')));
+        $directRole = str_replace([' ', '_', '-'], '', $directRole);
+
+        if (in_array($directRole, [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true)) {
+            return true;
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | Case 2: role_id is roles.id
+    |--------------------------------------------------------------------------
+    */
+        if (!Schema::hasTable('roles') || empty($user->role_id)) {
+            return false;
+        }
+
+        $role = DB::table('roles')
+            ->where('id', $user->role_id)
+            ->first();
+
+        if (!$role) {
+            return false;
+        }
+
+        $roleText = strtolower(trim((string) (
+            $role->slug
+            ?? $role->name
+            ?? $role->role_name
+            ?? ''
+        )));
+
+        $roleText = str_replace([' ', '_', '-'], '', $roleText);
+
+        return in_array($roleText, [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true);
+    }
     private function userListingIds(User $user): array
     {
         if (!Schema::hasTable('dynamic_posts')) {
