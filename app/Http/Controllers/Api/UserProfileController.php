@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Throwable;
+use Illuminate\Support\Facades\Storage;
 
 class UserProfileController extends Controller
 {
@@ -411,23 +412,32 @@ class UserProfileController extends Controller
 
                 /*
             |--------------------------------------------------------------------------
-            | IMPORTANT
-            |--------------------------------------------------------------------------
-            | profile_photo column length is 100.
-            | Do not use original file name here.
+            | Short file name because profile_photo column length is 100
             |--------------------------------------------------------------------------
             */
                 $fileName = 'u' . $user->id . '_' . time() . '_' . uniqid() . '.' . $extension;
 
+                /*
+            |--------------------------------------------------------------------------
+            | Store in Laravel writable storage, not public/uploads
+            |--------------------------------------------------------------------------
+            */
                 $directory = 'uploads/users';
 
-                if (!is_dir(public_path($directory))) {
-                    mkdir(public_path($directory), 0775, true);
-                }
+                Storage::disk('public')->putFileAs(
+                    $directory,
+                    $file,
+                    $fileName
+                );
 
-                $file->move(public_path($directory), $fileName);
-
-                $profilePhotoPath = $directory . '/' . $fileName;
+                /*
+            |--------------------------------------------------------------------------
+            | Save public URL path in DB
+            |--------------------------------------------------------------------------
+            | Example: storage/uploads/users/u8_123456.png
+            |--------------------------------------------------------------------------
+            */
+                $profilePhotoPath = 'storage/' . $directory . '/' . $fileName;
 
                 UserDetail::updateOrCreate(
                     ['user_id' => $user->id],
@@ -453,7 +463,18 @@ class UserProfileController extends Controller
             ], 500);
         }
     }
+    private function fileUrl(?string $path): ?string
+    {
+        if (empty($path)) {
+            return null;
+        }
 
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        return url($path);
+    }
     private function resolveCurrentUser(Request $request): ?User
     {
         $token = $request->bearerToken();
@@ -492,10 +513,10 @@ class UserProfileController extends Controller
         $stateName = $this->locationName('states', $stateId);
         $cityName = $this->locationName('cities', $cityId);
 
-        $profilePhoto = $detail?->profile_photo ? url($detail->profile_photo) : null;
-        $aadhaarFront = $detail?->aadhaar_front ? url($detail->aadhaar_front) : null;
-        $aadhaarBack = $detail?->aadhaar_back ? url($detail->aadhaar_back) : null;
-        $businessProof = $detail?->business_proof ? url($detail->business_proof) : null;
+        $profilePhoto = $this->fileUrl($detail?->profile_photo);
+        $aadhaarFront = $this->fileUrl($detail?->aadhaar_front);
+        $aadhaarBack = $this->fileUrl($detail?->aadhaar_back);
+        $businessProof = $this->fileUrl($detail?->business_proof);
 
         $firstName = $user->first_name ?? null;
         $lastName = $user->last_name ?? null;
