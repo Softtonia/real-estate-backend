@@ -99,13 +99,15 @@ class UserProfileController extends Controller
             DB::transaction(function () use ($request, $user) {
                 $userPayload = [];
 
-                foreach ([
-                    'first_name',
-                    'last_name',
-                    'email',
-                    'phone',
-                    'user_name',
-                ] as $column) {
+                foreach (
+                    [
+                        'first_name',
+                        'last_name',
+                        'email',
+                        'phone',
+                        'user_name',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
                     }
@@ -123,14 +125,16 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach ([
-                    'alternate_number',
-                    'no_of_employees',
-                    'about_us',
-                    'bussiness_name',
-                    'business_phone',
-                    'bussiness_email',
-                ] as $column) {
+                foreach (
+                    [
+                        'alternate_number',
+                        'no_of_employees',
+                        'about_us',
+                        'bussiness_name',
+                        'business_phone',
+                        'bussiness_email',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -203,13 +207,15 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach ([
-                    'country_id',
-                    'state_id',
-                    'city_id',
-                    'address',
-                    'pin_code',
-                ] as $column) {
+                foreach (
+                    [
+                        'country_id',
+                        'state_id',
+                        'city_id',
+                        'address',
+                        'pin_code',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -251,13 +257,15 @@ class UserProfileController extends Controller
                 */
                 $userPayload = [];
 
-                foreach ([
-                    'country_id',
-                    'state_id',
-                    'city_id',
-                    'address',
-                    'pin_code',
-                ] as $column) {
+                foreach (
+                    [
+                        'country_id',
+                        'state_id',
+                        'city_id',
+                        'address',
+                        'pin_code',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
                     }
@@ -318,11 +326,13 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach ([
-                    'aadhaar_number',
-                    'license_number',
-                    'rera_number',
-                ] as $column) {
+                foreach (
+                    [
+                        'aadhaar_number',
+                        'license_number',
+                        'rera_number',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -396,14 +406,34 @@ class UserProfileController extends Controller
         try {
             DB::transaction(function () use ($request, $user) {
                 $file = $request->file('profile_photo');
-                $fileName = time() . '_profile_' . str_replace(' ', '_', $file->getClientOriginalName());
-                $file->move(public_path('uploads/users'), $fileName);
+
+                $extension = strtolower($file->getClientOriginalExtension());
+
+                /*
+            |--------------------------------------------------------------------------
+            | IMPORTANT
+            |--------------------------------------------------------------------------
+            | profile_photo column length is 100.
+            | Do not use original file name here.
+            |--------------------------------------------------------------------------
+            */
+                $fileName = 'u' . $user->id . '_' . time() . '_' . uniqid() . '.' . $extension;
+
+                $directory = 'uploads/users';
+
+                if (!is_dir(public_path($directory))) {
+                    mkdir(public_path($directory), 0775, true);
+                }
+
+                $file->move(public_path($directory), $fileName);
+
+                $profilePhotoPath = $directory . '/' . $fileName;
 
                 UserDetail::updateOrCreate(
                     ['user_id' => $user->id],
                     [
                         'user_id' => $user->id,
-                        'profile_photo' => 'uploads/users/' . $fileName,
+                        'profile_photo' => $profilePhotoPath,
                     ]
                 );
             });
@@ -521,7 +551,7 @@ class UserProfileController extends Controller
         return [
             'raw' => $raw,
             'display' => collect($raw)
-                ->map(fn ($value) => $this->dash($value))
+                ->map(fn($value) => $this->dash($value))
                 ->toArray(),
             'profile_completion' => $this->profileCompletion($raw),
         ];
@@ -596,7 +626,7 @@ class UserProfileController extends Controller
             'completed_fields' => $completed,
             'total_fields' => count($fields),
             'missing_fields' => collect($fields)
-                ->filter(fn ($field) => empty($data[$field]) || $data[$field] === '-')
+                ->filter(fn($field) => empty($data[$field]) || $data[$field] === '-')
                 ->values()
                 ->toArray(),
         ];
