@@ -21,6 +21,7 @@ use Throwable;
 
 class UserPropertyListingController extends Controller
 {
+
     public function index(Request $request): JsonResponse
     {
         try {
@@ -73,7 +74,7 @@ class UserPropertyListingController extends Controller
 
             $postType = PostType::query()
                 ->where('slug', 'property-listing')
-                ->first();0=
+                ->first();
 
             if (!$postType) {
                 return response()->json([
