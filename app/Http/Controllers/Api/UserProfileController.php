@@ -396,7 +396,7 @@ class UserProfileController extends Controller
                 'message' => 'Invalid or expired token.',
             ], 401);
         }
-
+        $this->normalizeKycRequest($request);
         $allowedFields = $this->documentUploadFieldsForUser($user);
 
         $rules = [
@@ -424,11 +424,6 @@ class UserProfileController extends Controller
             'business_proof.max' => 'Business proof must not be greater than 2MB.',
         ]);
 
-        $validator = Validator::make($request->all(), $rules, [
-            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
-            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
-            'business_proof.max' => 'Business proof must not be greater than 2MB.',
-        ]);
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
@@ -459,15 +454,7 @@ class UserProfileController extends Controller
                     ->where('user_id', $user->id)
                     ->first();
 
-                $detailPayload = [
-                    'user_id' => $user->id,
-                ];
-
-                foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
-                    }
-                }
+                $detailPayload = $this->kycMetaPayload($request, $user);
 
                 foreach ($newFilePaths as $field => $path) {
                     $oldFilePaths[$field] = $detail?->{$field};
@@ -522,7 +509,7 @@ class UserProfileController extends Controller
                 'message' => 'Invalid or expired token.',
             ], 401);
         }
-
+        $this->normalizeKycRequest($request);
         $allowedFields = $this->documentUploadFieldsForUser($user);
 
         $validator = Validator::make($request->all(), [
@@ -544,16 +531,7 @@ class UserProfileController extends Controller
             $uploadId = 'doc_' . $user->id . '_' . Str::uuid()->toString();
 
             DB::transaction(function () use ($request, $user) {
-                $detailPayload = [
-                    'user_id' => $user->id,
-                ];
-
-                foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
-                    }
-                }
-
+                $detailPayload = $this->kycMetaPayload($request, $user);
                 if (count($detailPayload) > 1) {
                     UserDetail::updateOrCreate(
                         ['user_id' => $user->id],
@@ -606,7 +584,7 @@ class UserProfileController extends Controller
                 'message' => 'Invalid or expired token.',
             ], 401);
         }
-
+        $this->normalizeKycRequest($request);
         $allowedFields = $this->documentUploadFieldsForUser($user);
 
         $validator = Validator::make($request->all(), [
@@ -738,15 +716,7 @@ class UserProfileController extends Controller
 
                 $oldPath = $detail?->{$field};
 
-                $detailPayload = [
-                    'user_id' => $user->id,
-                ];
-
-                foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
-                    }
-                }
+                $detailPayload = $this->kycMetaPayload($request, $user);
 
                 if (Schema::hasColumn('user_details', $field)) {
                     $detailPayload[$field] = $newPath;
@@ -1597,5 +1567,38 @@ class UserProfileController extends Controller
         }
 
         return $progress;
+    }
+    private function normalizeKycRequest(Request $request): void
+    {
+        foreach (['aadhaar_number', 'aadhar_number', 'adhar_number', 'addhar_number'] as $key) {
+            if ($request->has($key)) {
+                $value = $request->input($key);
+
+                if ($value !== null && $value !== '') {
+                    $value = preg_replace('/\D+/', '', (string) $value);
+                }
+
+                $request->merge([
+                    'aadhaar_number' => $value ?: null,
+                ]);
+
+                break;
+            }
+        }
+    }
+
+    private function kycMetaPayload(Request $request, User $user): array
+    {
+        $payload = [
+            'user_id' => $user->id,
+        ];
+
+        foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
+            if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
+                $payload[$column] = $request->input($column);
+            }
+        }
+
+        return $payload;
     }
 }
