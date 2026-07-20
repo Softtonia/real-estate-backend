@@ -53,7 +53,11 @@ return [
             'visibility' => 'public',
             'throw' => true,
         ],
-
+        'document_temp' => [
+            'driver' => 'local',
+            'root' => env('DOCUMENT_TEMP_ROOT', storage_path('app/private/document-temp')),
+            'throw' => true,
+        ],
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

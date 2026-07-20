@@ -20,7 +20,7 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
+    public int $tries = 1;
     public int $timeout = 120;
 
     public function __construct(
@@ -34,7 +34,6 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
     public function handle(): void
     {
         $newPath = null;
-        $oldPath = null;
 
         try {
             $user = User::find($this->userId);
@@ -53,20 +52,19 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
                 throw new \Exception('Column does not exist in user_details: ' . $this->field);
             }
 
-            if (!Storage::disk('local')->exists($this->tempPath)) {
+            if (!Storage::disk('document_temp')->exists($this->tempPath)) {
                 throw new \Exception('Temporary uploaded file not found.');
             }
 
             $this->updateProgress(function (array $progress) {
                 $progress = $this->ensureProgressStructure($progress);
 
-                $progress['status'] = 'processing';
                 $progress['files'][$this->field]['status'] = 'processing';
                 $progress['files'][$this->field]['percent'] = 50;
                 $progress['files'][$this->field]['error'] = null;
                 $progress['updated_at'] = now()->toDateTimeString();
 
-                return $progress;
+                return $this->syncProgressCounters($progress);
             });
 
             $folders = [
@@ -92,7 +90,7 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
             $relativePath = $folder . '/' . $fileName;
 
-            $contents = Storage::disk('local')->get($this->tempPath);
+            $contents = Storage::disk('document_temp')->get($this->tempPath);
 
             Storage::disk('public_uploads')->put($relativePath, $contents);
 
@@ -101,6 +99,8 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
             }
 
             $newPath = 'uploads/' . $relativePath;
+
+            $oldPath = null;
 
             DB::transaction(function () use ($user, $newPath, &$oldPath) {
                 $detail = UserDetail::query()
@@ -124,46 +124,41 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
                 }
             });
 
-            Storage::disk('local')->delete($this->tempPath);
+            Storage::disk('document_temp')->delete($this->tempPath);
 
             $this->deletePublicUpload($oldPath);
 
             $this->updateProgress(function (array $progress) use ($newPath) {
                 $progress = $this->ensureProgressStructure($progress);
 
-                $progress['processed_files'] = (int) ($progress['processed_files'] ?? 0) + 1;
                 $progress['files'][$this->field]['status'] = 'completed';
                 $progress['files'][$this->field]['percent'] = 100;
                 $progress['files'][$this->field]['url'] = $this->fileUrl($newPath);
                 $progress['files'][$this->field]['error'] = null;
-
-                $progress = $this->recalculateOverallProgress($progress);
                 $progress['updated_at'] = now()->toDateTimeString();
 
-                return $progress;
+                return $this->syncProgressCounters($progress);
             });
         } catch (Throwable $e) {
             if ($newPath) {
                 $this->deletePublicUpload($newPath);
             }
 
-            Storage::disk('local')->delete($this->tempPath);
+            Storage::disk('document_temp')->delete($this->tempPath);
 
             $this->updateProgress(function (array $progress) use ($e) {
                 $progress = $this->ensureProgressStructure($progress);
 
-                $progress['failed_files'] = (int) ($progress['failed_files'] ?? 0) + 1;
                 $progress['files'][$this->field]['status'] = 'failed';
                 $progress['files'][$this->field]['percent'] = 0;
+                $progress['files'][$this->field]['url'] = null;
                 $progress['files'][$this->field]['error'] = $e->getMessage();
-
-                $progress = $this->recalculateOverallProgress($progress);
                 $progress['updated_at'] = now()->toDateTimeString();
 
-                return $progress;
+                return $this->syncProgressCounters($progress);
             });
 
-            throw $e;
+            report($e);
         }
     }
 
@@ -299,22 +294,9 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
         $store = $this->cacheStore();
         $key = $this->progressKey();
 
-        try {
-            if (method_exists($store, 'lock')) {
-                $store->lock($key . ':lock', 10)->block(5, function () use ($store, $key, $callback) {
-                    $progress = $store->get($key, []);
-                    $progress = $callback(is_array($progress) ? $progress : []);
-                    $store->put($key, $progress, now()->addHours(2));
-                });
-
-                return;
-            }
-        } catch (Throwable $e) {
-            // fallback below
-        }
-
         $progress = $store->get($key, []);
         $progress = $callback(is_array($progress) ? $progress : []);
+
         $store->put($key, $progress, now()->addHours(2));
     }
 
@@ -324,10 +306,6 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
         $progress['user_id'] = $progress['user_id'] ?? $this->userId;
         $progress['status'] = $progress['status'] ?? 'started';
         $progress['total_files'] = max(1, (int) ($progress['total_files'] ?? 1));
-        $progress['queued_files'] = (int) ($progress['queued_files'] ?? 0);
-        $progress['processed_files'] = (int) ($progress['processed_files'] ?? 0);
-        $progress['failed_files'] = (int) ($progress['failed_files'] ?? 0);
-        $progress['percent'] = (int) ($progress['percent'] ?? 0);
         $progress['files'] = $progress['files'] ?? [];
 
         $progress['files'][$this->field] = $progress['files'][$this->field] ?? [
@@ -340,20 +318,44 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
         return $progress;
     }
 
-    private function recalculateOverallProgress(array $progress): array
+    private function syncProgressCounters(array $progress): array
     {
-        $total = max(1, (int) ($progress['total_files'] ?? 1));
-        $processed = (int) ($progress['processed_files'] ?? 0);
-        $failed = (int) ($progress['failed_files'] ?? 0);
+        $files = $progress['files'] ?? [];
 
+        $queued = 0;
+        $processed = 0;
+        $failed = 0;
+
+        foreach ($files as $file) {
+            $status = $file['status'] ?? 'pending';
+
+            if (in_array($status, ['queued', 'uploading', 'processing'], true)) {
+                $queued++;
+            }
+
+            if ($status === 'completed') {
+                $processed++;
+            }
+
+            if ($status === 'failed') {
+                $failed++;
+            }
+        }
+
+        $total = max(1, (int) ($progress['total_files'] ?? count($files) ?: 1));
         $done = min($total, $processed + $failed);
 
+        $progress['queued_files'] = $queued;
+        $progress['processed_files'] = $processed;
+        $progress['failed_files'] = $failed;
         $progress['percent'] = min(100, (int) round(($done / $total) * 100));
 
         if ($done >= $total) {
             $progress['status'] = $failed > 0 ? 'completed_with_errors' : 'completed';
+        } elseif ($queued > 0) {
+            $progress['status'] = 'processing';
         } else {
-            $progress['status'] = $failed > 0 ? 'processing_with_errors' : 'processing';
+            $progress['status'] = 'started';
         }
 
         return $progress;
