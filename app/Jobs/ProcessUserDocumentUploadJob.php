@@ -7,23 +7,20 @@ use App\Models\UserDetail;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Throwable;
 
 class ProcessUserDocumentUploadJob implements ShouldQueue
 {
-    use Dispatchable;
-    use InteractsWithQueue;
-    use Queueable;
-    use SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
-
     public int $timeout = 120;
 
     public function __construct(
@@ -36,239 +33,161 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
     public function handle(): void
     {
-        $user = User::find($this->userId);
+        $oldPath = null;
+        $newPath = null;
 
-        if (!$user) {
-            throw new \Exception('User not found.');
-        }
-
-        $directories = $this->documentUploadDirectories($user);
-
-        if (!array_key_exists($this->field, $directories)) {
-            throw new \Exception('Invalid document field for this user role.');
-        }
-
-        if (!Schema::hasColumn('user_details', $this->field)) {
-            throw new \Exception($this->field . ' column not found in user_details table.');
-        }
-
-        $this->updateProgress(function (array $progress) use ($user) {
-            $progress = $this->ensureProgressStructure($progress, $user);
-
-            $progress['status'] = 'processing';
-            $progress['files'][$this->field]['status'] = 'processing';
-            $progress['files'][$this->field]['percent'] = 40;
-            $progress['files'][$this->field]['error'] = null;
-            $progress['updated_at'] = now()->toDateTimeString();
-
-            return $progress;
-        });
-
-        if (!Storage::disk('local')->exists($this->tempPath)) {
-            throw new \Exception('Temporary uploaded file not found.');
-        }
-
-        $directory = $directories[$this->field];
-
-        $fileName = 'u'
-            . $this->userId
-            . '_'
-            . time()
-            . '_'
-            . $this->field
-            . '_'
-            . uniqid()
-            . '.'
-            . strtolower($this->extension);
-
-        $finalPath = $directory . '/' . $fileName;
-
-        $fileContent = Storage::disk('local')->get($this->tempPath);
-
-        $this->ensurePublicDirectory($directory);
-
-        file_put_contents(public_path($finalPath), $fileContent);
-
-        if (!file_exists(public_path($finalPath))) {
-            throw new \Exception($this->field . ' could not be saved in public uploads.');
-        }
-
-        Storage::disk('local')->delete($this->tempPath);
-
-        $dbPath = $finalPath;
-
-        UserDetail::updateOrCreate(
-            ['user_id' => $this->userId],
-            [
-                'user_id' => $this->userId,
-                $this->field => $dbPath,
-            ]
-        );
-
-        if (Schema::hasColumn('users', 'kyc')) {
-            $user->update([
-                'kyc' => 1,
-            ]);
-        }
-
-        $this->updateProgress(function (array $progress) use ($dbPath, $user) {
-            $progress = $this->ensureProgressStructure($progress, $user);
-
-            $progress['files'][$this->field]['status'] = 'completed';
-            $progress['files'][$this->field]['percent'] = 100;
-            $progress['files'][$this->field]['url'] = url($dbPath);
-            $progress['files'][$this->field]['error'] = null;
-
-            $completed = collect($progress['files'] ?? [])
-                ->filter(fn ($file) => ($file['status'] ?? null) === 'completed')
-                ->count();
-
-            $failed = collect($progress['files'] ?? [])
-                ->filter(fn ($file) => ($file['status'] ?? null) === 'failed')
-                ->count();
-
-            $total = max((int) ($progress['total_files'] ?? count($progress['files'] ?? [])), 1);
-
-            $progress['processed_files'] = $completed;
-            $progress['failed_files'] = $failed;
-            $progress['percent'] = min(100, (int) round(($completed / $total) * 100));
-
-            if ($completed >= $total) {
-                $progress['status'] = 'completed';
-                $progress['percent'] = 100;
-            } elseif ($failed > 0) {
-                $progress['status'] = 'processing_with_errors';
-            } else {
-                $progress['status'] = 'processing';
-            }
-
-            $progress['updated_at'] = now()->toDateTimeString();
-
-            return $progress;
-        });
-    }
-
-    public function failed(Throwable $exception): void
-    {
         try {
-            if (!empty($this->tempPath) && Storage::disk('local')->exists($this->tempPath)) {
-                Storage::disk('local')->delete($this->tempPath);
+            $user = User::find($this->userId);
+
+            if (!$user) {
+                throw new \Exception('User not found.');
             }
+
+            $allowedFields = $this->documentUploadFieldsForUser($user);
+
+            if (!array_key_exists($this->field, $allowedFields)) {
+                throw new \Exception('This document field is not allowed for current user.');
+            }
+
+            if (!Schema::hasColumn('user_details', $this->field)) {
+                throw new \Exception('Column does not exist in user_details: ' . $this->field);
+            }
+
+            if (!Storage::disk('local')->exists($this->tempPath)) {
+                throw new \Exception('Temporary uploaded file not found.');
+            }
+
+            $this->updateProgress(function (array $progress) {
+                $progress = $this->ensureProgressStructure($progress);
+
+                $progress['status'] = 'processing';
+                $progress['files'][$this->field]['status'] = 'processing';
+                $progress['files'][$this->field]['percent'] = 50;
+                $progress['files'][$this->field]['error'] = null;
+                $progress['updated_at'] = now()->toDateTimeString();
+
+                return $progress;
+            });
+
+            $folders = [
+                'aadhaar_front' => 'kyc/aadhaarFront',
+                'aadhaar_back' => 'kyc/aadhaarBack',
+                'business_proof' => 'kyc/businessProof',
+            ];
+
+            $folder = $folders[$this->field];
+
+            $extension = strtolower($this->extension ?: 'bin');
+
+            $fileName = 'u'
+                . $this->userId
+                . '_'
+                . now()->format('YmdHis')
+                . '_'
+                . $this->field
+                . '_'
+                . Str::random(8)
+                . '.'
+                . $extension;
+
+            $targetDirectory = $this->uploadsRoot()
+                . DIRECTORY_SEPARATOR
+                . str_replace('/', DIRECTORY_SEPARATOR, $folder);
+
+            $this->ensureDirectory($targetDirectory);
+
+            if (!is_writable($targetDirectory)) {
+                throw new \Exception('Upload directory is not writable: ' . $targetDirectory);
+            }
+
+            $contents = Storage::disk('local')->get($this->tempPath);
+
+            $fullPath = $targetDirectory . DIRECTORY_SEPARATOR . $fileName;
+
+            file_put_contents($fullPath, $contents);
+
+            if (!is_file($fullPath)) {
+                throw new \Exception('Final document could not be saved.');
+            }
+
+            $newPath = 'uploads/' . $folder . '/' . $fileName;
+
+            $detail = UserDetail::query()
+                ->where('user_id', $this->userId)
+                ->first();
+
+            $oldPath = $detail?->{$this->field};
+
+            UserDetail::updateOrCreate(
+                ['user_id' => $this->userId],
+                [
+                    'user_id' => $this->userId,
+                    $this->field => $newPath,
+                ]
+            );
+
+            if (Schema::hasColumn('users', 'kyc')) {
+                $user->update([
+                    'kyc' => 1,
+                ]);
+            }
+
+            Storage::disk('local')->delete($this->tempPath);
+
+            $this->deletePublicUpload($oldPath);
+
+            $this->updateProgress(function (array $progress) use ($newPath) {
+                $progress = $this->ensureProgressStructure($progress);
+
+                $progress['processed_files'] = (int) ($progress['processed_files'] ?? 0) + 1;
+                $progress['files'][$this->field]['status'] = 'completed';
+                $progress['files'][$this->field]['percent'] = 100;
+                $progress['files'][$this->field]['url'] = url($newPath);
+                $progress['files'][$this->field]['error'] = null;
+
+                $progress = $this->recalculateOverallProgress($progress);
+                $progress['updated_at'] = now()->toDateTimeString();
+
+                return $progress;
+            });
         } catch (Throwable $e) {
-            //
-        }
-
-        $user = User::find($this->userId);
-
-        $this->updateProgress(function (array $progress) use ($exception, $user) {
-            $progress = $this->ensureProgressStructure($progress, $user);
-
-            $progress['files'][$this->field]['status'] = 'failed';
-            $progress['files'][$this->field]['percent'] = 0;
-            $progress['files'][$this->field]['url'] = null;
-            $progress['files'][$this->field]['error'] = $exception->getMessage();
-
-            $completed = collect($progress['files'] ?? [])
-                ->filter(fn ($file) => ($file['status'] ?? null) === 'completed')
-                ->count();
-
-            $failed = collect($progress['files'] ?? [])
-                ->filter(fn ($file) => ($file['status'] ?? null) === 'failed')
-                ->count();
-
-            $total = max((int) ($progress['total_files'] ?? count($progress['files'] ?? [])), 1);
-
-            $progress['processed_files'] = $completed;
-            $progress['failed_files'] = $failed;
-            $progress['percent'] = min(100, (int) round(($completed / $total) * 100));
-            $progress['status'] = 'failed';
-            $progress['updated_at'] = now()->toDateTimeString();
-
-            return $progress;
-        });
-    }
-
-    private function progressKey(): string
-    {
-        return 'user_document_upload:' . $this->uploadId;
-    }
-
-    private function updateProgress(callable $callback): array
-    {
-        $key = $this->progressKey();
-        $lockKey = $key . ':lock';
-
-        return Cache::store('redis')->lock($lockKey, 10)->block(5, function () use ($key, $callback) {
-            $progress = Cache::store('redis')->get($key, []);
-
-            $progress = $callback($progress);
-
-            Cache::store('redis')->put($key, $progress, now()->addHours(2));
-
-            return $progress;
-        });
-    }
-
-    private function ensureProgressStructure(array $progress, ?User $user = null): array
-    {
-        $directories = $user
-            ? $this->documentUploadDirectories($user)
-            : [
-                'aadhaar_front' => 'uploads/kyc/aadhaarFront',
-                'aadhaar_back' => 'uploads/kyc/aadhaarBack',
-                'business_proof' => 'uploads/kyc/businessProof',
-            ];
-
-        $allowedFields = array_keys($directories);
-
-        $progress['upload_id'] = $progress['upload_id'] ?? $this->uploadId;
-        $progress['user_id'] = $progress['user_id'] ?? $this->userId;
-        $progress['status'] = $progress['status'] ?? 'processing';
-        $progress['queued_files'] = $progress['queued_files'] ?? 0;
-        $progress['processed_files'] = $progress['processed_files'] ?? 0;
-        $progress['failed_files'] = $progress['failed_files'] ?? 0;
-        $progress['percent'] = $progress['percent'] ?? 0;
-        $progress['files'] = $progress['files'] ?? [];
-
-        foreach (array_keys($progress['files']) as $field) {
-            if (!in_array($field, $allowedFields, true)) {
-                unset($progress['files'][$field]);
+            if ($newPath) {
+                $this->deletePublicUpload($newPath);
             }
+
+            Storage::disk('local')->delete($this->tempPath);
+
+            $this->updateProgress(function (array $progress) use ($e) {
+                $progress = $this->ensureProgressStructure($progress);
+
+                $progress['failed_files'] = (int) ($progress['failed_files'] ?? 0) + 1;
+                $progress['files'][$this->field]['status'] = 'failed';
+                $progress['files'][$this->field]['percent'] = 0;
+                $progress['files'][$this->field]['error'] = $e->getMessage();
+
+                $progress = $this->recalculateOverallProgress($progress);
+                $progress['updated_at'] = now()->toDateTimeString();
+
+                return $progress;
+            });
+
+            throw $e;
         }
-
-        foreach ($allowedFields as $field) {
-            $progress['files'][$field] = $progress['files'][$field] ?? [
-                'status' => 'pending',
-                'percent' => 0,
-                'url' => null,
-                'error' => null,
-            ];
-        }
-
-        $progress['total_files'] = max(
-            1,
-            min(
-                (int) ($progress['total_files'] ?? count($allowedFields)),
-                count($allowedFields)
-            )
-        );
-
-        return $progress;
     }
 
-    private function documentUploadDirectories(User $user): array
+    private function documentUploadFieldsForUser(User $user): array
     {
-        $directories = [
-            'aadhaar_front' => 'uploads/kyc/aadhaarFront',
-            'aadhaar_back' => 'uploads/kyc/aadhaarBack',
-            'business_proof' => 'uploads/kyc/businessProof',
+        $fields = [
+            'aadhaar_front' => 'Aadhaar Front',
+            'aadhaar_back' => 'Aadhaar Back',
+            'business_proof' => 'Business Proof',
         ];
 
         if ($this->isOwnerUser($user)) {
-            unset($directories['business_proof']);
+            unset($fields['business_proof']);
         }
 
-        return $directories;
+        return $fields;
     }
 
     private function isOwnerUser(User $user): bool
@@ -276,11 +195,7 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
         $directRole = strtolower(trim((string) ($user->role_id ?? '')));
         $directRole = str_replace([' ', '_', '-'], '', $directRole);
 
-        if (in_array($directRole, [
-            'owner',
-            'propertyowner',
-            'landowner',
-        ], true)) {
+        if (in_array($directRole, ['owner', 'propertyowner', 'landowner'], true)) {
             return true;
         }
 
@@ -288,7 +203,7 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
             return false;
         }
 
-        $role = DB::table('roles')
+        $role = \DB::table('roles')
             ->where('id', $user->role_id)
             ->first();
 
@@ -305,19 +220,137 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
         $roleText = str_replace([' ', '_', '-'], '', $roleText);
 
-        return in_array($roleText, [
-            'owner',
-            'propertyowner',
-            'landowner',
-        ], true);
+        return in_array($roleText, ['owner', 'propertyowner', 'landowner'], true);
     }
 
-    private function ensurePublicDirectory(string $directory): void
+    private function uploadsRoot(): string
     {
-        $path = public_path($directory);
+        $configuredPath = env('PUBLIC_UPLOADS_PATH')
+            ?: env('SHARED_UPLOADS_PATH');
 
-        if (!is_dir($path)) {
-            mkdir($path, 0775, true);
+        if (!empty($configuredPath)) {
+            return rtrim($configuredPath, DIRECTORY_SEPARATOR);
         }
+
+        return rtrim(public_path('uploads'), DIRECTORY_SEPARATOR);
+    }
+
+    private function ensureDirectory(string $path): void
+    {
+        if (!is_dir($path)) {
+            if (!mkdir($path, 0775, true) && !is_dir($path)) {
+                throw new \Exception('Unable to create upload directory: ' . $path);
+            }
+        }
+    }
+
+    private function deletePublicUpload(?string $path): void
+    {
+        if (empty($path)) {
+            return;
+        }
+
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parsedPath = parse_url($path, PHP_URL_PATH);
+            $path = ltrim((string) $parsedPath, '/');
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (!str_starts_with($path, 'uploads/')) {
+            return;
+        }
+
+        $relativePath = substr($path, strlen('uploads/'));
+
+        $fullPath = $this->uploadsRoot()
+            . DIRECTORY_SEPARATOR
+            . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+
+        if (is_file($fullPath)) {
+            @unlink($fullPath);
+        }
+    }
+
+    private function cacheStore()
+    {
+        try {
+            return Cache::store(env('DOCUMENT_UPLOAD_CACHE_STORE', 'redis'));
+        } catch (Throwable $e) {
+            return Cache::store(config('cache.default'));
+        }
+    }
+
+    private function progressKey(): string
+    {
+        return 'user_document_upload:' . $this->uploadId;
+    }
+
+    private function updateProgress(callable $callback): void
+    {
+        $store = $this->cacheStore();
+        $key = $this->progressKey();
+        $lockKey = $key . ':lock';
+
+        if (method_exists($store->getStore(), 'lock')) {
+            $store->lock($lockKey, 10)->block(5, function () use ($store, $key, $callback) {
+                $progress = $store->get($key, []);
+                $progress = $callback(is_array($progress) ? $progress : []);
+                $store->put($key, $progress, now()->addHours(2));
+            });
+
+            return;
+        }
+
+        $progress = $store->get($key, []);
+        $progress = $callback(is_array($progress) ? $progress : []);
+        $store->put($key, $progress, now()->addHours(2));
+    }
+
+    private function ensureProgressStructure(array $progress): array
+    {
+        $progress['upload_id'] = $progress['upload_id'] ?? $this->uploadId;
+        $progress['user_id'] = $progress['user_id'] ?? $this->userId;
+        $progress['status'] = $progress['status'] ?? 'started';
+        $progress['total_files'] = max(1, (int) ($progress['total_files'] ?? 1));
+        $progress['queued_files'] = (int) ($progress['queued_files'] ?? 0);
+        $progress['processed_files'] = (int) ($progress['processed_files'] ?? 0);
+        $progress['failed_files'] = (int) ($progress['failed_files'] ?? 0);
+        $progress['percent'] = (int) ($progress['percent'] ?? 0);
+        $progress['files'] = $progress['files'] ?? [];
+
+        $progress['files'][$this->field] = $progress['files'][$this->field] ?? [
+            'status' => 'pending',
+            'percent' => 0,
+            'url' => null,
+            'error' => null,
+        ];
+
+        return $progress;
+    }
+
+    private function recalculateOverallProgress(array $progress): array
+    {
+        $total = max(1, (int) ($progress['total_files'] ?? 1));
+        $processed = (int) ($progress['processed_files'] ?? 0);
+        $failed = (int) ($progress['failed_files'] ?? 0);
+
+        $done = min($total, $processed + $failed);
+
+        $progress['percent'] = min(100, (int) round(($done / $total) * 100));
+
+        if ($done >= $total) {
+            $progress['status'] = $failed > 0 ? 'completed_with_errors' : 'completed';
+        } else {
+            $progress['status'] = $failed > 0 ? 'processing_with_errors' : 'processing';
+        }
+
+        return $progress;
     }
 }

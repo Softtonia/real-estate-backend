@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessUserDocumentUploadJob;
 use App\Models\User;
 use App\Models\UserDetail;
-use App\Services\PublicUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -17,15 +16,11 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Http\UploadedFile;
 use Throwable;
 
 class UserProfileController extends Controller
 {
-    public function __construct(
-        private readonly PublicUploadService $uploads
-    ) {
-    }
-
     public function show(Request $request): JsonResponse
     {
         try {
@@ -202,6 +197,7 @@ class UserProfileController extends Controller
             'country_id' => ['nullable', 'exists:countries,id'],
             'state_id' => ['nullable', 'exists:states,id'],
             'city_id' => ['nullable', 'exists:cities,id'],
+
             'street_address' => ['nullable', 'string', 'max:255'],
             'area_locality' => ['nullable', 'string', 'max:255'],
             'colony' => ['nullable', 'string', 'max:255'],
@@ -210,13 +206,11 @@ class UserProfileController extends Controller
         ];
 
         if (!$isOwnerRole) {
-            $rules = array_merge($rules, [
-                'business_country_id' => ['nullable', 'exists:countries,id'],
-                'business_state_id' => ['nullable', 'exists:states,id'],
-                'business_city_id' => ['nullable', 'exists:cities,id'],
-                'bussiness_address' => ['nullable', 'string', 'max:500'],
-                'business_pin_code' => ['nullable', 'string', 'max:20'],
-            ]);
+            $rules['business_country_id'] = ['nullable', 'exists:countries,id'];
+            $rules['business_state_id'] = ['nullable', 'exists:states,id'];
+            $rules['business_city_id'] = ['nullable', 'exists:cities,id'];
+            $rules['bussiness_address'] = ['nullable', 'string', 'max:200'];
+            $rules['business_pin_code'] = ['nullable', 'string', 'max:20'];
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -227,9 +221,11 @@ class UserProfileController extends Controller
 
         try {
             DB::transaction(function () use ($request, $user, $isOwnerRole) {
-                $detailPayload = ['user_id' => $user->id];
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
 
-                $personalColumns = [
+                $addressColumns = [
                     'country_id',
                     'state_id',
                     'city_id',
@@ -240,7 +236,7 @@ class UserProfileController extends Controller
                     'pin_code',
                 ];
 
-                foreach ($personalColumns as $column) {
+                foreach ($addressColumns as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -254,10 +250,10 @@ class UserProfileController extends Controller
                     $missingSeparateColumns
                     && Schema::hasColumn('user_details', 'address')
                     && (
-                        $request->has('street_address')
-                        || $request->has('colony')
-                        || $request->has('area_locality')
-                        || $request->has('address')
+                        $request->filled('street_address')
+                        || $request->filled('colony')
+                        || $request->filled('area_locality')
+                        || $request->filled('address')
                     )
                 ) {
                     $detailPayload['address'] = collect([
@@ -265,30 +261,25 @@ class UserProfileController extends Controller
                         $request->input('colony'),
                         $request->input('area_locality'),
                         $request->input('address'),
-                    ])->filter(fn ($value) => $value !== null && $value !== '')->implode(', ');
+                    ])->filter()->values()->implode(', ');
                 }
 
                 if (!$isOwnerRole) {
-                    foreach ([
-                        'business_country_id',
-                        'business_state_id',
-                        'business_city_id',
-                        'bussiness_address',
-                        'business_pin_code',
-                    ] as $column) {
-                        if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                            $detailPayload[$column] = $request->input($column);
-                        }
+                    if ($request->has('bussiness_address') && Schema::hasColumn('user_details', 'bussiness_address')) {
+                        $detailPayload['bussiness_address'] = $request->input('bussiness_address');
                     }
                 }
 
                 if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(['user_id' => $user->id], $detailPayload);
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
                 }
 
                 $userPayload = [];
 
-                foreach (['country_id', 'state_id', 'city_id'] as $column) {
+                foreach ($addressColumns as $column) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
                     }
@@ -299,18 +290,18 @@ class UserProfileController extends Controller
                 }
             });
 
+            $freshUser = User::find($user->id);
+
             return response()->json([
                 'status' => true,
                 'message' => 'Address information updated successfully.',
-                'data' => $this->formatUserProfile(User::find($user->id)),
+                'data' => $this->formatUserProfile($freshUser),
             ]);
         } catch (Throwable $e) {
-            report($e);
-
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to update address information.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -326,108 +317,108 @@ class UserProfileController extends Controller
             ], 401);
         }
 
-        $allowedFileFields = $this->documentUploadFieldsForUser($user);
-        $rules = [
+        $validator = Validator::make($request->all(), [
             'aadhaar_number' => [
                 'nullable',
                 'digits:12',
                 Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
             ],
+            'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
+            'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
+            'business_proof' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
             'license_number' => ['nullable', 'string', 'max:200'],
             'rera_number' => ['nullable', 'string', 'max:50'],
-        ];
-
-        foreach (array_keys($allowedFileFields) as $field) {
-            $rules[$field] = ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'];
-        }
-
-        $validator = Validator::make($request->all(), $rules);
+        ]);
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
         }
 
-        foreach (['aadhaar_front', 'aadhaar_back', 'business_proof'] as $field) {
-            if ($request->hasFile($field) && !array_key_exists($field, $allowedFileFields)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => $field . ' is not allowed for the current user role.',
-                ], 422);
-            }
-        }
-
-        $storedPaths = [];
-        $replacedPaths = [];
-
         try {
-            $detail = UserDetail::firstOrNew(['user_id' => $user->id]);
-            $detailPayload = ['user_id' => $user->id];
+            DB::transaction(function () use ($request, $user) {
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
 
-            foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
-                if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                    $detailPayload[$column] = $request->input($column);
-                }
-            }
-
-            $directories = [
-                'aadhaar_front' => 'uploads/kyc/aadhaarFront/' . now()->format('Y/m'),
-                'aadhaar_back' => 'uploads/kyc/aadhaarBack/' . now()->format('Y/m'),
-                'business_proof' => 'uploads/kyc/businessProof/' . now()->format('Y/m'),
-            ];
-
-            foreach (array_keys($allowedFileFields) as $field) {
-                if (!$request->hasFile($field) || !Schema::hasColumn('user_details', $field)) {
-                    continue;
+                foreach (
+                    [
+                        'aadhaar_number',
+                        'license_number',
+                        'rera_number',
+                    ] as $column
+                ) {
+                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $request->input($column);
+                    }
                 }
 
-                $stored = $this->uploads->storeUploadedFile(
-                    file: $request->file($field),
-                    directory: $directories[$field],
-                    allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
-                    maxSizeKb: 10240,
-                    namePrefix: 'u' . $user->id . '-' . $field
-                );
+                $fileFields = [
+                    'aadhaar_front' => 'uploads/kyc/aadhaarFront',
+                    'aadhaar_back' => 'uploads/kyc/aadhaarBack',
+                    'business_proof' => 'uploads/kyc/businessProof',
+                ];
 
-                $storedPaths[] = $stored['path'];
-                $oldPath = $detail->{$field} ?? null;
+                foreach ($fileFields as $field => $directory) {
+                    if ($request->hasFile($field) && Schema::hasColumn('user_details', $field)) {
+                        $file = $request->file($field);
 
-                if ($oldPath && $this->uploads->normalizePath($oldPath) !== $stored['path']) {
-                    $replacedPaths[] = $oldPath;
+                        if (!$file->isValid()) {
+                            throw new \Exception($field . ' upload failed.');
+                        }
+
+                        $extension = strtolower($file->getClientOriginalExtension());
+
+                        $fileName = 'u'
+                            . $user->id
+                            . '_'
+                            . time()
+                            . '_'
+                            . $field
+                            . '_'
+                            . uniqid()
+                            . '.'
+                            . $extension;
+
+                        $this->ensurePublicDirectory($directory);
+
+                        $file->move(public_path($directory), $fileName);
+
+                        $filePath = $directory . '/' . $fileName;
+
+                        if (!file_exists(public_path($filePath))) {
+                            throw new \Exception($field . ' could not be saved in public uploads.');
+                        }
+
+                        $detailPayload[$field] = $filePath;
+                    }
                 }
 
-                $detailPayload[$field] = $stored['path'];
-            }
-
-            DB::transaction(function () use ($detailPayload, $user) {
                 if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(['user_id' => $user->id], $detailPayload);
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
                 }
 
-                if (Schema::hasColumn('users', 'kyc') && count($detailPayload) > 1) {
-                    $user->update(['kyc' => 1]);
+                if (Schema::hasColumn('users', 'kyc')) {
+                    $user->update([
+                        'kyc' => 1,
+                    ]);
                 }
             });
 
-            foreach (array_unique($replacedPaths) as $oldPath) {
-                $this->uploads->delete($oldPath);
-            }
+            $freshUser = User::find($user->id);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Documents updated successfully.',
-                'data' => $this->formatUserProfile(User::find($user->id)),
+                'data' => $this->formatUserProfile($freshUser),
             ]);
         } catch (Throwable $e) {
-            foreach (array_unique($storedPaths) as $path) {
-                $this->uploads->delete($path);
-            }
-
-            report($e);
-
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to update documents.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -444,7 +435,7 @@ class UserProfileController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'profile_photo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'profile_photo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
         ]);
 
         if ($validator->fails()) {
@@ -452,48 +443,159 @@ class UserProfileController extends Controller
         }
 
         $newPath = null;
+        $oldPath = null;
 
         try {
-            $stored = $this->uploads->storeUploadedFile(
+            $newPath = $this->storePublicUpload(
                 file: $request->file('profile_photo'),
-                directory: 'uploads/users/' . now()->format('Y/m'),
-                allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
-                maxSizeKb: 5120,
-                namePrefix: 'u' . $user->id . '-profile'
+                folder: 'users',
+                prefix: 'u' . $user->id . '_profile'
             );
 
-            $newPath = $stored['path'];
-            $detail = UserDetail::firstOrNew(['user_id' => $user->id]);
-            $oldPath = $detail->profile_photo ?? null;
+            DB::transaction(function () use ($user, $newPath, &$oldPath) {
+                $detail = UserDetail::query()
+                    ->where('user_id', $user->id)
+                    ->first();
 
-            DB::transaction(function () use ($user, $newPath) {
+                $oldPath = $detail?->profile_photo;
+
                 UserDetail::updateOrCreate(
                     ['user_id' => $user->id],
-                    ['user_id' => $user->id, 'profile_photo' => $newPath]
+                    [
+                        'user_id' => $user->id,
+                        'profile_photo' => $newPath,
+                    ]
                 );
             });
 
-            if ($oldPath && $this->uploads->normalizePath($oldPath) !== $newPath) {
-                $this->uploads->delete($oldPath);
-            }
+            $this->deletePublicUpload($oldPath);
+
+            $freshUser = User::find($user->id);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Profile photo updated successfully.',
-                'profile_photo' => $this->uploads->url($newPath),
-                'data' => $this->formatUserProfile(User::find($user->id)),
+                'profile_photo' => $this->fileUrl($newPath),
+                'data' => $this->formatUserProfile($freshUser),
             ]);
         } catch (Throwable $e) {
-            if ($newPath) {
-                $this->uploads->delete($newPath);
-            }
-
-            report($e);
+            $this->deletePublicUpload($newPath);
 
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to update profile photo.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function updateDocuments(Request $request): JsonResponse
+    {
+        $user = $this->resolveCurrentUser($request);
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid or expired token.',
+            ], 401);
+        }
+
+        $allowedFields = $this->documentUploadFieldsForUser($user);
+
+        $rules = [
+            'aadhaar_number' => [
+                'nullable',
+                'digits:12',
+                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
+            ],
+            'license_number' => ['nullable', 'string', 'max:200'],
+            'rera_number' => ['nullable', 'string', 'max:50'],
+        ];
+
+        foreach ($allowedFields as $field => $label) {
+            $rules[$field] = ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'];
+        }
+
+        $validator = Validator::make($request->all(), $rules);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        $folders = [
+            'aadhaar_front' => 'kyc/aadhaarFront',
+            'aadhaar_back' => 'kyc/aadhaarBack',
+            'business_proof' => 'kyc/businessProof',
+        ];
+
+        $newFilePaths = [];
+        $oldFilePaths = [];
+
+        try {
+            foreach ($allowedFields as $field => $label) {
+                if ($request->hasFile($field) && Schema::hasColumn('user_details', $field)) {
+                    $newFilePaths[$field] = $this->storePublicUpload(
+                        file: $request->file($field),
+                        folder: $folders[$field],
+                        prefix: 'u' . $user->id . '_' . $field
+                    );
+                }
+            }
+
+            DB::transaction(function () use ($request, $user, $newFilePaths, &$oldFilePaths) {
+                $detail = UserDetail::query()
+                    ->where('user_id', $user->id)
+                    ->first();
+
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
+
+                foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
+                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $request->input($column);
+                    }
+                }
+
+                foreach ($newFilePaths as $field => $path) {
+                    $oldFilePaths[$field] = $detail?->{$field};
+                    $detailPayload[$field] = $path;
+                }
+
+                if (count($detailPayload) > 1) {
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
+
+                if (Schema::hasColumn('users', 'kyc')) {
+                    $user->update([
+                        'kyc' => 1,
+                    ]);
+                }
+            });
+
+            foreach ($oldFilePaths as $oldPath) {
+                $this->deletePublicUpload($oldPath);
+            }
+
+            $freshUser = User::find($user->id);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Documents updated successfully.',
+                'data' => $this->formatUserProfile($freshUser),
+            ]);
+        } catch (Throwable $e) {
+            foreach ($newFilePaths as $newPath) {
+                $this->deletePublicUpload($newPath);
+            }
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to update documents.',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -510,6 +612,7 @@ class UserProfileController extends Controller
         }
 
         $allowedFields = $this->documentUploadFieldsForUser($user);
+
         $validator = Validator::make($request->all(), [
             'aadhaar_number' => [
                 'nullable',
@@ -529,7 +632,9 @@ class UserProfileController extends Controller
             $uploadId = 'doc_' . $user->id . '_' . Str::uuid()->toString();
 
             DB::transaction(function () use ($request, $user) {
-                $detailPayload = ['user_id' => $user->id];
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
 
                 foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
@@ -538,7 +643,16 @@ class UserProfileController extends Controller
                 }
 
                 if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(['user_id' => $user->id], $detailPayload);
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
+
+                if (Schema::hasColumn('users', 'kyc')) {
+                    $user->update([
+                        'kyc' => 1,
+                    ]);
                 }
             });
 
@@ -548,6 +662,531 @@ class UserProfileController extends Controller
                 totalFiles: (int) $request->input('total_files', count($allowedFields)),
                 allowedFields: $allowedFields
             );
+
+            $this->cacheStore()->put(
+                $this->documentProgressKey($uploadId),
+                $progress,
+                now()->addHours(2)
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Document upload session started successfully.',
+                'upload_id' => $uploadId,
+                'progress' => $progress,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to start document upload.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function uploadDocumentFile(Request $request): JsonResponse
+    {
+        $user = $this->resolveCurrentUser($request);
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid or expired token.',
+            ], 401);
+        }
+
+        $allowedFields = $this->documentUploadFieldsForUser($user);
+
+        $validator = Validator::make($request->all(), [
+            'upload_id' => ['nullable', 'string'],
+            'field' => ['required', Rule::in(array_keys($allowedFields))],
+            'file' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
+
+            'aadhaar_number' => [
+                'nullable',
+                'digits:12',
+                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
+            ],
+            'license_number' => ['nullable', 'string', 'max:200'],
+            'rera_number' => ['nullable', 'string', 'max:50'],
+            'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $field = (string) $request->input('field');
+
+            $uploadId = $request->filled('upload_id')
+                ? (string) $request->input('upload_id')
+                : 'doc_' . $user->id . '_' . Str::uuid()->toString();
+
+            $progressKey = $this->documentProgressKey($uploadId);
+            $progress = $this->cacheStore()->get($progressKey);
+
+            if ($request->filled('upload_id') && !$progress) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Upload session not found or expired.',
+                ], 404);
+            }
+
+            if ($progress && (int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'This upload session does not belong to current user.',
+                ], 403);
+            }
+
+            if (!$progress) {
+                $progress = $this->initialDocumentUploadProgress(
+                    uploadId: $uploadId,
+                    user: $user,
+                    totalFiles: (int) $request->input('total_files', count($allowedFields)),
+                    allowedFields: $allowedFields
+                );
+
+                $this->cacheStore()->put(
+                    $progressKey,
+                    $progress,
+                    now()->addHours(2)
+                );
+            }
+
+            DB::transaction(function () use ($request, $user) {
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
+
+                foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
+                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $request->input($column);
+                    }
+                }
+
+                if (count($detailPayload) > 1) {
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
+
+                if (Schema::hasColumn('users', 'kyc')) {
+                    $user->update([
+                        'kyc' => 1,
+                    ]);
+                }
+            });
+
+            $file = $request->file('file');
+
+            if (!$file || !$file->isValid()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid uploaded file.',
+                ], 422);
+            }
+
+            $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+
+            $tempFileName = 'temp_'
+                . $user->id
+                . '_'
+                . time()
+                . '_'
+                . $field
+                . '_'
+                . Str::random(8)
+                . '.'
+                . $extension;
+
+            $tempPath = Storage::disk('local')->putFileAs(
+                'temp/document_uploads/' . $uploadId,
+                $file,
+                $tempFileName
+            );
+
+            if (!$tempPath) {
+                throw new \Exception('Unable to save temporary uploaded file.');
+            }
+
+            $this->updateDocumentProgress($uploadId, function (array $progress) use ($field, $allowedFields) {
+                foreach ($allowedFields as $allowedField => $label) {
+                    $progress['files'][$allowedField] = $progress['files'][$allowedField] ?? [
+                        'status' => 'pending',
+                        'percent' => 0,
+                        'url' => null,
+                        'error' => null,
+                    ];
+                }
+
+                $progress['status'] = 'uploading';
+                $progress['queued_files'] = (int) ($progress['queued_files'] ?? 0) + 1;
+                $progress['files'][$field]['status'] = 'queued';
+                $progress['files'][$field]['percent'] = 10;
+                $progress['files'][$field]['error'] = null;
+                $progress['updated_at'] = now()->toDateTimeString();
+
+                return $progress;
+            });
+
+            ProcessUserDocumentUploadJob::dispatch(
+                (int) $user->id,
+                $uploadId,
+                $field,
+                $tempPath,
+                $extension
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => $field . ' uploaded and queued for processing.',
+                'upload_id' => $uploadId,
+                'field' => $field,
+                'allowed_fields' => array_keys($allowedFields),
+                'progress' => $this->cacheStore()->get($progressKey),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to upload document file.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function documentUploadProgress(Request $request, string $uploadId): JsonResponse
+    {
+        $user = $this->resolveCurrentUser($request);
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid or expired token.',
+            ], 401);
+        }
+
+        $progress = $this->cacheStore()->get($this->documentProgressKey($uploadId));
+
+        if (!$progress) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Upload progress not found or expired.',
+            ], 404);
+        }
+
+        if ((int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This upload session does not belong to current user.',
+            ], 403);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Document upload progress fetched successfully.',
+            'data' => $progress,
+        ]);
+    }
+
+    private function documentUploadFieldsForUser(User $user): array
+    {
+        $fields = [
+            'aadhaar_front' => 'Aadhaar Front',
+            'aadhaar_back' => 'Aadhaar Back',
+            'business_proof' => 'Business Proof',
+        ];
+
+        if ($this->isOwnerUser($user)) {
+            unset($fields['business_proof']);
+        }
+
+        return $fields;
+    }
+
+    private function initialDocumentUploadProgress(
+        string $uploadId,
+        User $user,
+        int $totalFiles,
+        array $allowedFields
+    ): array {
+        $totalFiles = max(1, min($totalFiles, count($allowedFields)));
+
+        $files = [];
+
+        foreach ($allowedFields as $field => $label) {
+            $files[$field] = [
+                'status' => 'pending',
+                'percent' => 0,
+                'url' => null,
+                'error' => null,
+            ];
+        }
+
+        return [
+            'upload_id' => $uploadId,
+            'user_id' => (int) $user->id,
+            'status' => 'started',
+            'total_files' => $totalFiles,
+            'queued_files' => 0,
+            'processed_files' => 0,
+            'failed_files' => 0,
+            'percent' => 0,
+            'files' => $files,
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ];
+    }
+
+    private function fileUrl(?string $path): ?string
+    {
+        if (empty($path)) {
+            return null;
+        }
+
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'public/uploads/')) {
+            $path = str_replace('public/uploads/', 'uploads/', $path);
+        }
+
+        return url($path);
+    }
+
+    private function uploadsRoot(): string
+    {
+        $configuredPath = env('PUBLIC_UPLOADS_PATH')
+            ?: env('SHARED_UPLOADS_PATH');
+
+        if (!empty($configuredPath)) {
+            return rtrim($configuredPath, DIRECTORY_SEPARATOR);
+        }
+
+        return rtrim(public_path('uploads'), DIRECTORY_SEPARATOR);
+    }
+
+    private function storePublicUpload(UploadedFile $file, string $folder, string $prefix): string
+    {
+        if (!$file || !$file->isValid()) {
+            throw new \Exception('Invalid uploaded file.');
+        }
+
+        $folder = trim($folder, '/');
+        $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'bin');
+
+        $fileName = Str::slug($prefix, '_')
+            . '_'
+            . now()->format('YmdHis')
+            . '_'
+            . Str::random(8)
+            . '.'
+            . $extension;
+
+        $targetDirectory = $this->uploadsRoot()
+            . DIRECTORY_SEPARATOR
+            . str_replace('/', DIRECTORY_SEPARATOR, $folder);
+
+        $this->ensurePublicDirectory($targetDirectory, true);
+
+        if (!is_writable($targetDirectory)) {
+            throw new \Exception('Upload directory is not writable: ' . $targetDirectory);
+        }
+
+        $file->move($targetDirectory, $fileName);
+
+        $fullPath = $targetDirectory . DIRECTORY_SEPARATOR . $fileName;
+
+        if (!is_file($fullPath)) {
+            throw new \Exception('File could not be saved: ' . $fullPath);
+        }
+
+        return 'uploads/' . $folder . '/' . $fileName;
+    }
+
+    private function deletePublicUpload(?string $path): void
+    {
+        if (empty($path)) {
+            return;
+        }
+
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parsedPath = parse_url($path, PHP_URL_PATH);
+            $path = ltrim((string) $parsedPath, '/');
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (!str_starts_with($path, 'uploads/')) {
+            return;
+        }
+
+        $relativePath = substr($path, strlen('uploads/'));
+
+        $fullPath = $this->uploadsRoot()
+            . DIRECTORY_SEPARATOR
+            . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+
+        if (is_file($fullPath)) {
+            @unlink($fullPath);
+        }
+    }
+
+    private function ensurePublicDirectory(string $pathOrDirectory, bool $isFullPath = false): void
+    {
+        $path = $isFullPath
+            ? $pathOrDirectory
+            : $this->uploadsRoot() . DIRECTORY_SEPARATOR . trim($pathOrDirectory, '/');
+
+        if (!is_dir($path)) {
+            if (!mkdir($path, 0775, true) && !is_dir($path)) {
+                throw new \Exception('Unable to create upload directory: ' . $path);
+            }
+        }
+    }
+
+    private function cacheStore()
+    {
+        try {
+            return Cache::store(env('DOCUMENT_UPLOAD_CACHE_STORE', 'redis'));
+        } catch (Throwable $e) {
+            return Cache::store(config('cache.default'));
+        }
+    }
+
+    private function updateDocumentProgress(string $uploadId, callable $callback): array
+    {
+        $key = $this->documentProgressKey($uploadId);
+        $lockKey = $key . ':lock';
+        $store = $this->cacheStore();
+
+        if (method_exists($store->getStore(), 'lock')) {
+            return $store->lock($lockKey, 10)->block(5, function () use ($store, $key, $callback) {
+                $progress = $store->get($key, []);
+                $progress = $callback(is_array($progress) ? $progress : []);
+                $store->put($key, $progress, now()->addHours(2));
+
+                return $progress;
+            });
+        }
+
+        $progress = $store->get($key, []);
+        $progress = $callback(is_array($progress) ? $progress : []);
+        $store->put($key, $progress, now()->addHours(2));
+
+        return $progress;
+    }
+    public function startDocumentUpload(Request $request): JsonResponse
+    {
+        $user = $this->resolveCurrentUser($request);
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid or expired token.',
+            ], 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'aadhaar_number' => [
+                'nullable',
+                'digits:12',
+                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
+            ],
+            'license_number' => ['nullable', 'string', 'max:200'],
+            'rera_number' => ['nullable', 'string', 'max:50'],
+            'total_files' => ['nullable', 'integer', 'min:1', 'max:3'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $uploadId = 'doc_' . $user->id . '_' . Str::uuid()->toString();
+
+            DB::transaction(function () use ($request, $user) {
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
+
+                foreach (
+                    [
+                        'aadhaar_number',
+                        'license_number',
+                        'rera_number',
+                    ] as $column
+                ) {
+                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $request->input($column);
+                    }
+                }
+
+                if (count($detailPayload) > 1) {
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
+
+                if (Schema::hasColumn('users', 'kyc')) {
+                    $user->update([
+                        'kyc' => 1,
+                    ]);
+                }
+            });
+
+            $totalFiles = (int) $request->input('total_files', 3);
+
+            $progress = [
+                'upload_id' => $uploadId,
+                'user_id' => (int) $user->id,
+                'status' => 'started',
+                'total_files' => $totalFiles,
+                'queued_files' => 0,
+                'processed_files' => 0,
+                'failed_files' => 0,
+                'percent' => 0,
+                'files' => [
+                    'aadhaar_front' => [
+                        'status' => 'pending',
+                        'percent' => 0,
+                        'url' => null,
+                        'error' => null,
+                    ],
+                    'aadhaar_back' => [
+                        'status' => 'pending',
+                        'percent' => 0,
+                        'url' => null,
+                        'error' => null,
+                    ],
+                    'business_proof' => [
+                        'status' => 'pending',
+                        'percent' => 0,
+                        'url' => null,
+                        'error' => null,
+                    ],
+                ],
+                'created_at' => now()->toDateTimeString(),
+                'updated_at' => now()->toDateTimeString(),
+            ];
 
             Cache::store('redis')->put(
                 $this->documentProgressKey($uploadId),
@@ -559,16 +1198,13 @@ class UserProfileController extends Controller
                 'status' => true,
                 'message' => 'Document upload session started successfully.',
                 'upload_id' => $uploadId,
-                'allowed_fields' => array_keys($allowedFields),
                 'progress' => $progress,
             ]);
         } catch (Throwable $e) {
-            report($e);
-
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to start document upload.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -894,13 +1530,6 @@ class UserProfileController extends Controller
         $stateName = $this->locationName('states', $stateId);
         $cityName = $this->locationName('cities', $cityId);
 
-        $businessCountryId = $this->detailValue($detail, 'business_country_id');
-        $businessStateId = $this->detailValue($detail, 'business_state_id');
-        $businessCityId = $this->detailValue($detail, 'business_city_id');
-        $businessCountryName = $this->locationName('countries', $businessCountryId);
-        $businessStateName = $this->locationName('states', $businessStateId);
-        $businessCityName = $this->locationName('cities', $businessCityId);
-
         $profilePhoto = $this->fileUrl($detail?->profile_photo);
         $aadhaarFront = $this->fileUrl($detail?->aadhaar_front);
         $aadhaarBack = $this->fileUrl($detail?->aadhaar_back);
@@ -995,13 +1624,10 @@ class UserProfileController extends Controller
             $raw['business_phone'] = $detail?->business_phone ?? null;
             $raw['bussiness_email'] = $detail?->bussiness_email ?? null;
             $raw['bussiness_address'] = $detail?->bussiness_address ?? null;
-            $raw['business_pin_code'] = $this->detailValue($detail, 'business_pin_code');
-            $raw['business_country_id'] = $businessCountryId;
-            $raw['business_state_id'] = $businessStateId;
-            $raw['business_city_id'] = $businessCityId;
-            $raw['business_country'] = $businessCountryName;
-            $raw['business_state'] = $businessStateName;
-            $raw['business_city'] = $businessCityName;
+
+            $raw['business_country'] = $countryName;
+            $raw['business_state'] = $stateName;
+            $raw['business_city'] = $cityName;
         }
 
         $display = collect($raw)
@@ -1057,7 +1683,32 @@ class UserProfileController extends Controller
 
     private function fileUrl(?string $path): ?string
     {
-        return $this->uploads->url($path);
+        if (empty($path)) {
+            return null;
+        }
+
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        return url($path);
+    }
+
+    private function ensurePublicDirectory(string $directory): void
+    {
+        $path = public_path($directory);
+
+        if (!is_dir($path)) {
+            mkdir($path, 0775, true);
+        }
     }
 
     private function dash(mixed $value): mixed
