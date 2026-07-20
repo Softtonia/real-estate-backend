@@ -21,7 +21,6 @@ use Throwable;
 
 class UserProfileController extends Controller
 {
-    private const MAX_UPLOAD_KB = 2048;
     public function show(Request $request): JsonResponse
     {
         try {
@@ -321,14 +320,7 @@ class UserProfileController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'profile_photo' => [
-                'required',
-                'file',
-                'mimes:jpg,jpeg,png,webp',
-                'max:' . self::MAX_UPLOAD_KB,
-            ],
-        ], [
-            'profile_photo.max' => 'Profile photo must not be greater than 2MB.',
+            'profile_photo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
         ]);
 
         if ($validator->fails()) {
@@ -406,19 +398,8 @@ class UserProfileController extends Controller
         ];
 
         foreach ($allowedFields as $field => $label) {
-            $rules[$field] = [
-                'nullable',
-                'file',
-                'mimes:jpg,jpeg,png,pdf',
-                'max:' . self::MAX_UPLOAD_KB,
-            ];
+            $rules[$field] = ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'];
         }
-
-        $validator = Validator::make($request->all(), $rules, [
-            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
-            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
-            'business_proof.max' => 'Business proof must not be greater than 2MB.',
-        ]);
 
         $validator = Validator::make($request->all(), $rules);
 
@@ -604,12 +585,7 @@ class UserProfileController extends Controller
         $validator = Validator::make($request->all(), [
             'upload_id' => ['nullable', 'string'],
             'field' => ['required', Rule::in(array_keys($allowedFields))],
-            'file' => [
-                'required',
-                'file',
-                'mimes:jpg,jpeg,png,pdf',
-                'max:' . self::MAX_UPLOAD_KB,
-            ],
+            'file' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
 
             'aadhaar_number' => [
                 'nullable',
