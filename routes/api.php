@@ -1132,13 +1132,13 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         [DynamicPostFormStepController::class, 'frontendForm']
     );
 
-    Route::post('frontend/listings', [DynamicPostController::class, 'storeFrontendListing']);
+    Route::post('frontend/listings', [UserPropertyListingController::class, 'store']);
 
     Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
     Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
     Route::get('users-property-listing', [UserPropertyListingController::class, 'index']);
     Route::get('user-listing-analytics', [UserPropertyListingController::class, 'analytics']);
-    Route::post('users-property-listing', [UserPropertyListingController::class, 'store']);
+    // Route::post('users-property-listing', [UserPropertyListingController::class, 'store']);
     Route::prefix('frontend')->name('frontend.listings.')->group(function () {
         Route::get('locations/countries', [FrontendLocationController::class, 'countries']);
         Route::get('locations/states', [FrontendLocationController::class, 'states']);
