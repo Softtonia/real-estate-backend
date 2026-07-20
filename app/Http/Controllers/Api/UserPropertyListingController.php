@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
 
 class UserPropertyListingController extends Controller
 {
@@ -143,7 +145,238 @@ class UserPropertyListingController extends Controller
             ], 500);
         }
     }
+    public function store(Request $request): JsonResponse
+    {
+        try {
+            $user = $this->resolveCurrentUser($request);
 
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthenticated user.',
+                ], 401);
+            }
+
+            if ($this->isAdminUser($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Admin token is not allowed to create user property listing.',
+                ], 403);
+            }
+
+            $request->validate([
+                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+                'title' => ['required', 'string', 'max:255'],
+                'slug' => ['nullable', 'string', 'max:255'],
+
+                'status' => ['nullable', 'string', Rule::in([
+                    'draft',
+                    'published',
+                    'private',
+                    'archived',
+                ])],
+
+                'live_status' => ['nullable', 'string', Rule::in([
+                    'under_review',
+                    'submit',
+                    'approve',
+                    'reject',
+                    'disapprove',
+                    'modify_review',
+                ])],
+
+                'content' => ['nullable', 'string'],
+                'excerpt' => ['nullable', 'string'],
+
+                'country_id' => ['nullable', 'exists:countries,id'],
+                'state_id' => ['nullable', 'exists:states,id'],
+                'city_id' => ['nullable', 'exists:cities,id'],
+                'area_locality' => ['nullable', 'string', 'max:255'],
+
+                'custom_fields' => ['nullable', 'array'],
+                'custom_fields.*.custom_field_id' => ['nullable', 'integer'],
+                'custom_fields.*.value_string' => ['nullable'],
+                'custom_fields.*.value_text' => ['nullable'],
+                'custom_fields.*.value_number' => ['nullable'],
+                'custom_fields.*.value_date' => ['nullable'],
+                'custom_fields.*.value_datetime' => ['nullable'],
+                'custom_fields.*.value_json' => ['nullable'],
+
+                'taxonomies' => ['nullable', 'array'],
+                'taxonomies.*' => ['nullable', 'integer'],
+
+                'featured_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+                'gallery_images' => ['nullable'],
+                'gallery_images.*' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            ]);
+
+            $postType = PostType::query()
+                ->where('slug', 'property-listing')
+                ->first();
+
+            if (!$postType) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing post type not found.',
+                ], 404);
+            }
+
+            if ($request->filled('post_type_id') && (int) $request->post_type_id !== (int) $postType->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid post_type_id. Only property-listing post type is allowed from user side.',
+                ], 422);
+            }
+
+            if (!Schema::hasColumn('dynamic_posts', 'author_id')) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'author_id column is required in dynamic_posts table.',
+                ], 500);
+            }
+
+            $listing = null;
+
+            DB::transaction(function () use ($request, $user, $postType, &$listing) {
+                $payload = [];
+
+                $this->putIfColumnExists($payload, 'post_type_id', (int) $postType->id);
+                $this->putIfColumnExists($payload, 'author_id', (int) $user->id);
+
+                $this->putIfColumnExists($payload, 'title', $request->input('title'));
+                $this->putIfColumnExists($payload, 'slug', $this->uniqueDynamicPostSlug(
+                    $request->input('slug') ?: $request->input('title')
+                ));
+
+                $this->putIfColumnExists($payload, 'status', $request->input('status', 'draft'));
+                $this->putIfColumnExists($payload, 'live_status', $request->input('live_status', 'under_review'));
+
+                $this->putIfColumnExists($payload, 'content', $request->input('content'));
+                $this->putIfColumnExists($payload, 'excerpt', $request->input('excerpt'));
+
+                $this->putIfColumnExists($payload, 'country_id', $request->input('country_id'));
+                $this->putIfColumnExists($payload, 'state_id', $request->input('state_id'));
+                $this->putIfColumnExists($payload, 'city_id', $request->input('city_id'));
+                $this->putIfColumnExists($payload, 'area_locality', $request->input('area_locality'));
+
+                if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
+                    $payload['listing_code'] = $this->generateListingCode();
+                }
+
+                $listing = DynamicPost::create($payload);
+
+                /*
+            |--------------------------------------------------------------------------
+            | Featured Image
+            |--------------------------------------------------------------------------
+            */
+                $featuredImageFile = $this->featuredImageFile($request);
+
+                if ($featuredImageFile) {
+                    $featuredMedia = $this->storeListingMediaFile(
+                        file: $featuredImageFile,
+                        user: $user,
+                        postType: $postType,
+                        fieldSlug: 'featured_image'
+                    );
+
+                    if ($featuredMedia && Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
+                        $listing->featured_image_id = (int) $featuredMedia->id;
+                    }
+                } elseif ($request->filled('featured_image_id') && is_numeric($request->input('featured_image_id'))) {
+                    if (Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
+                        $listing->featured_image_id = (int) $request->input('featured_image_id');
+                    }
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Gallery Images
+            |--------------------------------------------------------------------------
+            */
+                $galleryIds = $this->galleryMediaIdsFromRequest($request);
+
+                foreach ($this->galleryImageFiles($request) as $galleryFile) {
+                    $galleryMedia = $this->storeListingMediaFile(
+                        file: $galleryFile,
+                        user: $user,
+                        postType: $postType,
+                        fieldSlug: 'gallery_images'
+                    );
+
+                    if ($galleryMedia) {
+                        $galleryIds[] = (int) $galleryMedia->id;
+                    }
+                }
+
+                $galleryIds = collect($galleryIds)
+                    ->filter()
+                    ->map(fn($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->toArray();
+
+                if (!empty($galleryIds) && Schema::hasColumn('dynamic_posts', 'gallery_image_ids')) {
+                    $listing->gallery_image_ids = json_encode($galleryIds);
+                }
+
+                $listing->save();
+
+                /*
+            |--------------------------------------------------------------------------
+            | Taxonomies
+            |--------------------------------------------------------------------------
+            */
+                $termIds = collect($request->input('taxonomies', []))
+                    ->filter(fn($id) => !empty($id) && is_numeric($id))
+                    ->map(fn($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->toArray();
+
+                if (!empty($termIds) && method_exists($listing, 'taxonomyTerms')) {
+                    $listing->taxonomyTerms()->sync($termIds);
+                }
+
+                /*
+            |--------------------------------------------------------------------------
+            | Custom Fields
+            |--------------------------------------------------------------------------
+            */
+                $this->storeCustomFieldsForListing($listing, $request->input('custom_fields', []));
+            });
+
+            $freshListing = DynamicPost::query()
+                ->where('id', $listing->id)
+                ->with([
+                    'postType',
+                    'parent:id,post_type_id,title,slug,status,live_status',
+                    'children:id,post_type_id,parent_id,title,slug,status,live_status',
+                    'taxonomyTerms.taxonomy',
+                    'meta.customField.options',
+                    'meta.customField.repeaters.options',
+                ])
+                ->first();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Property listing created successfully.',
+                'data' => $this->formatFullDynamicPost($freshListing),
+            ], 201);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to create property listing.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
     private function resolveCurrentUser(Request $request): ?User
     {
         $token = $request->bearerToken();
@@ -369,10 +602,10 @@ class UserPropertyListingController extends Controller
                     'taxonomy_slug' => $taxonomy->slug,
                     'selected_term_ids' => $taxonomyTerms
                         ->pluck('id')
-                        ->map(fn ($id) => (int) $id)
+                        ->map(fn($id) => (int) $id)
                         ->values()
                         ->toArray(),
-                    'selected_terms' => $taxonomyTerms->map(fn ($term) => [
+                    'selected_terms' => $taxonomyTerms->map(fn($term) => [
                         'id' => (int) $term->id,
                         'name' => $term->name,
                         'slug' => $term->slug,
@@ -449,7 +682,7 @@ class UserPropertyListingController extends Controller
         }
 
         return collect($value)
-            ->filter(fn ($media) => is_array($media))
+            ->filter(fn($media) => is_array($media))
             ->map(function ($media) {
                 $path = $media['path'] ?? null;
                 $url = $media['url'] ?? null;
@@ -462,7 +695,7 @@ class UserPropertyListingController extends Controller
                     'url' => $url,
                 ]);
             })
-            ->filter(fn ($media) => !empty($media['url']))
+            ->filter(fn($media) => !empty($media['url']))
             ->values()
             ->toArray();
     }
@@ -538,9 +771,9 @@ class UserPropertyListingController extends Controller
         $mediaFiles = MediaFile::whereIn('id', $ids)->get()->keyBy('id');
 
         return collect($ids)
-            ->map(fn ($id) => $mediaFiles->get((int) $id))
+            ->map(fn($id) => $mediaFiles->get((int) $id))
             ->filter()
-            ->map(fn ($media) => $this->formatMediaFile($media))
+            ->map(fn($media) => $this->formatMediaFile($media))
             ->values()
             ->toArray();
     }
@@ -590,8 +823,8 @@ class UserPropertyListingController extends Controller
         }
 
         return collect($ids)
-            ->filter(fn ($id) => $id !== null && $id !== '' && is_numeric($id))
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -644,13 +877,15 @@ class UserPropertyListingController extends Controller
 
     private function expiryColumn(): ?string
     {
-        foreach ([
-            'expired_at',
-            'expires_at',
-            'expiry_date',
-            'valid_till',
-            'valid_until',
-        ] as $column) {
+        foreach (
+            [
+                'expired_at',
+                'expires_at',
+                'expiry_date',
+                'valid_till',
+                'valid_until',
+            ] as $column
+        ) {
             if (Schema::hasColumn('dynamic_posts', $column)) {
                 return $column;
             }
@@ -709,5 +944,328 @@ class UserPropertyListingController extends Controller
         }
 
         return false;
+    }
+    private function putIfColumnExists(array &$payload, string $column, mixed $value): void
+    {
+        if (Schema::hasColumn('dynamic_posts', $column)) {
+            $payload[$column] = $value;
+        }
+    }
+
+    private function uniqueDynamicPostSlug(string $title): string
+    {
+        $baseSlug = Str::slug($title);
+
+        if ($baseSlug === '') {
+            $baseSlug = 'listing';
+        }
+
+        $slug = $baseSlug;
+        $counter = 1;
+
+        while (
+            Schema::hasColumn('dynamic_posts', 'slug')
+            && DynamicPost::query()->where('slug', $slug)->exists()
+        ) {
+            $slug = $baseSlug . '-' . $counter;
+            $counter++;
+        }
+
+        return $slug;
+    }
+
+    private function generateListingCode(): string
+    {
+        do {
+            $code = 'HP-' . now()->format('ymd') . '-' . strtoupper(Str::random(6));
+        } while (
+            Schema::hasColumn('dynamic_posts', 'listing_code')
+            && DynamicPost::query()->where('listing_code', $code)->exists()
+        );
+
+        return $code;
+    }
+
+    private function featuredImageFile(Request $request): ?UploadedFile
+    {
+        if ($request->hasFile('featured_image')) {
+            $file = $request->file('featured_image');
+
+            return $file instanceof UploadedFile ? $file : null;
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | Support wrong frontend key: featured_image_id[] = binary
+    |--------------------------------------------------------------------------
+    */
+        if ($request->hasFile('featured_image_id')) {
+            $file = $request->file('featured_image_id');
+
+            if ($file instanceof UploadedFile) {
+                return $file;
+            }
+
+            if (is_array($file)) {
+                $first = collect($file)->flatten()->first();
+
+                return $first instanceof UploadedFile ? $first : null;
+            }
+        }
+
+        return null;
+    }
+
+    private function galleryImageFiles(Request $request): array
+    {
+        $files = [];
+
+        foreach (['gallery_images', 'gallery_image_ids'] as $key) {
+            if (!$request->hasFile($key)) {
+                continue;
+            }
+
+            $uploaded = $request->file($key);
+
+            if ($uploaded instanceof UploadedFile) {
+                $files[] = $uploaded;
+                continue;
+            }
+
+            if (is_array($uploaded)) {
+                foreach (collect($uploaded)->flatten() as $file) {
+                    if ($file instanceof UploadedFile) {
+                        $files[] = $file;
+                    }
+                }
+            }
+        }
+
+        return $files;
+    }
+
+    private function galleryMediaIdsFromRequest(Request $request): array
+    {
+        $ids = [];
+
+        $value = $request->input('gallery_image_ids');
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $value = $decoded;
+            } else {
+                $value = str_contains($value, ',') ? explode(',', $value) : [$value];
+            }
+        }
+
+        if (is_array($value)) {
+            $ids = collect($value)
+                ->filter(fn($id) => is_numeric($id))
+                ->map(fn($id) => (int) $id)
+                ->values()
+                ->toArray();
+        }
+
+        return $ids;
+    }
+
+    private function storeListingMediaFile(
+        UploadedFile $file,
+        User $user,
+        PostType $postType,
+        string $fieldSlug
+    ): ?MediaFile {
+        if (!$file->isValid()) {
+            throw new \Exception($fieldSlug . ' upload failed.');
+        }
+
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        $directory = 'uploads/listings/user-' . $user->id . '/' . now()->format('Y/m');
+
+        $this->ensurePublicDirectory($directory);
+
+        $fileName = 'listing_'
+            . time()
+            . '_'
+            . Str::random(10)
+            . '.'
+            . $extension;
+
+        $file->move(public_path($directory), $fileName);
+
+        $path = $directory . '/' . $fileName;
+
+        if (!file_exists(public_path($path))) {
+            throw new \Exception($fieldSlug . ' could not be saved.');
+        }
+
+        $url = url($path);
+
+        $payload = [];
+
+        $this->putMediaColumnIfExists($payload, 'disk', 'public');
+        $this->putMediaColumnIfExists($payload, 'context', 'dynamic_post');
+        $this->putMediaColumnIfExists($payload, 'post_type_slug', $postType->slug);
+        $this->putMediaColumnIfExists($payload, 'field_slug', $fieldSlug);
+        $this->putMediaColumnIfExists($payload, 'directory', $directory);
+        $this->putMediaColumnIfExists($payload, 'path', $path);
+        $this->putMediaColumnIfExists($payload, 'url', $url);
+        $this->putMediaColumnIfExists($payload, 'file_name', $fileName);
+        $this->putMediaColumnIfExists($payload, 'original_name', $file->getClientOriginalName());
+        $this->putMediaColumnIfExists($payload, 'mime_type', $file->getClientMimeType());
+        $this->putMediaColumnIfExists($payload, 'extension', $extension);
+        $this->putMediaColumnIfExists($payload, 'size', $file->getSize());
+
+        if (Schema::hasColumn('media_files', 'created_by')) {
+            $payload['created_by'] = (int) $user->id;
+        }
+
+        if (Schema::hasColumn('media_files', 'user_id')) {
+            $payload['user_id'] = (int) $user->id;
+        }
+
+        return MediaFile::create($payload);
+    }
+
+    private function putMediaColumnIfExists(array &$payload, string $column, mixed $value): void
+    {
+        if (Schema::hasTable('media_files') && Schema::hasColumn('media_files', $column)) {
+            $payload[$column] = $value;
+        }
+    }
+
+    private function ensurePublicDirectory(string $directory): void
+    {
+        $path = public_path($directory);
+
+        if (!is_dir($path)) {
+            mkdir($path, 0775, true);
+        }
+    }
+
+    private function storeCustomFieldsForListing(DynamicPost $listing, array $customFields): void
+    {
+        if (empty($customFields)) {
+            return;
+        }
+
+        $table = $this->dynamicPostMetaTable();
+
+        if (!$table) {
+            return;
+        }
+
+        foreach ($customFields as $item) {
+            $customFieldId = $item['custom_field_id'] ?? null;
+
+            if (!$customFieldId) {
+                continue;
+            }
+
+            $payload = [];
+
+            $this->putMetaColumnIfExists($table, $payload, 'entity_type', 'post');
+            $this->putMetaColumnIfExists($table, $payload, 'entity_id', (int) $listing->id);
+            $this->putMetaColumnIfExists($table, $payload, 'post_id', (int) $listing->id);
+            $this->putMetaColumnIfExists($table, $payload, 'dynamic_post_id', (int) $listing->id);
+            $this->putMetaColumnIfExists($table, $payload, 'custom_field_id', (int) $customFieldId);
+
+            foreach (
+                [
+                    'value_string',
+                    'value_text',
+                    'value_number',
+                    'value_date',
+                    'value_datetime',
+                    'value_json',
+                ] as $column
+            ) {
+                if (array_key_exists($column, $item)) {
+                    $value = $item[$column];
+
+                    if ($column === 'value_json' && is_array($value)) {
+                        $value = json_encode($value);
+                    }
+
+                    $this->putMetaColumnIfExists($table, $payload, $column, $value);
+                }
+            }
+
+            if (Schema::hasColumn($table, 'field_meta_value')) {
+                $payload['field_meta_value'] =
+                    $item['value_string']
+                    ?? $item['value_text']
+                    ?? $item['value_number']
+                    ?? $item['value_date']
+                    ?? $item['value_datetime']
+                    ?? (
+                        isset($item['value_json'])
+                        ? (is_array($item['value_json']) ? json_encode($item['value_json']) : $item['value_json'])
+                        : null
+                    );
+            }
+
+            if (Schema::hasColumn($table, 'updated_at')) {
+                $payload['updated_at'] = now();
+            }
+
+            if (Schema::hasColumn($table, 'created_at')) {
+                $payload['created_at'] = now();
+            }
+
+            $match = [];
+
+            if (Schema::hasColumn($table, 'entity_id')) {
+                $match['entity_id'] = (int) $listing->id;
+            } elseif (Schema::hasColumn($table, 'post_id')) {
+                $match['post_id'] = (int) $listing->id;
+            } elseif (Schema::hasColumn($table, 'dynamic_post_id')) {
+                $match['dynamic_post_id'] = (int) $listing->id;
+            }
+
+            if (Schema::hasColumn($table, 'entity_type')) {
+                $match['entity_type'] = 'post';
+            }
+
+            if (Schema::hasColumn($table, 'custom_field_id')) {
+                $match['custom_field_id'] = (int) $customFieldId;
+            }
+
+            if (!empty($match)) {
+                DB::table($table)->updateOrInsert($match, $payload);
+            } else {
+                DB::table($table)->insert($payload);
+            }
+        }
+    }
+
+    private function dynamicPostMetaTable(): ?string
+    {
+        foreach (
+            [
+                'dynamic_post_meta',
+                'dynamic_post_metas',
+                'post_meta',
+                'post_metas',
+                'custom_field_values',
+                'custom_field_meta',
+            ] as $table
+        ) {
+            if (Schema::hasTable($table)) {
+                return $table;
+            }
+        }
+
+        return null;
+    }
+
+    private function putMetaColumnIfExists(string $table, array &$payload, string $column, mixed $value): void
+    {
+        if (Schema::hasColumn($table, $column)) {
+            $payload[$column] = $value;
+        }
     }
 }
