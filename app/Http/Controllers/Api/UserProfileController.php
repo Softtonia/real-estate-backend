@@ -206,7 +206,11 @@ class UserProfileController extends Controller
             $rules['business_pin_code'] = ['nullable', 'string', 'max:20'];
         }
 
-        $validator = Validator::make($request->all(), $rules);
+        $validator = Validator::make($request->all(), $rules, [
+            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
+            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
+            'business_proof.max' => 'Business proof must not be greater than 2MB.',
+        ]);
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
@@ -420,7 +424,11 @@ class UserProfileController extends Controller
             'business_proof.max' => 'Business proof must not be greater than 2MB.',
         ]);
 
-        $validator = Validator::make($request->all(), $rules);
+        $validator = Validator::make($request->all(), $rules, [
+            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
+            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
+            'business_proof.max' => 'Business proof must not be greater than 2MB.',
+        ]);
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
