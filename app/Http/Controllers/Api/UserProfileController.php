@@ -462,10 +462,7 @@ class UserProfileController extends Controller
                 }
 
                 if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(
-                        ['user_id' => $user->id],
-                        $detailPayload
-                    );
+                    $this->persistUserDetailPayload($user, $detailPayload);
                 }
 
                 if (Schema::hasColumn('users', 'kyc')) {
@@ -533,10 +530,7 @@ class UserProfileController extends Controller
             DB::transaction(function () use ($request, $user) {
                 $detailPayload = $this->kycMetaPayload($request, $user);
                 if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(
-                        ['user_id' => $user->id],
-                        $detailPayload
-                    );
+                    $this->persistUserDetailPayload($user, $detailPayload);
                 }
 
                 if (Schema::hasColumn('users', 'kyc')) {
@@ -722,10 +716,7 @@ class UserProfileController extends Controller
                     $detailPayload[$field] = $newPath;
                 }
 
-                UserDetail::updateOrCreate(
-                    ['user_id' => $user->id],
-                    $detailPayload
-                );
+                $this->persistUserDetailPayload($user, $detailPayload);
 
                 if (Schema::hasColumn('users', 'kyc')) {
                     $user->update([
@@ -1570,21 +1561,93 @@ class UserProfileController extends Controller
     }
     private function normalizeKycRequest(Request $request): void
     {
-        foreach (['aadhaar_number', 'aadhar_number', 'adhar_number', 'addhar_number'] as $key) {
-            if ($request->has($key)) {
-                $value = $request->input($key);
+        $aliases = [
+            'aadhaar_number',
+            'aadhar_number',
+            'adhar_number',
+            'addhar_number',
+            'aadhaar_no',
+            'aadhar_no',
+            'adhar_no',
+            'addhar_no',
+            'aadhaarNumber',
+            'aadharNumber',
+            'aadhaar',
+            'aadhar',
+        ];
 
-                if ($value !== null && $value !== '') {
-                    $value = preg_replace('/\D+/', '', (string) $value);
-                }
+        foreach ($aliases as $key) {
+            if (!$request->exists($key)) {
+                continue;
+            }
 
-                $request->merge([
-                    'aadhaar_number' => $value ?: null,
-                ]);
+            $value = $request->input($key);
 
-                break;
+            if ($value !== null && $value !== '') {
+                $value = preg_replace('/\D+/', '', (string) $value);
+            }
+
+            $request->merge([
+                'aadhaar_number' => $value !== '' ? $value : null,
+            ]);
+
+            return;
+        }
+    }
+
+    /**
+     * Persist user_details without depending on UserDetail::$fillable.
+     * This prevents aadhaar_number and other KYC fields from being silently
+     * skipped when they are not listed as mass-assignable on the model.
+     */
+    private function persistUserDetailPayload(User $user, array $payload): void
+    {
+        if (!Schema::hasTable('user_details') || !Schema::hasColumn('user_details', 'user_id')) {
+            throw new \RuntimeException('The user_details table or user_id column is missing.');
+        }
+
+        $allowedPayload = [
+            'user_id' => $user->id,
+        ];
+
+        foreach ($payload as $column => $value) {
+            if ($column === 'id' || $column === 'user_id') {
+                continue;
+            }
+
+            if (Schema::hasColumn('user_details', $column)) {
+                $allowedPayload[$column] = $value;
             }
         }
+
+        if (count($allowedPayload) <= 1) {
+            return;
+        }
+
+        if (Schema::hasColumn('user_details', 'updated_at')) {
+            $allowedPayload['updated_at'] = now();
+        }
+
+        $existing = DB::table('user_details')
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if ($existing) {
+            $updatePayload = $allowedPayload;
+            unset($updatePayload['user_id']);
+
+            DB::table('user_details')
+                ->where('user_id', $user->id)
+                ->update($updatePayload);
+
+            return;
+        }
+
+        if (Schema::hasColumn('user_details', 'created_at')) {
+            $allowedPayload['created_at'] = now();
+        }
+
+        DB::table('user_details')->insert($allowedPayload);
     }
 
     private function kycMetaPayload(Request $request, User $user): array
