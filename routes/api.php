@@ -189,40 +189,6 @@ Route::middleware(['validate.api.client'])
             ],
         ]);
     });
-Route::middleware(['validate.api.client'])
-    ->get('/app-access-check', function (Request $request) {
-        $client = $request->attributes->get('api_client');
-        $applicationPassword = $request->attributes->get('application_password');
-
-        return response()->json([
-            -'success' => true,
-            'message' => 'Application access verified successfully.',
-            'data' => [
-                'api_client' => [
-                    'id' => $client->id,
-                    'name' => $client->name,
-                    'slug' => $client->slug,
-                    'type' => $client->type,
-                    'status' => $client->isActive(),
-                    'allowed_origins' => $client->allowed_origins ?? [],
-                    'permissions' => $client->permissions ?? [],
-                    'requires_signature' => method_exists($client, 'isSignatureRequired')
-                        ? $client->isSignatureRequired()
-                        : (bool) $client->requires_signature,
-                ],
-                'application_password' => [
-                    'id' => $applicationPassword->id,
-                    'name' => $applicationPassword->name,
-                    'permissions' => $applicationPassword->permissions ?? [],
-                ],
-                'request' => [
-                    'app_type' => $request->header('X-App-Type'),
-                    'origin' => $request->header('Origin') ?: $request->header('X-App-Origin'),
-                    'ip' => $request->ip(),
-                ],
-            ],
-        ]);
-    });
 
 Route::middleware(['validate.api.client'])->group(function () {
 
