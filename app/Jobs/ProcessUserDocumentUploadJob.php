@@ -1,695 +1,121 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Jobs;
 
-use App\Http\Controllers\Controller;
-use App\Jobs\ProcessUserDocumentUploadJob;
 use App\Models\User;
 use App\Models\UserDetail;
-use App\Services\PublicUploadService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Throwable;
 
-class UserProfileController extends Controller
+class ProcessUserDocumentUploadJob implements ShouldQueue
 {
-    public function __construct(
-        private readonly PublicUploadService $uploads
-    ) {
-    }
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function show(Request $request): JsonResponse
+    public int $tries = 3;
+    public int $timeout = 120;
+
+    public function __construct(
+        public int $userId,
+        public string $uploadId,
+        public string $field,
+        public string $tempPath,
+        public string $extension
+    ) {}
+
+    public function handle(): void
     {
+        $newPath = null;
+        $oldPath = null;
+
         try {
-            $user = $this->resolveCurrentUser($request);
+            $user = User::find($this->userId);
 
             if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid or expired token.',
-                ], 401);
+                throw new \Exception('User not found.');
             }
 
-            return response()->json([
-                'status' => true,
-                'message' => 'User profile fetched successfully.',
-                'data' => $this->formatUserProfile($user),
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch user profile.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
+            $allowedFields = $this->documentUploadFieldsForUser($user);
 
-    public function updatePersonal(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
+            if (!array_key_exists($this->field, $allowedFields)) {
+                throw new \Exception('Document field is not allowed for this user.');
+            }
 
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
+            if (!Schema::hasTable('user_details') || !Schema::hasColumn('user_details', $this->field)) {
+                throw new \Exception('Column does not exist in user_details: ' . $this->field);
+            }
 
-        $isOwnerRole = $this->isOwnerUser($user);
+            if (!Storage::disk('local')->exists($this->tempPath)) {
+                throw new \Exception('Temporary uploaded file not found.');
+            }
 
-        $rules = [
-            'first_name' => ['required', 'string', 'max:255'],
-            'last_name' => ['nullable', 'string', 'max:255'],
-            'email' => [
-                'nullable',
-                'email',
-                Rule::unique('users', 'email')->ignore($user->id),
-            ],
-            'phone' => [
-                'nullable',
-                'string',
-                'max:20',
-                Rule::unique('users', 'phone')->ignore($user->id),
-            ],
-            'password' => ['nullable', 'string', 'min:8'],
+            $this->updateProgress(function (array $progress) {
+                $progress = $this->ensureProgressStructure($progress);
 
-            'alternate_number' => ['nullable', 'string', 'max:200'],
-            'no_of_employees' => ['nullable', 'integer'],
-            'about_us' => ['nullable', 'string'],
-        ];
+                $progress['status'] = 'processing';
+                $progress['files'][$this->field]['status'] = 'processing';
+                $progress['files'][$this->field]['percent'] = 50;
+                $progress['files'][$this->field]['error'] = null;
+                $progress['updated_at'] = now()->toDateTimeString();
 
-        if (!$isOwnerRole) {
-            $rules['bussiness_name'] = ['nullable', 'string', 'max:200'];
-            $rules['business_phone'] = ['nullable', 'string', 'max:200'];
-            $rules['bussiness_email'] = ['nullable', 'email', 'max:200'];
-        }
-
-        if (Schema::hasColumn('users', 'user_name')) {
-            $rules['user_name'] = [
-                'nullable',
-                'string',
-                'min:3',
-                'max:20',
-                'regex:/^[a-zA-Z0-9._]+$/',
-                Rule::unique('users', 'user_name')->ignore($user->id),
-            ];
-        }
-
-        $validator = Validator::make($request->all(), $rules, [
-            'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
-        ]);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        try {
-            DB::transaction(function () use ($request, $user, $isOwnerRole) {
-                $userPayload = [];
-
-                foreach (
-                    [
-                        'first_name',
-                        'last_name',
-                        'email',
-                        'phone',
-                        'user_name',
-                    ] as $column
-                ) {
-                    if ($request->has($column) && Schema::hasColumn('users', $column)) {
-                        $userPayload[$column] = $request->input($column);
-                    }
-                }
-
-                if ($request->filled('password') && Schema::hasColumn('users', 'password')) {
-                    $userPayload['password'] = Hash::make($request->password);
-                }
-
-                if (!empty($userPayload)) {
-                    $user->update($userPayload);
-                }
-
-                $detailColumns = [
-                    'alternate_number',
-                    'no_of_employees',
-                    'about_us',
-                ];
-
-                if (!$isOwnerRole) {
-                    $detailColumns = array_merge($detailColumns, [
-                        'bussiness_name',
-                        'business_phone',
-                        'bussiness_email',
-                    ]);
-                }
-
-                $detailPayload = [
-                    'user_id' => $user->id,
-                ];
-
-                foreach ($detailColumns as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
-                    }
-                }
-
-                if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(
-                        ['user_id' => $user->id],
-                        $detailPayload
-                    );
-                }
+                return $progress;
             });
 
-            $freshUser = User::find($user->id);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Personal information updated successfully.',
-                'data' => $this->formatUserProfile($freshUser),
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to update personal information.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    public function updateAddress(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-
-        $isOwnerRole = $this->isOwnerUser($user);
-
-        $rules = [
-            'country_id' => ['nullable', 'exists:countries,id'],
-            'state_id' => ['nullable', 'exists:states,id'],
-            'city_id' => ['nullable', 'exists:cities,id'],
-            'street_address' => ['nullable', 'string', 'max:255'],
-            'area_locality' => ['nullable', 'string', 'max:255'],
-            'colony' => ['nullable', 'string', 'max:255'],
-            'address' => ['nullable', 'string', 'max:255'],
-            'pin_code' => ['nullable', 'string', 'max:20'],
-        ];
-
-        if (!$isOwnerRole) {
-            $rules = array_merge($rules, [
-                'business_country_id' => ['nullable', 'exists:countries,id'],
-                'business_state_id' => ['nullable', 'exists:states,id'],
-                'business_city_id' => ['nullable', 'exists:cities,id'],
-                'bussiness_address' => ['nullable', 'string', 'max:500'],
-                'business_pin_code' => ['nullable', 'string', 'max:20'],
-            ]);
-        }
-
-        $validator = Validator::make($request->all(), $rules);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        try {
-            DB::transaction(function () use ($request, $user, $isOwnerRole) {
-                $detailPayload = ['user_id' => $user->id];
-
-                $personalColumns = [
-                    'country_id',
-                    'state_id',
-                    'city_id',
-                    'street_address',
-                    'area_locality',
-                    'colony',
-                    'address',
-                    'pin_code',
-                ];
-
-                foreach ($personalColumns as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
-                    }
-                }
-
-                $missingSeparateColumns = !Schema::hasColumn('user_details', 'street_address')
-                    || !Schema::hasColumn('user_details', 'area_locality')
-                    || !Schema::hasColumn('user_details', 'colony');
-
-                if (
-                    $missingSeparateColumns
-                    && Schema::hasColumn('user_details', 'address')
-                    && (
-                        $request->has('street_address')
-                        || $request->has('colony')
-                        || $request->has('area_locality')
-                        || $request->has('address')
-                    )
-                ) {
-                    $detailPayload['address'] = collect([
-                        $request->input('street_address'),
-                        $request->input('colony'),
-                        $request->input('area_locality'),
-                        $request->input('address'),
-                    ])->filter(fn ($value) => $value !== null && $value !== '')->implode(', ');
-                }
-
-                if (!$isOwnerRole) {
-                    foreach ([
-                        'business_country_id',
-                        'business_state_id',
-                        'business_city_id',
-                        'bussiness_address',
-                        'business_pin_code',
-                    ] as $column) {
-                        if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                            $detailPayload[$column] = $request->input($column);
-                        }
-                    }
-                }
-
-                if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(['user_id' => $user->id], $detailPayload);
-                }
-
-                $userPayload = [];
-
-                foreach (['country_id', 'state_id', 'city_id'] as $column) {
-                    if ($request->has($column) && Schema::hasColumn('users', $column)) {
-                        $userPayload[$column] = $request->input($column);
-                    }
-                }
-
-                if (!empty($userPayload)) {
-                    $user->update($userPayload);
-                }
-            });
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Address information updated successfully.',
-                'data' => $this->formatUserProfile(User::find($user->id)),
-            ]);
-        } catch (Throwable $e) {
-            report($e);
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to update address information.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
-        }
-    }
-
-    public function updateDocuments(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-
-        $allowedFileFields = $this->documentUploadFieldsForUser($user);
-        $rules = [
-            'aadhaar_number' => [
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
-            ],
-            'license_number' => ['nullable', 'string', 'max:200'],
-            'rera_number' => ['nullable', 'string', 'max:50'],
-        ];
-
-        foreach (array_keys($allowedFileFields) as $field) {
-            $rules[$field] = ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'];
-        }
-
-        $validator = Validator::make($request->all(), $rules);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        foreach (['aadhaar_front', 'aadhaar_back', 'business_proof'] as $field) {
-            if ($request->hasFile($field) && !array_key_exists($field, $allowedFileFields)) {
-                return response()->json([
-                    'status' => false,
-                    'message' => $field . ' is not allowed for the current user role.',
-                ], 422);
-            }
-        }
-
-        $storedPaths = [];
-        $replacedPaths = [];
-
-        try {
-            $detail = UserDetail::firstOrNew(['user_id' => $user->id]);
-            $detailPayload = ['user_id' => $user->id];
-
-            foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
-                if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                    $detailPayload[$column] = $request->input($column);
-                }
-            }
-
-            $directories = [
-                'aadhaar_front' => 'uploads/kyc/aadhaarFront/' . now()->format('Y/m'),
-                'aadhaar_back' => 'uploads/kyc/aadhaarBack/' . now()->format('Y/m'),
-                'business_proof' => 'uploads/kyc/businessProof/' . now()->format('Y/m'),
+            $folders = [
+                'aadhaar_front' => 'kyc/aadhaarFront',
+                'aadhaar_back' => 'kyc/aadhaarBack',
+                'business_proof' => 'kyc/businessProof',
             ];
 
-            foreach (array_keys($allowedFileFields) as $field) {
-                if (!$request->hasFile($field) || !Schema::hasColumn('user_details', $field)) {
-                    continue;
-                }
+            $folder = $folders[$this->field];
 
-                $stored = $this->uploads->storeUploadedFile(
-                    file: $request->file($field),
-                    directory: $directories[$field],
-                    allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
-                    maxSizeKb: 10240,
-                    namePrefix: 'u' . $user->id . '-' . $field
-                );
+            $extension = strtolower($this->extension ?: 'bin');
 
-                $storedPaths[] = $stored['path'];
-                $oldPath = $detail->{$field} ?? null;
+            $fileName = 'u'
+                . $this->userId
+                . '_'
+                . now()->format('YmdHis')
+                . '_'
+                . $this->field
+                . '_'
+                . Str::random(8)
+                . '.'
+                . $extension;
 
-                if ($oldPath && $this->uploads->normalizePath($oldPath) !== $stored['path']) {
-                    $replacedPaths[] = $oldPath;
-                }
+            $relativePath = $folder . '/' . $fileName;
 
-                $detailPayload[$field] = $stored['path'];
+            $contents = Storage::disk('local')->get($this->tempPath);
+
+            Storage::disk('public_uploads')->put($relativePath, $contents);
+
+            if (!Storage::disk('public_uploads')->exists($relativePath)) {
+                throw new \Exception('Final document could not be saved.');
             }
 
-            DB::transaction(function () use ($detailPayload, $user) {
-                if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(['user_id' => $user->id], $detailPayload);
-                }
+            $newPath = 'uploads/' . $relativePath;
 
-                if (Schema::hasColumn('users', 'kyc') && count($detailPayload) > 1) {
-                    $user->update(['kyc' => 1]);
-                }
-            });
+            DB::transaction(function () use ($user, $newPath, &$oldPath) {
+                $detail = UserDetail::query()
+                    ->where('user_id', $this->userId)
+                    ->first();
 
-            foreach (array_unique($replacedPaths) as $oldPath) {
-                $this->uploads->delete($oldPath);
-            }
+                $oldPath = $detail?->{$this->field};
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Documents updated successfully.',
-                'data' => $this->formatUserProfile(User::find($user->id)),
-            ]);
-        } catch (Throwable $e) {
-            foreach (array_unique($storedPaths) as $path) {
-                $this->uploads->delete($path);
-            }
-
-            report($e);
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to update documents.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
-        }
-    }
-
-    public function updatePhoto(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'profile_photo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
-        ]);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        $newPath = null;
-
-        try {
-            $stored = $this->uploads->storeUploadedFile(
-                file: $request->file('profile_photo'),
-                directory: 'uploads/users/' . now()->format('Y/m'),
-                allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
-                maxSizeKb: 5120,
-                namePrefix: 'u' . $user->id . '-profile'
-            );
-
-            $newPath = $stored['path'];
-            $detail = UserDetail::firstOrNew(['user_id' => $user->id]);
-            $oldPath = $detail->profile_photo ?? null;
-
-            DB::transaction(function () use ($user, $newPath) {
                 UserDetail::updateOrCreate(
-                    ['user_id' => $user->id],
-                    ['user_id' => $user->id, 'profile_photo' => $newPath]
-                );
-            });
-
-            if ($oldPath && $this->uploads->normalizePath($oldPath) !== $newPath) {
-                $this->uploads->delete($oldPath);
-            }
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Profile photo updated successfully.',
-                'profile_photo' => $this->uploads->url($newPath),
-                'data' => $this->formatUserProfile(User::find($user->id)),
-            ]);
-        } catch (Throwable $e) {
-            if ($newPath) {
-                $this->uploads->delete($newPath);
-            }
-
-            report($e);
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to update profile photo.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
-        }
-    }
-
-    public function startDocumentUpload(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-
-        $allowedFields = $this->documentUploadFieldsForUser($user);
-        $validator = Validator::make($request->all(), [
-            'aadhaar_number' => [
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
-            ],
-            'license_number' => ['nullable', 'string', 'max:200'],
-            'rera_number' => ['nullable', 'string', 'max:50'],
-            'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
-        ]);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        try {
-            $uploadId = 'doc_' . $user->id . '_' . Str::uuid()->toString();
-
-            DB::transaction(function () use ($request, $user) {
-                $detailPayload = ['user_id' => $user->id];
-
-                foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
-                    }
-                }
-
-                if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(['user_id' => $user->id], $detailPayload);
-                }
-            });
-
-            $progress = $this->initialDocumentUploadProgress(
-                uploadId: $uploadId,
-                user: $user,
-                totalFiles: (int) $request->input('total_files', count($allowedFields)),
-                allowedFields: $allowedFields
-            );
-
-            Cache::store('redis')->put(
-                $this->documentProgressKey($uploadId),
-                $progress,
-                now()->addHours(2)
-            );
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Document upload session started successfully.',
-                'upload_id' => $uploadId,
-                'allowed_fields' => array_keys($allowedFields),
-                'progress' => $progress,
-            ]);
-        } catch (Throwable $e) {
-            report($e);
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to start document upload.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
-        }
-    }
-
-    public function uploadDocumentFile(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-
-        $allowedFields = $this->documentUploadFieldsForUser($user);
-
-        $validator = Validator::make($request->all(), [
-            'upload_id' => ['nullable', 'string'],
-            'field' => ['required', Rule::in(array_keys($allowedFields))],
-            'file' => [
-                'required',
-                'file',
-                'mimes:jpg,jpeg,png,pdf',
-                'max:10240',
-            ],
-            'aadhaar_number' => [
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
-            ],
-            'license_number' => ['nullable', 'string', 'max:200'],
-            'rera_number' => ['nullable', 'string', 'max:50'],
-            'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
-        ]);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        try {
-            $field = (string) $request->input('field');
-
-            /*
-        |--------------------------------------------------------------------------
-        | Auto Generate Upload ID
-        |--------------------------------------------------------------------------
-        | Now frontend does not need to call documents/start API.
-        |--------------------------------------------------------------------------
-        */
-            $uploadId = $request->filled('upload_id')
-                ? (string) $request->input('upload_id')
-                : 'doc_' . $user->id . '_' . Str::uuid()->toString();
-
-            $progressKey = $this->documentProgressKey($uploadId);
-            $progress = Cache::store('redis')->get($progressKey);
-
-            if ($request->filled('upload_id') && !$progress) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Upload session not found or expired.',
-                ], 404);
-            }
-
-            if ($progress && (int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'This upload session does not belong to current user.',
-                ], 403);
-            }
-
-            /*
-        |--------------------------------------------------------------------------
-        | Create Progress Session Automatically
-        |--------------------------------------------------------------------------
-        */
-            if (!$progress) {
-                $totalFiles = (int) $request->input('total_files', count($allowedFields));
-
-                $progress = $this->initialDocumentUploadProgress(
-                    uploadId: $uploadId,
-                    user: $user,
-                    totalFiles: $totalFiles,
-                    allowedFields: $allowedFields
-                );
-
-                Cache::store('redis')->put(
-                    $progressKey,
-                    $progress,
-                    now()->addHours(2)
-                );
-            }
-
-            /*
-        |--------------------------------------------------------------------------
-        | Save Document Text Fields
-        |--------------------------------------------------------------------------
-        */
-            DB::transaction(function () use ($request, $user) {
-                $detailPayload = [
-                    'user_id' => $user->id,
-                ];
-
-                foreach (
+                    ['user_id' => $this->userId],
                     [
-                        'aadhaar_number',
-                        'license_number',
-                        'rera_number',
-                    ] as $column
-                ) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
-                    }
-                }
-
-                if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(
-                        ['user_id' => $user->id],
-                        $detailPayload
-                    );
-                }
+                        'user_id' => $this->userId,
+                        $this->field => $newPath,
+                    ]
+                );
 
                 if (Schema::hasColumn('users', 'kyc')) {
                     $user->update([
@@ -698,78 +124,49 @@ class UserProfileController extends Controller
                 }
             });
 
-            $file = $request->file('file');
+            Storage::disk('local')->delete($this->tempPath);
 
-            if (!$file || !$file->isValid()) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid uploaded file.',
-                ], 422);
+            $this->deletePublicUpload($oldPath);
+
+            $this->updateProgress(function (array $progress) use ($newPath) {
+                $progress = $this->ensureProgressStructure($progress);
+
+                $progress['processed_files'] = (int) ($progress['processed_files'] ?? 0) + 1;
+                $progress['files'][$this->field]['status'] = 'completed';
+                $progress['files'][$this->field]['percent'] = 100;
+                $progress['files'][$this->field]['url'] = $this->fileUrl($newPath);
+                $progress['files'][$this->field]['error'] = null;
+
+                $progress = $this->recalculateOverallProgress($progress);
+                $progress['updated_at'] = now()->toDateTimeString();
+
+                return $progress;
+            });
+        } catch (Throwable $e) {
+            if ($newPath) {
+                $this->deletePublicUpload($newPath);
             }
 
-            $extension = strtolower($file->getClientOriginalExtension());
+            Storage::disk('local')->delete($this->tempPath);
 
-            $tempFileName = 'temp_'
-                . $user->id
-                . '_'
-                . time()
-                . '_'
-                . $field
-                . '_'
-                . uniqid()
-                . '.'
-                . $extension;
+            $this->updateProgress(function (array $progress) use ($e) {
+                $progress = $this->ensureProgressStructure($progress);
 
-            $tempPath = Storage::disk('local')->putFileAs(
-                'temp/document_uploads/' . $uploadId,
-                $file,
-                $tempFileName
-            );
+                $progress['failed_files'] = (int) ($progress['failed_files'] ?? 0) + 1;
+                $progress['files'][$this->field]['status'] = 'failed';
+                $progress['files'][$this->field]['percent'] = 0;
+                $progress['files'][$this->field]['error'] = $e->getMessage();
 
-            $this->updateDocumentProgress($uploadId, function (array $progress) use ($field, $allowedFields) {
-                foreach ($allowedFields as $allowedField => $label) {
-                    $progress['files'][$allowedField] = $progress['files'][$allowedField] ?? [
-                        'status' => 'pending',
-                        'percent' => 0,
-                        'url' => null,
-                        'error' => null,
-                    ];
-                }
-
-                $progress['status'] = 'uploading';
-                $progress['queued_files'] = (int) ($progress['queued_files'] ?? 0) + 1;
-                $progress['files'][$field]['status'] = 'queued';
-                $progress['files'][$field]['percent'] = 10;
-                $progress['files'][$field]['error'] = null;
+                $progress = $this->recalculateOverallProgress($progress);
                 $progress['updated_at'] = now()->toDateTimeString();
 
                 return $progress;
             });
 
-            ProcessUserDocumentUploadJob::dispatch(
-                (int) $user->id,
-                $uploadId,
-                $field,
-                $tempPath,
-                $extension
-            );
-
-            return response()->json([
-                'status' => true,
-                'message' => $field . ' uploaded and queued for processing.',
-                'upload_id' => $uploadId,
-                'field' => $field,
-                'allowed_fields' => array_keys($allowedFields),
-                'progress' => Cache::store('redis')->get($progressKey),
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to upload document file.',
-                'error' => $e->getMessage(),
-            ], 500);
+            throw $e;
         }
     }
+
     private function documentUploadFieldsForUser(User $user): array
     {
         $fields = [
@@ -785,374 +182,12 @@ class UserProfileController extends Controller
         return $fields;
     }
 
-    private function initialDocumentUploadProgress(
-        string $uploadId,
-        User $user,
-        int $totalFiles,
-        array $allowedFields
-    ): array {
-        $totalFiles = max(1, min($totalFiles, count($allowedFields)));
-
-        $files = [];
-
-        foreach ($allowedFields as $field => $label) {
-            $files[$field] = [
-                'status' => 'pending',
-                'percent' => 0,
-                'url' => null,
-                'error' => null,
-            ];
-        }
-
-        return [
-            'upload_id' => $uploadId,
-            'user_id' => (int) $user->id,
-            'status' => 'started',
-            'total_files' => $totalFiles,
-            'queued_files' => 0,
-            'processed_files' => 0,
-            'failed_files' => 0,
-            'percent' => 0,
-            'files' => $files,
-            'created_at' => now()->toDateTimeString(),
-            'updated_at' => now()->toDateTimeString(),
-        ];
-    }
-    public function documentUploadProgress(Request $request, string $uploadId): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-
-        $progress = Cache::store('redis')->get($this->documentProgressKey($uploadId));
-
-        if (!$progress) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Upload progress not found or expired.',
-            ], 404);
-        }
-
-        if ((int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
-            return response()->json([
-                'status' => false,
-                'message' => 'This upload session does not belong to current user.',
-            ], 403);
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Document upload progress fetched successfully.',
-            'data' => $progress,
-        ]);
-    }
-
-    private function resolveCurrentUser(Request $request): ?User
-    {
-        $token = $request->bearerToken();
-
-        if (!$token && $request->filled('api_token')) {
-            $token = $request->api_token;
-        }
-
-        if (!$token || !Schema::hasColumn('users', 'api_token')) {
-            return null;
-        }
-
-        return User::query()
-            ->where('api_token', $token)
-            ->first();
-    }
-
-    private function formatUserProfile(?User $user): array
-    {
-        if (!$user) {
-            return [];
-        }
-
-        $detail = UserDetail::query()
-            ->where('user_id', $user->id)
-            ->first();
-
-        $roleName = null;
-
-        if (Schema::hasTable('roles') && !empty($user->role_id)) {
-            $role = DB::table('roles')->where('id', $user->role_id)->first();
-            $roleName = $role->name ?? $role->role_name ?? null;
-        }
-
-        $countryId = $this->valueFromModel($user, $detail, 'country_id');
-        $stateId = $this->valueFromModel($user, $detail, 'state_id');
-        $cityId = $this->valueFromModel($user, $detail, 'city_id');
-
-        $countryName = $this->locationName('countries', $countryId);
-        $stateName = $this->locationName('states', $stateId);
-        $cityName = $this->locationName('cities', $cityId);
-
-        $businessCountryId = $this->detailValue($detail, 'business_country_id');
-        $businessStateId = $this->detailValue($detail, 'business_state_id');
-        $businessCityId = $this->detailValue($detail, 'business_city_id');
-        $businessCountryName = $this->locationName('countries', $businessCountryId);
-        $businessStateName = $this->locationName('states', $businessStateId);
-        $businessCityName = $this->locationName('cities', $businessCityId);
-
-        $profilePhoto = $this->fileUrl($detail?->profile_photo);
-        $aadhaarFront = $this->fileUrl($detail?->aadhaar_front);
-        $aadhaarBack = $this->fileUrl($detail?->aadhaar_back);
-        $businessProof = $this->fileUrl($detail?->business_proof);
-
-        $firstName = $user->first_name ?? null;
-        $lastName = $user->last_name ?? null;
-        $fullName = trim(($firstName ?? '') . ' ' . ($lastName ?? ''));
-
-        $dashboardCounts = $this->profileDashboardCounts($user);
-        $isOwnerRole = $this->isOwnerUser($user);
-
-        $streetAddress = $this->detailValue($detail, 'street_address');
-        $areaLocality = $this->detailValue($detail, 'area_locality');
-        $colony = $this->detailValue($detail, 'colony');
-        $address = $detail?->address ?? null;
-        $pinCode = $detail?->pin_code ?? null;
-
-        $fullAddress = collect([
-            $streetAddress,
-            $colony,
-            $areaLocality,
-            $address,
-            $cityName,
-            $stateName,
-            $countryName,
-            $pinCode,
-        ])->filter()->values()->implode(', ') ?: null;
-
-        $raw = [
-            'id' => (int) $user->id,
-            'first_name' => $firstName,
-            'last_name' => $lastName,
-            'full_name' => $fullName ?: null,
-            'user_name' => $user->user_name ?? null,
-            'email' => $user->email ?? null,
-            'phone' => $user->phone ?? null,
-            'role_id' => $user->role_id ?? null,
-            'role_name' => $roleName,
-            'unique_id' => $user->unique_id ?? null,
-            'isapproved' => $user->isapproved ?? null,
-            'account_status' => $this->accountStatusLabel($user->isapproved ?? null),
-            'kyc' => $user->kyc ?? 0,
-            'kyc_status' => $this->kycStatusLabel($user->kyc ?? 0),
-            'is_otp_verified' => $user->is_otp_verified ?? false,
-
-            'country_id' => $countryId,
-            'state_id' => $stateId,
-            'city_id' => $cityId,
-
-            'country' => $countryName,
-            'state' => $stateName,
-            'city' => $cityName,
-
-            'street_address' => $streetAddress,
-            'area_locality' => $areaLocality,
-            'colony' => $colony,
-            'address' => $address,
-            'pin_code' => $pinCode,
-
-            'location' => [
-                'country' => $countryName,
-                'state' => $stateName,
-                'city' => $cityName,
-                'street_address' => $streetAddress,
-                'area_locality' => $areaLocality,
-                'colony' => $colony,
-                'address' => $address,
-                'pin_code' => $pinCode,
-                'full_address' => $fullAddress,
-            ],
-
-            'profile_photo' => $profilePhoto,
-            'aadhaar_number' => $detail?->aadhaar_number ?? null,
-            'aadhaar_front' => $aadhaarFront,
-            'aadhaar_back' => $aadhaarBack,
-            'business_proof' => $businessProof,
-            'license_number' => $detail?->license_number ?? null,
-            'rera_number' => $detail?->rera_number ?? null,
-            'alternate_number' => $detail?->alternate_number ?? null,
-            'no_of_employees' => $detail?->no_of_employees ?? null,
-            'about_us' => $detail?->about_us ?? null,
-
-            'business_fields_visible' => !$isOwnerRole,
-
-            'created_at' => $user->created_at,
-            'updated_at' => $user->updated_at,
-        ];
-
-        if (!$isOwnerRole) {
-            $raw['bussiness_name'] = $detail?->bussiness_name ?? null;
-            $raw['business_phone'] = $detail?->business_phone ?? null;
-            $raw['bussiness_email'] = $detail?->bussiness_email ?? null;
-            $raw['bussiness_address'] = $detail?->bussiness_address ?? null;
-            $raw['business_pin_code'] = $this->detailValue($detail, 'business_pin_code');
-            $raw['business_country_id'] = $businessCountryId;
-            $raw['business_state_id'] = $businessStateId;
-            $raw['business_city_id'] = $businessCityId;
-            $raw['business_country'] = $businessCountryName;
-            $raw['business_state'] = $businessStateName;
-            $raw['business_city'] = $businessCityName;
-        }
-
-        $display = collect($raw)
-            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
-            ->toArray();
-
-        unset(
-            $display['country_id'],
-            $display['state_id'],
-            $display['city_id']
-        );
-
-        return [
-            'raw' => $raw,
-            'display' => $display,
-            'profile_completion' => $this->profileCompletion($raw),
-            'dashboard_counts' => $dashboardCounts,
-        ];
-    }
-
-    private function valueFromModel(User $user, ?UserDetail $detail, string $column): mixed
-    {
-        if (Schema::hasColumn('users', $column) && !empty($user->{$column})) {
-            return $user->{$column};
-        }
-
-        if ($detail && Schema::hasColumn('user_details', $column) && !empty($detail->{$column})) {
-            return $detail->{$column};
-        }
-
-        return null;
-    }
-
-    private function locationName(string $table, mixed $id): ?string
-    {
-        if (empty($id) || !Schema::hasTable($table)) {
-            return null;
-        }
-
-        return DB::table($table)
-            ->where('id', $id)
-            ->value('name');
-    }
-
-    private function detailValue(?UserDetail $detail, string $column): mixed
-    {
-        if (!$detail || !Schema::hasColumn('user_details', $column)) {
-            return null;
-        }
-
-        return $detail->{$column} ?? null;
-    }
-
-    private function fileUrl(?string $path): ?string
-    {
-        return $this->uploads->url($path);
-    }
-
-    private function dash(mixed $value): mixed
-    {
-        if (is_null($value) || $value === '' || $value === 'N/A') {
-            return '-';
-        }
-
-        return $value;
-    }
-
-    private function dashArray(array $items): array
-    {
-        return collect($items)
-            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
-            ->toArray();
-    }
-
-    private function profileCompletion(array $data): array
-    {
-        $fields = [
-            'first_name',
-            'last_name',
-            'email',
-            'phone',
-            'country_id',
-            'state_id',
-            'city_id',
-            'street_address',
-            'area_locality',
-            'colony',
-            'address',
-            'pin_code',
-            'profile_photo',
-            'aadhaar_number',
-            'aadhaar_front',
-            'aadhaar_back',
-            'business_proof',
-        ];
-
-        $completed = 0;
-
-        foreach ($fields as $field) {
-            if (!empty($data[$field]) && $data[$field] !== '-') {
-                $completed++;
-            }
-        }
-
-        $percentage = count($fields) > 0
-            ? round(($completed / count($fields)) * 100)
-            : 0;
-
-        return [
-            'percentage' => $percentage,
-            'completed_fields' => $completed,
-            'total_fields' => count($fields),
-            'missing_fields' => collect($fields)
-                ->filter(fn($field) => empty($data[$field]) || $data[$field] === '-')
-                ->values()
-                ->toArray(),
-        ];
-    }
-
-    private function accountStatusLabel(mixed $status): string
-    {
-        return match ((int) $status) {
-            1 => 'Approved',
-            2 => 'Inactive',
-            3 => 'Pending',
-            4 => 'Rejected',
-            default => 'Pending',
-        };
-    }
-
-    private function kycStatusLabel(mixed $status): string
-    {
-        return match ((int) $status) {
-            0 => 'Pending',
-            1 => 'In Progress',
-            2 => 'Approved',
-            3 => 'Rejected',
-            default => 'Pending',
-        };
-    }
-
     private function isOwnerUser(User $user): bool
     {
         $directRole = strtolower(trim((string) ($user->role_id ?? '')));
         $directRole = str_replace([' ', '_', '-'], '', $directRole);
 
-        if (in_array($directRole, [
-            'owner',
-            'propertyowner',
-            'landowner',
-        ], true)) {
+        if (in_array($directRole, ['owner', 'propertyowner', 'landowner'], true)) {
             return true;
         }
 
@@ -1177,208 +212,150 @@ class UserProfileController extends Controller
 
         $roleText = str_replace([' ', '_', '-'], '', $roleText);
 
-        return in_array($roleText, [
-            'owner',
-            'propertyowner',
-            'landowner',
-        ], true);
+        return in_array($roleText, ['owner', 'propertyowner', 'landowner'], true);
     }
 
-    private function profileDashboardCounts(User $user): array
+    private function fileUrl(?string $path): ?string
     {
-        $listingIds = $this->userListingIds($user);
+        if (empty($path)) {
+            return null;
+        }
 
-        return [
-            'total_listings' => count($listingIds),
-            'total_leads' => $this->countUserRelatedRows($user, [
-                'leads',
-                'property_leads',
-                'listing_leads',
-                'dynamic_post_leads',
-                'lead_forms',
-            ], $listingIds),
-            'total_inquiries' => $this->countUserRelatedRows($user, [
-                'inquiries',
-                'enquiries',
-                'contact_us_leads',
-                'business_enquiries',
-                'property_inquiries',
-                'listing_inquiries',
-            ], $listingIds),
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'public/uploads/')) {
+            $path = str_replace('public/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'uploads/')) {
+            $relativePath = substr($path, strlen('uploads/'));
+
+            return Storage::disk('public_uploads')->url($relativePath);
+        }
+
+        return url($path);
+    }
+
+    private function deletePublicUpload(?string $path): void
+    {
+        if (empty($path)) {
+            return;
+        }
+
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parsedPath = parse_url($path, PHP_URL_PATH);
+            $path = ltrim((string) $parsedPath, '/');
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'public/uploads/')) {
+            $path = str_replace('public/uploads/', 'uploads/', $path);
+        }
+
+        if (!str_starts_with($path, 'uploads/')) {
+            return;
+        }
+
+        $relativePath = substr($path, strlen('uploads/'));
+
+        if (!empty($relativePath)) {
+            Storage::disk('public_uploads')->delete($relativePath);
+        }
+    }
+
+    private function cacheStore()
+    {
+        try {
+            return Cache::store(env('DOCUMENT_UPLOAD_CACHE_STORE', 'redis'));
+        } catch (Throwable $e) {
+            return Cache::store(config('cache.default'));
+        }
+    }
+
+    private function progressKey(): string
+    {
+        return 'user_document_upload:' . $this->uploadId;
+    }
+
+    private function updateProgress(callable $callback): void
+    {
+        $store = $this->cacheStore();
+        $key = $this->progressKey();
+
+        try {
+            if (method_exists($store, 'lock')) {
+                $store->lock($key . ':lock', 10)->block(5, function () use ($store, $key, $callback) {
+                    $progress = $store->get($key, []);
+                    $progress = $callback(is_array($progress) ? $progress : []);
+                    $store->put($key, $progress, now()->addHours(2));
+                });
+
+                return;
+            }
+        } catch (Throwable $e) {
+            // fallback below
+        }
+
+        $progress = $store->get($key, []);
+        $progress = $callback(is_array($progress) ? $progress : []);
+        $store->put($key, $progress, now()->addHours(2));
+    }
+
+    private function ensureProgressStructure(array $progress): array
+    {
+        $progress['upload_id'] = $progress['upload_id'] ?? $this->uploadId;
+        $progress['user_id'] = $progress['user_id'] ?? $this->userId;
+        $progress['status'] = $progress['status'] ?? 'started';
+        $progress['total_files'] = max(1, (int) ($progress['total_files'] ?? 1));
+        $progress['queued_files'] = (int) ($progress['queued_files'] ?? 0);
+        $progress['processed_files'] = (int) ($progress['processed_files'] ?? 0);
+        $progress['failed_files'] = (int) ($progress['failed_files'] ?? 0);
+        $progress['percent'] = (int) ($progress['percent'] ?? 0);
+        $progress['files'] = $progress['files'] ?? [];
+
+        $progress['files'][$this->field] = $progress['files'][$this->field] ?? [
+            'status' => 'pending',
+            'percent' => 0,
+            'url' => null,
+            'error' => null,
         ];
+
+        return $progress;
     }
 
-    private function userListingIds(User $user): array
+    private function recalculateOverallProgress(array $progress): array
     {
-        if (!Schema::hasTable('dynamic_posts')) {
-            return [];
+        $total = max(1, (int) ($progress['total_files'] ?? 1));
+        $processed = (int) ($progress['processed_files'] ?? 0);
+        $failed = (int) ($progress['failed_files'] ?? 0);
+
+        $done = min($total, $processed + $failed);
+
+        $progress['percent'] = min(100, (int) round(($done / $total) * 100));
+
+        if ($done >= $total) {
+            $progress['status'] = $failed > 0 ? 'completed_with_errors' : 'completed';
+        } else {
+            $progress['status'] = $failed > 0 ? 'processing_with_errors' : 'processing';
         }
 
-        $query = DB::table('dynamic_posts')
-            ->select('dynamic_posts.id');
-
-        $hasUserFilter = false;
-
-        $query->where(function ($q) use ($user, &$hasUserFilter) {
-            foreach (
-                [
-                    'author_id',
-                    'user_id',
-                    'owner_id',
-                    'created_by',
-                ] as $column
-            ) {
-                if (Schema::hasColumn('dynamic_posts', $column)) {
-                    $q->orWhere('dynamic_posts.' . $column, (int) $user->id);
-                    $hasUserFilter = true;
-                }
-            }
-        });
-
-        if (!$hasUserFilter) {
-            return [];
-        }
-
-        if (
-            Schema::hasTable('post_types')
-            && Schema::hasColumn('dynamic_posts', 'post_type_id')
-        ) {
-            $propertyPostTypeId = DB::table('post_types')
-                ->where('slug', 'property-listing')
-                ->value('id');
-
-            if ($propertyPostTypeId) {
-                $query->where('dynamic_posts.post_type_id', (int) $propertyPostTypeId);
-            }
-        }
-
-        return $query
-            ->pluck('dynamic_posts.id')
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
-    }
-
-    private function countUserRelatedRows(User $user, array $tables, array $listingIds = []): int
-    {
-        $total = 0;
-
-        foreach ($tables as $table) {
-            if (!Schema::hasTable($table)) {
-                continue;
-            }
-
-            $query = DB::table($table);
-            $hasFilter = false;
-
-            $query->where(function ($q) use ($table, $user, $listingIds, &$hasFilter) {
-                foreach (
-                    [
-                        'user_id',
-                        'owner_id',
-                        'agent_id',
-                        'developer_id',
-                        'consultancy_id',
-                        'assigned_user_id',
-                        'assigned_to',
-                        'created_by',
-                        'author_id',
-                    ] as $column
-                ) {
-                    if (Schema::hasColumn($table, $column)) {
-                        $q->orWhere($column, (int) $user->id);
-                        $hasFilter = true;
-                    }
-                }
-
-                if (!empty($listingIds)) {
-                    foreach (
-                        [
-                            'dynamic_post_id',
-                            'listing_id',
-                            'property_listing_id',
-                            'post_id',
-                        ] as $column
-                    ) {
-                        if (Schema::hasColumn($table, $column)) {
-                            $q->orWhereIn($column, $listingIds);
-                            $hasFilter = true;
-                        }
-                    }
-                }
-
-                if (!empty($user->email)) {
-                    foreach (
-                        [
-                            'email',
-                            'user_email',
-                            'lead_email',
-                        ] as $column
-                    ) {
-                        if (Schema::hasColumn($table, $column)) {
-                            $q->orWhere($column, $user->email);
-                            $hasFilter = true;
-                        }
-                    }
-                }
-
-                if (!empty($user->phone)) {
-                    foreach (
-                        [
-                            'phone',
-                            'mobile',
-                            'number',
-                            'contact_number',
-                            'user_phone',
-                            'lead_phone',
-                        ] as $column
-                    ) {
-                        if (Schema::hasColumn($table, $column)) {
-                            $q->orWhere($column, $user->phone);
-                            $hasFilter = true;
-                        }
-                    }
-                }
-            });
-
-            if (!$hasFilter) {
-                continue;
-            }
-
-            $total += (int) $query->count();
-        }
-
-        return $total;
-    }
-
-    private function documentProgressKey(string $uploadId): string
-    {
-        return 'user_document_upload:' . $uploadId;
-    }
-
-    private function updateDocumentProgress(string $uploadId, callable $callback): array
-    {
-        $key = $this->documentProgressKey($uploadId);
-        $lockKey = $key . ':lock';
-
-        return Cache::store('redis')->lock($lockKey, 10)->block(5, function () use ($key, $callback) {
-            $progress = Cache::store('redis')->get($key, []);
-
-            $progress = $callback($progress);
-
-            Cache::store('redis')->put($key, $progress, now()->addHours(2));
-
-            return $progress;
-        });
-    }
-
-    private function validationResponse($validator): JsonResponse
-    {
-        return response()->json([
-            'status' => false,
-            'message' => 'Validation failed.',
-            'errors' => $validator->errors(),
-        ], 422);
+        return $progress;
     }
 }
