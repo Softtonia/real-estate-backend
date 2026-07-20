@@ -1081,43 +1081,87 @@ class UserPropertyListingController extends Controller
             throw new \Exception($fieldSlug . ' upload failed.');
         }
 
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
         $extension = strtolower($file->getClientOriginalExtension());
 
-        $directory = 'uploads/listings/user-' . $user->id . '/' . now()->format('Y/m');
+        if (!in_array($extension, $allowedExtensions, true)) {
+            throw ValidationException::withMessages([
+                $fieldSlug => [
+                    'Invalid image format. Allowed formats: ' . implode(', ', $allowedExtensions),
+                ],
+            ]);
+        }
 
-        $this->ensurePublicDirectory($directory);
+        $maxSizeKb = 10240;
 
-        $fileName = 'listing_'
-            . time()
-            . '_'
-            . Str::random(10)
+        if (($file->getSize() / 1024) > $maxSizeKb) {
+            throw ValidationException::withMessages([
+                $fieldSlug => [
+                    'Image size must not be greater than 10MB.',
+                ],
+            ]);
+        }
+
+        $postTypeSlug = Str::slug($postType->slug ?? $postType->name ?? 'common', '-');
+
+        $type = $fieldSlug === 'featured_image'
+            ? 'featured-image'
+            : 'gallery';
+
+        $originalBaseName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+        $safeBaseName = Str::slug($originalBaseName ?: $type, '-');
+
+        if (empty($safeBaseName)) {
+            $safeBaseName = $type;
+        }
+
+        $fileName = $safeBaseName
+            . '-'
+            . substr((string) Str::uuid(), 0, 8)
             . '.'
             . $extension;
 
-        $file->move(public_path($directory), $fileName);
+        /*
+    |--------------------------------------------------------------------------
+    | Same Path As DynamicPostController
+    |--------------------------------------------------------------------------
+    | uploads/dynamic-posts/property-listing/featured-image/2026/07/file.png
+    | uploads/dynamic-posts/property-listing/gallery/2026/07/file.png
+    |--------------------------------------------------------------------------
+    */
+        $directory = implode('/', [
+            'uploads',
+            'dynamic-posts',
+            $postTypeSlug,
+            $type,
+            now()->format('Y'),
+            now()->format('m'),
+        ]);
 
-        $path = $directory . '/' . $fileName;
+        $path = $file->storeAs($directory, $fileName, 'public');
 
-        if (!file_exists(public_path($path))) {
-            throw new \Exception($fieldSlug . ' could not be saved.');
+        if (!$path || !Storage::disk('public')->exists($path)) {
+            throw new \Exception($fieldSlug . ' could not be saved in dynamic post upload path.');
         }
-
-        $url = url($path);
 
         $payload = [];
 
         $this->putMediaColumnIfExists($payload, 'disk', 'public');
-        $this->putMediaColumnIfExists($payload, 'context', 'dynamic_post');
-        $this->putMediaColumnIfExists($payload, 'post_type_slug', $postType->slug);
-        $this->putMediaColumnIfExists($payload, 'field_slug', $fieldSlug);
+        $this->putMediaColumnIfExists($payload, 'context', 'dynamic-posts');
+        $this->putMediaColumnIfExists($payload, 'post_type_slug', $postTypeSlug);
+        $this->putMediaColumnIfExists($payload, 'field_slug', $type);
         $this->putMediaColumnIfExists($payload, 'directory', $directory);
         $this->putMediaColumnIfExists($payload, 'path', $path);
-        $this->putMediaColumnIfExists($payload, 'url', $url);
+        $this->putMediaColumnIfExists($payload, 'url', url('storage/' . $path));
         $this->putMediaColumnIfExists($payload, 'file_name', $fileName);
         $this->putMediaColumnIfExists($payload, 'original_name', $file->getClientOriginalName());
-        $this->putMediaColumnIfExists($payload, 'mime_type', $file->getClientMimeType());
+        $this->putMediaColumnIfExists($payload, 'mime_type', $file->getMimeType());
         $this->putMediaColumnIfExists($payload, 'extension', $extension);
         $this->putMediaColumnIfExists($payload, 'size', $file->getSize());
+
+        if (Schema::hasColumn('media_files', 'uploaded_by')) {
+            $payload['uploaded_by'] = (int) $user->id;
+        }
 
         if (Schema::hasColumn('media_files', 'created_by')) {
             $payload['created_by'] = (int) $user->id;
