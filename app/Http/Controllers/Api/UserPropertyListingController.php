@@ -8,6 +8,7 @@ use App\Models\Country;
 use App\Models\DynamicPost;
 use App\Models\MediaFile;
 use App\Models\PostType;
+use App\Models\SiteSetting;
 use App\Models\State;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -37,6 +38,7 @@ class UserPropertyListingController extends Controller
                     'string',
                     Rule::in(['all', 'active', 'inactive', 'draft', 'publish']),
                 ],
+                'search' => ['nullable', 'string', 'max:255'],
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
                 'page' => ['nullable', 'integer', 'min:1'],
             ]);
@@ -94,6 +96,24 @@ class UserPropertyListingController extends Controller
                 ->where('author_id', (int) $user->id);
 
             $this->applyListingFilter($query, $filter);
+
+            if ($request->filled('search')) {
+                $search = (string) $request->search;
+
+                $query->where(function ($q) use ($search) {
+                    if (Schema::hasColumn('dynamic_posts', 'title')) {
+                        $q->where('title', 'like', "%{$search}%");
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'slug')) {
+                        $q->orWhere('slug', 'like', "%{$search}%");
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
+                        $q->orWhere('listing_code', 'like', "%{$search}%");
+                    }
+                });
+            }
 
             if (Schema::hasColumn('dynamic_posts', 'sort_order')) {
                 $query->orderBy('sort_order', 'asc');
@@ -309,8 +329,16 @@ class UserPropertyListingController extends Controller
                 $this->putIfColumnExists($payload, 'city_id', $request->input('city_id'));
                 $this->putIfColumnExists($payload, 'area_locality', $request->input('area_locality'));
 
+                /*
+                |--------------------------------------------------------------------------
+                | Listing Code From SiteSetting
+                |--------------------------------------------------------------------------
+                | Same logic as DynamicPostController.
+                | Uses property_prefix from site_settings for property-listing.
+                |--------------------------------------------------------------------------
+                */
                 if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
-                    $payload['listing_code'] = $this->generateListingCode();
+                    $payload['listing_code'] = $this->generateListingCode($postType);
                 }
 
                 if (
@@ -322,11 +350,6 @@ class UserPropertyListingController extends Controller
 
                 $listing = DynamicPost::create($payload);
 
-                /*
-                |--------------------------------------------------------------------------
-                | Featured Image
-                |--------------------------------------------------------------------------
-                */
                 $featuredImageFile = $this->featuredImageFile($request);
 
                 if ($featuredImageFile) {
@@ -348,11 +371,6 @@ class UserPropertyListingController extends Controller
                     }
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Gallery Images
-                |--------------------------------------------------------------------------
-                */
                 $galleryIds = $this->galleryMediaIdsFromRequest($request);
 
                 foreach ($this->galleryImageFiles($request) as $galleryFile) {
@@ -381,20 +399,10 @@ class UserPropertyListingController extends Controller
 
                 $listing->save();
 
-                /*
-                |--------------------------------------------------------------------------
-                | Taxonomies
-                |--------------------------------------------------------------------------
-                */
                 $termIds = $this->normalizeUserListingTaxonomyTermIds($request);
 
                 $this->syncUserListingTaxonomyTerms($listing, $termIds);
 
-                /*
-                |--------------------------------------------------------------------------
-                | Custom Fields
-                |--------------------------------------------------------------------------
-                */
                 $this->storeCustomFieldsForListing($listing, $request->input('custom_fields', []));
             });
 
@@ -517,7 +525,7 @@ class UserPropertyListingController extends Controller
             ->count();
 
         $underReviewListing = (clone $baseQuery)
-            ->where('live_status', 'under_review')
+            ->whereIn('live_status', ['under_review', 'submit'])
             ->count();
 
         $rejectedListing = (clone $baseQuery)
@@ -546,7 +554,17 @@ class UserPropertyListingController extends Controller
 
         $data = $listing->toArray();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Listing Code Compatibility
+        |--------------------------------------------------------------------------
+        | listing_code is the real code.
+        | display_id and property_listing_id are frontend compatibility keys.
+        |--------------------------------------------------------------------------
+        */
+        $data['listing_code'] = $listing->listing_code ?? null;
         $data['display_id'] = $listing->listing_code ?? null;
+        $data['property_listing_id'] = $listing->listing_code ?? null;
 
         $data['review_status_label'] = $this->reviewStatusLabel($listing->live_status ?? null);
         $data['is_active'] = $listing->status === 'published' && $listing->live_status === 'approve';
@@ -1038,16 +1056,75 @@ class UserPropertyListingController extends Controller
         return $query->exists();
     }
 
-    private function generateListingCode(): string
+    /*
+    |--------------------------------------------------------------------------
+    | SiteSetting Based Listing Code
+    |--------------------------------------------------------------------------
+    | Same style as DynamicPostController:
+    | property-listing => site_settings.property_prefix
+    | developer       => site_settings.developer_prefix
+    | project         => site_settings.project_prefix
+    |--------------------------------------------------------------------------
+    */
+    private function generateListingCode(PostType $postType): string
     {
+        $prefix = $this->getDynamicPostPrefix($postType);
+
+        $lastCode = DynamicPost::query()
+            ->where('post_type_id', (int) $postType->id)
+            ->whereNotNull('listing_code')
+            ->where('listing_code', 'like', $prefix . '-%')
+            ->lockForUpdate()
+            ->orderByDesc('id')
+            ->value('listing_code');
+
+        $nextNumber = 1;
+
+        if (!empty($lastCode) && preg_match('/-(\d+)$/', $lastCode, $matches)) {
+            $nextNumber = ((int) $matches[1]) + 1;
+        }
+
         do {
-            $code = 'HP-' . now()->format('ymd') . '-' . strtoupper(Str::random(6));
-        } while (
-            Schema::hasColumn('dynamic_posts', 'listing_code')
-            && DynamicPost::query()->where('listing_code', $code)->exists()
-        );
+            $code = $prefix . '-' . str_pad((string) $nextNumber, 6, '0', STR_PAD_LEFT);
+
+            $exists = DynamicPost::query()
+                ->where('listing_code', $code)
+                ->exists();
+
+            $nextNumber++;
+        } while ($exists);
 
         return $code;
+    }
+
+    private function getDynamicPostPrefix(PostType $postType): string
+    {
+        $setting = SiteSetting::query()->first();
+
+        $slug = Str::slug($postType->slug ?? $postType->name ?? '', '-');
+        $name = Str::slug($postType->name ?? '', '-');
+
+        if (str_contains($slug, 'property') || str_contains($name, 'property')) {
+            return $this->cleanPrefix($setting?->property_prefix ?: 'PRP');
+        }
+
+        if (str_contains($slug, 'developer') || str_contains($name, 'developer')) {
+            return $this->cleanPrefix($setting?->developer_prefix ?: 'DEV');
+        }
+
+        if (str_contains($slug, 'project') || str_contains($name, 'project')) {
+            return $this->cleanPrefix($setting?->project_prefix ?: 'PRJ');
+        }
+
+        return $this->cleanPrefix(strtoupper(substr(Str::slug($postType->name ?? 'DYN', ''), 0, 4)) ?: 'DYN');
+    }
+
+    private function cleanPrefix(?string $prefix): string
+    {
+        $prefix = strtoupper(trim((string) $prefix));
+        $prefix = preg_replace('/[^A-Z0-9]/', '', $prefix);
+
+        return $prefix ?: 'DYN';
     }
 
     private function featuredImageFile(Request $request): ?UploadedFile
@@ -1058,12 +1135,6 @@ class UserPropertyListingController extends Controller
             return $file instanceof UploadedFile ? $file : null;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Temporary support for wrong frontend key:
-        | featured_image_id[] = FILE
-        |--------------------------------------------------------------------------
-        */
         if ($request->hasFile('featured_image_id')) {
             $file = $request->file('featured_image_id');
 
@@ -1085,12 +1156,6 @@ class UserPropertyListingController extends Controller
     {
         $files = [];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Correct key: gallery_images[]
-        | Temporary support key: gallery_image_ids[] = FILE
-        |--------------------------------------------------------------------------
-        */
         foreach (['gallery_images', 'gallery_image_ids'] as $key) {
             if (!$request->hasFile($key)) {
                 continue;
@@ -1206,14 +1271,6 @@ class UserPropertyListingController extends Controller
             . '.'
             . $extension;
 
-        /*
-        |--------------------------------------------------------------------------
-        | Same path as DynamicPostController
-        |--------------------------------------------------------------------------
-        | uploads/dynamic-posts/property-listing/featured-image/2026/07/file.png
-        | uploads/dynamic-posts/property-listing/gallery/2026/07/file.png
-        |--------------------------------------------------------------------------
-        */
         $directory = implode('/', [
             'uploads',
             'dynamic-posts',
@@ -1297,11 +1354,6 @@ class UserPropertyListingController extends Controller
     {
         $termIds = [];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Format 1: taxonomy_term_ids[] = 1
-        |--------------------------------------------------------------------------
-        */
         $taxonomyTermIds = $request->input('taxonomy_term_ids', []);
 
         if (is_string($taxonomyTermIds)) {
@@ -1326,13 +1378,6 @@ class UserPropertyListingController extends Controller
             $termIds[] = (int) $taxonomyTermIds;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Format 2 old: taxonomies[1] = 1
-        |--------------------------------------------------------------------------
-        | Value is directly taxonomy_term_id.
-        |--------------------------------------------------------------------------
-        */
         $taxonomies = $request->input('taxonomies', []);
 
         if (is_array($taxonomies)) {
@@ -1342,13 +1387,6 @@ class UserPropertyListingController extends Controller
                     continue;
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Format 3 proper:
-                | taxonomies[0][taxonomy_id] = 1
-                | taxonomies[0][taxonomy_term_id] = 5
-                |--------------------------------------------------------------------------
-                */
                 if (is_array($taxonomyData)) {
                     if (!empty($taxonomyData['taxonomy_term_id']) && is_numeric($taxonomyData['taxonomy_term_id'])) {
                         $termIds[] = (int) $taxonomyData['taxonomy_term_id'];
