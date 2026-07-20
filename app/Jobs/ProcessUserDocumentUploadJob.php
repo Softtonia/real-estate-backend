@@ -42,12 +42,12 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
         }
 
         $this->updateProgress(function (array $progress) {
-            $progress['status'] = 'processing';
+            $progress = $this->ensureProgressStructure($progress);
 
+            $progress['status'] = 'processing';
             $progress['files'][$this->field]['status'] = 'processing';
             $progress['files'][$this->field]['percent'] = 40;
             $progress['files'][$this->field]['error'] = null;
-
             $progress['updated_at'] = now()->toDateTimeString();
 
             return $progress;
@@ -73,13 +73,6 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
         $directory = $directories[$this->field];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Short Filename
-        |--------------------------------------------------------------------------
-        | Database columns are string, so do not use original long file names.
-        |--------------------------------------------------------------------------
-        */
         $fileName = 'u'
             . $this->userId
             . '_'
@@ -93,26 +86,27 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
         $finalPath = $directory . '/' . $fileName;
 
-        /*
-        |--------------------------------------------------------------------------
-        | Move From Local Temp To Public Storage
-        |--------------------------------------------------------------------------
-        */
         $fileContent = Storage::disk('local')->get($this->tempPath);
 
-        Storage::disk('public')->put($finalPath, $fileContent);
+        $this->ensurePublicDirectory($directory);
+
+        file_put_contents(public_path($finalPath), $fileContent);
+
+        if (!file_exists(public_path($finalPath))) {
+            throw new \Exception($this->field . ' could not be saved in public uploads.');
+        }
 
         Storage::disk('local')->delete($this->tempPath);
 
         /*
         |--------------------------------------------------------------------------
-        | Save DB Path
+        | Save clean public path in DB
         |--------------------------------------------------------------------------
         | Example:
-        | storage/uploads/kyc/aadhaarFront/u8_xxx.png
+        | uploads/kyc/aadhaarFront/u8_xxx.png
         |--------------------------------------------------------------------------
         */
-        $dbPath = 'storage/' . $finalPath;
+        $dbPath = $finalPath;
 
         UserDetail::updateOrCreate(
             ['user_id' => $this->userId],
@@ -129,6 +123,8 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
         }
 
         $this->updateProgress(function (array $progress) use ($dbPath) {
+            $progress = $this->ensureProgressStructure($progress);
+
             $progress['files'][$this->field]['status'] = 'completed';
             $progress['files'][$this->field]['percent'] = 100;
             $progress['files'][$this->field]['url'] = url($dbPath);
@@ -165,7 +161,17 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
     public function failed(Throwable $exception): void
     {
+        try {
+            if (!empty($this->tempPath) && Storage::disk('local')->exists($this->tempPath)) {
+                Storage::disk('local')->delete($this->tempPath);
+            }
+        } catch (Throwable $e) {
+            //
+        }
+
         $this->updateProgress(function (array $progress) use ($exception) {
+            $progress = $this->ensureProgressStructure($progress);
+
             $progress['files'][$this->field]['status'] = 'failed';
             $progress['files'][$this->field]['percent'] = 0;
             $progress['files'][$this->field]['url'] = null;
@@ -210,5 +216,43 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
             return $progress;
         });
+    }
+
+    private function ensureProgressStructure(array $progress): array
+    {
+        $progress['upload_id'] = $progress['upload_id'] ?? $this->uploadId;
+        $progress['user_id'] = $progress['user_id'] ?? $this->userId;
+        $progress['status'] = $progress['status'] ?? 'processing';
+        $progress['total_files'] = $progress['total_files'] ?? 3;
+        $progress['queued_files'] = $progress['queued_files'] ?? 0;
+        $progress['processed_files'] = $progress['processed_files'] ?? 0;
+        $progress['failed_files'] = $progress['failed_files'] ?? 0;
+        $progress['percent'] = $progress['percent'] ?? 0;
+
+        $progress['files'] = $progress['files'] ?? [];
+
+        foreach ([
+            'aadhaar_front',
+            'aadhaar_back',
+            'business_proof',
+        ] as $field) {
+            $progress['files'][$field] = $progress['files'][$field] ?? [
+                'status' => 'pending',
+                'percent' => 0,
+                'url' => null,
+                'error' => null,
+            ];
+        }
+
+        return $progress;
+    }
+
+    private function ensurePublicDirectory(string $directory): void
+    {
+        $path = public_path($directory);
+
+        if (!is_dir($path)) {
+            mkdir($path, 0775, true);
+        }
     }
 }

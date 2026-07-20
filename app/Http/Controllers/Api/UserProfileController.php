@@ -57,6 +57,8 @@ class UserProfileController extends Controller
             ], 401);
         }
 
+        $isOwnerRole = $this->isOwnerUser($user);
+
         $rules = [
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
@@ -76,11 +78,13 @@ class UserProfileController extends Controller
             'alternate_number' => ['nullable', 'string', 'max:200'],
             'no_of_employees' => ['nullable', 'integer'],
             'about_us' => ['nullable', 'string'],
-
-            'bussiness_name' => ['nullable', 'string', 'max:200'],
-            'business_phone' => ['nullable', 'string', 'max:200'],
-            'bussiness_email' => ['nullable', 'email', 'max:200'],
         ];
+
+        if (!$isOwnerRole) {
+            $rules['bussiness_name'] = ['nullable', 'string', 'max:200'];
+            $rules['business_phone'] = ['nullable', 'string', 'max:200'];
+            $rules['bussiness_email'] = ['nullable', 'email', 'max:200'];
+        }
 
         if (Schema::hasColumn('users', 'user_name')) {
             $rules['user_name'] = [
@@ -102,18 +106,16 @@ class UserProfileController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($request, $user) {
+            DB::transaction(function () use ($request, $user, $isOwnerRole) {
                 $userPayload = [];
 
-                foreach (
-                    [
-                        'first_name',
-                        'last_name',
-                        'email',
-                        'phone',
-                        'user_name',
-                    ] as $column
-                ) {
+                foreach ([
+                    'first_name',
+                    'last_name',
+                    'email',
+                    'phone',
+                    'user_name',
+                ] as $column) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
                     }
@@ -127,20 +129,25 @@ class UserProfileController extends Controller
                     $user->update($userPayload);
                 }
 
+                $detailColumns = [
+                    'alternate_number',
+                    'no_of_employees',
+                    'about_us',
+                ];
+
+                if (!$isOwnerRole) {
+                    $detailColumns = array_merge($detailColumns, [
+                        'bussiness_name',
+                        'business_phone',
+                        'bussiness_email',
+                    ]);
+                }
+
                 $detailPayload = [
                     'user_id' => $user->id,
                 ];
 
-                foreach (
-                    [
-                        'alternate_number',
-                        'no_of_employees',
-                        'about_us',
-                        'bussiness_name',
-                        'business_phone',
-                        'bussiness_email',
-                    ] as $column
-                ) {
+                foreach ($detailColumns as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -215,14 +222,6 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                /*
-            |--------------------------------------------------------------------------
-            | Main Address Fields
-            |--------------------------------------------------------------------------
-            | If area_locality / colony / street_address columns exist, save separately.
-            | If they do not exist, backend will merge them into address column.
-            |--------------------------------------------------------------------------
-            */
                 $addressColumns = [
                     'country_id',
                     'state_id',
@@ -240,14 +239,6 @@ class UserProfileController extends Controller
                     }
                 }
 
-                /*
-            |--------------------------------------------------------------------------
-            | Fallback Without DB Change
-            |--------------------------------------------------------------------------
-            | Your database may not have area_locality, colony, street_address.
-            | In that case, save combined address in existing address column.
-            |--------------------------------------------------------------------------
-            */
                 $missingSeparateColumns = !Schema::hasColumn('user_details', 'street_address')
                     || !Schema::hasColumn('user_details', 'area_locality')
                     || !Schema::hasColumn('user_details', 'colony');
@@ -270,13 +261,6 @@ class UserProfileController extends Controller
                     ])->filter()->values()->implode(', ');
                 }
 
-                /*
-            |--------------------------------------------------------------------------
-            | Business Address
-            |--------------------------------------------------------------------------
-            | Owner role should not save/show business fields.
-            |--------------------------------------------------------------------------
-            */
                 if (!$isOwnerRole) {
                     if ($request->has('bussiness_address') && Schema::hasColumn('user_details', 'bussiness_address')) {
                         $detailPayload['bussiness_address'] = $request->input('bussiness_address');
@@ -290,25 +274,9 @@ class UserProfileController extends Controller
                     );
                 }
 
-                /*
-            |--------------------------------------------------------------------------
-            | Optional users table fallback
-            |--------------------------------------------------------------------------
-            */
                 $userPayload = [];
 
-                foreach (
-                    [
-                        'country_id',
-                        'state_id',
-                        'city_id',
-                        'street_address',
-                        'area_locality',
-                        'colony',
-                        'address',
-                        'pin_code',
-                    ] as $column
-                ) {
+                foreach ($addressColumns as $column) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
                     }
@@ -334,7 +302,6 @@ class UserProfileController extends Controller
             ], 500);
         }
     }
-
 
     public function updateDocuments(Request $request): JsonResponse
     {
@@ -370,13 +337,11 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach (
-                    [
-                        'aadhaar_number',
-                        'license_number',
-                        'rera_number',
-                    ] as $column
-                ) {
+                foreach ([
+                    'aadhaar_number',
+                    'license_number',
+                    'rera_number',
+                ] as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -409,13 +374,17 @@ class UserProfileController extends Controller
                             . '.'
                             . $extension;
 
-                        Storage::disk('public')->putFileAs(
-                            $directory,
-                            $file,
-                            $fileName
-                        );
+                        $this->ensurePublicDirectory($directory);
 
-                        $detailPayload[$field] = 'storage/' . $directory . '/' . $fileName;
+                        $file->move(public_path($directory), $fileName);
+
+                        $filePath = $directory . '/' . $fileName;
+
+                        if (!file_exists(public_path($filePath))) {
+                            throw new \Exception($field . ' could not be saved in public uploads.');
+                        }
+
+                        $detailPayload[$field] = $filePath;
                     }
                 }
 
@@ -469,34 +438,39 @@ class UserProfileController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($request, $user) {
-                $file = $request->file('profile_photo');
+            $file = $request->file('profile_photo');
 
-                if (!$file->isValid()) {
-                    throw new \Exception('Profile photo upload failed.');
-                }
+            if (!$file || !$file->isValid()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid profile photo file.',
+                ], 422);
+            }
 
-                $extension = strtolower($file->getClientOriginalExtension());
+            $extension = strtolower($file->getClientOriginalExtension());
 
-                $fileName = 'u'
-                    . $user->id
-                    . '_'
-                    . time()
-                    . '_'
-                    . uniqid()
-                    . '.'
-                    . $extension;
+            $fileName = 'u'
+                . $user->id
+                . '_'
+                . time()
+                . '_'
+                . uniqid()
+                . '.'
+                . $extension;
 
-                $directory = 'uploads/users';
+            $directory = 'uploads/users';
 
-                Storage::disk('public')->putFileAs(
-                    $directory,
-                    $file,
-                    $fileName
-                );
+            $this->ensurePublicDirectory($directory);
 
-                $profilePhotoPath = 'storage/' . $directory . '/' . $fileName;
+            $file->move(public_path($directory), $fileName);
 
+            $profilePhotoPath = $directory . '/' . $fileName;
+
+            if (!file_exists(public_path($profilePhotoPath))) {
+                throw new \Exception('Profile photo could not be saved in public uploads.');
+            }
+
+            DB::transaction(function () use ($user, $profilePhotoPath) {
                 UserDetail::updateOrCreate(
                     ['user_id' => $user->id],
                     [
@@ -511,6 +485,7 @@ class UserProfileController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Profile photo updated successfully.',
+                'profile_photo' => $this->fileUrl($profilePhotoPath),
                 'data' => $this->formatUserProfile($freshUser),
             ]);
         } catch (Throwable $e) {
@@ -521,12 +496,6 @@ class UserProfileController extends Controller
             ], 500);
         }
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Redis Upload Progress APIs
-    |--------------------------------------------------------------------------
-    */
 
     public function startDocumentUpload(Request $request): JsonResponse
     {
@@ -562,13 +531,11 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach (
-                    [
-                        'aadhaar_number',
-                        'license_number',
-                        'rera_number',
-                    ] as $column
-                ) {
+                foreach ([
+                    'aadhaar_number',
+                    'license_number',
+                    'rera_number',
+                ] as $column) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -697,7 +664,7 @@ class UserProfileController extends Controller
 
             $file = $request->file('file');
 
-            if (!$file->isValid()) {
+            if (!$file || !$file->isValid()) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Invalid uploaded file.',
@@ -735,11 +702,11 @@ class UserProfileController extends Controller
             });
 
             ProcessUserDocumentUploadJob::dispatch(
-                userId: (int) $user->id,
-                uploadId: $uploadId,
-                field: $field,
-                tempPath: $tempPath,
-                extension: $extension
+                (int) $user->id,
+                $uploadId,
+                $field,
+                $tempPath,
+                $extension
             );
 
             return response()->json([
@@ -792,12 +759,6 @@ class UserProfileController extends Controller
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
-
     private function resolveCurrentUser(Request $request): ?User
     {
         $token = $request->bearerToken();
@@ -815,6 +776,148 @@ class UserProfileController extends Controller
             ->first();
     }
 
+    private function formatUserProfile(?User $user): array
+    {
+        if (!$user) {
+            return [];
+        }
+
+        $detail = UserDetail::query()
+            ->where('user_id', $user->id)
+            ->first();
+
+        $roleName = null;
+
+        if (Schema::hasTable('roles') && !empty($user->role_id)) {
+            $role = DB::table('roles')->where('id', $user->role_id)->first();
+            $roleName = $role->name ?? $role->role_name ?? null;
+        }
+
+        $countryId = $this->valueFromModel($user, $detail, 'country_id');
+        $stateId = $this->valueFromModel($user, $detail, 'state_id');
+        $cityId = $this->valueFromModel($user, $detail, 'city_id');
+
+        $countryName = $this->locationName('countries', $countryId);
+        $stateName = $this->locationName('states', $stateId);
+        $cityName = $this->locationName('cities', $cityId);
+
+        $profilePhoto = $this->fileUrl($detail?->profile_photo);
+        $aadhaarFront = $this->fileUrl($detail?->aadhaar_front);
+        $aadhaarBack = $this->fileUrl($detail?->aadhaar_back);
+        $businessProof = $this->fileUrl($detail?->business_proof);
+
+        $firstName = $user->first_name ?? null;
+        $lastName = $user->last_name ?? null;
+        $fullName = trim(($firstName ?? '') . ' ' . ($lastName ?? ''));
+
+        $dashboardCounts = $this->profileDashboardCounts($user);
+        $isOwnerRole = $this->isOwnerUser($user);
+
+        $streetAddress = $this->detailValue($detail, 'street_address');
+        $areaLocality = $this->detailValue($detail, 'area_locality');
+        $colony = $this->detailValue($detail, 'colony');
+        $address = $detail?->address ?? null;
+        $pinCode = $detail?->pin_code ?? null;
+
+        $fullAddress = collect([
+            $streetAddress,
+            $colony,
+            $areaLocality,
+            $address,
+            $cityName,
+            $stateName,
+            $countryName,
+            $pinCode,
+        ])->filter()->values()->implode(', ') ?: null;
+
+        $raw = [
+            'id' => (int) $user->id,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'full_name' => $fullName ?: null,
+            'user_name' => $user->user_name ?? null,
+            'email' => $user->email ?? null,
+            'phone' => $user->phone ?? null,
+            'role_id' => $user->role_id ?? null,
+            'role_name' => $roleName,
+            'unique_id' => $user->unique_id ?? null,
+            'isapproved' => $user->isapproved ?? null,
+            'account_status' => $this->accountStatusLabel($user->isapproved ?? null),
+            'kyc' => $user->kyc ?? 0,
+            'kyc_status' => $this->kycStatusLabel($user->kyc ?? 0),
+            'is_otp_verified' => $user->is_otp_verified ?? false,
+
+            'country_id' => $countryId,
+            'state_id' => $stateId,
+            'city_id' => $cityId,
+
+            'country' => $countryName,
+            'state' => $stateName,
+            'city' => $cityName,
+
+            'street_address' => $streetAddress,
+            'area_locality' => $areaLocality,
+            'colony' => $colony,
+            'address' => $address,
+            'pin_code' => $pinCode,
+
+            'location' => [
+                'country' => $countryName,
+                'state' => $stateName,
+                'city' => $cityName,
+                'street_address' => $streetAddress,
+                'area_locality' => $areaLocality,
+                'colony' => $colony,
+                'address' => $address,
+                'pin_code' => $pinCode,
+                'full_address' => $fullAddress,
+            ],
+
+            'profile_photo' => $profilePhoto,
+            'aadhaar_number' => $detail?->aadhaar_number ?? null,
+            'aadhaar_front' => $aadhaarFront,
+            'aadhaar_back' => $aadhaarBack,
+            'business_proof' => $businessProof,
+            'license_number' => $detail?->license_number ?? null,
+            'rera_number' => $detail?->rera_number ?? null,
+            'alternate_number' => $detail?->alternate_number ?? null,
+            'no_of_employees' => $detail?->no_of_employees ?? null,
+            'about_us' => $detail?->about_us ?? null,
+
+            'business_fields_visible' => !$isOwnerRole,
+
+            'created_at' => $user->created_at,
+            'updated_at' => $user->updated_at,
+        ];
+
+        if (!$isOwnerRole) {
+            $raw['bussiness_name'] = $detail?->bussiness_name ?? null;
+            $raw['business_phone'] = $detail?->business_phone ?? null;
+            $raw['bussiness_email'] = $detail?->bussiness_email ?? null;
+            $raw['bussiness_address'] = $detail?->bussiness_address ?? null;
+
+            $raw['business_country'] = $countryName;
+            $raw['business_state'] = $stateName;
+            $raw['business_city'] = $cityName;
+        }
+
+        $display = collect($raw)
+            ->map(fn ($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
+            ->toArray();
+
+        unset(
+            $display['country_id'],
+            $display['state_id'],
+            $display['city_id']
+        );
+
+        return [
+            'raw' => $raw,
+            'display' => $display,
+            'profile_completion' => $this->profileCompletion($raw),
+            'dashboard_counts' => $dashboardCounts,
+        ];
+    }
 
     private function valueFromModel(User $user, ?UserDetail $detail, string $column): mixed
     {
@@ -840,17 +943,43 @@ class UserProfileController extends Controller
             ->value('name');
     }
 
+    private function detailValue(?UserDetail $detail, string $column): mixed
+    {
+        if (!$detail || !Schema::hasColumn('user_details', $column)) {
+            return null;
+        }
+
+        return $detail->{$column} ?? null;
+    }
+
     private function fileUrl(?string $path): ?string
     {
         if (empty($path)) {
             return null;
         }
 
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
         if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
             return $path;
         }
 
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
         return url($path);
+    }
+
+    private function ensurePublicDirectory(string $directory): void
+    {
+        $path = public_path($directory);
+
+        if (!is_dir($path)) {
+            mkdir($path, 0775, true);
+        }
     }
 
     private function dash(mixed $value): mixed
@@ -860,6 +989,13 @@ class UserProfileController extends Controller
         }
 
         return $value;
+    }
+
+    private function dashArray(array $items): array
+    {
+        return collect($items)
+            ->map(fn ($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
+            ->toArray();
     }
 
     private function profileCompletion(array $data): array
@@ -901,7 +1037,7 @@ class UserProfileController extends Controller
             'completed_fields' => $completed,
             'total_fields' => count($fields),
             'missing_fields' => collect($fields)
-                ->filter(fn($field) => empty($data[$field]) || $data[$field] === '-')
+                ->filter(fn ($field) => empty($data[$field]) || $data[$field] === '-')
                 ->values()
                 ->toArray(),
         ];
@@ -927,6 +1063,205 @@ class UserProfileController extends Controller
             3 => 'Rejected',
             default => 'Pending',
         };
+    }
+
+    private function isOwnerUser(User $user): bool
+    {
+        $directRole = strtolower(trim((string) ($user->role_id ?? '')));
+        $directRole = str_replace([' ', '_', '-'], '', $directRole);
+
+        if (in_array($directRole, [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true)) {
+            return true;
+        }
+
+        if (!Schema::hasTable('roles') || empty($user->role_id)) {
+            return false;
+        }
+
+        $role = DB::table('roles')
+            ->where('id', $user->role_id)
+            ->first();
+
+        if (!$role) {
+            return false;
+        }
+
+        $roleText = strtolower(trim((string) (
+            $role->slug
+            ?? $role->name
+            ?? $role->role_name
+            ?? ''
+        )));
+
+        $roleText = str_replace([' ', '_', '-'], '', $roleText);
+
+        return in_array($roleText, [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true);
+    }
+
+    private function profileDashboardCounts(User $user): array
+    {
+        $listingIds = $this->userListingIds($user);
+
+        return [
+            'total_listings' => count($listingIds),
+            'total_leads' => $this->countUserRelatedRows($user, [
+                'leads',
+                'property_leads',
+                'listing_leads',
+                'dynamic_post_leads',
+                'lead_forms',
+            ], $listingIds),
+            'total_inquiries' => $this->countUserRelatedRows($user, [
+                'inquiries',
+                'enquiries',
+                'contact_us_leads',
+                'business_enquiries',
+                'property_inquiries',
+                'listing_inquiries',
+            ], $listingIds),
+        ];
+    }
+
+    private function userListingIds(User $user): array
+    {
+        if (!Schema::hasTable('dynamic_posts')) {
+            return [];
+        }
+
+        $query = DB::table('dynamic_posts')
+            ->select('dynamic_posts.id');
+
+        $hasUserFilter = false;
+
+        $query->where(function ($q) use ($user, &$hasUserFilter) {
+            foreach ([
+                'author_id',
+                'user_id',
+                'owner_id',
+                'created_by',
+            ] as $column) {
+                if (Schema::hasColumn('dynamic_posts', $column)) {
+                    $q->orWhere('dynamic_posts.' . $column, (int) $user->id);
+                    $hasUserFilter = true;
+                }
+            }
+        });
+
+        if (!$hasUserFilter) {
+            return [];
+        }
+
+        if (
+            Schema::hasTable('post_types')
+            && Schema::hasColumn('dynamic_posts', 'post_type_id')
+        ) {
+            $propertyPostTypeId = DB::table('post_types')
+                ->where('slug', 'property-listing')
+                ->value('id');
+
+            if ($propertyPostTypeId) {
+                $query->where('dynamic_posts.post_type_id', (int) $propertyPostTypeId);
+            }
+        }
+
+        return $query
+            ->pluck('dynamic_posts.id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function countUserRelatedRows(User $user, array $tables, array $listingIds = []): int
+    {
+        $total = 0;
+
+        foreach ($tables as $table) {
+            if (!Schema::hasTable($table)) {
+                continue;
+            }
+
+            $query = DB::table($table);
+            $hasFilter = false;
+
+            $query->where(function ($q) use ($table, $user, $listingIds, &$hasFilter) {
+                foreach ([
+                    'user_id',
+                    'owner_id',
+                    'agent_id',
+                    'developer_id',
+                    'consultancy_id',
+                    'assigned_user_id',
+                    'assigned_to',
+                    'created_by',
+                    'author_id',
+                ] as $column) {
+                    if (Schema::hasColumn($table, $column)) {
+                        $q->orWhere($column, (int) $user->id);
+                        $hasFilter = true;
+                    }
+                }
+
+                if (!empty($listingIds)) {
+                    foreach ([
+                        'dynamic_post_id',
+                        'listing_id',
+                        'property_listing_id',
+                        'post_id',
+                    ] as $column) {
+                        if (Schema::hasColumn($table, $column)) {
+                            $q->orWhereIn($column, $listingIds);
+                            $hasFilter = true;
+                        }
+                    }
+                }
+
+                if (!empty($user->email)) {
+                    foreach ([
+                        'email',
+                        'user_email',
+                        'lead_email',
+                    ] as $column) {
+                        if (Schema::hasColumn($table, $column)) {
+                            $q->orWhere($column, $user->email);
+                            $hasFilter = true;
+                        }
+                    }
+                }
+
+                if (!empty($user->phone)) {
+                    foreach ([
+                        'phone',
+                        'mobile',
+                        'number',
+                        'contact_number',
+                        'user_phone',
+                        'lead_phone',
+                    ] as $column) {
+                        if (Schema::hasColumn($table, $column)) {
+                            $q->orWhere($column, $user->phone);
+                            $hasFilter = true;
+                        }
+                    }
+                }
+            });
+
+            if (!$hasFilter) {
+                continue;
+            }
+
+            $total += (int) $query->count();
+        }
+
+        return $total;
     }
 
     private function documentProgressKey(string $uploadId): string
@@ -957,459 +1292,5 @@ class UserProfileController extends Controller
             'message' => 'Validation failed.',
             'errors' => $validator->errors(),
         ], 422);
-    }
-    private function formatUserProfile(?User $user): array
-    {
-        if (!$user) {
-            return [];
-        }
-
-        $detail = UserDetail::query()
-            ->where('user_id', $user->id)
-            ->first();
-
-        $roleName = null;
-
-        if (Schema::hasTable('roles') && !empty($user->role_id)) {
-            $role = DB::table('roles')->where('id', $user->role_id)->first();
-            $roleName = $role->name ?? $role->role_name ?? null;
-        }
-
-        $countryId = $this->valueFromModel($user, $detail, 'country_id');
-        $stateId = $this->valueFromModel($user, $detail, 'state_id');
-        $cityId = $this->valueFromModel($user, $detail, 'city_id');
-
-        $countryName = $this->locationName('countries', $countryId);
-        $stateName = $this->locationName('states', $stateId);
-        $cityName = $this->locationName('cities', $cityId);
-
-        $profilePhoto = $this->fileUrl($detail?->profile_photo);
-        $aadhaarFront = $this->fileUrl($detail?->aadhaar_front);
-        $aadhaarBack = $this->fileUrl($detail?->aadhaar_back);
-        $businessProof = $this->fileUrl($detail?->business_proof);
-
-        $firstName = $user->first_name ?? null;
-        $lastName = $user->last_name ?? null;
-        $fullName = trim(($firstName ?? '') . ' ' . ($lastName ?? ''));
-
-        $dashboardCounts = $this->profileDashboardCounts($user);
-        $isOwnerRole = $this->isOwnerUser($user);
-
-        /*
-    |--------------------------------------------------------------------------
-    | Address Fields
-    |--------------------------------------------------------------------------
-    | If DB columns exist, values come separately.
-    | If columns do not exist, these will be null and display will show "-".
-    |--------------------------------------------------------------------------
-    */
-        $streetAddress = $this->detailValue($detail, 'street_address');
-        $areaLocality = $this->detailValue($detail, 'area_locality');
-        $colony = $this->detailValue($detail, 'colony');
-        $address = $detail?->address ?? null;
-        $pinCode = $detail?->pin_code ?? null;
-
-        $fullAddress = collect([
-            $streetAddress,
-            $colony,
-            $areaLocality,
-            $address,
-            $cityName,
-            $stateName,
-            $countryName,
-            $pinCode,
-        ])->filter()->values()->implode(', ') ?: null;
-
-        $raw = [
-            'id' => (int) $user->id,
-            'first_name' => $firstName,
-            'last_name' => $lastName,
-            'full_name' => $fullName ?: null,
-            'user_name' => $user->user_name ?? null,
-            'email' => $user->email ?? null,
-            'phone' => $user->phone ?? null,
-            'role_id' => $user->role_id ?? null,
-            'role_name' => $roleName,
-            'unique_id' => $user->unique_id ?? null,
-            'isapproved' => $user->isapproved ?? null,
-            'account_status' => $this->accountStatusLabel($user->isapproved ?? null),
-            'kyc' => $user->kyc ?? 0,
-            'kyc_status' => $this->kycStatusLabel($user->kyc ?? 0),
-            'is_otp_verified' => $user->is_otp_verified ?? false,
-
-            /*
-        |--------------------------------------------------------------------------
-        | Location IDs for edit form dropdown preselect
-        |--------------------------------------------------------------------------
-        */
-            'country_id' => $countryId,
-            'state_id' => $stateId,
-            'city_id' => $cityId,
-
-            /*
-        |--------------------------------------------------------------------------
-        | Location Names for display
-        |--------------------------------------------------------------------------
-        */
-            'country' => $countryName,
-            'state' => $stateName,
-            'city' => $cityName,
-
-            /*
-        |--------------------------------------------------------------------------
-        | Address Detail Fields
-        |--------------------------------------------------------------------------
-        */
-            'street_address' => $streetAddress,
-            'area_locality' => $areaLocality,
-            'colony' => $colony,
-            'address' => $address,
-            'pin_code' => $pinCode,
-
-            'location' => [
-                'country' => $countryName,
-                'state' => $stateName,
-                'city' => $cityName,
-                'street_address' => $streetAddress,
-                'area_locality' => $areaLocality,
-                'colony' => $colony,
-                'address' => $address,
-                'pin_code' => $pinCode,
-                'full_address' => $fullAddress,
-            ],
-
-            /*
-        |--------------------------------------------------------------------------
-        | Documents
-        |--------------------------------------------------------------------------
-        */
-            'profile_photo' => $profilePhoto,
-            'aadhaar_number' => $detail?->aadhaar_number ?? null,
-            'aadhaar_front' => $aadhaarFront,
-            'aadhaar_back' => $aadhaarBack,
-            'business_proof' => $businessProof,
-            'license_number' => $detail?->license_number ?? null,
-            'rera_number' => $detail?->rera_number ?? null,
-            'alternate_number' => $detail?->alternate_number ?? null,
-            'no_of_employees' => $detail?->no_of_employees ?? null,
-            'about_us' => $detail?->about_us ?? null,
-
-            /*
-        |--------------------------------------------------------------------------
-        | Frontend Visibility Flags
-        |--------------------------------------------------------------------------
-        */
-            'business_fields_visible' => !$isOwnerRole,
-
-            'created_at' => $user->created_at,
-            'updated_at' => $user->updated_at,
-        ];
-
-        /*
-    |--------------------------------------------------------------------------
-    | Business fields only for non-owner roles
-    |--------------------------------------------------------------------------
-    */
-        if (!$isOwnerRole) {
-            $raw['bussiness_name'] = $detail?->bussiness_name ?? null;
-            $raw['business_phone'] = $detail?->business_phone ?? null;
-            $raw['bussiness_email'] = $detail?->bussiness_email ?? null;
-            $raw['bussiness_address'] = $detail?->bussiness_address ?? null;
-
-            $raw['business_country'] = $countryName;
-            $raw['business_state'] = $stateName;
-            $raw['business_city'] = $cityName;
-        }
-
-        $display = collect($raw)
-            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
-            ->toArray();
-
-        /*
-    |--------------------------------------------------------------------------
-    | Display should show location names only, not IDs
-    |--------------------------------------------------------------------------
-    */
-        unset(
-            $display['country_id'],
-            $display['state_id'],
-            $display['city_id']
-        );
-
-        return [
-            'raw' => $raw,
-            'display' => $display,
-            'profile_completion' => $this->profileCompletion($raw),
-            'dashboard_counts' => $dashboardCounts,
-        ];
-    }
-    private function profileDashboardCounts(User $user): array
-    {
-        $listingIds = $this->userListingIds($user);
-
-        return [
-            'total_listings' => count($listingIds),
-
-            /*
-        |--------------------------------------------------------------------------
-        | Total Leads
-        |--------------------------------------------------------------------------
-        | Auto-detects common lead tables.
-        |--------------------------------------------------------------------------
-        */
-            'total_leads' => $this->countUserRelatedRows($user, [
-                'leads',
-                'property_leads',
-                'listing_leads',
-                'dynamic_post_leads',
-                'lead_forms',
-            ], $listingIds),
-
-            /*
-        |--------------------------------------------------------------------------
-        | Total Inquiries
-        |--------------------------------------------------------------------------
-        | Auto-detects common inquiry tables.
-        |--------------------------------------------------------------------------
-        */
-            'total_inquiries' => $this->countUserRelatedRows($user, [
-                'inquiries',
-                'enquiries',
-                'contact_us_leads',
-                'business_enquiries',
-                'property_inquiries',
-                'listing_inquiries',
-            ], $listingIds),
-        ];
-    }
-    private function detailValue(?UserDetail $detail, string $column): mixed
-    {
-        if (!$detail || !Schema::hasColumn('user_details', $column)) {
-            return null;
-        }
-
-        return $detail->{$column} ?? null;
-    }
-
-    private function dashArray(array $items): array
-    {
-        return collect($items)
-            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
-            ->toArray();
-    }
-
-    private function isOwnerUser(User $user): bool
-    {
-        /*
-    |--------------------------------------------------------------------------
-    | Case 1: role_id directly stored as owner text
-    |--------------------------------------------------------------------------
-    */
-        $directRole = strtolower(trim((string) ($user->role_id ?? '')));
-        $directRole = str_replace([' ', '_', '-'], '', $directRole);
-
-        if (in_array($directRole, [
-            'owner',
-            'propertyowner',
-            'landowner',
-        ], true)) {
-            return true;
-        }
-
-        /*
-    |--------------------------------------------------------------------------
-    | Case 2: role_id is roles.id
-    |--------------------------------------------------------------------------
-    */
-        if (!Schema::hasTable('roles') || empty($user->role_id)) {
-            return false;
-        }
-
-        $role = DB::table('roles')
-            ->where('id', $user->role_id)
-            ->first();
-
-        if (!$role) {
-            return false;
-        }
-
-        $roleText = strtolower(trim((string) (
-            $role->slug
-            ?? $role->name
-            ?? $role->role_name
-            ?? ''
-        )));
-
-        $roleText = str_replace([' ', '_', '-'], '', $roleText);
-
-        return in_array($roleText, [
-            'owner',
-            'propertyowner',
-            'landowner',
-        ], true);
-    }
-    private function userListingIds(User $user): array
-    {
-        if (!Schema::hasTable('dynamic_posts')) {
-            return [];
-        }
-
-        $query = DB::table('dynamic_posts')
-            ->select('dynamic_posts.id');
-
-        $hasUserFilter = false;
-
-        $query->where(function ($q) use ($user, &$hasUserFilter) {
-            foreach (
-                [
-                    'author_id',
-                    'user_id',
-                    'owner_id',
-                    'created_by',
-                ] as $column
-            ) {
-                if (Schema::hasColumn('dynamic_posts', $column)) {
-                    $q->orWhere('dynamic_posts.' . $column, (int) $user->id);
-                    $hasUserFilter = true;
-                }
-            }
-        });
-
-        if (!$hasUserFilter) {
-            return [];
-        }
-
-        /*
-    |--------------------------------------------------------------------------
-    | Only Property Listing post type
-    |--------------------------------------------------------------------------
-    */
-        if (
-            Schema::hasTable('post_types')
-            && Schema::hasColumn('dynamic_posts', 'post_type_id')
-        ) {
-            $propertyPostTypeId = DB::table('post_types')
-                ->where('slug', 'property-listing')
-                ->value('id');
-
-            if ($propertyPostTypeId) {
-                $query->where('dynamic_posts.post_type_id', (int) $propertyPostTypeId);
-            }
-        }
-
-        return $query
-            ->pluck('dynamic_posts.id')
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
-    }
-
-    private function countUserRelatedRows(User $user, array $tables, array $listingIds = []): int
-    {
-        $total = 0;
-
-        foreach ($tables as $table) {
-            if (!Schema::hasTable($table)) {
-                continue;
-            }
-
-            $query = DB::table($table);
-
-            $hasFilter = false;
-
-            $query->where(function ($q) use ($table, $user, $listingIds, &$hasFilter) {
-                /*
-            |--------------------------------------------------------------------------
-            | Direct user relation columns
-            |--------------------------------------------------------------------------
-            */
-                foreach (
-                    [
-                        'user_id',
-                        'owner_id',
-                        'agent_id',
-                        'developer_id',
-                        'consultancy_id',
-                        'assigned_user_id',
-                        'assigned_to',
-                        'created_by',
-                        'author_id',
-                    ] as $column
-                ) {
-                    if (Schema::hasColumn($table, $column)) {
-                        $q->orWhere($column, (int) $user->id);
-                        $hasFilter = true;
-                    }
-                }
-
-                /*
-            |--------------------------------------------------------------------------
-            | Listing relation columns
-            |--------------------------------------------------------------------------
-            */
-                if (!empty($listingIds)) {
-                    foreach (
-                        [
-                            'dynamic_post_id',
-                            'listing_id',
-                            'property_listing_id',
-                            'post_id',
-                        ] as $column
-                    ) {
-                        if (Schema::hasColumn($table, $column)) {
-                            $q->orWhereIn($column, $listingIds);
-                            $hasFilter = true;
-                        }
-                    }
-                }
-
-                /*
-            |--------------------------------------------------------------------------
-            | Fallback by email / phone
-            |--------------------------------------------------------------------------
-            */
-                if (!empty($user->email)) {
-                    foreach (
-                        [
-                            'email',
-                            'user_email',
-                            'lead_email',
-                        ] as $column
-                    ) {
-                        if (Schema::hasColumn($table, $column)) {
-                            $q->orWhere($column, $user->email);
-                            $hasFilter = true;
-                        }
-                    }
-                }
-
-                if (!empty($user->phone)) {
-                    foreach (
-                        [
-                            'phone',
-                            'mobile',
-                            'number',
-                            'contact_number',
-                            'user_phone',
-                            'lead_phone',
-                        ] as $column
-                    ) {
-                        if (Schema::hasColumn($table, $column)) {
-                            $q->orWhere($column, $user->phone);
-                            $hasFilter = true;
-                        }
-                    }
-                }
-            });
-
-            if (!$hasFilter) {
-                continue;
-            }
-
-            $total += (int) $query->count();
-        }
-
-        return $total;
     }
 }
