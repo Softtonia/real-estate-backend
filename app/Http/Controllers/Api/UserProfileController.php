@@ -927,7 +927,7 @@ class UserProfileController extends Controller
         }
 
         $display = collect($raw)
-            ->map(fn ($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
+            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
             ->toArray();
 
         unset(
@@ -1002,18 +1002,13 @@ class UserProfileController extends Controller
             $path = str_replace('public/uploads/', 'uploads/', $path);
         }
 
-        return url($path);
-    }
+        if (str_starts_with($path, 'uploads/')) {
+            $relativePath = substr($path, strlen('uploads/'));
 
-    private function uploadsRoot(): string
-    {
-        $configuredPath = env('PUBLIC_UPLOADS_PATH') ?: env('SHARED_UPLOADS_PATH');
-
-        if (!empty($configuredPath)) {
-            return rtrim($configuredPath, DIRECTORY_SEPARATOR);
+            return Storage::disk('public_uploads')->url($relativePath);
         }
 
-        return rtrim(public_path('uploads'), DIRECTORY_SEPARATOR);
+        return url($path);
     }
 
     private function storePublicUpload(UploadedFile $file, string $folder, string $prefix): string
@@ -1023,7 +1018,12 @@ class UserProfileController extends Controller
         }
 
         $folder = trim($folder, '/');
-        $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'bin');
+
+        $extension = strtolower(
+            $file->getClientOriginalExtension()
+                ?: $file->extension()
+                ?: 'bin'
+        );
 
         $fileName = Str::slug($prefix, '_')
             . '_'
@@ -1033,25 +1033,17 @@ class UserProfileController extends Controller
             . '.'
             . $extension;
 
-        $targetDirectory = $this->uploadsRoot()
-            . DIRECTORY_SEPARATOR
-            . str_replace('/', DIRECTORY_SEPARATOR, $folder);
+        $storedPath = Storage::disk('public_uploads')->putFileAs(
+            $folder,
+            $file,
+            $fileName
+        );
 
-        $this->ensurePublicDirectory($targetDirectory, true);
-
-        if (!is_writable($targetDirectory)) {
-            throw new \Exception('Upload directory is not writable: ' . $targetDirectory);
+        if (!$storedPath || !Storage::disk('public_uploads')->exists($storedPath)) {
+            throw new \Exception('File could not be saved.');
         }
 
-        $file->move($targetDirectory, $fileName);
-
-        $fullPath = $targetDirectory . DIRECTORY_SEPARATOR . $fileName;
-
-        if (!is_file($fullPath)) {
-            throw new \Exception('File could not be saved: ' . $fullPath);
-        }
-
-        return 'uploads/' . $folder . '/' . $fileName;
+        return 'uploads/' . $storedPath;
     }
 
     private function deletePublicUpload(?string $path): void
@@ -1083,28 +1075,10 @@ class UserProfileController extends Controller
 
         $relativePath = substr($path, strlen('uploads/'));
 
-        $fullPath = $this->uploadsRoot()
-            . DIRECTORY_SEPARATOR
-            . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
-
-        if (is_file($fullPath)) {
-            @unlink($fullPath);
+        if (!empty($relativePath)) {
+            Storage::disk('public_uploads')->delete($relativePath);
         }
     }
-
-    private function ensurePublicDirectory(string $pathOrDirectory, bool $isFullPath = false): void
-    {
-        $path = $isFullPath
-            ? $pathOrDirectory
-            : $this->uploadsRoot() . DIRECTORY_SEPARATOR . trim($pathOrDirectory, '/');
-
-        if (!is_dir($path)) {
-            if (!mkdir($path, 0775, true) && !is_dir($path)) {
-                throw new \Exception('Unable to create upload directory: ' . $path);
-            }
-        }
-    }
-
     private function dash(mixed $value): mixed
     {
         if (is_null($value) || $value === '' || $value === 'N/A') {
@@ -1117,7 +1091,7 @@ class UserProfileController extends Controller
     private function dashArray(array $items): array
     {
         return collect($items)
-            ->map(fn ($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
+            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
             ->toArray();
     }
 
@@ -1163,7 +1137,7 @@ class UserProfileController extends Controller
             'completed_fields' => $completed,
             'total_fields' => count($fields),
             'missing_fields' => collect($fields)
-                ->filter(fn ($field) => empty($data[$field]) || $data[$field] === '-')
+                ->filter(fn($field) => empty($data[$field]) || $data[$field] === '-')
                 ->values()
                 ->toArray(),
         ];
@@ -1287,7 +1261,7 @@ class UserProfileController extends Controller
 
         return $query
             ->pluck('dynamic_posts.id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
