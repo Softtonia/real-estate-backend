@@ -137,16 +137,58 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 // User route will start from here
-
 Route::get('/check-ip', function (Request $request) {
     return response()->json([
-        'client_ip' => $request->ip(),
-        'forwarded' => $request->header('X-Forwarded-For'),
-        'real_ip'   => $request->header('X-Real-IP'),
-        'remote'    => $_SERVER['REMOTE_ADDR'] ?? null,
+        'success' => true,
+        'message' => 'IP checked successfully.',
+        'data' => [
+            'request' => [
+                'app_type' => $request->header('X-App-Type'),
+                'origin' => $request->header('Origin') ?: $request->header('X-App-Origin'),
+                'ip' => $request->ip(),
+            ],
+        ],
     ]);
 });
 
+Route::middleware(['validate.api.client'])
+    ->get('/app-access-check', function (Request $request) {
+        $client = $request->attributes->get('api_client');
+        $applicationPassword = $request->attributes->get('application_password');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Application access verified successfully.',
+            'data' => [
+                'api_client' => $client ? [
+                    'id' => $client->id,
+                    'name' => $client->name,
+                    'slug' => $client->slug,
+                    'type' => $client->type,
+                    'status' => method_exists($client, 'isActive')
+                        ? $client->isActive()
+                        : (bool) ($client->status ?? false),
+                    'allowed_origins' => $client->allowed_origins ?? [],
+                    'permissions' => $client->permissions ?? [],
+                    'requires_signature' => method_exists($client, 'isSignatureRequired')
+                        ? $client->isSignatureRequired()
+                        : (bool) ($client->requires_signature ?? false),
+                ] : null,
+
+                'application_password' => $applicationPassword ? [
+                    'id' => $applicationPassword->id,
+                    'name' => $applicationPassword->name,
+                    'permissions' => $applicationPassword->permissions ?? [],
+                ] : null,
+
+                'request' => [
+                    'app_type' => $request->header('X-App-Type'),
+                    'origin' => $request->header('Origin') ?: $request->header('X-App-Origin'),
+                    'ip' => $request->ip(),
+                ],
+            ],
+        ]);
+    });
 Route::middleware(['validate.api.client'])
     ->get('/app-access-check', function (Request $request) {
         $client = $request->attributes->get('api_client');
