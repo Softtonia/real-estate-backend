@@ -10,6 +10,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -41,8 +42,18 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
             throw new \Exception('User not found.');
         }
 
-        $this->updateProgress(function (array $progress) {
-            $progress = $this->ensureProgressStructure($progress);
+        $directories = $this->documentUploadDirectories($user);
+
+        if (!array_key_exists($this->field, $directories)) {
+            throw new \Exception('Invalid document field for this user role.');
+        }
+
+        if (!Schema::hasColumn('user_details', $this->field)) {
+            throw new \Exception($this->field . ' column not found in user_details table.');
+        }
+
+        $this->updateProgress(function (array $progress) use ($user) {
+            $progress = $this->ensureProgressStructure($progress, $user);
 
             $progress['status'] = 'processing';
             $progress['files'][$this->field]['status'] = 'processing';
@@ -55,20 +66,6 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
         if (!Storage::disk('local')->exists($this->tempPath)) {
             throw new \Exception('Temporary uploaded file not found.');
-        }
-
-        $directories = [
-            'aadhaar_front' => 'uploads/kyc/aadhaarFront',
-            'aadhaar_back' => 'uploads/kyc/aadhaarBack',
-            'business_proof' => 'uploads/kyc/businessProof',
-        ];
-
-        if (!array_key_exists($this->field, $directories)) {
-            throw new \Exception('Invalid document field.');
-        }
-
-        if (!Schema::hasColumn('user_details', $this->field)) {
-            throw new \Exception($this->field . ' column not found in user_details table.');
         }
 
         $directory = $directories[$this->field];
@@ -98,14 +95,6 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
 
         Storage::disk('local')->delete($this->tempPath);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Save clean public path in DB
-        |--------------------------------------------------------------------------
-        | Example:
-        | uploads/kyc/aadhaarFront/u8_xxx.png
-        |--------------------------------------------------------------------------
-        */
         $dbPath = $finalPath;
 
         UserDetail::updateOrCreate(
@@ -122,8 +111,8 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
             ]);
         }
 
-        $this->updateProgress(function (array $progress) use ($dbPath) {
-            $progress = $this->ensureProgressStructure($progress);
+        $this->updateProgress(function (array $progress) use ($dbPath, $user) {
+            $progress = $this->ensureProgressStructure($progress, $user);
 
             $progress['files'][$this->field]['status'] = 'completed';
             $progress['files'][$this->field]['percent'] = 100;
@@ -138,7 +127,7 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
                 ->filter(fn ($file) => ($file['status'] ?? null) === 'failed')
                 ->count();
 
-            $total = max((int) ($progress['total_files'] ?? 3), 1);
+            $total = max((int) ($progress['total_files'] ?? count($progress['files'] ?? [])), 1);
 
             $progress['processed_files'] = $completed;
             $progress['failed_files'] = $failed;
@@ -169,8 +158,10 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
             //
         }
 
-        $this->updateProgress(function (array $progress) use ($exception) {
-            $progress = $this->ensureProgressStructure($progress);
+        $user = User::find($this->userId);
+
+        $this->updateProgress(function (array $progress) use ($exception, $user) {
+            $progress = $this->ensureProgressStructure($progress, $user);
 
             $progress['files'][$this->field]['status'] = 'failed';
             $progress['files'][$this->field]['percent'] = 0;
@@ -185,7 +176,7 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
                 ->filter(fn ($file) => ($file['status'] ?? null) === 'failed')
                 ->count();
 
-            $total = max((int) ($progress['total_files'] ?? 3), 1);
+            $total = max((int) ($progress['total_files'] ?? count($progress['files'] ?? [])), 1);
 
             $progress['processed_files'] = $completed;
             $progress['failed_files'] = $failed;
@@ -218,24 +209,34 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
         });
     }
 
-    private function ensureProgressStructure(array $progress): array
+    private function ensureProgressStructure(array $progress, ?User $user = null): array
     {
+        $directories = $user
+            ? $this->documentUploadDirectories($user)
+            : [
+                'aadhaar_front' => 'uploads/kyc/aadhaarFront',
+                'aadhaar_back' => 'uploads/kyc/aadhaarBack',
+                'business_proof' => 'uploads/kyc/businessProof',
+            ];
+
+        $allowedFields = array_keys($directories);
+
         $progress['upload_id'] = $progress['upload_id'] ?? $this->uploadId;
         $progress['user_id'] = $progress['user_id'] ?? $this->userId;
         $progress['status'] = $progress['status'] ?? 'processing';
-        $progress['total_files'] = $progress['total_files'] ?? 3;
         $progress['queued_files'] = $progress['queued_files'] ?? 0;
         $progress['processed_files'] = $progress['processed_files'] ?? 0;
         $progress['failed_files'] = $progress['failed_files'] ?? 0;
         $progress['percent'] = $progress['percent'] ?? 0;
-
         $progress['files'] = $progress['files'] ?? [];
 
-        foreach ([
-            'aadhaar_front',
-            'aadhaar_back',
-            'business_proof',
-        ] as $field) {
+        foreach (array_keys($progress['files']) as $field) {
+            if (!in_array($field, $allowedFields, true)) {
+                unset($progress['files'][$field]);
+            }
+        }
+
+        foreach ($allowedFields as $field) {
             $progress['files'][$field] = $progress['files'][$field] ?? [
                 'status' => 'pending',
                 'percent' => 0,
@@ -244,7 +245,71 @@ class ProcessUserDocumentUploadJob implements ShouldQueue
             ];
         }
 
+        $progress['total_files'] = max(
+            1,
+            min(
+                (int) ($progress['total_files'] ?? count($allowedFields)),
+                count($allowedFields)
+            )
+        );
+
         return $progress;
+    }
+
+    private function documentUploadDirectories(User $user): array
+    {
+        $directories = [
+            'aadhaar_front' => 'uploads/kyc/aadhaarFront',
+            'aadhaar_back' => 'uploads/kyc/aadhaarBack',
+            'business_proof' => 'uploads/kyc/businessProof',
+        ];
+
+        if ($this->isOwnerUser($user)) {
+            unset($directories['business_proof']);
+        }
+
+        return $directories;
+    }
+
+    private function isOwnerUser(User $user): bool
+    {
+        $directRole = strtolower(trim((string) ($user->role_id ?? '')));
+        $directRole = str_replace([' ', '_', '-'], '', $directRole);
+
+        if (in_array($directRole, [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true)) {
+            return true;
+        }
+
+        if (!Schema::hasTable('roles') || empty($user->role_id)) {
+            return false;
+        }
+
+        $role = DB::table('roles')
+            ->where('id', $user->role_id)
+            ->first();
+
+        if (!$role) {
+            return false;
+        }
+
+        $roleText = strtolower(trim((string) (
+            $role->slug
+            ?? $role->name
+            ?? $role->role_name
+            ?? ''
+        )));
+
+        $roleText = str_replace([' ', '_', '-'], '', $roleText);
+
+        return in_array($roleText, [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true);
     }
 
     private function ensurePublicDirectory(string $directory): void

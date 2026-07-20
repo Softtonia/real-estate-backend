@@ -109,13 +109,15 @@ class UserProfileController extends Controller
             DB::transaction(function () use ($request, $user, $isOwnerRole) {
                 $userPayload = [];
 
-                foreach ([
-                    'first_name',
-                    'last_name',
-                    'email',
-                    'phone',
-                    'user_name',
-                ] as $column) {
+                foreach (
+                    [
+                        'first_name',
+                        'last_name',
+                        'email',
+                        'phone',
+                        'user_name',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
                     }
@@ -337,11 +339,13 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach ([
-                    'aadhaar_number',
-                    'license_number',
-                    'rera_number',
-                ] as $column) {
+                foreach (
+                    [
+                        'aadhaar_number',
+                        'license_number',
+                        'rera_number',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -531,11 +535,13 @@ class UserProfileController extends Controller
                     'user_id' => $user->id,
                 ];
 
-                foreach ([
-                    'aadhaar_number',
-                    'license_number',
-                    'rera_number',
-                ] as $column) {
+                foreach (
+                    [
+                        'aadhaar_number',
+                        'license_number',
+                        'rera_number',
+                    ] as $column
+                ) {
                     if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $request->input($column);
                     }
@@ -622,19 +628,25 @@ class UserProfileController extends Controller
             ], 401);
         }
 
+        $allowedFields = $this->documentUploadFieldsForUser($user);
+
         $validator = Validator::make($request->all(), [
-            'upload_id' => ['required', 'string'],
-            'field' => ['required', Rule::in([
-                'aadhaar_front',
-                'aadhaar_back',
-                'business_proof',
-            ])],
+            'upload_id' => ['nullable', 'string'],
+            'field' => ['required', Rule::in(array_keys($allowedFields))],
             'file' => [
                 'required',
                 'file',
                 'mimes:jpg,jpeg,png,pdf',
                 'max:10240',
             ],
+            'aadhaar_number' => [
+                'nullable',
+                'digits:12',
+                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
+            ],
+            'license_number' => ['nullable', 'string', 'max:200'],
+            'rera_number' => ['nullable', 'string', 'max:50'],
+            'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
         ]);
 
         if ($validator->fails()) {
@@ -642,25 +654,93 @@ class UserProfileController extends Controller
         }
 
         try {
-            $uploadId = (string) $request->input('upload_id');
             $field = (string) $request->input('field');
+
+            /*
+        |--------------------------------------------------------------------------
+        | Auto Generate Upload ID
+        |--------------------------------------------------------------------------
+        | Now frontend does not need to call documents/start API.
+        |--------------------------------------------------------------------------
+        */
+            $uploadId = $request->filled('upload_id')
+                ? (string) $request->input('upload_id')
+                : 'doc_' . $user->id . '_' . Str::uuid()->toString();
 
             $progressKey = $this->documentProgressKey($uploadId);
             $progress = Cache::store('redis')->get($progressKey);
 
-            if (!$progress) {
+            if ($request->filled('upload_id') && !$progress) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Upload session not found or expired.',
                 ], 404);
             }
 
-            if ((int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
+            if ($progress && (int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
                 return response()->json([
                     'status' => false,
                     'message' => 'This upload session does not belong to current user.',
                 ], 403);
             }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Create Progress Session Automatically
+        |--------------------------------------------------------------------------
+        */
+            if (!$progress) {
+                $totalFiles = (int) $request->input('total_files', count($allowedFields));
+
+                $progress = $this->initialDocumentUploadProgress(
+                    uploadId: $uploadId,
+                    user: $user,
+                    totalFiles: $totalFiles,
+                    allowedFields: $allowedFields
+                );
+
+                Cache::store('redis')->put(
+                    $progressKey,
+                    $progress,
+                    now()->addHours(2)
+                );
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Save Document Text Fields
+        |--------------------------------------------------------------------------
+        */
+            DB::transaction(function () use ($request, $user) {
+                $detailPayload = [
+                    'user_id' => $user->id,
+                ];
+
+                foreach (
+                    [
+                        'aadhaar_number',
+                        'license_number',
+                        'rera_number',
+                    ] as $column
+                ) {
+                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $request->input($column);
+                    }
+                }
+
+                if (count($detailPayload) > 1) {
+                    UserDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $detailPayload
+                    );
+                }
+
+                if (Schema::hasColumn('users', 'kyc')) {
+                    $user->update([
+                        'kyc' => 1,
+                    ]);
+                }
+            });
 
             $file = $request->file('file');
 
@@ -690,7 +770,16 @@ class UserProfileController extends Controller
                 $tempFileName
             );
 
-            $this->updateDocumentProgress($uploadId, function (array $progress) use ($field) {
+            $this->updateDocumentProgress($uploadId, function (array $progress) use ($field, $allowedFields) {
+                foreach ($allowedFields as $allowedField => $label) {
+                    $progress['files'][$allowedField] = $progress['files'][$allowedField] ?? [
+                        'status' => 'pending',
+                        'percent' => 0,
+                        'url' => null,
+                        'error' => null,
+                    ];
+                }
+
                 $progress['status'] = 'uploading';
                 $progress['queued_files'] = (int) ($progress['queued_files'] ?? 0) + 1;
                 $progress['files'][$field]['status'] = 'queued';
@@ -714,6 +803,7 @@ class UserProfileController extends Controller
                 'message' => $field . ' uploaded and queued for processing.',
                 'upload_id' => $uploadId,
                 'field' => $field,
+                'allowed_fields' => array_keys($allowedFields),
                 'progress' => Cache::store('redis')->get($progressKey),
             ]);
         } catch (Throwable $e) {
@@ -724,7 +814,54 @@ class UserProfileController extends Controller
             ], 500);
         }
     }
+    private function documentUploadFieldsForUser(User $user): array
+    {
+        $fields = [
+            'aadhaar_front' => 'Aadhaar Front',
+            'aadhaar_back' => 'Aadhaar Back',
+            'business_proof' => 'Business Proof',
+        ];
 
+        if ($this->isOwnerUser($user)) {
+            unset($fields['business_proof']);
+        }
+
+        return $fields;
+    }
+
+    private function initialDocumentUploadProgress(
+        string $uploadId,
+        User $user,
+        int $totalFiles,
+        array $allowedFields
+    ): array {
+        $totalFiles = max(1, min($totalFiles, count($allowedFields)));
+
+        $files = [];
+
+        foreach ($allowedFields as $field => $label) {
+            $files[$field] = [
+                'status' => 'pending',
+                'percent' => 0,
+                'url' => null,
+                'error' => null,
+            ];
+        }
+
+        return [
+            'upload_id' => $uploadId,
+            'user_id' => (int) $user->id,
+            'status' => 'started',
+            'total_files' => $totalFiles,
+            'queued_files' => 0,
+            'processed_files' => 0,
+            'failed_files' => 0,
+            'percent' => 0,
+            'files' => $files,
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ];
+    }
     public function documentUploadProgress(Request $request, string $uploadId): JsonResponse
     {
         $user = $this->resolveCurrentUser($request);
@@ -902,7 +1039,7 @@ class UserProfileController extends Controller
         }
 
         $display = collect($raw)
-            ->map(fn ($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
+            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
             ->toArray();
 
         unset(
@@ -994,7 +1131,7 @@ class UserProfileController extends Controller
     private function dashArray(array $items): array
     {
         return collect($items)
-            ->map(fn ($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
+            ->map(fn($value) => is_array($value) ? $this->dashArray($value) : $this->dash($value))
             ->toArray();
     }
 
@@ -1037,7 +1174,7 @@ class UserProfileController extends Controller
             'completed_fields' => $completed,
             'total_fields' => count($fields),
             'missing_fields' => collect($fields)
-                ->filter(fn ($field) => empty($data[$field]) || $data[$field] === '-')
+                ->filter(fn($field) => empty($data[$field]) || $data[$field] === '-')
                 ->values()
                 ->toArray(),
         ];
@@ -1142,12 +1279,14 @@ class UserProfileController extends Controller
         $hasUserFilter = false;
 
         $query->where(function ($q) use ($user, &$hasUserFilter) {
-            foreach ([
-                'author_id',
-                'user_id',
-                'owner_id',
-                'created_by',
-            ] as $column) {
+            foreach (
+                [
+                    'author_id',
+                    'user_id',
+                    'owner_id',
+                    'created_by',
+                ] as $column
+            ) {
                 if (Schema::hasColumn('dynamic_posts', $column)) {
                     $q->orWhere('dynamic_posts.' . $column, (int) $user->id);
                     $hasUserFilter = true;
@@ -1174,7 +1313,7 @@ class UserProfileController extends Controller
 
         return $query
             ->pluck('dynamic_posts.id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -1193,17 +1332,19 @@ class UserProfileController extends Controller
             $hasFilter = false;
 
             $query->where(function ($q) use ($table, $user, $listingIds, &$hasFilter) {
-                foreach ([
-                    'user_id',
-                    'owner_id',
-                    'agent_id',
-                    'developer_id',
-                    'consultancy_id',
-                    'assigned_user_id',
-                    'assigned_to',
-                    'created_by',
-                    'author_id',
-                ] as $column) {
+                foreach (
+                    [
+                        'user_id',
+                        'owner_id',
+                        'agent_id',
+                        'developer_id',
+                        'consultancy_id',
+                        'assigned_user_id',
+                        'assigned_to',
+                        'created_by',
+                        'author_id',
+                    ] as $column
+                ) {
                     if (Schema::hasColumn($table, $column)) {
                         $q->orWhere($column, (int) $user->id);
                         $hasFilter = true;
@@ -1211,12 +1352,14 @@ class UserProfileController extends Controller
                 }
 
                 if (!empty($listingIds)) {
-                    foreach ([
-                        'dynamic_post_id',
-                        'listing_id',
-                        'property_listing_id',
-                        'post_id',
-                    ] as $column) {
+                    foreach (
+                        [
+                            'dynamic_post_id',
+                            'listing_id',
+                            'property_listing_id',
+                            'post_id',
+                        ] as $column
+                    ) {
                         if (Schema::hasColumn($table, $column)) {
                             $q->orWhereIn($column, $listingIds);
                             $hasFilter = true;
@@ -1225,11 +1368,13 @@ class UserProfileController extends Controller
                 }
 
                 if (!empty($user->email)) {
-                    foreach ([
-                        'email',
-                        'user_email',
-                        'lead_email',
-                    ] as $column) {
+                    foreach (
+                        [
+                            'email',
+                            'user_email',
+                            'lead_email',
+                        ] as $column
+                    ) {
                         if (Schema::hasColumn($table, $column)) {
                             $q->orWhere($column, $user->email);
                             $hasFilter = true;
@@ -1238,14 +1383,16 @@ class UserProfileController extends Controller
                 }
 
                 if (!empty($user->phone)) {
-                    foreach ([
-                        'phone',
-                        'mobile',
-                        'number',
-                        'contact_number',
-                        'user_phone',
-                        'lead_phone',
-                    ] as $column) {
+                    foreach (
+                        [
+                            'phone',
+                            'mobile',
+                            'number',
+                            'contact_number',
+                            'user_phone',
+                            'lead_phone',
+                        ] as $column
+                    ) {
                         if (Schema::hasColumn($table, $column)) {
                             $q->orWhere($column, $user->phone);
                             $hasFilter = true;
