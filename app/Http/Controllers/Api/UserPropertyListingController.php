@@ -3,27 +3,26 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\City;
 use App\Models\Country;
 use App\Models\DynamicPost;
 use App\Models\MediaFile;
 use App\Models\PostType;
 use App\Models\State;
-use App\Models\City;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Str;
 
 class UserPropertyListingController extends Controller
 {
-
     public function index(Request $request): JsonResponse
     {
         try {
@@ -74,9 +73,7 @@ class UserPropertyListingController extends Controller
                 ?? $request->query('users-Property-listings')
                 ?? 'all';
 
-            $postType = PostType::query()
-                ->where('slug', 'property-listing')
-                ->first();
+            $postType = $this->propertyListingPostType();
 
             if (!$postType) {
                 return response()->json([
@@ -92,14 +89,7 @@ class UserPropertyListingController extends Controller
             $analytics = $this->buildAnalytics($baseQuery);
 
             $query = DynamicPost::query()
-                ->with([
-                    'postType',
-                    'parent:id,post_type_id,title,slug,status,live_status',
-                    'children:id,post_type_id,parent_id,title,slug,status,live_status',
-                    'taxonomyTerms.taxonomy',
-                    'meta.customField.options',
-                    'meta.customField.repeaters.options',
-                ])
+                ->with($this->listingRelations())
                 ->where('post_type_id', (int) $postType->id)
                 ->where('author_id', (int) $user->id);
 
@@ -145,6 +135,53 @@ class UserPropertyListingController extends Controller
             ], 500);
         }
     }
+
+    public function analytics(Request $request): JsonResponse
+    {
+        try {
+            $user = $this->resolveCurrentUser($request);
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthenticated user.',
+                ], 401);
+            }
+
+            if ($this->isAdminUser($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Admin token is not allowed for user listing analytics API.',
+                ], 403);
+            }
+
+            $postType = $this->propertyListingPostType();
+
+            if (!$postType) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing post type not found.',
+                ], 404);
+            }
+
+            $baseQuery = DynamicPost::query()
+                ->where('post_type_id', (int) $postType->id)
+                ->where('author_id', (int) $user->id);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'User listing analytics fetched successfully.',
+                'data' => $this->buildAnalytics($baseQuery),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch user listing analytics.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function store(Request $request): JsonResponse
     {
         try {
@@ -202,17 +239,28 @@ class UserPropertyListingController extends Controller
                 'custom_fields.*.value_datetime' => ['nullable'],
                 'custom_fields.*.value_json' => ['nullable'],
 
-                'taxonomies' => ['nullable', 'array'],
-                'taxonomies.*' => ['nullable', 'integer'],
+                'taxonomy_term_ids' => ['nullable'],
+                'taxonomy_term_ids.*' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
 
-                'featured_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+                'taxonomies' => ['nullable', 'array'],
+                'taxonomies.*' => ['nullable'],
+                'taxonomies.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+                'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+                'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
+                'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+
+                'featured_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
+                'featured_image_id' => ['nullable'],
+                'featured_image_id.*' => ['nullable'],
+
                 'gallery_images' => ['nullable'],
-                'gallery_images.*' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+                'gallery_images.*' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
+
+                'gallery_image_ids' => ['nullable'],
+                'gallery_image_ids.*' => ['nullable'],
             ]);
 
-            $postType = PostType::query()
-                ->where('slug', 'property-listing')
-                ->first();
+            $postType = $this->propertyListingPostType();
 
             if (!$postType) {
                 return response()->json([
@@ -242,10 +290,12 @@ class UserPropertyListingController extends Controller
 
                 $this->putIfColumnExists($payload, 'post_type_id', (int) $postType->id);
                 $this->putIfColumnExists($payload, 'author_id', (int) $user->id);
+                $this->putIfColumnExists($payload, 'user_id', (int) $user->id);
 
                 $this->putIfColumnExists($payload, 'title', $request->input('title'));
                 $this->putIfColumnExists($payload, 'slug', $this->uniqueDynamicPostSlug(
-                    $request->input('slug') ?: $request->input('title')
+                    $request->input('slug') ?: $request->input('title'),
+                    (int) $postType->id
                 ));
 
                 $this->putIfColumnExists($payload, 'status', $request->input('status', 'draft'));
@@ -263,13 +313,20 @@ class UserPropertyListingController extends Controller
                     $payload['listing_code'] = $this->generateListingCode();
                 }
 
+                if (
+                    Schema::hasColumn('dynamic_posts', 'published_at')
+                    && ($payload['status'] ?? null) === 'published'
+                ) {
+                    $payload['published_at'] = now();
+                }
+
                 $listing = DynamicPost::create($payload);
 
                 /*
-            |--------------------------------------------------------------------------
-            | Featured Image
-            |--------------------------------------------------------------------------
-            */
+                |--------------------------------------------------------------------------
+                | Featured Image
+                |--------------------------------------------------------------------------
+                */
                 $featuredImageFile = $this->featuredImageFile($request);
 
                 if ($featuredImageFile) {
@@ -283,17 +340,19 @@ class UserPropertyListingController extends Controller
                     if ($featuredMedia && Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
                         $listing->featured_image_id = (int) $featuredMedia->id;
                     }
-                } elseif ($request->filled('featured_image_id') && is_numeric($request->input('featured_image_id'))) {
-                    if (Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
-                        $listing->featured_image_id = (int) $request->input('featured_image_id');
+                } else {
+                    $featuredMediaId = $this->numericInputValue($request->input('featured_image_id'));
+
+                    if ($featuredMediaId && Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
+                        $listing->featured_image_id = $featuredMediaId;
                     }
                 }
 
                 /*
-            |--------------------------------------------------------------------------
-            | Gallery Images
-            |--------------------------------------------------------------------------
-            */
+                |--------------------------------------------------------------------------
+                | Gallery Images
+                |--------------------------------------------------------------------------
+                */
                 $galleryIds = $this->galleryMediaIdsFromRequest($request);
 
                 foreach ($this->galleryImageFiles($request) as $galleryFile) {
@@ -311,51 +370,37 @@ class UserPropertyListingController extends Controller
 
                 $galleryIds = collect($galleryIds)
                     ->filter()
-                    ->map(fn($id) => (int) $id)
+                    ->map(fn ($id) => (int) $id)
                     ->unique()
                     ->values()
                     ->toArray();
 
-                if (!empty($galleryIds) && Schema::hasColumn('dynamic_posts', 'gallery_image_ids')) {
+                if (Schema::hasColumn('dynamic_posts', 'gallery_image_ids')) {
                     $listing->gallery_image_ids = json_encode($galleryIds);
                 }
 
                 $listing->save();
 
                 /*
-            |--------------------------------------------------------------------------
-            | Taxonomies
-            |--------------------------------------------------------------------------
-            */
-                $termIds = collect($request->input('taxonomies', []))
-                    ->filter(fn($id) => !empty($id) && is_numeric($id))
-                    ->map(fn($id) => (int) $id)
-                    ->unique()
-                    ->values()
-                    ->toArray();
+                |--------------------------------------------------------------------------
+                | Taxonomies
+                |--------------------------------------------------------------------------
+                */
+                $termIds = $this->normalizeUserListingTaxonomyTermIds($request);
 
-                if (!empty($termIds) && method_exists($listing, 'taxonomyTerms')) {
-                    $listing->taxonomyTerms()->sync($termIds);
-                }
+                $this->syncUserListingTaxonomyTerms($listing, $termIds);
 
                 /*
-            |--------------------------------------------------------------------------
-            | Custom Fields
-            |--------------------------------------------------------------------------
-            */
+                |--------------------------------------------------------------------------
+                | Custom Fields
+                |--------------------------------------------------------------------------
+                */
                 $this->storeCustomFieldsForListing($listing, $request->input('custom_fields', []));
             });
 
             $freshListing = DynamicPost::query()
                 ->where('id', $listing->id)
-                ->with([
-                    'postType',
-                    'parent:id,post_type_id,title,slug,status,live_status',
-                    'children:id,post_type_id,parent_id,title,slug,status,live_status',
-                    'taxonomyTerms.taxonomy',
-                    'meta.customField.options',
-                    'meta.customField.repeaters.options',
-                ])
+                ->with($this->listingRelations())
                 ->first();
 
             return response()->json([
@@ -377,6 +422,26 @@ class UserPropertyListingController extends Controller
             ], 500);
         }
     }
+
+    private function propertyListingPostType(): ?PostType
+    {
+        return PostType::query()
+            ->where('slug', 'property-listing')
+            ->first();
+    }
+
+    private function listingRelations(): array
+    {
+        return [
+            'postType',
+            'parent:id,post_type_id,title,slug,status,live_status',
+            'children:id,post_type_id,parent_id,title,slug,status,live_status',
+            'taxonomyTerms.taxonomy',
+            'meta.customField.options',
+            'meta.customField.repeaters.options',
+        ];
+    }
+
     private function resolveCurrentUser(Request $request): ?User
     {
         $token = $request->bearerToken();
@@ -385,11 +450,7 @@ class UserPropertyListingController extends Controller
             $token = $request->api_token;
         }
 
-        if (!$token) {
-            return null;
-        }
-
-        if (!Schema::hasColumn('users', 'api_token')) {
+        if (!$token || !Schema::hasColumn('users', 'api_token')) {
             return null;
         }
 
@@ -475,16 +536,13 @@ class UserPropertyListingController extends Controller
         ];
     }
 
-    private function formatFullDynamicPost(DynamicPost $listing): array
+    private function formatFullDynamicPost(?DynamicPost $listing): ?array
     {
-        $listing->loadMissing([
-            'postType',
-            'parent:id,post_type_id,title,slug,status,live_status',
-            'children:id,post_type_id,parent_id,title,slug,status,live_status',
-            'taxonomyTerms.taxonomy',
-            'meta.customField.options',
-            'meta.customField.repeaters.options',
-        ]);
+        if (!$listing) {
+            return null;
+        }
+
+        $listing->loadMissing($this->listingRelations());
 
         $data = $listing->toArray();
 
@@ -502,13 +560,6 @@ class UserPropertyListingController extends Controller
 
         $data['location'] = $this->formatLocationForDynamicPost($listing);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Location names on top level
-        |--------------------------------------------------------------------------
-        | Frontend asked for location names, not only ids.
-        |--------------------------------------------------------------------------
-        */
         $data['country'] = $data['location']['country_name'];
         $data['state'] = $data['location']['state_name'];
         $data['city'] = $data['location']['city_name'];
@@ -517,11 +568,6 @@ class UserPropertyListingController extends Controller
         $data['city_name'] = $data['location']['city_name'];
         $data['full_address'] = $data['location']['full_address'];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Remove location ids from main response
-        |--------------------------------------------------------------------------
-        */
         unset($data['country_id'], $data['state_id'], $data['city_id']);
 
         $featuredMedia = $this->formatMediaFileById($listing->featured_image_id ?? null);
@@ -602,10 +648,10 @@ class UserPropertyListingController extends Controller
                     'taxonomy_slug' => $taxonomy->slug,
                     'selected_term_ids' => $taxonomyTerms
                         ->pluck('id')
-                        ->map(fn($id) => (int) $id)
+                        ->map(fn ($id) => (int) $id)
                         ->values()
                         ->toArray(),
-                    'selected_terms' => $taxonomyTerms->map(fn($term) => [
+                    'selected_terms' => $taxonomyTerms->map(fn ($term) => [
                         'id' => (int) $term->id,
                         'name' => $term->name,
                         'slug' => $term->slug,
@@ -625,7 +671,7 @@ class UserPropertyListingController extends Controller
 
                 if ($fieldType === 'repeater') {
                     $item['repeaters'] = $this->getRepeaterValuesForMeta(
-                        (int) ($item['entity_id'] ?? 0),
+                        (int) ($item['entity_id'] ?? $item['dynamic_post_id'] ?? $item['post_id'] ?? 0),
                         (int) ($item['custom_field_id'] ?? 0)
                     );
 
@@ -682,20 +728,20 @@ class UserPropertyListingController extends Controller
         }
 
         return collect($value)
-            ->filter(fn($media) => is_array($media))
+            ->filter(fn ($media) => is_array($media))
             ->map(function ($media) {
                 $path = $media['path'] ?? null;
                 $url = $media['url'] ?? null;
 
                 if (!$url && $path) {
-                    $url = Storage::disk($media['disk'] ?? 'public')->url($path);
+                    $url = $this->storagePublicUrl($path);
                 }
 
                 return array_merge($media, [
                     'url' => $url,
                 ]);
             })
-            ->filter(fn($media) => !empty($media['url']))
+            ->filter(fn ($media) => !empty($media['url']))
             ->values()
             ->toArray();
     }
@@ -771,29 +817,36 @@ class UserPropertyListingController extends Controller
         $mediaFiles = MediaFile::whereIn('id', $ids)->get()->keyBy('id');
 
         return collect($ids)
-            ->map(fn($id) => $mediaFiles->get((int) $id))
+            ->map(fn ($id) => $mediaFiles->get((int) $id))
             ->filter()
-            ->map(fn($media) => $this->formatMediaFile($media))
+            ->map(fn ($media) => $this->formatMediaFile($media))
             ->values()
             ->toArray();
     }
 
     private function formatMediaFile(MediaFile $media): array
     {
+        $path = $media->path ?? null;
+        $url = $media->url ?? null;
+
+        if (!$url && $path) {
+            $url = $this->storagePublicUrl($path);
+        }
+
         return [
             'id' => (int) $media->id,
-            'disk' => $media->disk,
-            'context' => $media->context,
-            'post_type_slug' => $media->post_type_slug,
-            'field_slug' => $media->field_slug,
-            'directory' => $media->directory,
-            'path' => $media->path,
-            'url' => $media->url,
-            'file_name' => $media->file_name,
-            'original_name' => $media->original_name,
-            'mime_type' => $media->mime_type,
-            'extension' => $media->extension,
-            'size' => $media->size,
+            'disk' => $media->disk ?? 'public',
+            'context' => $media->context ?? null,
+            'post_type_slug' => $media->post_type_slug ?? null,
+            'field_slug' => $media->field_slug ?? null,
+            'directory' => $media->directory ?? null,
+            'path' => $path,
+            'url' => $url,
+            'file_name' => $media->file_name ?? null,
+            'original_name' => $media->original_name ?? null,
+            'mime_type' => $media->mime_type ?? null,
+            'extension' => $media->extension ?? null,
+            'size' => $media->size ?? null,
             'size_kb' => $media->size ? round($media->size / 1024, 2) : null,
             'created_at' => optional($media->created_at)->toISOString(),
             'updated_at' => optional($media->updated_at)->toISOString(),
@@ -823,8 +876,8 @@ class UserPropertyListingController extends Controller
         }
 
         return collect($ids)
-            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
-            ->map(fn($id) => (int) $id)
+            ->filter(fn ($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn ($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -877,15 +930,13 @@ class UserPropertyListingController extends Controller
 
     private function expiryColumn(): ?string
     {
-        foreach (
-            [
-                'expired_at',
-                'expires_at',
-                'expiry_date',
-                'valid_till',
-                'valid_until',
-            ] as $column
-        ) {
+        foreach ([
+            'expired_at',
+            'expires_at',
+            'expiry_date',
+            'valid_till',
+            'valid_until',
+        ] as $column) {
             if (Schema::hasColumn('dynamic_posts', $column)) {
                 return $column;
             }
@@ -945,6 +996,7 @@ class UserPropertyListingController extends Controller
 
         return false;
     }
+
     private function putIfColumnExists(array &$payload, string $column, mixed $value): void
     {
         if (Schema::hasColumn('dynamic_posts', $column)) {
@@ -952,7 +1004,7 @@ class UserPropertyListingController extends Controller
         }
     }
 
-    private function uniqueDynamicPostSlug(string $title): string
+    private function uniqueDynamicPostSlug(string $title, ?int $postTypeId = null): string
     {
         $baseSlug = Str::slug($title);
 
@@ -963,15 +1015,27 @@ class UserPropertyListingController extends Controller
         $slug = $baseSlug;
         $counter = 1;
 
-        while (
-            Schema::hasColumn('dynamic_posts', 'slug')
-            && DynamicPost::query()->where('slug', $slug)->exists()
-        ) {
+        while ($this->dynamicPostSlugExists($slug, $postTypeId)) {
             $slug = $baseSlug . '-' . $counter;
             $counter++;
         }
 
         return $slug;
+    }
+
+    private function dynamicPostSlugExists(string $slug, ?int $postTypeId = null): bool
+    {
+        if (!Schema::hasColumn('dynamic_posts', 'slug')) {
+            return false;
+        }
+
+        $query = DynamicPost::query()->where('slug', $slug);
+
+        if ($postTypeId && Schema::hasColumn('dynamic_posts', 'post_type_id')) {
+            $query->where('post_type_id', $postTypeId);
+        }
+
+        return $query->exists();
     }
 
     private function generateListingCode(): string
@@ -995,10 +1059,11 @@ class UserPropertyListingController extends Controller
         }
 
         /*
-    |--------------------------------------------------------------------------
-    | Support wrong frontend key: featured_image_id[] = binary
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Temporary support for wrong frontend key:
+        | featured_image_id[] = FILE
+        |--------------------------------------------------------------------------
+        */
         if ($request->hasFile('featured_image_id')) {
             $file = $request->file('featured_image_id');
 
@@ -1020,6 +1085,12 @@ class UserPropertyListingController extends Controller
     {
         $files = [];
 
+        /*
+        |--------------------------------------------------------------------------
+        | Correct key: gallery_images[]
+        | Temporary support key: gallery_image_ids[] = FILE
+        |--------------------------------------------------------------------------
+        */
         foreach (['gallery_images', 'gallery_image_ids'] as $key) {
             if (!$request->hasFile($key)) {
                 continue;
@@ -1062,13 +1133,27 @@ class UserPropertyListingController extends Controller
 
         if (is_array($value)) {
             $ids = collect($value)
-                ->filter(fn($id) => is_numeric($id))
-                ->map(fn($id) => (int) $id)
+                ->flatten()
+                ->filter(fn ($id) => is_numeric($id))
+                ->map(fn ($id) => (int) $id)
                 ->values()
                 ->toArray();
+        } elseif (is_numeric($value)) {
+            $ids[] = (int) $value;
         }
 
         return $ids;
+    }
+
+    private function numericInputValue(mixed $value): ?int
+    {
+        if (is_array($value)) {
+            $value = collect($value)
+                ->flatten()
+                ->first(fn ($item) => is_numeric($item));
+        }
+
+        return is_numeric($value) ? (int) $value : null;
     }
 
     private function storeListingMediaFile(
@@ -1122,13 +1207,13 @@ class UserPropertyListingController extends Controller
             . $extension;
 
         /*
-    |--------------------------------------------------------------------------
-    | Same Path As DynamicPostController
-    |--------------------------------------------------------------------------
-    | uploads/dynamic-posts/property-listing/featured-image/2026/07/file.png
-    | uploads/dynamic-posts/property-listing/gallery/2026/07/file.png
-    |--------------------------------------------------------------------------
-    */
+        |--------------------------------------------------------------------------
+        | Same path as DynamicPostController
+        |--------------------------------------------------------------------------
+        | uploads/dynamic-posts/property-listing/featured-image/2026/07/file.png
+        | uploads/dynamic-posts/property-listing/gallery/2026/07/file.png
+        |--------------------------------------------------------------------------
+        */
         $directory = implode('/', [
             'uploads',
             'dynamic-posts',
@@ -1152,7 +1237,7 @@ class UserPropertyListingController extends Controller
         $this->putMediaColumnIfExists($payload, 'field_slug', $type);
         $this->putMediaColumnIfExists($payload, 'directory', $directory);
         $this->putMediaColumnIfExists($payload, 'path', $path);
-        $this->putMediaColumnIfExists($payload, 'url', url('storage/' . $path));
+        $this->putMediaColumnIfExists($payload, 'url', $this->storagePublicUrl($path));
         $this->putMediaColumnIfExists($payload, 'file_name', $fileName);
         $this->putMediaColumnIfExists($payload, 'original_name', $file->getClientOriginalName());
         $this->putMediaColumnIfExists($payload, 'mime_type', $file->getMimeType());
@@ -1181,13 +1266,149 @@ class UserPropertyListingController extends Controller
         }
     }
 
-    private function ensurePublicDirectory(string $directory): void
+    private function storagePublicUrl(?string $path): ?string
     {
-        $path = public_path($directory);
-
-        if (!is_dir($path)) {
-            mkdir($path, 0775, true);
+        if (!$path) {
+            return null;
         }
+
+        $path = trim($path);
+
+        if ($path === '') {
+            return null;
+        }
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        if (str_starts_with($path, '/storage/')) {
+            return url($path);
+        }
+
+        if (str_starts_with($path, 'storage/')) {
+            return url($path);
+        }
+
+        return url(Storage::disk('public')->url($path));
+    }
+
+    private function normalizeUserListingTaxonomyTermIds(Request $request): array
+    {
+        $termIds = [];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Format 1: taxonomy_term_ids[] = 1
+        |--------------------------------------------------------------------------
+        */
+        $taxonomyTermIds = $request->input('taxonomy_term_ids', []);
+
+        if (is_string($taxonomyTermIds)) {
+            $decoded = json_decode($taxonomyTermIds, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $taxonomyTermIds = $decoded;
+            } else {
+                $taxonomyTermIds = str_contains($taxonomyTermIds, ',')
+                    ? explode(',', $taxonomyTermIds)
+                    : [$taxonomyTermIds];
+            }
+        }
+
+        if (is_array($taxonomyTermIds)) {
+            foreach ($taxonomyTermIds as $id) {
+                if (is_numeric($id)) {
+                    $termIds[] = (int) $id;
+                }
+            }
+        } elseif (is_numeric($taxonomyTermIds)) {
+            $termIds[] = (int) $taxonomyTermIds;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Format 2 old: taxonomies[1] = 1
+        |--------------------------------------------------------------------------
+        | Value is directly taxonomy_term_id.
+        |--------------------------------------------------------------------------
+        */
+        $taxonomies = $request->input('taxonomies', []);
+
+        if (is_array($taxonomies)) {
+            foreach ($taxonomies as $taxonomyData) {
+                if (is_numeric($taxonomyData)) {
+                    $termIds[] = (int) $taxonomyData;
+                    continue;
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Format 3 proper:
+                | taxonomies[0][taxonomy_id] = 1
+                | taxonomies[0][taxonomy_term_id] = 5
+                |--------------------------------------------------------------------------
+                */
+                if (is_array($taxonomyData)) {
+                    if (!empty($taxonomyData['taxonomy_term_id']) && is_numeric($taxonomyData['taxonomy_term_id'])) {
+                        $termIds[] = (int) $taxonomyData['taxonomy_term_id'];
+                    }
+
+                    if (!empty($taxonomyData['taxonomy_term_ids']) && is_array($taxonomyData['taxonomy_term_ids'])) {
+                        foreach ($taxonomyData['taxonomy_term_ids'] as $id) {
+                            if (is_numeric($id)) {
+                                $termIds[] = (int) $id;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return collect($termIds)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function syncUserListingTaxonomyTerms(DynamicPost $listing, array $taxonomyTermIds): void
+    {
+        if (!method_exists($listing, 'taxonomyTerms')) {
+            return;
+        }
+
+        $taxonomyTermIds = collect($taxonomyTermIds)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($taxonomyTermIds)) {
+            $listing->taxonomyTerms()->sync([]);
+            return;
+        }
+
+        if (!Schema::hasTable('taxonomy_terms')) {
+            return;
+        }
+
+        $terms = DB::table('taxonomy_terms')
+            ->whereIn('id', $taxonomyTermIds)
+            ->select('id', 'taxonomy_id')
+            ->get();
+
+        $syncData = [];
+
+        foreach ($terms as $term) {
+            $syncData[(int) $term->id] = [
+                'taxonomy_id' => (int) $term->taxonomy_id,
+            ];
+        }
+
+        $listing->taxonomyTerms()->sync($syncData);
     }
 
     private function storeCustomFieldsForListing(DynamicPost $listing, array $customFields): void
@@ -1217,16 +1438,14 @@ class UserPropertyListingController extends Controller
             $this->putMetaColumnIfExists($table, $payload, 'dynamic_post_id', (int) $listing->id);
             $this->putMetaColumnIfExists($table, $payload, 'custom_field_id', (int) $customFieldId);
 
-            foreach (
-                [
-                    'value_string',
-                    'value_text',
-                    'value_number',
-                    'value_date',
-                    'value_datetime',
-                    'value_json',
-                ] as $column
-            ) {
+            foreach ([
+                'value_string',
+                'value_text',
+                'value_number',
+                'value_date',
+                'value_datetime',
+                'value_json',
+            ] as $column) {
                 if (array_key_exists($column, $item)) {
                     $value = $item[$column];
 
@@ -1247,8 +1466,8 @@ class UserPropertyListingController extends Controller
                     ?? $item['value_datetime']
                     ?? (
                         isset($item['value_json'])
-                        ? (is_array($item['value_json']) ? json_encode($item['value_json']) : $item['value_json'])
-                        : null
+                            ? (is_array($item['value_json']) ? json_encode($item['value_json']) : $item['value_json'])
+                            : null
                     );
             }
 
@@ -1288,16 +1507,14 @@ class UserPropertyListingController extends Controller
 
     private function dynamicPostMetaTable(): ?string
     {
-        foreach (
-            [
-                'dynamic_post_meta',
-                'dynamic_post_metas',
-                'post_meta',
-                'post_metas',
-                'custom_field_values',
-                'custom_field_meta',
-            ] as $table
-        ) {
+        foreach ([
+            'custom_field_values',
+            'dynamic_post_meta',
+            'dynamic_post_metas',
+            'post_meta',
+            'post_metas',
+            'custom_field_meta',
+        ] as $table) {
             if (Schema::hasTable($table)) {
                 return $table;
             }
