@@ -3,6 +3,9 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ResetPasswordController;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\Response;
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -31,7 +34,31 @@ Route::get('/link', function() {
     return "Storage link is created";
 });
 
+Route::get('/uploads/{path}', function (string $path) {
+    $path = trim($path, '/');
 
+    if (
+        str_contains($path, '..') ||
+        str_starts_with($path, '/') ||
+        str_starts_with($path, '\\')
+    ) {
+        abort(404);
+    }
+
+    if (!Storage::disk('public_uploads')->exists($path)) {
+        abort(404);
+    }
+
+    $fullPath = Storage::disk('public_uploads')->path($path);
+
+    if (!is_file($fullPath)) {
+        abort(404);
+    }
+
+    return response()->file($fullPath, [
+        'Cache-Control' => 'public, max-age=2592000',
+    ]);
+})->where('path', '.*');
 
 Route::get('/check-file', function() {
     $path = 'uploads/media_icons/1749013663_Scenic_views.png';
