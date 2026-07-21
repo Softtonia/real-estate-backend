@@ -64,46 +64,25 @@ class UserController extends Controller
     }
     private function normalizeUserRequestBeforeValidation(Request $request): void
     {
-        /*
-    |--------------------------------------------------------------------------
-    | Remove file fields when frontend sends existing URL/string instead of file
-    |--------------------------------------------------------------------------
-    | Example:
-    | profile_photo: "https://api.holiplaces.com/uploads/users/abc.png"
-    | This is not a new file, so backend should ignore it.
-    |--------------------------------------------------------------------------
-    */
         foreach (
             [
                 'profile_photo',
                 'aadhaar_front',
                 'aadhaar_back',
                 'business_proof',
-            ] as $fileField
+            ] as $field
         ) {
-            if ($request->has($fileField) && !$request->hasFile($fileField)) {
-                $request->request->remove($fileField);
+            if ($request->has($field) && !$request->hasFile($field)) {
+                $request->request->remove($field);
             }
         }
 
-        /*
-    |--------------------------------------------------------------------------
-    | Normalize status fields
-    |--------------------------------------------------------------------------
-    | If frontend sends "", "-", "N/A", "undefined", etc. ignore it.
-    |--------------------------------------------------------------------------
-    */
-        foreach (
-            [
-                'isapproved',
-                'kyc',
-            ] as $statusField
-        ) {
-            if (!$request->has($statusField)) {
+        foreach (['isapproved', 'kyc'] as $field) {
+            if (!$request->has($field)) {
                 continue;
             }
 
-            $value = $request->input($statusField);
+            $value = $request->input($field);
 
             if (
                 $value === null ||
@@ -113,18 +92,141 @@ class UserController extends Controller
                 $value === 'null' ||
                 $value === 'undefined'
             ) {
-                $request->request->remove($statusField);
+                $request->request->remove($field);
                 continue;
             }
 
             if (is_numeric($value)) {
                 $request->merge([
-                    $statusField => (int) $value,
+                    $field => (int) $value,
                 ]);
             } else {
-                $request->request->remove($statusField);
+                $request->request->remove($field);
             }
         }
+    }
+
+    private function storePublicUpload(UploadedFile $file, string $folder, string $prefix): string
+    {
+        if (!$file || !$file->isValid()) {
+            throw new \Exception('Invalid uploaded file.');
+        }
+
+        $folder = trim($folder, '/');
+
+        $extension = strtolower(
+            $file->getClientOriginalExtension()
+                ?: $file->extension()
+                ?: 'bin'
+        );
+
+        $fileName = Str::slug($prefix, '_')
+            . '_'
+            . now()->format('YmdHis')
+            . '_'
+            . Str::random(8)
+            . '.'
+            . $extension;
+
+        $storedPath = Storage::disk('public_uploads')->putFileAs(
+            $folder,
+            $file,
+            $fileName
+        );
+
+        if (!$storedPath || !Storage::disk('public_uploads')->exists($storedPath)) {
+            throw new \Exception('File could not be saved.');
+        }
+
+        return 'uploads/' . $storedPath;
+    }
+
+    private function deletePublicUpload(?string $path): void
+    {
+        if (empty($path)) {
+            return;
+        }
+
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parsedPath = parse_url($path, PHP_URL_PATH);
+            $path = ltrim((string) $parsedPath, '/');
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'public/uploads/')) {
+            $path = str_replace('public/uploads/', 'uploads/', $path);
+        }
+
+        if (!str_starts_with($path, 'uploads/')) {
+            return;
+        }
+
+        $relativePath = substr($path, strlen('uploads/'));
+
+        if (!empty($relativePath)) {
+            Storage::disk('public_uploads')->delete($relativePath);
+        }
+    }
+
+    private function storeUserFilesFromRequest(
+        Request $request,
+        ?User $user,
+        Role $role,
+        ?UserDetail $oldDetail = null,
+        array &$oldFiles = []
+    ): array {
+        $newFiles = [];
+
+        $prefix = $user ? 'u' . $user->id : 'user';
+
+        if ($request->hasFile('profile_photo')) {
+            $oldFiles[] = $oldDetail?->profile_photo;
+
+            $newFiles['profile_photo'] = $this->storePublicUpload(
+                $request->file('profile_photo'),
+                'users',
+                $prefix . '_profile'
+            );
+        }
+
+        if ($request->hasFile('aadhaar_front')) {
+            $oldFiles[] = $oldDetail?->aadhaar_front;
+
+            $newFiles['aadhaar_front'] = $this->storePublicUpload(
+                $request->file('aadhaar_front'),
+                'kyc/aadhaarFront',
+                $prefix . '_aadhaar_front'
+            );
+        }
+
+        if ($request->hasFile('aadhaar_back')) {
+            $oldFiles[] = $oldDetail?->aadhaar_back;
+
+            $newFiles['aadhaar_back'] = $this->storePublicUpload(
+                $request->file('aadhaar_back'),
+                'kyc/aadhaarBack',
+                $prefix . '_aadhaar_back'
+            );
+        }
+
+        if (!$this->isOwnerRole($role) && $request->hasFile('business_proof')) {
+            $oldFiles[] = $oldDetail?->business_proof;
+
+            $newFiles['business_proof'] = $this->storePublicUpload(
+                $request->file('business_proof'),
+                'kyc/businessProof',
+                $prefix . '_business_proof'
+            );
+        }
+
+        return $newFiles;
     }
     // Function to append base URL to gallery images
     private function appendBaseURL($gallery, $baseURL)
@@ -1100,44 +1202,11 @@ class UserController extends Controller
         }
 
         $newFiles = [];
+        $user = null;
 
         try {
-            if ($request->hasFile('profile_photo')) {
-                $newFiles['profile_photo'] = $this->storePublicUpload(
-                    $request->file('profile_photo'),
-                    'users',
-                    'user_profile'
-                );
-            }
-
-            if ($request->hasFile('aadhaar_front')) {
-                $newFiles['aadhaar_front'] = $this->storePublicUpload(
-                    $request->file('aadhaar_front'),
-                    'kyc/aadhaarFront',
-                    'aadhaar_front'
-                );
-            }
-
-            if ($request->hasFile('aadhaar_back')) {
-                $newFiles['aadhaar_back'] = $this->storePublicUpload(
-                    $request->file('aadhaar_back'),
-                    'kyc/aadhaarBack',
-                    'aadhaar_back'
-                );
-            }
-
-            if (!$this->isOwnerRole($role) && $request->hasFile('business_proof')) {
-                $newFiles['business_proof'] = $this->storePublicUpload(
-                    $request->file('business_proof'),
-                    'kyc/businessProof',
-                    'business_proof'
-                );
-            }
-
-            $user = DB::transaction(function () use ($request, $role, $newFiles) {
+            $user = DB::transaction(function () use ($request, $role, &$newFiles) {
                 $uniqueIDModel = $this->createUniqueIdForRole($role);
-
-                $user = new User();
 
                 $userPayload = $this->userPayloadFromRequest($request, $role, true);
 
@@ -1148,8 +1217,12 @@ class UserController extends Controller
                     $userPayload['created_by'] = Auth::id() ?? 0;
                 }
 
+                $user = new User();
+
                 foreach ($userPayload as $column => $value) {
-                    $user->{$column} = $value;
+                    if (Schema::hasColumn('users', $column)) {
+                        $user->{$column} = $value;
+                    }
                 }
 
                 $user->save();
@@ -1164,6 +1237,16 @@ class UserController extends Controller
                         'unique_id' => $uniqueIDModel->id,
                     ]);
                 }
+
+                $oldFiles = [];
+
+                $newFiles = $this->storeUserFilesFromRequest(
+                    request: $request,
+                    user: $user,
+                    role: $role,
+                    oldDetail: null,
+                    oldFiles: $oldFiles
+                );
 
                 $detailPayload = $this->userDetailPayloadFromRequest($request, $user, $role);
 
@@ -1188,7 +1271,7 @@ class UserController extends Controller
                 'status' => true,
                 'message' => 'User created successfully.',
                 'data' => [
-                    'id' => $user->id,
+                    'id' => (int) $user->id,
                     'unique_id' => $user->unique_id,
                 ],
             ], 201);
@@ -3045,45 +3128,13 @@ class UserController extends Controller
                 ->where('user_id', $user->id)
                 ->first();
 
-            if ($request->hasFile('profile_photo')) {
-                $oldFiles[] = $existingDetail?->profile_photo;
-
-                $newFiles['profile_photo'] = $this->storePublicUpload(
-                    $request->file('profile_photo'),
-                    'users',
-                    'u' . $user->id . '_profile'
-                );
-            }
-
-            if ($request->hasFile('aadhaar_front')) {
-                $oldFiles[] = $existingDetail?->aadhaar_front;
-
-                $newFiles['aadhaar_front'] = $this->storePublicUpload(
-                    $request->file('aadhaar_front'),
-                    'kyc/aadhaarFront',
-                    'u' . $user->id . '_aadhaar_front'
-                );
-            }
-
-            if ($request->hasFile('aadhaar_back')) {
-                $oldFiles[] = $existingDetail?->aadhaar_back;
-
-                $newFiles['aadhaar_back'] = $this->storePublicUpload(
-                    $request->file('aadhaar_back'),
-                    'kyc/aadhaarBack',
-                    'u' . $user->id . '_aadhaar_back'
-                );
-            }
-
-            if (!$this->isOwnerRole($role) && $request->hasFile('business_proof')) {
-                $oldFiles[] = $existingDetail?->business_proof;
-
-                $newFiles['business_proof'] = $this->storePublicUpload(
-                    $request->file('business_proof'),
-                    'kyc/businessProof',
-                    'u' . $user->id . '_business_proof'
-                );
-            }
+            $newFiles = $this->storeUserFilesFromRequest(
+                request: $request,
+                user: $user,
+                role: $role,
+                oldDetail: $existingDetail,
+                oldFiles: $oldFiles
+            );
 
             DB::transaction(function () use ($request, $user, $role, $newFiles, $adminMode) {
                 $userPayload = $this->userPayloadFromRequest($request, $role, false);
@@ -3093,13 +3144,19 @@ class UserController extends Controller
                 }
 
                 if (!$adminMode) {
-                    unset($userPayload['isapproved'], $userPayload['reject_reason'], $userPayload['kyc']);
+                    unset(
+                        $userPayload['isapproved'],
+                        $userPayload['reject_reason'],
+                        $userPayload['kyc']
+                    );
                 }
 
                 $userPayload = $this->payloadForTable('users', $userPayload);
 
                 foreach ($userPayload as $column => $value) {
-                    $user->{$column} = $value;
+                    if (Schema::hasColumn('users', $column)) {
+                        $user->{$column} = $value;
+                    }
                 }
 
                 if ($user->isDirty()) {
@@ -3129,7 +3186,7 @@ class UserController extends Controller
                     ? 'Profile updated successfully.'
                     : 'User updated successfully.',
                 'data' => [
-                    'id' => $user->id,
+                    'id' => (int) $user->id,
                 ],
             ], 200);
         } catch (\Throwable $e) {
