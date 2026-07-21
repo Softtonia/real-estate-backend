@@ -62,6 +62,70 @@ class UserController extends Controller
             Cache::store('redis')->forget("user_details_website_{$userId}");
         }
     }
+    private function normalizeUserRequestBeforeValidation(Request $request): void
+    {
+        /*
+    |--------------------------------------------------------------------------
+    | Remove file fields when frontend sends existing URL/string instead of file
+    |--------------------------------------------------------------------------
+    | Example:
+    | profile_photo: "https://api.holiplaces.com/uploads/users/abc.png"
+    | This is not a new file, so backend should ignore it.
+    |--------------------------------------------------------------------------
+    */
+        foreach (
+            [
+                'profile_photo',
+                'aadhaar_front',
+                'aadhaar_back',
+                'business_proof',
+            ] as $fileField
+        ) {
+            if ($request->has($fileField) && !$request->hasFile($fileField)) {
+                $request->request->remove($fileField);
+            }
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | Normalize status fields
+    |--------------------------------------------------------------------------
+    | If frontend sends "", "-", "N/A", "undefined", etc. ignore it.
+    |--------------------------------------------------------------------------
+    */
+        foreach (
+            [
+                'isapproved',
+                'kyc',
+            ] as $statusField
+        ) {
+            if (!$request->has($statusField)) {
+                continue;
+            }
+
+            $value = $request->input($statusField);
+
+            if (
+                $value === null ||
+                $value === '' ||
+                $value === '-' ||
+                $value === 'N/A' ||
+                $value === 'null' ||
+                $value === 'undefined'
+            ) {
+                $request->request->remove($statusField);
+                continue;
+            }
+
+            if (is_numeric($value)) {
+                $request->merge([
+                    $statusField => (int) $value,
+                ]);
+            } else {
+                $request->request->remove($statusField);
+            }
+        }
+    }
     // Function to append base URL to gallery images
     private function appendBaseURL($gallery, $baseURL)
     {
@@ -998,6 +1062,7 @@ class UserController extends Controller
 
     public function createUser(Request $request)
     {
+        $this->normalizeUserRequestBeforeValidation($request);
         $this->normalizeKycRequest($request);
 
         $role = Role::find($request->input('role_id'));
@@ -2912,6 +2977,7 @@ class UserController extends Controller
         bool $adminMode = false,
         bool $currentUserMode = false
     ) {
+        $this->normalizeUserRequestBeforeValidation($request);
         $this->normalizeKycRequest($request);
 
         if (!$userId) {
@@ -3392,9 +3458,9 @@ class UserController extends Controller
             'pin_code' => ['nullable', 'string', 'max:20'],
             'about' => ['nullable', 'string'],
 
-            'isapproved' => ['nullable', 'integer', 'in:1,2,3,4'],
+            'isapproved' => ['nullable', 'in:1,2,3,4'],
             'reject_reason' => ['nullable', 'string', 'max:1000'],
-            'kyc' => ['nullable', 'integer', 'in:0,1,2,3'],
+            'kyc' => ['nullable', 'in:0,1,2,3'],
 
             'aadhaar_number' => [
                 'nullable',
