@@ -458,9 +458,7 @@ class DynamicPostController extends Controller
                     $postData['published_at'] = now();
                 }
 
-                $post = new DynamicPost();
-                $post->forceFill($postData);
-                $post->save();
+                $post = DynamicPost::create($postData);
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
 
@@ -808,8 +806,7 @@ class DynamicPostController extends Controller
                     $postData['published_at'] = now();
                 }
 
-                $post->forceFill($postData);
-                $post->save();
+                $post->update($postData);
 
                 if (is_array($taxonomyTermIds)) {
                     $this->syncTaxonomyTerms($post, $taxonomyTermIds);
@@ -1750,7 +1747,6 @@ class DynamicPostController extends Controller
     private function validatePost(Request $request, bool $isUpdate = false): array
     {
         $this->cleanEmptyUploadInputs($request);
-        $this->normalizePostStatusRequest($request);
 
         return $request->validate([
             'post_type_id' => [$isUpdate ? 'sometimes' : 'required', 'integer', 'exists:post_types,id'],
@@ -1823,83 +1819,6 @@ class DynamicPostController extends Controller
             'custom_fields.*.repeaters.*.rows.*' => ['nullable', 'array'],
             'rejection_reason' => ['nullable', 'string'],
         ]);
-    }
-
-    private function normalizePostStatusRequest(Request $request): void
-    {
-        $fieldAliases = [
-            'status' => [
-                'status',
-                'post_status',
-                'postStatus',
-            ],
-            'live_status' => [
-                'live_status',
-                'liveStatus',
-                'listing_status',
-                'listingStatus',
-            ],
-        ];
-
-        foreach ($fieldAliases as $canonicalField => $aliases) {
-            $valueFound = false;
-            $value = null;
-
-            foreach ($aliases as $alias) {
-                if ($request->exists($alias)) {
-                    $value = $request->input($alias);
-                    $valueFound = true;
-                    break;
-                }
-            }
-
-            if (!$valueFound) {
-                continue;
-            }
-
-            // Support select components that submit:
-            // { value: "published", label: "Ready for Publish" }
-            if (is_array($value)) {
-                $value = $value['value']
-                    ?? $value['slug']
-                    ?? $value['name']
-                    ?? $value['id']
-                    ?? null;
-            }
-
-            if (is_string($value)) {
-                $value = strtolower(trim($value));
-                $value = str_replace([' ', '-'], '_', $value);
-
-                if ($canonicalField === 'status') {
-                    $value = match ($value) {
-                        'publish', 'published', 'ready_for_publish' => 'published',
-                        'draft', 'save_as_draft' => 'draft',
-                        'private' => 'private',
-                        'archive', 'archived' => 'archived',
-                        default => $value,
-                    };
-                } else {
-                    $value = match ($value) {
-                        'approve', 'approved' => 'approve',
-                        'reject', 'rejected' => 'reject',
-                        'under_review', 'review', 'pending_review' => 'under_review',
-                        'disapprove', 'disapproved' => 'disapprove',
-                        'modify_review', 'modify' => 'modify_review',
-                        'submit', 'submitted' => 'submit',
-                        default => $value,
-                    };
-                }
-            }
-
-            if ($value === '') {
-                $value = null;
-            }
-
-            $request->merge([
-                $canonicalField => $value,
-            ]);
-        }
     }
 
     private function cleanEmptyUploadInputs(Request $request): void
@@ -3768,9 +3687,7 @@ class DynamicPostController extends Controller
                     $postData['published_at'] = now();
                 }
 
-                $post = new DynamicPost();
-                $post->forceFill($postData);
-                $post->save();
+                $post = DynamicPost::create($postData);
 
                 $this->syncTaxonomyTerms($post, $taxonomyTermIds);
 

@@ -1134,50 +1134,258 @@ class UserProfileController extends Controller
 
     private function profileCompletion(array $data): array
     {
+        /*
+         * Every editable profile field is included in profile strength.
+         * Password, role, account status and generated/system fields are excluded.
+         */
         $fields = [
-            'first_name',
-            'last_name',
-            'email',
-            'phone',
-            'country_id',
-            'state_id',
-            'city_id',
-            'street_address',
-            'area_locality',
-            'colony',
-            'address',
-            'pin_code',
-            'profile_photo',
-            'aadhaar_number',
-            'aadhaar_front',
-            'aadhaar_back',
+            // Personal information
+            'first_name' => [
+                'label' => 'First Name',
+                'section' => 'personal_information',
+            ],
+            'last_name' => [
+                'label' => 'Last Name',
+                'section' => 'personal_information',
+            ],
+            'user_name' => [
+                'label' => 'Username',
+                'section' => 'personal_information',
+            ],
+            'email' => [
+                'label' => 'Email Address',
+                'section' => 'personal_information',
+            ],
+            'phone' => [
+                'label' => 'Mobile Number',
+                'section' => 'personal_information',
+            ],
+            'alternate_number' => [
+                'label' => 'Alternate Number',
+                'section' => 'personal_information',
+            ],
+            'no_of_employees' => [
+                'label' => 'Number of Employees',
+                'section' => 'personal_information',
+            ],
+            'about_us' => [
+                'label' => 'About You',
+                'section' => 'personal_information',
+            ],
+
+            // Address information: each field is checked independently.
+            'country_id' => [
+                'label' => 'Country',
+                'section' => 'address_information',
+            ],
+            'state_id' => [
+                'label' => 'State',
+                'section' => 'address_information',
+            ],
+            'city_id' => [
+                'label' => 'City',
+                'section' => 'address_information',
+            ],
+            'street_address' => [
+                'label' => 'Street Address',
+                'section' => 'address_information',
+            ],
+            'area_locality' => [
+                'label' => 'Area / Locality',
+                'section' => 'address_information',
+            ],
+            'colony' => [
+                'label' => 'Colony',
+                'section' => 'address_information',
+            ],
+            'address' => [
+                'label' => 'Address',
+                'section' => 'address_information',
+            ],
+            'pin_code' => [
+                'label' => 'PIN Code',
+                'section' => 'address_information',
+            ],
+
+            // Profile photo
+            'profile_photo' => [
+                'label' => 'Profile Photo',
+                'section' => 'profile_photo',
+            ],
+
+            // KYC and documents
+            'aadhaar_number' => [
+                'label' => 'Aadhaar Number',
+                'section' => 'documents',
+            ],
+            'aadhaar_front' => [
+                'label' => 'Aadhaar Front',
+                'section' => 'documents',
+            ],
+            'aadhaar_back' => [
+                'label' => 'Aadhaar Back',
+                'section' => 'documents',
+            ],
+            'license_number' => [
+                'label' => 'License Number',
+                'section' => 'documents',
+            ],
+            'rera_number' => [
+                'label' => 'RERA Number',
+                'section' => 'documents',
+            ],
         ];
 
-        if (($data['business_fields_visible'] ?? true) === true) {
-            $fields[] = 'business_proof';
+        /* Business fields are applicable only when they are visible for the role. */
+        if (($data['business_fields_visible'] ?? false) === true) {
+            $fields = array_merge($fields, [
+                'bussiness_name' => [
+                    'label' => 'Business Name',
+                    'section' => 'business_information',
+                ],
+                'business_phone' => [
+                    'label' => 'Business Phone',
+                    'section' => 'business_information',
+                ],
+                'bussiness_email' => [
+                    'label' => 'Business Email',
+                    'section' => 'business_information',
+                ],
+                'business_country_id' => [
+                    'label' => 'Business Country',
+                    'section' => 'business_address',
+                ],
+                'business_state_id' => [
+                    'label' => 'Business State',
+                    'section' => 'business_address',
+                ],
+                'business_city_id' => [
+                    'label' => 'Business City',
+                    'section' => 'business_address',
+                ],
+                'bussiness_address' => [
+                    'label' => 'Business Address',
+                    'section' => 'business_address',
+                ],
+                'business_pin_code' => [
+                    'label' => 'Business PIN Code',
+                    'section' => 'business_address',
+                ],
+                'business_proof' => [
+                    'label' => 'Business Proof',
+                    'section' => 'documents',
+                ],
+            ]);
         }
 
-        $completed = 0;
+        $completedFieldNames = [];
+        $missingFieldDetails = [];
+        $sectionStats = [];
 
-        foreach ($fields as $field) {
-            if (!empty($data[$field]) && $data[$field] !== '-') {
-                $completed++;
+        foreach ($fields as $field => $meta) {
+            $section = $meta['section'];
+            $value = $data[$field] ?? null;
+            $isCompleted = $this->hasProfileValue($value);
+
+            if (!isset($sectionStats[$section])) {
+                $sectionStats[$section] = [
+                    'completed_fields' => 0,
+                    'total_fields' => 0,
+                    'missing_fields' => [],
+                    'missing_field_labels' => [],
+                ];
             }
+
+            $sectionStats[$section]['total_fields']++;
+
+            if ($isCompleted) {
+                $completedFieldNames[] = $field;
+                $sectionStats[$section]['completed_fields']++;
+                continue;
+            }
+
+            $missing = [
+                'field' => $field,
+                'label' => $meta['label'],
+                'section' => $section,
+            ];
+
+            $missingFieldDetails[] = $missing;
+            $sectionStats[$section]['missing_fields'][] = $field;
+            $sectionStats[$section]['missing_field_labels'][] = $meta['label'];
         }
 
-        $percentage = count($fields) > 0
-            ? round(($completed / count($fields)) * 100)
+        foreach ($sectionStats as $section => $stats) {
+            $sectionStats[$section]['percentage'] = $stats['total_fields'] > 0
+                ? (int) round(($stats['completed_fields'] / $stats['total_fields']) * 100)
+                : 0;
+
+            $sectionStats[$section]['is_complete'] = empty($stats['missing_fields']);
+        }
+
+        $total = count($fields);
+        $completed = count($completedFieldNames);
+        $percentage = $total > 0
+            ? (int) round(($completed / $total) * 100)
             : 0;
+
+        $missingFields = array_column($missingFieldDetails, 'field');
+        $missingLabels = array_column($missingFieldDetails, 'label');
+        $missingCount = count($missingFields);
 
         return [
             'percentage' => $percentage,
+            'strength' => $this->profileStrengthLabel($percentage),
+            'is_complete' => $missingCount === 0,
             'completed_fields' => $completed,
-            'total_fields' => count($fields),
-            'missing_fields' => collect($fields)
-                ->filter(fn($field) => empty($data[$field]) || $data[$field] === '-')
-                ->values()
-                ->toArray(),
+            'total_fields' => $total,
+            'missing_count' => $missingCount,
+
+            // Field keys for frontend validation/navigation.
+            'missing_fields' => $missingFields,
+
+            // User-friendly values for direct display.
+            'missing_field_labels' => $missingLabels,
+            'missing_field_details' => $missingFieldDetails,
+            'missing_by_section' => $sectionStats,
+            'next_missing_field' => $missingFieldDetails[0] ?? null,
+            'message' => $missingCount === 0
+                ? 'Your profile is complete.'
+                : $missingCount . ' profile field' . ($missingCount === 1 ? ' is' : 's are') . ' missing.',
         ];
+    }
+
+    private function hasProfileValue(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+
+            return $value !== ''
+                && $value !== '-'
+                && strtoupper($value) !== 'N/A';
+        }
+
+        if (is_array($value)) {
+            return !empty($value);
+        }
+
+        // Numeric zero and boolean false can be valid stored values.
+        return true;
+    }
+
+    private function profileStrengthLabel(int $percentage): string
+    {
+        return match (true) {
+            $percentage >= 100 => 'Complete',
+            $percentage >= 75 => 'Strong',
+            $percentage >= 50 => 'Moderate',
+            $percentage >= 25 => 'Basic',
+            default => 'Incomplete',
+        };
     }
 
     private function accountStatusLabel(mixed $status): string
