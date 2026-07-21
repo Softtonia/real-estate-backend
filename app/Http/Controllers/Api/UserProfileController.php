@@ -24,15 +24,20 @@ class UserProfileController extends Controller
     private const MAX_UPLOAD_KB = 2048;
     public function show(Request $request): JsonResponse
     {
-        try {
-            $user = $this->resolveCurrentUser($request);
+        $validator = Validator::make($request->all(), [
+            'user_id' => [
+                'required',
+                'integer',
+                'exists:users,id',
+            ],
+        ]);
 
-            if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid or expired token.',
-                ], 401);
-            }
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $user = User::find($request->integer('user_id'));
 
             return response()->json([
                 'status' => true,
