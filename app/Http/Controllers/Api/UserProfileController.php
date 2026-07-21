@@ -1480,13 +1480,14 @@ class UserProfileController extends Controller
     private function profileDashboardCounts(User $user): array
     {
         $listingIds = $this->userListingIds($user);
-        $propertyPurposeCounts = $this->propertyPurposeCounts($user);
+
+        $purposeCounts = $this->propertyPurposeCounts($listingIds);
 
         return [
             'total_listings' => count($listingIds),
 
-            'properties_for_rent' => $propertyPurposeCounts['rent'],
-            'properties_for_sell' => $propertyPurposeCounts['sell'],
+            'properties_for_sell' => $purposeCounts['sell'],
+            'properties_for_rent' => $purposeCounts['rent'],
 
             'total_leads' => $this->countUserRelatedRows($user, [
                 'leads',
@@ -1506,90 +1507,7 @@ class UserProfileController extends Controller
             ], $listingIds),
         ];
     }
-    private function propertyPurposeCounts(User $user): array
-    {
-        $defaultCounts = [
-            'rent' => 0,
-            'sell' => 0,
-        ];
 
-        if (
-            !Schema::hasTable('dynamic_posts')
-            || !Schema::hasTable('post_types')
-            || !Schema::hasTable('taxonomy_terms')
-            || !Schema::hasColumn('dynamic_posts', 'author_id')
-            || !Schema::hasColumn('dynamic_posts', 'post_type_id')
-        ) {
-            return $defaultCounts;
-        }
-
-        $propertyPostTypeId = DB::table('post_types')
-            ->where('slug', 'property-listing')
-            ->value('id');
-
-        if (!$propertyPostTypeId) {
-            return $defaultCounts;
-        }
-
-        $baseQuery = DynamicPost::query()
-            ->where('post_type_id', (int) $propertyPostTypeId)
-            ->where('author_id', (int) $user->id);
-
-        /*
-     * Public endpoint hai, isliye sirf approved and published
-     * properties count hongi. Draft/rejected listing count nahi hogi.
-     */
-        if (Schema::hasColumn('dynamic_posts', 'status')) {
-            $baseQuery->where('status', 'published');
-        }
-
-        if (Schema::hasColumn('dynamic_posts', 'live_status')) {
-            $baseQuery->where('live_status', 'approve');
-        }
-
-        $rentCount = (clone $baseQuery)
-            ->whereHas('taxonomyTerms', function ($query) {
-                $query->where(function ($termQuery) {
-                    $termQuery
-                        ->whereIn('slug', [
-                            'rent',
-                            'for-rent',
-                            'rental',
-                        ])
-                        ->orWhereIn('name', [
-                            'Rent',
-                            'For Rent',
-                            'Rental',
-                        ]);
-                });
-            })
-            ->count();
-
-        $sellCount = (clone $baseQuery)
-            ->whereHas('taxonomyTerms', function ($query) {
-                $query->where(function ($termQuery) {
-                    $termQuery
-                        ->whereIn('slug', [
-                            'sell',
-                            'sale',
-                            'for-sale',
-                            'for-sell',
-                        ])
-                        ->orWhereIn('name', [
-                            'Sell',
-                            'Sale',
-                            'For Sale',
-                            'For Sell',
-                        ]);
-                });
-            })
-            ->count();
-
-        return [
-            'rent' => $rentCount,
-            'sell' => $sellCount,
-        ];
-    }
     private function userListingIds(User $user): array
     {
         if (!Schema::hasTable('dynamic_posts')) {
