@@ -64,6 +64,19 @@ class UserController extends Controller
     }
     private function normalizeUserRequestBeforeValidation(Request $request): void
     {
+        foreach ($request->all() as $key => $value) {
+            if (
+                $value === 'null' ||
+                $value === 'undefined' ||
+                $value === 'N/A' ||
+                $value === '-'
+            ) {
+                $request->merge([
+                    $key => null,
+                ]);
+            }
+        }
+
         foreach (
             [
                 'profile_photo',
@@ -173,7 +186,66 @@ class UserController extends Controller
             Storage::disk('public_uploads')->delete($relativePath);
         }
     }
+    private function cleanNullableValue(mixed $value): mixed
+    {
+        if (
+            $value === null ||
+            $value === '' ||
+            $value === '-' ||
+            $value === 'N/A' ||
+            $value === 'null' ||
+            $value === 'undefined'
+        ) {
+            return null;
+        }
 
+        return $value;
+    }
+
+    private function fileUrl(?string $path): ?string
+    {
+        $path = $this->cleanNullableValue($path);
+
+        if (empty($path)) {
+            return null;
+        }
+
+        $path = trim((string) $path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'public/uploads/')) {
+            $path = str_replace('public/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'uploads/')) {
+            $relativePath = substr($path, strlen('uploads/'));
+
+            return Storage::disk('public_uploads')->url($relativePath);
+        }
+
+        return url($path);
+    }
+
+    private function isOwnerRoleName(?string $roleName): bool
+    {
+        $roleText = strtolower(trim((string) $roleName));
+        $roleText = str_replace([' ', '_', '-'], '', $roleText);
+
+        return in_array($roleText, [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true);
+    }
     private function storeUserFilesFromRequest(
         Request $request,
         ?User $user,
@@ -626,22 +698,27 @@ class UserController extends Controller
             $userId = $request->id;
 
             if (!$userId) {
-                return response()->json(['error' => 'User id is required.'], 400);
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User id is required.',
+                ], 400);
             }
 
             $cacheKey = "user_details_admin_{$userId}";
 
             $response = Cache::store('redis')->remember($cacheKey, 300, function () use ($userId) {
-
                 $userData = DB::table('users')
                     ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
                     ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
-                    ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
-                    ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
-                    ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+
+                    ->leftJoin('countries as business_countries', 'user_details.country_id', '=', 'business_countries.id')
+                    ->leftJoin('states as business_states', 'user_details.state_id', '=', 'business_states.id')
+                    ->leftJoin('cities as business_cities', 'user_details.city_id', '=', 'business_cities.id')
+
                     ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
                     ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
                     ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
+
                     ->where('users.id', $userId)
                     ->select(
                         'users.id',
@@ -656,6 +733,7 @@ class UserController extends Controller
                         'users.isapproved',
                         'users.kyc',
                         'users.is_otp_verified',
+
                         'users.country_id',
                         'users.state_id',
                         'users.city_id',
@@ -672,27 +750,33 @@ class UserController extends Controller
                         'user_details.bussiness_address',
                         'user_details.bussiness_email',
                         'user_details.business_phone',
+
                         'user_details.country_id as business_country_id',
                         'user_details.state_id as business_state_id',
                         'user_details.city_id as business_city_id',
-                        'countries.name as business_country',
-                        'states.name as business_state',
-                        'cities.name as business_city',
+                        'business_countries.name as business_country',
+                        'business_states.name as business_state',
+                        'business_cities.name as business_city',
+
                         'user_details.area_locality as business_area_locality',
                         'user_details.colony as business_colony',
                         'user_details.street_address as business_street_address',
                         'user_details.pin_code as business_pin_code',
+
+                        'user_details.address',
+                        'user_details.profile_photo',
+
                         'user_details.aadhaar_number',
                         'user_details.aadhaar_front',
                         'user_details.aadhaar_back',
                         'user_details.business_proof',
 
-                        'user_details.address',
-                        'user_details.profile_photo',
                         'user_details.license_number',
+                        'user_details.rera_number',
                         'user_details.alternate_number',
                         'user_details.no_of_employees',
                         'user_details.about_us',
+
                         'users.created_at',
                         'users.updated_at'
                     )
@@ -702,72 +786,101 @@ class UserController extends Controller
                     return null;
                 }
 
+                $isOwnerRole = $this->isOwnerRoleName($userData->role_name);
+
                 return [
-                    'id' => $userData->id,
-                    'first_name' => $userData->first_name,
-                    'last_name' => $userData->last_name,
-                    'user_name' => $userData->user_name,
-                    'email' => $userData->email,
-                    'phone' => $userData->phone,
-                    'role_id' => $userData->role_id,
-                    'role_name' => $userData->role_name,
-                    'unique_id' => $userData->unique_id,
+                    'id' => (int) $userData->id,
+                    'first_name' => $this->cleanNullableValue($userData->first_name),
+                    'last_name' => $this->cleanNullableValue($userData->last_name),
+                    'full_name' => trim(
+                        ($this->cleanNullableValue($userData->first_name) ?? '') . ' ' .
+                            ($this->cleanNullableValue($userData->last_name) ?? '')
+                    ) ?: null,
+                    'user_name' => $this->cleanNullableValue($userData->user_name),
+                    'email' => $this->cleanNullableValue($userData->email),
+                    'phone' => $this->cleanNullableValue($userData->phone),
+
+                    'role_id' => $this->cleanNullableValue($userData->role_id),
+                    'role_name' => $this->cleanNullableValue($userData->role_name),
+                    'unique_id' => $this->cleanNullableValue($userData->unique_id),
                     'isapproved' => $userData->isapproved,
                     'kyc' => $userData->kyc,
                     'is_otp_verified' => $userData->is_otp_verified,
-                    'country_id' => $userData->country_id ?? 'N/A',
-                    'state_id' => $userData->state_id ?? 'N/A',
-                    'city_id' => $userData->city_id ?? 'N/A',
-                    'country' => $userData->country ?? 'N/A',
-                    'state' => $userData->state ?? 'N/A',
-                    'city' => $userData->city ?? 'N/A',
-                    'area_locality' => $userData->area_locality ?? 'N/A',
-                    'colony' => $userData->colony ?? 'N/A',
-                    'street_address' => $userData->street_address ?? 'N/A',
-                    'pin_code' => $userData->pin_code ?? 'N/A',
-                    'about' => $userData->about,
 
-                    'bussiness_name' => $userData->bussiness_name,
-                    'bussiness_address' => $userData->bussiness_address,
-                    'bussiness_email' => $userData->bussiness_email,
-                    'business_phone' => $userData->business_phone,
-                    'business_country_id' => $userData->business_country_id ?? 'N/A',
-                    'business_state_id' => $userData->business_state_id ?? 'N/A',
-                    'business_city_id' => $userData->business_city_id ?? 'N/A',
-                    'business_country' => $userData->business_country ?? 'N/A',
-                    'business_state' => $userData->business_state ?? 'N/A',
-                    'business_city' => $userData->business_city ?? 'N/A',
-                    'business_area_locality' => $userData->business_area_locality ?? 'N/A',
-                    'business_colony' => $userData->business_colony ?? 'N/A',
-                    'business_street_address' => $userData->business_street_address ?? 'N/A',
-                    'business_pin_code' => $userData->business_pin_code ?? 'N/A',
-                    'address' => $userData->address,
-                    'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
-                    'aadhaar_number' => $userData->aadhaar_number,
-                    'aadhaar_front' => $userData->aadhaar_front ? url($userData->aadhaar_front) : null,
-                    'aadhaar_back' => $userData->aadhaar_back ? url($userData->aadhaar_back) : null,
-                    'business_proof' => $userData->business_proof ? url($userData->business_proof) : null,
-                    'license_number' => $userData->license_number,
-                    'alternate_number' => $userData->alternate_number,
-                    'no_of_employees' => $userData->no_of_employees,
-                    'about_us' => $userData->about_us,
+                    'country_id' => $this->cleanNullableValue($userData->country_id),
+                    'state_id' => $this->cleanNullableValue($userData->state_id),
+                    'city_id' => $this->cleanNullableValue($userData->city_id),
+                    'country' => $this->cleanNullableValue($userData->country),
+                    'state' => $this->cleanNullableValue($userData->state),
+                    'city' => $this->cleanNullableValue($userData->city),
+
+                    'area_locality' => $this->cleanNullableValue($userData->area_locality),
+                    'colony' => $this->cleanNullableValue($userData->colony),
+                    'street_address' => $this->cleanNullableValue($userData->street_address),
+                    'pin_code' => $this->cleanNullableValue($userData->pin_code),
+                    'about' => $this->cleanNullableValue($userData->about),
+
+                    'business_fields_visible' => !$isOwnerRole,
+
+                    'bussiness_name' => $isOwnerRole ? null : $this->cleanNullableValue($userData->bussiness_name),
+                    'bussiness_address' => $isOwnerRole ? null : $this->cleanNullableValue($userData->bussiness_address),
+                    'bussiness_email' => $isOwnerRole ? null : $this->cleanNullableValue($userData->bussiness_email),
+                    'business_phone' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_phone),
+
+                    'business_country_id' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_country_id),
+                    'business_state_id' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_state_id),
+                    'business_city_id' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_city_id),
+                    'business_country' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_country),
+                    'business_state' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_state),
+                    'business_city' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_city),
+
+                    'business_area_locality' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_area_locality),
+                    'business_colony' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_colony),
+                    'business_street_address' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_street_address),
+                    'business_pin_code' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_pin_code),
+
+                    'address' => $this->cleanNullableValue($userData->address),
+
+                    'profile_photo' => $this->fileUrl($userData->profile_photo),
+
+                    'aadhaar_number' => $this->cleanNullableValue($userData->aadhaar_number),
+                    'aadhaar_front' => $this->fileUrl($userData->aadhaar_front),
+                    'aadhaar_back' => $this->fileUrl($userData->aadhaar_back),
+                    'business_proof' => $isOwnerRole ? null : $this->fileUrl($userData->business_proof),
+
+                    'license_number' => $this->cleanNullableValue($userData->license_number),
+                    'rera_number' => $this->cleanNullableValue($userData->rera_number),
+                    'alternate_number' => $this->cleanNullableValue($userData->alternate_number),
+                    'no_of_employees' => $this->cleanNullableValue($userData->no_of_employees),
+                    'about_us' => $this->cleanNullableValue($userData->about_us),
+
                     'created_at' => $userData->created_at,
-                    'updated_at' => $userData->updated_at
+                    'updated_at' => $userData->updated_at,
                 ];
             });
 
             if (!$response) {
                 \Log::error('User not found', ['id' => $userId]);
-                return response()->json(['error' => 'No data found for this user.'], 404);
+
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No data found for this user.',
+                ], 404);
             }
 
             return response()->json($response, 200);
         } catch (\Throwable $th) {
-            \Log::error('Error fetching user details:', ['error' => $th->getMessage()]);
-            return response()->json(['error' => 'Internal Server Error.'], 500);
+            \Log::error('Error fetching user details:', [
+                'error' => $th->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Internal Server Error.',
+                'error' => $th->getMessage(),
+            ], 500);
         }
     }
-
 
     public function getdetailsbyuseridForWebsite(Request $request)
     {
@@ -775,49 +888,65 @@ class UserController extends Controller
             $userId = $request->input('id');
 
             if (!$userId) {
-                return response()->json(['error' => 'User id is required.'], 400);
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User id is required.',
+                ], 400);
             }
 
             $cacheKey = "user_details_website_{$userId}";
 
             $response = Cache::store('redis')->remember($cacheKey, 300, function () use ($userId) {
-
                 $userData = DB::table('users')
-                    ->join('user_details', 'users.id', '=', 'user_details.user_id')
-                    ->join('roles', 'users.role_id', '=', 'roles.id')
-                    ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
-                    ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
-                    ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+                    ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
+                    ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
+
+                    ->leftJoin('countries as business_countries', 'user_details.country_id', '=', 'business_countries.id')
+                    ->leftJoin('states as business_states', 'user_details.state_id', '=', 'business_states.id')
+                    ->leftJoin('cities as business_cities', 'user_details.city_id', '=', 'business_cities.id')
+
                     ->where('users.id', $userId)
                     ->select(
                         'users.id',
                         'users.first_name',
                         'users.last_name',
+                        'users.user_name',
                         'users.email',
                         'users.phone',
                         'users.role_id',
+                        DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
                         'users.unique_id',
                         'users.isapproved',
-                        'roles.name as role_name',
+                        'users.kyc',
+
                         'user_details.bussiness_name',
                         'user_details.bussiness_address',
                         'user_details.bussiness_email',
                         'user_details.business_phone',
-                        'countries.name as country',
-                        'states.name as state',
-                        'cities.name as city',
+
+                        'user_details.country_id as business_country_id',
+                        'user_details.state_id as business_state_id',
+                        'user_details.city_id as business_city_id',
+                        'business_countries.name as business_country',
+                        'business_states.name as business_state',
+                        'business_cities.name as business_city',
+
                         'user_details.address',
                         'user_details.pin_code',
                         'user_details.profile_photo',
                         'user_details.license_number',
+                        'user_details.rera_number',
                         'user_details.alternate_number',
                         'user_details.no_of_employees',
                         'user_details.about_us',
+
+                        'user_details.aadhaar_number',
+                        'user_details.aadhaar_front',
+                        'user_details.aadhaar_back',
+                        'user_details.business_proof',
+
                         'users.created_at',
-                        'users.updated_at',
-                        'user_details.country_id',
-                        'user_details.state_id',
-                        'user_details.city_id'
+                        'users.updated_at'
                     )
                     ->first();
 
@@ -825,45 +954,77 @@ class UserController extends Controller
                     return null;
                 }
 
+                $isOwnerRole = $this->isOwnerRoleName($userData->role_name);
+
                 return [
-                    'id' => $userData->id,
-                    'first_name' => $userData->first_name,
-                    'last_name' => $userData->last_name,
-                    'email' => $userData->email,
-                    'phone' => $userData->phone,
-                    'role_id' => $userData->role_id,
-                    'role_name' => $userData->role_name,
-                    'unique_id' => $userData->unique_id,
+                    'id' => (int) $userData->id,
+                    'first_name' => $this->cleanNullableValue($userData->first_name),
+                    'last_name' => $this->cleanNullableValue($userData->last_name),
+                    'full_name' => trim(
+                        ($this->cleanNullableValue($userData->first_name) ?? '') . ' ' .
+                            ($this->cleanNullableValue($userData->last_name) ?? '')
+                    ) ?: null,
+                    'user_name' => $this->cleanNullableValue($userData->user_name),
+                    'email' => $this->cleanNullableValue($userData->email),
+                    'phone' => $this->cleanNullableValue($userData->phone),
+
+                    'role_id' => $this->cleanNullableValue($userData->role_id),
+                    'role_name' => $this->cleanNullableValue($userData->role_name),
+                    'unique_id' => $this->cleanNullableValue($userData->unique_id),
                     'isapproved' => $userData->isapproved,
-                    'bussiness_name' => $userData->bussiness_name,
-                    'bussiness_address' => $userData->bussiness_address,
-                    'bussiness_email' => $userData->bussiness_email,
-                    'business_phone' => $userData->business_phone,
-                    'country_id' => $userData->country_id ?? 'N/A',
-                    'state_id' => $userData->state_id ?? 'N/A',
-                    'city_id' => $userData->city_id ?? 'N/A',
-                    'address' => $userData->address,
-                    'pin_code' => $userData->pin_code,
-                    'profile_photo' => $userData->profile_photo ? url($userData->profile_photo) : null,
-                    'license_number' => $userData->license_number,
-                    'alternate_number' => $userData->alternate_number,
-                    'no_of_employees' => $userData->no_of_employees,
-                    'about_us' => $userData->about_us,
+                    'kyc' => $userData->kyc,
+
+                    'business_fields_visible' => !$isOwnerRole,
+
+                    'bussiness_name' => $isOwnerRole ? null : $this->cleanNullableValue($userData->bussiness_name),
+                    'bussiness_address' => $isOwnerRole ? null : $this->cleanNullableValue($userData->bussiness_address),
+                    'bussiness_email' => $isOwnerRole ? null : $this->cleanNullableValue($userData->bussiness_email),
+                    'business_phone' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_phone),
+
+                    'business_country_id' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_country_id),
+                    'business_state_id' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_state_id),
+                    'business_city_id' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_city_id),
+                    'business_country' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_country),
+                    'business_state' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_state),
+                    'business_city' => $isOwnerRole ? null : $this->cleanNullableValue($userData->business_city),
+
+                    'address' => $this->cleanNullableValue($userData->address),
+                    'pin_code' => $this->cleanNullableValue($userData->pin_code),
+
+                    'profile_photo' => $this->fileUrl($userData->profile_photo),
+
+                    'license_number' => $this->cleanNullableValue($userData->license_number),
+                    'rera_number' => $this->cleanNullableValue($userData->rera_number),
+                    'alternate_number' => $this->cleanNullableValue($userData->alternate_number),
+                    'no_of_employees' => $this->cleanNullableValue($userData->no_of_employees),
+                    'about_us' => $this->cleanNullableValue($userData->about_us),
+
+                    'aadhaar_number' => $this->cleanNullableValue($userData->aadhaar_number),
+                    'aadhaar_front' => $this->fileUrl($userData->aadhaar_front),
+                    'aadhaar_back' => $this->fileUrl($userData->aadhaar_back),
+                    'business_proof' => $isOwnerRole ? null : $this->fileUrl($userData->business_proof),
+
                     'created_at' => $userData->created_at,
-                    'updated_at' => $userData->updated_at
+                    'updated_at' => $userData->updated_at,
                 ];
             });
 
             if (!$response) {
-                return response()->json(['error' => 'No data found for this user.'], 404);
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No data found for this user.',
+                ], 404);
             }
 
             return response()->json($response, 200);
         } catch (\Throwable $th) {
-            return response()->json(['error' => $th->getMessage()], 500);
+            return response()->json([
+                'status' => false,
+                'message' => 'Internal Server Error.',
+                'error' => $th->getMessage(),
+            ], 500);
         }
     }
-
 
     // for update user by id
 
