@@ -2902,6 +2902,7 @@ class UserController extends Controller
         }
     }
 
+
     public function getDataUserDetailsByRole(Request $request)
     {
         $AuthUser = auth('sanctum')->user();
@@ -2922,16 +2923,131 @@ class UserController extends Controller
 
         try {
             $roleId = $request->role_id;
-            $perPage = $request->per_page ?? 10;
+            $perPage = (int) ($request->per_page ?? 10);
+
+            /*
+         * Count every user's Sell and Rent property listings.
+         *
+         * Purpose is the taxonomy.
+         * Sell and Rent are Purpose taxonomy terms.
+         * Listings are connected with users through dynamic_posts.author_id.
+         */
+            $propertyPurposeCounts = DB::table('dynamic_posts as dp')
+                ->join(
+                    'post_types as pt',
+                    'pt.id',
+                    '=',
+                    'dp.post_type_id'
+                )
+                ->join(
+                    'post_taxonomy_terms as ptt',
+                    'ptt.dynamic_post_id',
+                    '=',
+                    'dp.id'
+                )
+                ->join(
+                    'taxonomy_terms as tt',
+                    'tt.id',
+                    '=',
+                    'ptt.taxonomy_term_id'
+                )
+                ->join(
+                    'taxonomies as tx',
+                    'tx.id',
+                    '=',
+                    'tt.taxonomy_id'
+                )
+                ->whereRaw('LOWER(pt.slug) = ?', [
+                    'property-listing',
+                ])
+                ->whereRaw('LOWER(tx.slug) = ?', [
+                    'purpose',
+                ])
+                ->whereRaw('LOWER(tt.slug) IN (?, ?)', [
+                    'sell',
+                    'rent',
+                ])
+                ->whereNotNull('dp.author_id')
+                ->when(
+                    Schema::hasColumn('dynamic_posts', 'deleted_at'),
+                    function ($query) {
+                        $query->whereNull('dp.deleted_at');
+                    }
+                )
+                ->groupBy('dp.author_id')
+                ->selectRaw("
+                dp.author_id as listing_user_id,
+
+                COUNT(
+                    DISTINCT CASE
+                        WHEN LOWER(tt.slug) = 'sell'
+                        THEN dp.id
+                    END
+                ) as properties_for_sell,
+
+                COUNT(
+                    DISTINCT CASE
+                        WHEN LOWER(tt.slug) = 'rent'
+                        THEN dp.id
+                    END
+                ) as properties_for_rent
+            ");
 
             $query = DB::table('users')
                 ->where('users.isapproved', '=', 1)
-                ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
-                ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
-                ->leftJoin('countries', 'user_details.country_id', '=', 'countries.id')
-                ->leftJoin('states', 'user_details.state_id', '=', 'states.id')
-                ->leftJoin('cities', 'user_details.city_id', '=', 'cities.id')
+
+                ->leftJoin(
+                    'user_details',
+                    'users.id',
+                    '=',
+                    'user_details.user_id'
+                )
+
+                ->leftJoin(
+                    'roles',
+                    'users.role_id',
+                    '=',
+                    'roles.id'
+                )
+
+                ->leftJoin(
+                    'countries',
+                    'user_details.country_id',
+                    '=',
+                    'countries.id'
+                )
+
+                ->leftJoin(
+                    'states',
+                    'user_details.state_id',
+                    '=',
+                    'states.id'
+                )
+
+                ->leftJoin(
+                    'cities',
+                    'user_details.city_id',
+                    '=',
+                    'cities.id'
+                )
+
+                /*
+             * Attach Sell/Rent counts to every user.
+             */
+                ->leftJoinSub(
+                    $propertyPurposeCounts,
+                    'property_purpose_counts',
+                    function ($join) {
+                        $join->on(
+                            'property_purpose_counts.listing_user_id',
+                            '=',
+                            'users.id'
+                        );
+                    }
+                )
+
                 ->where('roles.name', '!=', 'admin')
+
                 ->select(
                     'users.id',
                     'users.first_name',
@@ -2939,23 +3055,48 @@ class UserController extends Controller
                     'users.email',
                     'users.phone',
                     'users.role_id',
-                    DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
+
+                    DB::raw("
+                    IFNULL(roles.name, 'No Role') as role_name
+                "),
+
                     'users.unique_id',
                     'users.isapproved',
                     'users.country_id',
                     'users.state_id',
                     'users.city_id',
+
                     'countries.name as country',
                     'states.name as state',
                     'cities.name as city',
+
                     'users.area_locality',
                     'users.colony',
                     'users.street_address',
                     'users.pin_code',
                     'users.about',
+
                     'user_details.bussiness_name',
                     'user_details.profile_photo',
                     'user_details.about_us',
+
+                    /*
+                 * Return zero when user has no Sell/Rent listing.
+                 */
+                    DB::raw("
+                    COALESCE(
+                        property_purpose_counts.properties_for_sell,
+                        0
+                    ) as properties_for_sell
+                "),
+
+                    DB::raw("
+                    COALESCE(
+                        property_purpose_counts.properties_for_rent,
+                        0
+                    ) as properties_for_rent
+                "),
+
                     'users.created_at',
                     'users.updated_at'
                 );
@@ -2966,54 +3107,83 @@ class UserController extends Controller
 
             $paginatedData = $query->paginate($perPage);
 
-            $paginatedData->getCollection()->transform(function ($user) use ($AuthUser) {
-                $email = $user->email;
-                $phone = $user->phone;
+            $paginatedData
+                ->getCollection()
+                ->transform(function ($user) use ($AuthUser) {
+                    $email = $user->email;
+                    $phone = $user->phone;
 
-                if (!$AuthUser) {
-                    if (!empty($email)) {
-                        $email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $email);
+                    if (!$AuthUser) {
+                        if (!empty($email)) {
+                            $email = preg_replace(
+                                '/(?<=.{2}).(?=.*@)/',
+                                '*',
+                                $email
+                            );
+                        }
+
+                        if (!empty($phone)) {
+                            $phone = substr($phone, 0, 3)
+                                . '****'
+                                . substr($phone, -3);
+                        }
                     }
 
-                    if (!empty($phone)) {
-                        $phone = substr($phone, 0, 3) . '****' . substr($phone, -3);
-                    }
-                }
+                    return [
+                        'id' => (int) $user->id,
+                        'first_name' => $user->first_name,
+                        'last_name' => $user->last_name,
+                        'email' => $email,
+                        'phone' => $phone,
 
-                return [
-                    'id' => $user->id,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'email' => $email,
-                    'phone' => $phone,
-                    'role_id' => $user->role_id,
-                    'role_name' => $user->role_name,
-                    'unique_id' => $user->unique_id,
-                    'isapproved' => $user->isapproved,
-                    'country' => $user->country ?? 'N/A',
-                    'state' => $user->state ?? 'N/A',
-                    'city' => $user->city ?? 'N/A',
-                    'area_locality' => $user->area_locality ?? 'N/A',
-                    'colony' => $user->colony ?? 'N/A',
-                    'street_address' => $user->street_address ?? 'N/A',
-                    'pin_code' => $user->pin_code ?? 'N/A',
-                    'about' => $user->about,
-                    'bussiness_name' => $user->bussiness_name,
-                    'profile_photo' => $user->profile_photo ? url($user->profile_photo) : null,
-                    'about_us' => $user->about_us,
-                    'created_at' => $user->created_at,
-                    'updated_at' => $user->updated_at
-                ];
-            });
+                        'role_id' => $user->role_id,
+                        'role_name' => $user->role_name,
+                        'unique_id' => $user->unique_id,
+                        'isapproved' => $user->isapproved,
+
+                        'country' => $user->country ?? 'N/A',
+                        'state' => $user->state ?? 'N/A',
+                        'city' => $user->city ?? 'N/A',
+                        'area_locality' => $user->area_locality ?? 'N/A',
+                        'colony' => $user->colony ?? 'N/A',
+                        'street_address' => $user->street_address ?? 'N/A',
+                        'pin_code' => $user->pin_code ?? 'N/A',
+
+                        'about' => $user->about,
+                        'bussiness_name' => $user->bussiness_name,
+
+                        'profile_photo' => $user->profile_photo
+                            ? url($user->profile_photo)
+                            : null,
+
+                        'about_us' => $user->about_us,
+
+                        /*
+                     * New Sell/Rent count parameters.
+                     */
+                        'properties_for_sell' => (int) $user->properties_for_sell,
+                        'properties_for_rent' => (int) $user->properties_for_rent,
+
+                        'created_at' => $user->created_at,
+                        'updated_at' => $user->updated_at,
+                    ];
+                });
 
             return response()->json([
                 'success' => true,
                 'message' => 'User details retrieved successfully',
-                'users' => $paginatedData
+                'users' => $paginatedData,
             ], 200);
         } catch (\Throwable $th) {
-            \Log::error('Error fetching user list by role:', ['error' => $th->getMessage()]);
-            return response()->json(['error' => 'Internal Server Error.'], 500);
+            \Log::error('Error fetching user list by role:', [
+                'error' => $th->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal Server Error.',
+                'error' => $th->getMessage(),
+            ], 500);
         }
     }
 
