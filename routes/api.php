@@ -1134,17 +1134,17 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('frontend/listings', [UserPropertyListingController::class, 'store']);
 
     Route::get(
-        'frontend/listings/{listing}',
+        'users-property-listing/{listing}',
         [UserPropertyListingController::class, 'show']
     );
 
     Route::post(
-        'frontend/listings/{listing}/update',
+        'users-property-listing/{listing}/update',
         [UserPropertyListingController::class, 'update']
     );
 
     Route::delete(
-        'frontend/listings/{listing}',
+        'users-property-listing/{listing}',
         [UserPropertyListingController::class, 'destroy']
     );
     Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
