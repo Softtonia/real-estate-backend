@@ -140,7 +140,6 @@ class UserController extends Controller
 
         return 'uploads/' . $storedPath;
     }
-
     private function deletePublicUpload(?string $path): void
     {
         if (empty($path)) {
@@ -3332,74 +3331,7 @@ class UserController extends Controller
         return false;
     }
 
-    private function storePublicUpload(UploadedFile $file, string $folder, string $prefix): string
-    {
-        if (!$file || !$file->isValid()) {
-            throw new \Exception('Invalid uploaded file.');
-        }
 
-        $folder = trim($folder, '/');
-
-        $extension = strtolower(
-            $file->getClientOriginalExtension()
-                ?: $file->extension()
-                ?: 'bin'
-        );
-
-        $fileName = Str::slug($prefix, '_')
-            . '_'
-            . now()->format('YmdHis')
-            . '_'
-            . Str::random(8)
-            . '.'
-            . $extension;
-
-        $storedPath = Storage::disk('public_uploads')->putFileAs(
-            $folder,
-            $file,
-            $fileName
-        );
-
-        if (!$storedPath || !Storage::disk('public_uploads')->exists($storedPath)) {
-            throw new \Exception('File could not be saved.');
-        }
-
-        return 'uploads/' . $storedPath;
-    }
-
-    private function deletePublicUpload(?string $path): void
-    {
-        if (empty($path)) {
-            return;
-        }
-
-        $path = trim($path);
-        $path = str_replace('\\/', '/', $path);
-        $path = ltrim($path, '/');
-
-        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
-            $parsedPath = parse_url($path, PHP_URL_PATH);
-            $path = ltrim((string) $parsedPath, '/');
-        }
-
-        if (str_starts_with($path, 'storage/uploads/')) {
-            $path = str_replace('storage/uploads/', 'uploads/', $path);
-        }
-
-        if (str_starts_with($path, 'public/uploads/')) {
-            $path = str_replace('public/uploads/', 'uploads/', $path);
-        }
-
-        if (!str_starts_with($path, 'uploads/')) {
-            return;
-        }
-
-        $relativePath = substr($path, strlen('uploads/'));
-
-        if (!empty($relativePath)) {
-            Storage::disk('public_uploads')->delete($relativePath);
-        }
-    }
 
     private function payloadForTable(string $table, array $payload): array
     {
