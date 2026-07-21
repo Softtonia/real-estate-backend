@@ -59,10 +59,14 @@ class UserProfileController extends Controller
             ], 401);
         }
 
+        // Accept Aadhaar number from personal-profile forms as well as KYC forms.
+        // This is important when the frontend sends Aadhaar with "Save Changes".
+        $this->normalizeKycRequest($request);
+
         $isOwnerRole = $this->isOwnerUser($user);
 
         $rules = [
-            'first_name' => ['required', 'string', 'max:255'],
+            'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
             'email' => [
                 'nullable',
@@ -80,6 +84,15 @@ class UserProfileController extends Controller
             'alternate_number' => ['nullable', 'string', 'max:200'],
             'no_of_employees' => ['nullable', 'integer'],
             'about_us' => ['nullable', 'string'],
+
+            // "sometimes" means it is validated only when any supported Aadhaar
+            // field/alias was actually included in the request.
+            'aadhaar_number' => [
+                'sometimes',
+                'nullable',
+                'digits:12',
+                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
+            ],
         ];
 
         if (!$isOwnerRole) {
@@ -101,6 +114,8 @@ class UserProfileController extends Controller
 
         $validator = Validator::make($request->all(), $rules, [
             'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
+            'aadhaar_number.digits' => 'Aadhaar number must contain exactly 12 digits.',
+            'aadhaar_number.unique' => 'This Aadhaar number is already linked with another user.',
         ]);
 
         if ($validator->fails()) {
@@ -129,6 +144,7 @@ class UserProfileController extends Controller
                     'alternate_number',
                     'no_of_employees',
                     'about_us',
+                    'aadhaar_number',
                 ];
 
                 if (!$isOwnerRole) {
@@ -150,10 +166,9 @@ class UserProfileController extends Controller
                 }
 
                 if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(
-                        ['user_id' => $user->id],
-                        $detailPayload
-                    );
+                    // Use the database-level persistence helper so Aadhaar and
+                    // other user_details fields cannot be skipped by model settings.
+                    $this->persistUserDetailPayload($user, $detailPayload);
                 }
             });
 
@@ -1780,40 +1795,139 @@ class UserProfileController extends Controller
 
         return $progress;
     }
+    /**
+     * Normalize Aadhaar input from JSON, form-data, URL-encoded forms,
+     * nested payloads, spelling variations, spaces and hyphens.
+     *
+     * The normalized value is always merged as "aadhaar_number", so all
+     * validation and persistence code works with one canonical field name.
+     */
     private function normalizeKycRequest(Request $request): void
     {
-        $aliases = [
+        $acceptedKeys = [
+            // Correct spellings
             'aadhaar_number',
-            'aadhar_number',
-            'adhar_number',
-            'addhar_number',
             'aadhaar_no',
-            'aadhar_no',
-            'adhar_no',
-            'addhar_no',
-            'aadhaarNumber',
-            'aadharNumber',
             'aadhaar',
+            'aadhaar_card_number',
+            'aadhaar_card_no',
+            'aadhaarNumber',
+            'aadhaarNo',
+            'aadhaarCardNumber',
+            'aadhaarCardNo',
+
+            // Common spellings used by frontends/forms
+            'aadhar_number',
+            'aadhar_no',
             'aadhar',
+            'aadhar_card_number',
+            'aadhar_card_no',
+            'aadharNumber',
+            'aadharNo',
+            'aadharCardNumber',
+            'aadharCardNo',
+
+            'adhaar_number',
+            'adhaar_no',
+            'adhaar',
+            'adhaar_card_number',
+            'adhaar_card_no',
+            'adhaarNumber',
+            'adhaarNo',
+            'adhaarCardNumber',
+
+            'adhar_number',
+            'adhar_no',
+            'adhar',
+            'adhar_card_number',
+            'adhar_card_no',
+            'adharNumber',
+            'adharNo',
+            'adharCardNumber',
+
+            'addhar_number',
+            'addhar_no',
+            'addhar',
+            'addhar_card_number',
+            'addhar_card_no',
+            'addharNumber',
+            'addharNo',
+            'addharCardNumber',
         ];
 
-        foreach ($aliases as $key) {
-            if (!$request->exists($key)) {
+        // Compare keys case-insensitively and ignore spaces, underscores and hyphens.
+        // For example: "Aadhaar Number", "aadhaar-number" and "aadhaar_number"
+        // are treated as the same key.
+        $normalizedAcceptedKeys = collect($acceptedKeys)
+            ->mapWithKeys(function (string $key): array {
+                return [$this->normalizeAadhaarInputKey($key) => true];
+            })
+            ->all();
+
+        $foundAnyAlias = false;
+        $resolvedValue = null;
+
+        foreach ($this->flattenRequestInput($request->all()) as $key => $value) {
+            $leafKey = str_contains($key, '.')
+                ? (string) Str::afterLast($key, '.')
+                : $key;
+
+            if (!isset($normalizedAcceptedKeys[$this->normalizeAadhaarInputKey($leafKey)])) {
                 continue;
             }
 
-            $value = $request->input($key);
+            $foundAnyAlias = true;
 
-            if ($value !== null && $value !== '') {
-                $value = preg_replace('/\D+/', '', (string) $value);
+            // Do not stop at an empty canonical field. Some frontend payloads
+            // accidentally send aadhaar_number="" plus a populated alias.
+            if ($value === null || is_array($value) || $value instanceof UploadedFile) {
+                continue;
             }
 
-            $request->merge([
-                'aadhaar_number' => $value !== '' ? $value : null,
-            ]);
+            $digits = preg_replace('/\D+/', '', trim((string) $value));
 
-            return;
+            if ($digits !== '') {
+                $resolvedValue = $digits;
+                break;
+            }
         }
+
+        if ($foundAnyAlias) {
+            $request->merge([
+                'aadhaar_number' => $resolvedValue,
+            ]);
+        }
+    }
+
+    /**
+     * Flatten nested request data while retaining the full dotted key path.
+     */
+    private function flattenRequestInput(array $input, string $prefix = ''): array
+    {
+        $flattened = [];
+
+        foreach ($input as $key => $value) {
+            $fullKey = $prefix === ''
+                ? (string) $key
+                : $prefix . '.' . $key;
+
+            if (is_array($value)) {
+                $flattened += $this->flattenRequestInput($value, $fullKey);
+                continue;
+            }
+
+            $flattened[$fullKey] = $value;
+        }
+
+        return $flattened;
+    }
+
+    /**
+     * Convert an input key into a comparable form.
+     */
+    private function normalizeAadhaarInputKey(string $key): string
+    {
+        return strtolower((string) preg_replace('/[^a-z0-9]+/i', '', trim($key)));
     }
 
     /**
