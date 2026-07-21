@@ -1295,7 +1295,6 @@ class UserController extends Controller
         }
     }
 
-
     public function updateUser(Request $request)
     {
         return $this->updateUserRecordFromRequest(
@@ -1304,8 +1303,6 @@ class UserController extends Controller
             adminMode: false
         );
     }
-
-
     //  for delete user
     public function deleteUser(Request $request)
     {
