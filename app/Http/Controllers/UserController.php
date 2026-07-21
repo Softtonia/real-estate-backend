@@ -45,10 +45,12 @@ use App\Exports\SubscribedEmailsExport;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Schema;
 
 class UserController extends Controller
 {
-
+    private const MAX_UPLOAD_KB = 2048;
     private function clearUserCaches($userId = null)
     {
         Cache::store('redis')->forget('user_status_list');
@@ -703,228 +705,7 @@ class UserController extends Controller
 
     public function updateuserbyid(Request $request)
     {
-
-        $authUser = Auth::user();
-
-
-        try {
-            $request->validate([
-                'first_name' => ['required', 'string', 'max:255'],
-                'last_name' => ['required', 'string', 'max:255'],
-                'role_id' => ['required', 'exists:roles,id'],
-                'password' => [
-                    'nullable',
-                    'min:8',
-                    'regex:/[A-Z]/',        // at least one uppercase
-                    'regex:/[a-z]/',        // at least one lowercase
-                    'regex:/[0-9]/',        // at least one digit
-                    'regex:/[@$!%*#?&]/',   // at least one special character
-                ],
-                'user_name' => [
-                    'required',
-                    'string',
-                    'min:3',
-                    'max:20',
-                    'regex:/^[a-zA-Z0-9._]+$/',
-                    Rule::unique('users', 'user_name')->ignore($request->id),
-                ],
-                'country_id' => ['nullable', 'exists:countries,id'],
-                'state_id' => ['nullable', 'exists:states,id'],
-                'city_id' => ['nullable', 'exists:cities,id'],
-                'area_locality' => ['nullable', 'string'],
-                'colony' => ['nullable', 'string'],
-                'street_address' => ['nullable', 'string'],
-                'pin_code' => ['nullable', 'numeric', 'min:6'],
-                'about' => ['nullable', 'string'],
-                // KYC fields
-                'kyc' => 'nullable|in:0,1,2',
-                'aadhaar_number' => [
-                    'required',
-                    'digits:12',
-                    Rule::unique('user_details', 'aadhaar_number')->ignore($request->id, 'user_id'),
-                ],
-                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
-                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
-
-            ], [
-                'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
-                'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
-            ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
-        }
-
-        if ($request->role_id == 1) {
-            return response()->json(['error' => 'You cannot create the admin role as it already exists.'], 400);
-        }
-
-        $role = Role::find($request->role_id);
-        if (!$role) {
-            return response()->json(['error' => 'Invalid role provided.'], 400);
-        }
-
-
-
-        // Conditional validation based on role
-        $conditionalRoles = ['agent', 'company', 'developer', 'consultancy'];
-        if (in_array(strtolower($role->name), $conditionalRoles)) {
-            try {
-                $request->validate([
-                    'bussiness_name' => 'required|string|max:255',
-                    'business_phone' => 'required|string|max:20',
-                    'bussiness_email' => 'required|email',
-                    'country_id' => 'required|numeric|exists:countries,id',
-                    'state_id' => 'required|numeric|exists:states,id',
-                    'city_id' => 'required|numeric|exists:cities,id',
-                    'license_number' => 'required|string|max:100',
-                    'business_country_id' => 'required|numeric|exists:countries,id',
-                    'business_state_id' => 'required|numeric|exists:states,id',
-                    'business_city_id' => 'required|numeric|exists:cities,id',
-                    'business_area_locality' => 'nullable|string',
-                    'business_colony' => 'nullable|string',
-                    'business_street_address' => 'nullable|string',
-                    'business_pin_code' => 'required|numeric|min:6',
-                    'about_me' => 'nullable|string',
-                    'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10', 'max:5120'],
-                ]);
-            } catch (ValidationException $e) {
-                return response()->json(['error' => $e->errors()], 400);
-            }
-        }
-
-        $user = User::find($request->id);
-        // \Log::info($user);
-        if (!$user) {
-            return response()->json(['error' => 'User not found.'], 200);
-        }
-
-        $user->first_name = $request->first_name;
-        $user->last_name = $request->last_name;
-        $user->user_name = $request->user_name;
-        $user->email = $request->email;
-        $user->phone = $request->phone;
-        $user->role_id = $request->role_id;
-        $user->isapproved = $request->isapproved;
-        $user->reject_reason = $request->reject_reason;
-        $user->country_id = $request->country_id;
-        $user->state_id = $request->state_id;
-        $user->city_id = $request->city_id;
-        $user->area_locality = $request->area_locality;
-        $user->colony = $request->colony;
-        $user->street_address = $request->street_address;
-        $user->pin_code = $request->pin_code;
-        $user->about = $request->about;
-
-        if ($authUser->role->name == 'admin') {
-            $user->kyc = $request->kyc ?? $user->kyc;
-        }
-
-        if ($request->filled('password')) {
-            $user->password = Hash::make($request->password);
-        }
-
-        DB::beginTransaction();
-        try {
-            $user->save();
-
-            $userDetail = [
-                'user_id' => $user->id,
-                'role_id' => $request->role_id,
-                'bussiness_name' => $request->bussiness_name,
-                'bussiness_address' => $request->bussiness_address,
-                'bussiness_email' => $request->bussiness_email,
-                'business_phone' => $request->business_phone,
-                'country_id' => $request->business_country_id ?? null,
-                'state_id' => $request->business_state_id ?? null,
-                'city_id' => $request->business_city_id ?? null,
-                'address' => $request->address,
-                'pin_code' => $request->business_pin_code,
-                'license_number' => $request->license_number,
-                'alternate_number' => $request->alternate_number,
-                'no_of_employees' => $request->no_of_employees,
-                'about_us' => $request->about_us,
-                'area_locality' => $request->business_area_locality,
-                'colony' => $request->business_colony,
-                'street_address' => $request->business_street_address,
-            ];
-
-            if ($request->hasFile('profile_photo')) {
-                $file = $request->file('profile_photo');
-                $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
-                $file->move(public_path('uploads/users'), $fileName);
-                $userDetail['profile_photo'] = 'uploads/users/' . $fileName;
-            }
-
-
-            if ($authUser->role->name == 'admin') {
-
-                $userDetail['aadhaar_number'] = $request->aadhaar_number;
-                if ($user->role->name == 'owner') {
-                    if ($request->hasFile('aadhaar_front')) {
-                        $file = $request->file('aadhaar_front');
-                        $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
-                        $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
-                        $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
-                    }
-
-                    if ($request->hasFile('aadhaar_back')) {
-                        $file = $request->file('aadhaar_back');
-                        $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
-                        $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
-                        $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
-                    }
-                } else {
-
-                    if ($request->hasFile('aadhaar_front')) {
-                        $file = $request->file('aadhaar_front');
-                        $fileName = time() . '_front_' . str_replace(' ', '_', $file->getClientOriginalName());
-                        $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
-                        $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
-                    }
-
-                    if ($request->hasFile('aadhaar_back')) {
-                        $file = $request->file('aadhaar_back');
-                        $fileName = time() . '_back_' . str_replace(' ', '_', $file->getClientOriginalName());
-                        $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
-                        $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
-                    }
-
-                    if ($request->hasFile('business_proof')) {
-                        $file = $request->file('business_proof');
-                        $fileName = time() . '_proof_' . str_replace(' ', '_', $file->getClientOriginalName());
-                        $file->move(public_path('uploads/kyc/businessProof'), $fileName);
-                        $userDetail['business_proof'] = 'uploads/kyc/businessProof/' . $fileName;
-                    }
-                }
-            }
-
-            UserDetail::where('user_id', $user->id)->update($userDetail);
-
-
-
-            // Check role and required fields for KYC update
-            $rolesForKYC = ['agent', 'company', 'consultancy', 'developer'];
-            $role = Role::find($request->role_id);
-            if ($role && in_array(strtolower($role->name), $rolesForKYC)) {
-                if (
-                    $request->bussiness_name && $request->bussiness_address && $request->bussiness_email &&
-                    $request->business_phone && $request->country_id && $request->state_id && $request->city_id &&
-                    $request->address && $request->pin_code && $request->license_number && $request->business_country_id &&
-                    $request->business_state_id && $request->business_city_id && $request->business_area_locality && $request->business_colony && $request->business_street_address && $request->business_pin_code
-                ) {
-                    $user->isapproved = 3;
-                    $user->save();
-                }
-            }
-
-            DB::commit();
-
-            return response()->json(['status' => true, 'message' => 'User updated successfully.'], 200);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed to update user. ' . $e->getMessage()], 500);
-        }
+        return $this->updateUserRecordFromRequest($request, (int) $request->input('id'), true);
     }
 
 
@@ -1217,315 +998,156 @@ class UserController extends Controller
 
     public function createUser(Request $request)
     {
+        $this->normalizeKycRequest($request);
 
-        $authUser = Auth::user();
+        $role = Role::find($request->input('role_id'));
 
-        try {
-            $validated = $request->validate([
-                'first_name' => 'required|string|max:255',
-                'last_name' => 'required|string|max:255',
-                'phone' => 'required|unique:users',
-                'email' => 'required|email|unique:users',
-                'role_id' => 'required|exists:roles,id',
-                'password' => 'required',
-                'country_id' => 'nullable|exists:countries,id',
-                'state_id' => 'nullable|exists:states,id',
-                'city_id' => 'nullable|exists:cities,id',
-                'area_locality' => 'nullable|string',
-                'colony' => 'nullable|string',
-                'street_address' => 'nullable|string',
-                'pin_code' => 'nullable|numeric|min:6',
-                'about' => 'nullable|string',
-                'user_name' => 'required|string|min:3|max:20|unique:users,user_name|regex:/^[a-zA-Z0-9._]+$/',
-
-                // KYC fields
-                'kyc' => 'nullable|in:0,1,2',
-                'aadhaar_number' => [
-                    'nullable',
-                    'digits:12',
-                    Rule::unique('user_details', 'aadhaar_number')
-                ],
-                'aadhaar_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
-                'aadhaar_back' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10', 'max:5120'],
-                'business_proof' => ['nullable', 'file', 'mimes:pdf', 'min:10', 'max:5120'],
-
-            ], [
-                'user_name.regex' => 'Only letters, numbers, dot and underscore are allowed in username.',
-            ]);
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Validation Failed',
-                'errors' => $e->errors()
-            ], 422);
-        }
-
-        // Fetch the role using role_id
-        $role = Role::find($request->role_id);
         if (!$role) {
-            return response()->json(['error' => 'Invalid role provided.'], 400);
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid role provided.',
+            ], 400);
         }
 
-        // **Dynamic Admin Role Check**
-        if (strtolower($role->name) === 'admin') {
-            return response()->json(['error' => 'You cannot create an admin role.'], 400);
+        if ($this->roleText($role) === 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'You cannot create an admin user.',
+            ], 400);
         }
 
-        // Conditional validation for specific roles
-        $conditionalRoles = ['agent', 'company', 'developer', 'consultancy'];
-        if (in_array(strtolower($role->name), $conditionalRoles)) {
-            try {
-                $request->validate([
-                    'bussiness_name' => 'required|string|max:255',
-                    'business_phone' => 'required|string|max:20',
-                    'bussiness_email' => 'required|email',
-                    'business_country_id' => 'required|numeric|exists:countries,id',
-                    'business_state_id' => 'required|numeric|exists:states,id',
-                    'business_city_id' => 'required|numeric|exists:cities,id',
-                    'license_number' => 'required|string|max:100',
-                    'business_area_locality' => 'nullable|string',
-                    'business_colony' => 'nullable|string',
-                    'business_street_address' => 'nullable|string',
-                    'business_pin_code' => 'required|numeric|min:6',
-                    'about_me' => 'nullable|string',
-                ]);
-            } catch (ValidationException $e) {
-                return response()->json([
-                    'message' => 'Validation Failed (Additional Fields)',
-                    'errors' => $e->errors()
-                ], 422);
-            }
+        $validator = Validator::make(
+            $request->all(),
+            $this->baseUserValidationRules($request, null, true),
+            [
+                'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
+                'profile_photo.max' => 'Profile photo must not be greater than 2MB.',
+                'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
+                'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
+                'business_proof.max' => 'Business proof must not be greater than 2MB.',
+                'aadhaar_number.digits' => 'Aadhaar number must contain exactly 12 digits.',
+                'aadhaar_number.unique' => 'This Aadhaar number is already linked with another user.',
+            ]
+        );
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
         }
 
+        $newFiles = [];
 
-
-        $prefix = $role->prefix ?? '';
-        $uniqueIDModel = new UniqueID();
-        $uniqueIDModel->unique_id = $prefix . str_pad(UniqueID::count() + 1, 3, '0', STR_PAD_LEFT);
-        $uniqueIDModel->save();
-
-        $token = Str::random(60);
-
-        // Handle profile photo upload
-        $profilePhotoPath = null;
-        $aadhaarFrontPath = null;
-        $aadhaarBackPath = null;
-        $businessProofPath = null;
-
-        if ($request->hasFile('profile_photo')) {
-            $photo = $request->file('profile_photo');
-            $fileName = time() . '_' . str_replace(' ', '_', $photo->getClientOriginalName());
-            $photo->move(public_path('uploads/users'), $fileName);
-            $profilePhotoPath = 'uploads/users/' . $fileName;
-        } elseif ($request->has('icon') && !empty($request->icon)) {
-            $profilePhotoPath = $request->icon;
-        }
-
-        if ($request->hasFile('aadhaar_front')) {
-            $aadhaarFront = $request->file('aadhaar_front');
-            $fileName = time() . '_aadhaar_front_' . str_replace(' ', '_', $aadhaarFront->getClientOriginalName());
-            $aadhaarFront->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
-            $aadhaarFrontPath = 'uploads/kyc/aadhaarFront/' . $fileName;
-        }
-
-        if ($request->hasFile('aadhaar_back')) {
-            $aadhaarBack = $request->file('aadhaar_back');
-            $fileName = time() . '_aadhaar_back_' . str_replace(' ', '_', $aadhaarBack->getClientOriginalName());
-            $aadhaarBack->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
-            $aadhaarBackPath = 'uploads/kyc/aadhaarBack/' . $fileName;
-        }
-
-        if ($request->hasFile('business_proof')) {
-            $businessProof = $request->file('business_proof');
-            $fileName = time() . '_business_proof_' . str_replace(' ', '_', $businessProof->getClientOriginalName());
-            $businessProof->move(public_path('uploads/kyc/businessProof'), $fileName);
-            $businessProofPath = 'uploads/kyc/businessProof/' . $fileName;
-        }
-
-        DB::beginTransaction();
         try {
-            $user = User::create([
-                'first_name' => $request->first_name,
-                'last_name' => $request->last_name,
-                'user_name' => $request->user_name,
-                'email' => $request->email,
-                'phone' => $request->phone,
-                'api_token' => $token,
-                'remember_token' => $request->token,
-                'unique_id' => $uniqueIDModel->unique_id,
-                'role_id' => $request->role_id,
-                'password' => Hash::make($request->password),
-                'isapproved' => $request->isapproved,
-                'kyc' => $request->kyc ?? 0,
-                'created_by' => $authUser->id,
-                'country_id' => $request->country_id,
-                'state_id' => $request->state_id,
-                'city_id' => $request->city_id,
-                'area_locality' => $request->area_locality,
-                'colony' => $request->colony,
-                'street_address' => $request->street_address,
-                'pin_code' => $request->pin_code,
-                'about' => $request->about
-            ]);
-            // dd($user);
-            DB::table('user_has_unique_ids')->insert([
-                'user_id' => $user->id,
-                'unique_id' => $uniqueIDModel->id,
+            if ($request->hasFile('profile_photo')) {
+                $newFiles['profile_photo'] = $this->storePublicUpload(
+                    $request->file('profile_photo'),
+                    'users',
+                    'user_profile'
+                );
+            }
+
+            if ($request->hasFile('aadhaar_front')) {
+                $newFiles['aadhaar_front'] = $this->storePublicUpload(
+                    $request->file('aadhaar_front'),
+                    'kyc/aadhaarFront',
+                    'aadhaar_front'
+                );
+            }
+
+            if ($request->hasFile('aadhaar_back')) {
+                $newFiles['aadhaar_back'] = $this->storePublicUpload(
+                    $request->file('aadhaar_back'),
+                    'kyc/aadhaarBack',
+                    'aadhaar_back'
+                );
+            }
+
+            if (!$this->isOwnerRole($role) && $request->hasFile('business_proof')) {
+                $newFiles['business_proof'] = $this->storePublicUpload(
+                    $request->file('business_proof'),
+                    'kyc/businessProof',
+                    'business_proof'
+                );
+            }
+
+            $user = DB::transaction(function () use ($request, $role, $newFiles) {
+                $uniqueIDModel = $this->createUniqueIdForRole($role);
+
+                $user = new User();
+
+                $userPayload = $this->userPayloadFromRequest($request, $role, true);
+
+                $userPayload['role_id'] = $role->id;
+                $userPayload['unique_id'] = $uniqueIDModel->unique_id;
+
+                if (Schema::hasColumn('users', 'created_by')) {
+                    $userPayload['created_by'] = Auth::id() ?? 0;
+                }
+
+                foreach ($userPayload as $column => $value) {
+                    $user->{$column} = $value;
+                }
+
+                $user->save();
+
+                if (
+                    Schema::hasTable('user_has_unique_ids')
+                    && Schema::hasColumn('user_has_unique_ids', 'user_id')
+                    && Schema::hasColumn('user_has_unique_ids', 'unique_id')
+                ) {
+                    DB::table('user_has_unique_ids')->insert([
+                        'user_id' => $user->id,
+                        'unique_id' => $uniqueIDModel->id,
+                    ]);
+                }
+
+                $detailPayload = $this->userDetailPayloadFromRequest($request, $user, $role);
+
+                if (Schema::hasColumn('user_details', 'created_by')) {
+                    $detailPayload['created_by'] = Auth::id() ?? 0;
+                }
+
+                foreach ($newFiles as $column => $path) {
+                    if (Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $path;
+                    }
+                }
+
+                $this->persistUserDetailPayload($user, $detailPayload);
+
+                return $user;
+            });
+
+            $this->clearUserCaches($user->id);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'User created successfully.',
+                'data' => [
+                    'id' => $user->id,
+                    'unique_id' => $user->unique_id,
+                ],
+            ], 201);
+        } catch (\Throwable $e) {
+            foreach ($newFiles as $path) {
+                $this->deletePublicUpload($path);
+            }
+
+            \Log::error('User create failed', [
+                'error' => $e->getMessage(),
             ]);
 
-            UserDetail::create([
-                'user_id' => $user->id,
-                'role_id' => $request->role_id,
-                'bussiness_name' => $request->bussiness_name,
-                'bussiness_address' => $request->bussiness_address,
-                'bussiness_email' => $request->bussiness_email,
-                'business_phone' => $request->business_phone,
-                'country_id' => $request->business_country_id,
-                'state_id' => $request->business_state_id,
-                'city_id' => $request->business_city_id,
-                'address' => $request->business_address,
-                'pin_code' => $request->business_pin_code,
-                'license_number' => $request->license_number,
-                'alternate_number' => $request->alternate_number,
-                'no_of_employees' => $request->no_of_employees,
-                'profile_photo' => $profilePhotoPath,
-                'created_by' => $authUser->id,
-                'about_us' => $request->about_us,
-                'area_locality' => $request->business_area_locality,
-                'colony' => $request->business_colony,
-                'street_address' => $request->business_street_address,
-                // KYC fields
-                'aadhaar_number' => $request->aadhaar_number,
-                'aadhaar_front' => $aadhaarFrontPath,
-                'aadhaar_back' => $aadhaarBackPath,
-                'business_proof' => $businessProofPath,
-            ]);
-
-            DB::commit();
-            return response()->json(['status' => true, 'message' => 'User created successfully.'], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed to create user. ' . $e->getMessage()], 500);
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to create user.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 
 
     public function updateUser(Request $request)
     {
-
-        // Validate request data
-        try {
-            $request->validate([
-                'first_name' => 'required|string|max:255',
-                'last_name' => 'required|string|max:255',
-                'id' => 'required|exists:users,id',
-                'phone' => 'required|unique:users,phone,' . $request->id,
-                'email' => 'required|unique:users,email,' . $request->id,
-                'role_id' => 'required|exists:roles,id',
-                'password' => 'nullable',
-
-            ]);
-        } catch (ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
-        }
-
-        $adminRoleId = 1;
-        if ($request->role_id == $adminRoleId) {
-            return response()->json(['error' => 'You cannot create the admin role as it already exists.'], 400);
-        }
-
-        $role = Role::find($request->role_id);
-        if (!$role) {
-            return response()->json(['error' => 'Invalid role provided.'], 400);
-        }
-
-
-
-        // Conditional validation based on role
-        $conditionalRoles = ['agent', 'company', 'developer', 'consultancy'];
-        if (in_array(strtolower($role->name), $conditionalRoles)) {
-            try {
-                $request->validate([
-                    'bussiness_name' => 'required|string|max:255',
-                    'business_phone' => 'required|string|max:20',
-                    'bussiness_email' => 'required|email',
-                    'country_id' => 'required|numeric|exists:countries,id',
-                    'state_id' => 'required|numeric|exists:states,id',
-                    'city_id' => 'required|numeric|exists:cities,id',
-                    'license_number' => 'required|string|max:100',
-                ]);
-            } catch (ValidationException $e) {
-                return response()->json(['error' => $e->errors()], 400);
-            }
-        }
-
-
-
-        $id = $request->id;
-        $user = User::find($id);
-
-        if (!$user) {
-            return response()->json(['error' => 'User not found.'], 200);
-        }
-        $user->first_name = $request->first_name;
-        $user->last_name = $request->last_name;
-        $user->email = $request->email;
-        $user->phone = $request->phone;
-        $user->role_id = $request->role_id;
-        $user->user_name = $request->user_name;
-
-        // Update password only if provided
-        if ($request->filled('password')) {
-            $user->password = Hash::make($request->password);
-        }
-
-        DB::beginTransaction();
-        try {
-            $user->save();
-
-            $userDetail = [
-                'user_id' => $user->id,
-                'role_id' => $request->role_id,
-                'bussiness_name' => $request->bussiness_name,
-                'bussiness_address' => $request->bussiness_address,
-                'bussiness_email' => $request->bussiness_email,
-                'business_phone' => $request->business_phone,
-                'country_id' => is_numeric($request->country_id) ? $request->country_id : null,
-                'state_id' => is_numeric($request->state_id) ? $request->state_id : null,
-                'city_id' => is_numeric($request->city_id) ? $request->city_id : null,
-                'address' => $request->address,
-                'pin_code' => $request->pin_code,
-                'license_number' => $request->license_number,
-                'alternate_number' => $request->alternate_number,
-                'no_of_employees' => $request->no_of_employees,
-            ];
-
-
-            // Handle profile photo or icon
-            $profilePhotoPath = null;
-            if ($request->hasFile('profile_photo')) {
-                $photo = $request->file('profile_photo');
-                $fileName = time() . '_' . str_replace(' ', '_', $photo->getClientOriginalName());
-                $photo->move(public_path('uploads/users'), $fileName);
-                $profilePhotoPath = 'uploads/users/' . $fileName;
-            } elseif ($request->has('icon') && !empty($request->icon)) {
-                $profilePhotoPath = $request->icon;
-            }
-
-            if ($profilePhotoPath) {
-                $userDetail['profile_photo'] = $profilePhotoPath;
-            }
-
-            UserDetail::where('user_id', $id)->update($userDetail);
-
-            DB::commit();
-
-            return response()->json(['status' => true, 'message' => 'User updated successfully.'], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed to update user. ' . $e->getMessage()], 500);
-        }
+        return $this->updateUserRecordFromRequest($request, (int) $request->input('id'), false);
     }
 
 
@@ -3273,110 +2895,192 @@ class UserController extends Controller
     // Update the current user's details
     public function updateCurrentUser(Request $request)
     {
-        try {
-            $request->validate([
-                'first_name' => ['required', 'string', 'max:255'],
-                'last_name' => ['required', 'string', 'max:255'],
-                'password' => [
-                    'nullable',
-                    'min:8',
-                    'regex:/[A-Z]/',        // at least one uppercase
-                    'regex:/[a-z]/',        // at least one lowercase
-                    'regex:/[0-9]/',        // at least one digit
-                    'regex:/[@$!%*#?&]/',   // at least one special character
-                ],
-                'user_name' => [
-                    'required',
-                    'string',
-                    'min:3',
-                    'max:20',
-                    'regex:/^[a-zA-Z0-9._]+$/',
-                    Rule::unique('users', 'user_name')->ignore(Auth::id()),
-                ],
-                'country_id' => ['required', 'exists:countries,id'],
-                'state_id' => ['required', 'exists:states,id'],
-                'city_id' => ['required', 'exists:cities,id'],
-                'area_locality' => ['nullable', 'string'],
-                'colony' => ['nullable', 'string'],
-                'street_address' => ['nullable', 'string'],
-                'pin_code' => ['required', 'numeric', 'digits:6'],
-                'about' => ['nullable', 'string'],
-            ], [
-                'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
-                'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
-            ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
-        }
-
-        $user = Auth::user(); // current user from token
+        $user = $this->resolveCurrentUserFromRequest($request);
 
         if (!$user) {
-            return response()->json(['error' => 'User not authenticated.'], 401);
+            return response()->json([
+                'status' => false,
+                'message' => 'User not authenticated.',
+            ], 401);
         }
 
-        // Update user basic fields
-        $user->first_name = $request->first_name;
-        $user->last_name = $request->last_name;
-        $user->user_name = $request->user_name;
-        $user->email = $request->email ?? $user->email;
-        $user->phone = $request->phone ?? $user->phone;
-        $user->country_id = $request->country_id;
-        $user->state_id = $request->state_id;
-        $user->city_id = $request->city_id;
-        $user->area_locality = $request->area_locality;
-        $user->colony = $request->colony;
-        $user->street_address = $request->street_address;
-        $user->pin_code = $request->pin_code;
-        $user->about = $request->about;
+        return $this->updateUserRecordFromRequest($request, (int) $user->id, false, true);
+    }
+    private function updateUserRecordFromRequest(
+        Request $request,
+        int $userId,
+        bool $adminMode = false,
+        bool $currentUserMode = false
+    ) {
+        $this->normalizeKycRequest($request);
 
-        if ($request->filled('password')) {
-            $user->password = Hash::make($request->password);
+        if (!$userId) {
+            return response()->json([
+                'status' => false,
+                'message' => 'User id is required.',
+            ], 422);
         }
 
-        DB::beginTransaction();
+        $user = User::find($userId);
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'User not found.',
+            ], 404);
+        }
+
+        $roleId = $request->input('role_id', $user->role_id);
+        $role = Role::find($roleId);
+
+        if (!$role) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid role provided.',
+            ], 400);
+        }
+
+        if ($this->roleText($role) === 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'You cannot update user as admin role.',
+            ], 400);
+        }
+
+        $rules = $this->baseUserValidationRules($request, $user, false);
+
+        if ($currentUserMode) {
+            unset($rules['id']);
+        }
+
+        if (!$request->has('role_id')) {
+            $rules['role_id'] = ['nullable', 'exists:roles,id'];
+        }
+
+        $validator = Validator::make($request->all(), $rules, [
+            'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
+            'profile_photo.max' => 'Profile photo must not be greater than 2MB.',
+            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
+            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
+            'business_proof.max' => 'Business proof must not be greater than 2MB.',
+            'aadhaar_number.digits' => 'Aadhaar number must contain exactly 12 digits.',
+            'aadhaar_number.unique' => 'This Aadhaar number is already linked with another user.',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        $newFiles = [];
+        $oldFiles = [];
+
         try {
-            $user->save();
-
-            // User detail update
-            $userDetail = [
-                'user_id' => $user->id,
-                'bussiness_name' => $request->bussiness_name,
-                'bussiness_address' => $request->bussiness_address,
-                'bussiness_email' => $request->bussiness_email,
-                'business_phone' => $request->business_phone,
-                'country_id' => $request->business_country_id ?? null,
-                'state_id' => $request->business_state_id ?? null,
-                'city_id' => $request->business_city_id ?? null,
-                'address' => $request->address,
-                'pin_code' => $request->business_pin_code,
-                'license_number' => $request->license_number,
-                'alternate_number' => $request->alternate_number,
-                'no_of_employees' => $request->no_of_employees,
-                'about_us' => $request->about_us,
-                'area_locality' => $request->business_area_locality,
-                'colony' => $request->business_colony,
-                'street_address' => $request->business_street_address,
-            ];
+            $existingDetail = UserDetail::query()
+                ->where('user_id', $user->id)
+                ->first();
 
             if ($request->hasFile('profile_photo')) {
-                $file = $request->file('profile_photo');
-                $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
-                $file->move(public_path('uploads/users'), $fileName);
-                $userDetail['profile_photo'] = 'uploads/users/' . $fileName;
+                $oldFiles[] = $existingDetail?->profile_photo;
+
+                $newFiles['profile_photo'] = $this->storePublicUpload(
+                    $request->file('profile_photo'),
+                    'users',
+                    'u' . $user->id . '_profile'
+                );
             }
 
-            UserDetail::updateOrCreate(
-                ['user_id' => $user->id],
-                $userDetail
-            );
+            if ($request->hasFile('aadhaar_front')) {
+                $oldFiles[] = $existingDetail?->aadhaar_front;
 
-            DB::commit();
-            return response()->json(['status' => true, 'message' => 'Profile updated successfully.'], 200);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            \Log::error($e->getMessage());
-            return response()->json(['error' => 'Failed to update profile. ' . $e->getMessage()], 500);
+                $newFiles['aadhaar_front'] = $this->storePublicUpload(
+                    $request->file('aadhaar_front'),
+                    'kyc/aadhaarFront',
+                    'u' . $user->id . '_aadhaar_front'
+                );
+            }
+
+            if ($request->hasFile('aadhaar_back')) {
+                $oldFiles[] = $existingDetail?->aadhaar_back;
+
+                $newFiles['aadhaar_back'] = $this->storePublicUpload(
+                    $request->file('aadhaar_back'),
+                    'kyc/aadhaarBack',
+                    'u' . $user->id . '_aadhaar_back'
+                );
+            }
+
+            if (!$this->isOwnerRole($role) && $request->hasFile('business_proof')) {
+                $oldFiles[] = $existingDetail?->business_proof;
+
+                $newFiles['business_proof'] = $this->storePublicUpload(
+                    $request->file('business_proof'),
+                    'kyc/businessProof',
+                    'u' . $user->id . '_business_proof'
+                );
+            }
+
+            DB::transaction(function () use ($request, $user, $role, $newFiles, $adminMode) {
+                $userPayload = $this->userPayloadFromRequest($request, $role, false);
+
+                if ($request->has('role_id')) {
+                    $userPayload['role_id'] = $role->id;
+                }
+
+                if (!$adminMode) {
+                    unset($userPayload['isapproved'], $userPayload['reject_reason'], $userPayload['kyc']);
+                }
+
+                $userPayload = $this->payloadForTable('users', $userPayload);
+
+                foreach ($userPayload as $column => $value) {
+                    $user->{$column} = $value;
+                }
+
+                if ($user->isDirty()) {
+                    $user->save();
+                }
+
+                $detailPayload = $this->userDetailPayloadFromRequest($request, $user, $role);
+
+                foreach ($newFiles as $column => $path) {
+                    if (Schema::hasColumn('user_details', $column)) {
+                        $detailPayload[$column] = $path;
+                    }
+                }
+
+                $this->persistUserDetailPayload($user, $detailPayload);
+            });
+
+            foreach ($oldFiles as $oldPath) {
+                $this->deletePublicUpload($oldPath);
+            }
+
+            $this->clearUserCaches($user->id);
+
+            return response()->json([
+                'status' => true,
+                'message' => $currentUserMode
+                    ? 'Profile updated successfully.'
+                    : 'User updated successfully.',
+                'data' => [
+                    'id' => $user->id,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            foreach ($newFiles as $path) {
+                $this->deletePublicUpload($path);
+            }
+
+            \Log::error('User update failed', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to update user.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
     public function userAnalytics(Request $request)
@@ -3416,5 +3120,477 @@ class UserController extends Controller
                 'error' => $th->getMessage(),
             ], 500);
         }
+    }
+    private function validationResponse($validator, int $status = 422)
+    {
+        return response()->json([
+            'status' => false,
+            'message' => 'Validation failed.',
+            'errors' => $validator->errors(),
+        ], $status);
+    }
+
+    private function roleText(?Role $role): string
+    {
+        if (!$role) {
+            return '';
+        }
+
+        $text = strtolower(trim((string) (
+            $role->slug
+            ?? $role->name
+            ?? $role->role_name
+            ?? ''
+        )));
+
+        return str_replace([' ', '_', '-'], '', $text);
+    }
+
+    private function isOwnerRole(?Role $role): bool
+    {
+        return in_array($this->roleText($role), [
+            'owner',
+            'propertyowner',
+            'landowner',
+        ], true);
+    }
+
+    private function isBusinessProfileRole(?Role $role): bool
+    {
+        return in_array($this->roleText($role), [
+            'agent',
+            'company',
+            'developer',
+            'consultancy',
+        ], true);
+    }
+
+    private function normalizeKycRequest(Request $request): void
+    {
+        foreach (
+            [
+                'aadhaar_number',
+                'aadhar_number',
+                'adhar_number',
+                'addhar_number',
+                'aadhaar_no',
+                'aadhaarNumber',
+                'aadhaar',
+            ] as $key
+        ) {
+            if ($request->has($key)) {
+                $value = $request->input($key);
+
+                if ($value !== null && $value !== '') {
+                    $value = preg_replace('/\D+/', '', (string) $value);
+                }
+
+                $request->merge([
+                    'aadhaar_number' => $value ?: null,
+                ]);
+
+                break;
+            }
+        }
+    }
+
+    private function requestHasAny(Request $request, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if ($request->has($key)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function storePublicUpload(UploadedFile $file, string $folder, string $prefix): string
+    {
+        if (!$file || !$file->isValid()) {
+            throw new \Exception('Invalid uploaded file.');
+        }
+
+        $folder = trim($folder, '/');
+
+        $extension = strtolower(
+            $file->getClientOriginalExtension()
+                ?: $file->extension()
+                ?: 'bin'
+        );
+
+        $fileName = Str::slug($prefix, '_')
+            . '_'
+            . now()->format('YmdHis')
+            . '_'
+            . Str::random(8)
+            . '.'
+            . $extension;
+
+        $storedPath = Storage::disk('public_uploads')->putFileAs(
+            $folder,
+            $file,
+            $fileName
+        );
+
+        if (!$storedPath || !Storage::disk('public_uploads')->exists($storedPath)) {
+            throw new \Exception('File could not be saved.');
+        }
+
+        return 'uploads/' . $storedPath;
+    }
+
+    private function deletePublicUpload(?string $path): void
+    {
+        if (empty($path)) {
+            return;
+        }
+
+        $path = trim($path);
+        $path = str_replace('\\/', '/', $path);
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parsedPath = parse_url($path, PHP_URL_PATH);
+            $path = ltrim((string) $parsedPath, '/');
+        }
+
+        if (str_starts_with($path, 'storage/uploads/')) {
+            $path = str_replace('storage/uploads/', 'uploads/', $path);
+        }
+
+        if (str_starts_with($path, 'public/uploads/')) {
+            $path = str_replace('public/uploads/', 'uploads/', $path);
+        }
+
+        if (!str_starts_with($path, 'uploads/')) {
+            return;
+        }
+
+        $relativePath = substr($path, strlen('uploads/'));
+
+        if (!empty($relativePath)) {
+            Storage::disk('public_uploads')->delete($relativePath);
+        }
+    }
+
+    private function payloadForTable(string $table, array $payload): array
+    {
+        if (!Schema::hasTable($table)) {
+            return [];
+        }
+
+        return collect($payload)
+            ->filter(fn($value, $column) => Schema::hasColumn($table, $column))
+            ->toArray();
+    }
+
+    private function persistUserDetailPayload(User $user, array $payload): void
+    {
+        $payload['user_id'] = $user->id;
+
+        $payload = $this->payloadForTable('user_details', $payload);
+
+        if (count($payload) <= 1) {
+            return;
+        }
+
+        if (Schema::hasColumn('user_details', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $exists = DB::table('user_details')
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if (!$exists && Schema::hasColumn('user_details', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+
+        DB::table('user_details')->updateOrInsert(
+            ['user_id' => $user->id],
+            $payload
+        );
+    }
+
+    private function createUniqueIdForRole(Role $role): UniqueID
+    {
+        $prefix = (string) ($role->prefix ?? '');
+
+        $nextNumber = UniqueID::query()
+            ->where('unique_id', 'like', $prefix . '%')
+            ->count() + 1;
+
+        do {
+            $uniqueValue = $prefix . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
+            $nextNumber++;
+        } while (UniqueID::query()->where('unique_id', $uniqueValue)->exists());
+
+        $uniqueIDModel = new UniqueID();
+        $uniqueIDModel->unique_id = $uniqueValue;
+        $uniqueIDModel->save();
+
+        return $uniqueIDModel;
+    }
+
+    private function resolveCurrentUserFromRequest(Request $request): ?User
+    {
+        $authUser = Auth::user();
+
+        if ($authUser) {
+            return $authUser;
+        }
+
+        $token = $request->bearerToken();
+
+        if (!$token && $request->filled('api_token')) {
+            $token = $request->input('api_token');
+        }
+
+        if (!$token || !Schema::hasColumn('users', 'api_token')) {
+            return null;
+        }
+
+        return User::query()
+            ->where('api_token', $token)
+            ->first();
+    }
+
+    private function baseUserValidationRules(Request $request, ?User $user = null, bool $create = false): array
+    {
+        $userId = $user?->id;
+
+        $rules = [
+            'id' => [$create ? 'nullable' : 'required', 'integer', 'exists:users,id'],
+
+            'first_name' => [$create ? 'required' : 'sometimes', 'required', 'string', 'max:255'],
+            'last_name' => ['nullable', 'string', 'max:255'],
+
+            'role_id' => [$create ? 'required' : 'nullable', 'exists:roles,id'],
+
+            'password' => [$create ? 'nullable' : 'nullable', 'string', 'min:8'],
+
+            'email' => [
+                'nullable',
+                'email',
+                Rule::unique('users', 'email')->ignore($userId),
+            ],
+
+            'phone' => [
+                'nullable',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')->ignore($userId),
+            ],
+
+            'country_id' => ['nullable', 'exists:countries,id'],
+            'state_id' => ['nullable', 'exists:states,id'],
+            'city_id' => ['nullable', 'exists:cities,id'],
+            'area_locality' => ['nullable', 'string', 'max:255'],
+            'colony' => ['nullable', 'string', 'max:255'],
+            'street_address' => ['nullable', 'string', 'max:255'],
+            'pin_code' => ['nullable', 'string', 'max:20'],
+            'about' => ['nullable', 'string'],
+
+            'isapproved' => ['nullable', 'integer', 'in:1,2,3,4'],
+            'reject_reason' => ['nullable', 'string', 'max:1000'],
+            'kyc' => ['nullable', 'integer', 'in:0,1,2,3'],
+
+            'aadhaar_number' => [
+                'nullable',
+                'digits:12',
+                Rule::unique('user_details', 'aadhaar_number')->ignore($userId, 'user_id'),
+            ],
+
+            'license_number' => ['nullable', 'string', 'max:200'],
+            'rera_number' => ['nullable', 'string', 'max:50'],
+            'alternate_number' => ['nullable', 'string', 'max:200'],
+            'no_of_employees' => ['nullable', 'integer'],
+            'about_us' => ['nullable', 'string'],
+
+            'bussiness_name' => ['nullable', 'string', 'max:255'],
+            'bussiness_address' => ['nullable', 'string', 'max:500'],
+            'business_address' => ['nullable', 'string', 'max:500'],
+            'business_phone' => ['nullable', 'string', 'max:20'],
+            'bussiness_email' => ['nullable', 'email', 'max:255'],
+
+            'business_country_id' => ['nullable', 'exists:countries,id'],
+            'business_state_id' => ['nullable', 'exists:states,id'],
+            'business_city_id' => ['nullable', 'exists:cities,id'],
+            'business_area_locality' => ['nullable', 'string', 'max:255'],
+            'business_colony' => ['nullable', 'string', 'max:255'],
+            'business_street_address' => ['nullable', 'string', 'max:255'],
+            'business_pin_code' => ['nullable', 'string', 'max:20'],
+
+            'profile_photo' => [
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,webp',
+                'max:' . self::MAX_UPLOAD_KB,
+            ],
+
+            'aadhaar_front' => [
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:' . self::MAX_UPLOAD_KB,
+            ],
+
+            'aadhaar_back' => [
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:' . self::MAX_UPLOAD_KB,
+            ],
+
+            'business_proof' => [
+                'nullable',
+                'file',
+                'mimes:pdf,jpg,jpeg,png',
+                'max:' . self::MAX_UPLOAD_KB,
+            ],
+        ];
+
+        if (Schema::hasColumn('users', 'user_name')) {
+            $rules['user_name'] = [
+                'nullable',
+                'string',
+                'min:3',
+                'max:20',
+                'regex:/^[a-zA-Z0-9._]+$/',
+                Rule::unique('users', 'user_name')->ignore($userId),
+            ];
+        }
+
+        return $rules;
+    }
+
+    private function userPayloadFromRequest(Request $request, Role $role, bool $create = false): array
+    {
+        $payload = [];
+
+        foreach (
+            [
+                'first_name',
+                'last_name',
+                'user_name',
+                'email',
+                'phone',
+                'role_id',
+                'isapproved',
+                'reject_reason',
+                'kyc',
+                'country_id',
+                'state_id',
+                'city_id',
+                'area_locality',
+                'colony',
+                'street_address',
+                'pin_code',
+                'about',
+            ] as $column
+        ) {
+            if ($request->has($column)) {
+                $payload[$column] = $request->input($column);
+            }
+        }
+
+        if ($create) {
+            $payload['api_token'] = Str::random(60);
+
+            if (!$request->has('role_id')) {
+                $payload['role_id'] = $role->id;
+            }
+
+            if (!$request->has('isapproved')) {
+                $payload['isapproved'] = 2;
+            }
+
+            if (!$request->has('kyc')) {
+                $payload['kyc'] = 0;
+            }
+        }
+
+        if ($request->filled('password')) {
+            $payload['password'] = Hash::make($request->input('password'));
+        } elseif ($create) {
+            $payload['password'] = Hash::make(Str::random(24));
+        }
+
+        return $this->payloadForTable('users', $payload);
+    }
+
+    private function userDetailPayloadFromRequest(Request $request, User $user, Role $role): array
+    {
+        $isOwnerRole = $this->isOwnerRole($role);
+
+        $payload = [
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+        ];
+
+        foreach (
+            [
+                'aadhaar_number',
+                'license_number',
+                'rera_number',
+                'alternate_number',
+                'no_of_employees',
+                'about_us',
+            ] as $column
+        ) {
+            if ($request->has($column)) {
+                $payload[$column] = $request->input($column);
+            }
+        }
+
+        if (!$isOwnerRole) {
+            foreach (
+                [
+                    'bussiness_name',
+                    'bussiness_address',
+                    'bussiness_email',
+                    'business_phone',
+                ] as $column
+            ) {
+                if ($request->has($column)) {
+                    $payload[$column] = $request->input($column);
+                }
+            }
+
+            if ($request->has('business_address')) {
+                $payload['address'] = $request->input('business_address');
+            }
+
+            if ($request->has('business_country_id')) {
+                $payload['country_id'] = $request->input('business_country_id');
+            }
+
+            if ($request->has('business_state_id')) {
+                $payload['state_id'] = $request->input('business_state_id');
+            }
+
+            if ($request->has('business_city_id')) {
+                $payload['city_id'] = $request->input('business_city_id');
+            }
+
+            if ($request->has('business_pin_code')) {
+                $payload['pin_code'] = $request->input('business_pin_code');
+            }
+
+            if ($request->has('business_area_locality')) {
+                $payload['area_locality'] = $request->input('business_area_locality');
+            }
+
+            if ($request->has('business_colony')) {
+                $payload['colony'] = $request->input('business_colony');
+            }
+
+            if ($request->has('business_street_address')) {
+                $payload['street_address'] = $request->input('business_street_address');
+            }
+        }
+
+        return $payload;
     }
 }
