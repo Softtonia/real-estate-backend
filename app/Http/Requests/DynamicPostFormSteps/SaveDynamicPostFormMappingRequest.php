@@ -34,6 +34,12 @@ class SaveDynamicPostFormMappingRequest extends FormRequest
                 'integer',
                 'exists:custom_fields,id',
             ],
+            'steps.*.custom_fields.*.field_width' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:100',
+            ],
         ];
     }
 
@@ -45,6 +51,9 @@ class SaveDynamicPostFormMappingRequest extends FormRequest
             'steps.*.step_key.required' => 'Step key is required.',
             'steps.*.custom_field_ids.array' => 'Custom field ids must be an array.',
             'steps.*.custom_field_ids.*.exists' => 'One or more custom fields are invalid.',
+            'steps.*.custom_fields.*.field_width.integer' => 'Field width must be a number.',
+            'steps.*.custom_fields.*.field_width.min' => 'Field width must be at least 1 percent.',
+            'steps.*.custom_fields.*.field_width.max' => 'Field width must not be greater than 100 percent.',
         ];
     }
 }

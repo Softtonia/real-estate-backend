@@ -11,6 +11,7 @@ class DynamicPostFormStepField extends Model
         'dynamic_post_form_step_id',
         'custom_field_id',
         'sort_order',
+        'field_width',
         'is_active',
     ];
 
@@ -18,6 +19,7 @@ class DynamicPostFormStepField extends Model
         'post_type_id' => 'integer',
         'dynamic_post_form_step_id' => 'integer',
         'custom_field_id' => 'integer',
+        'field_width' => 'integer',
         'sort_order' => 'integer',
         'is_active' => 'boolean',
     ];

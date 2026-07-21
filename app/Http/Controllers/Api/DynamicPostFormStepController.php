@@ -34,13 +34,12 @@ class DynamicPostFormStepController extends Controller
                 ], 404);
             }
 
-            
-
             $termIds = $this->service->normalizeIds($request->taxonomy_term_ids);
 
             $steps = $this->service->steps($postTypeData);
 
             $customFields = $this->service->formattedCustomFields($postTypeData, $termIds, false);
+
             $fieldIds = $customFields
                 ->pluck('id')
                 ->map(fn($id) => (int) $id)
@@ -56,12 +55,14 @@ class DynamicPostFormStepController extends Controller
                 $mapping = $mappedByFieldId->get((int) $field['id']);
 
                 $field['is_mapped'] = (bool) $mapping;
+
                 $field['mapping'] = $mapping ? [
                     'id' => (int) $mapping->id,
                     'step_id' => (int) $mapping->dynamic_post_form_step_id,
                     'step_key' => $mapping->step?->step_key,
                     'step_label' => $mapping->step?->step_label,
                     'sort_order' => (int) $mapping->sort_order,
+                    'field_width' => (int) ($mapping->field_width ?? 100),
                 ] : null;
 
                 return $field;
@@ -167,8 +168,6 @@ class DynamicPostFormStepController extends Controller
                 ], 404);
             }
 
-            
-
             $termIds = $this->service->normalizeIds($request->input('taxonomy_term_ids'));
 
             $allowedCustomFieldIds = $this->service
@@ -216,8 +215,6 @@ class DynamicPostFormStepController extends Controller
                 ], 404);
             }
 
-            
-
             $termIds = $this->service->normalizeIds($request->taxonomy_term_ids);
 
             $steps = $this->service->activeSteps($postTypeData);
@@ -239,7 +236,23 @@ class DynamicPostFormStepController extends Controller
 
                 $stepCustomFields = $stepMappings
                     ->sortBy('sort_order')
-                    ->map(fn($mapping) => $customFieldsById->get((int) $mapping->custom_field_id))
+                    ->map(function ($mapping) use ($customFieldsById) {
+                        $field = $customFieldsById->get((int) $mapping->custom_field_id);
+
+                        if (!$field) {
+                            return null;
+                        }
+
+                        $field['field_width'] = (int) ($mapping->field_width ?? 100);
+
+                        $field['mapping'] = [
+                            'id' => (int) $mapping->id,
+                            'sort_order' => (int) $mapping->sort_order,
+                            'field_width' => (int) ($mapping->field_width ?? 100),
+                        ];
+
+                        return $field;
+                    })
                     ->filter()
                     ->values();
 

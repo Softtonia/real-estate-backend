@@ -525,10 +525,10 @@ class DynamicPostFormStepService
     {
         $submittedFieldIds = [];
 
-        foreach ($steps as $step) {
-            foreach (($step['custom_field_ids'] ?? []) as $customFieldId) {
-                if ($customFieldId) {
-                    $submittedFieldIds[] = (int) $customFieldId;
+        foreach ($steps as $stepPayload) {
+            foreach ($this->mappingFieldsFromStepPayload($stepPayload) as $fieldPayload) {
+                if (!empty($fieldPayload['custom_field_id'])) {
+                    $submittedFieldIds[] = (int) $fieldPayload['custom_field_id'];
                 }
             }
         }
@@ -564,28 +564,91 @@ class DynamicPostFormStepService
             $stepsByKey = $this->steps($postType)->keyBy('step_key');
 
             foreach ($steps as $stepPayload) {
-                $stepKey = $stepPayload['step_key'];
+                $stepKey = $stepPayload['step_key'] ?? null;
+
+                if (!$stepKey) {
+                    continue;
+                }
+
                 $step = $stepsByKey->get($stepKey);
 
                 if (!$step) {
                     continue;
                 }
 
-                foreach (($stepPayload['custom_field_ids'] ?? []) as $index => $customFieldId) {
+                foreach ($this->mappingFieldsFromStepPayload($stepPayload) as $index => $fieldPayload) {
+                    $customFieldId = (int) ($fieldPayload['custom_field_id'] ?? 0);
+
                     if (empty($customFieldId)) {
                         continue;
                     }
 
-                    DynamicPostFormStepField::create([
+                    $fieldWidth = (int) ($fieldPayload['field_width'] ?? 100);
+                    $fieldWidth = max(1, min($fieldWidth, 100));
+
+                    $sortOrder = isset($fieldPayload['sort_order'])
+                        ? (int) $fieldPayload['sort_order']
+                        : ($index + 1);
+
+                    $createPayload = [
                         'post_type_id' => (int) $postType->id,
                         'dynamic_post_form_step_id' => (int) $step->id,
-                        'custom_field_id' => (int) $customFieldId,
-                        'sort_order' => $index + 1,
+                        'custom_field_id' => $customFieldId,
+                        'sort_order' => $sortOrder,
                         'is_active' => true,
-                    ]);
+                    ];
+
+                    if (Schema::hasColumn('dynamic_post_form_step_fields', 'field_width')) {
+                        $createPayload['field_width'] = $fieldWidth;
+                    }
+
+                    DynamicPostFormStepField::create($createPayload);
                 }
             }
         });
+    }
+
+    private function mappingFieldsFromStepPayload(array $stepPayload): array
+    {
+        /*
+    |--------------------------------------------------------------------------
+    | New Payload
+    |--------------------------------------------------------------------------
+    | custom_fields: [
+    |   { custom_field_id: 1, field_width: 50 },
+    |   { custom_field_id: 2, field_width: 100 }
+    | ]
+    |--------------------------------------------------------------------------
+    */
+        if (!empty($stepPayload['custom_fields']) && is_array($stepPayload['custom_fields'])) {
+            return collect($stepPayload['custom_fields'])
+                ->filter(fn($field) => is_array($field) && !empty($field['custom_field_id']))
+                ->map(function ($field, $index) {
+                    return [
+                        'custom_field_id' => (int) $field['custom_field_id'],
+                        'field_width' => isset($field['field_width'])
+                            ? (int) $field['field_width']
+                            : 100,
+                        'sort_order' => isset($field['sort_order'])
+                            ? (int) $field['sort_order']
+                            : ($index + 1),
+                    ];
+                })
+                ->values()
+                ->toArray();
+        }
+
+        return collect($stepPayload['custom_field_ids'] ?? [])
+            ->filter(fn($id) => !empty($id))
+            ->map(function ($customFieldId, $index) {
+                return [
+                    'custom_field_id' => (int) $customFieldId,
+                    'field_width' => 100,
+                    'sort_order' => $index + 1,
+                ];
+            })
+            ->values()
+            ->toArray();
     }
 
     public function mappedFieldRows(PostType $postType): Collection
