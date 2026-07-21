@@ -871,9 +871,12 @@ class UserController extends Controller
 
     public function updateuserbyid(Request $request)
     {
-        return $this->updateUserRecordFromRequest($request, (int) $request->input('id'), true);
+        return $this->updateUserRecordFromRequest(
+            request: $request,
+            userId: (int) $request->input('id'),
+            adminMode: true
+        );
     }
-
 
     // for update user status
     public function updateuserstatus(Request $request)
@@ -1295,7 +1298,11 @@ class UserController extends Controller
 
     public function updateUser(Request $request)
     {
-        return $this->updateUserRecordFromRequest($request, (int) $request->input('id'), false);
+        return $this->updateUserRecordFromRequest(
+            request: $request,
+            userId: (int) $request->input('id'),
+            adminMode: false
+        );
     }
 
 
