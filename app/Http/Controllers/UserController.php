@@ -2922,118 +2922,231 @@ class UserController extends Controller
         }
 
         try {
-            $roleId = $request->role_id;
-            $perPage = (int) ($request->per_page ?? 10);
+            $roleId = $request->input('role_id');
+            $perPage = max(1, min((int) $request->input('per_page', 10), 100));
 
-            /*
-         * Count every user's Sell and Rent property listings.
-         *
-         * Purpose is the taxonomy.
-         * Sell and Rent are Purpose taxonomy terms.
-         * Listings are connected with users through dynamic_posts.author_id.
-         */
-            $propertyPurposeCounts = DB::table('dynamic_posts as dp')
-                ->join(
-                    'post_types as pt',
-                    'pt.id',
-                    '=',
-                    'dp.post_type_id'
-                )
-                ->join(
-                    'post_taxonomy_terms as ptt',
-                    'ptt.dynamic_post_id',
-                    '=',
-                    'dp.id'
-                )
-                ->join(
-                    'taxonomy_terms as tt',
-                    'tt.id',
-                    '=',
-                    'ptt.taxonomy_term_id'
-                )
-                ->join(
-                    'taxonomies as tx',
-                    'tx.id',
-                    '=',
-                    'tt.taxonomy_id'
-                )
-                ->whereRaw('LOWER(pt.slug) = ?', [
-                    'property-listing',
-                ])
-                ->whereRaw('LOWER(tx.slug) = ?', [
-                    'purpose',
-                ])
-                ->whereRaw('LOWER(tt.slug) IN (?, ?)', [
-                    'sell',
-                    'rent',
-                ])
-                ->whereNotNull('dp.author_id')
-                ->when(
-                    Schema::hasColumn('dynamic_posts', 'deleted_at'),
-                    function ($query) {
-                        $query->whereNull('dp.deleted_at');
+            $propertyPostTypeId = DB::table('post_types')
+                ->whereRaw('LOWER(TRIM(slug)) = ?', ['property-listing'])
+                ->value('id');
+
+            $purposeTaxonomyId = DB::table('taxonomies')
+                ->where(function ($query) {
+                    $query
+                        ->whereRaw('LOWER(TRIM(slug)) = ?', ['purpose'])
+                        ->orWhereRaw('LOWER(TRIM(name)) = ?', ['purpose']);
+                })
+                ->value('id');
+
+            $sellTermId = null;
+            $rentTermId = null;
+
+            if ($purposeTaxonomyId) {
+                $purposeTerms = DB::table('taxonomy_terms')
+                    ->where('taxonomy_id', (int) $purposeTaxonomyId)
+                    ->where(function ($query) {
+                        $query
+                            ->whereRaw("LOWER(TRIM(slug)) IN ('sell', 'rent')")
+                            ->orWhereRaw("LOWER(TRIM(name)) IN ('sell', 'rent')");
+                    })
+                    ->get([
+                        'id',
+                        'name',
+                        'slug',
+                    ]);
+
+                foreach ($purposeTerms as $term) {
+                    $slug = strtolower(trim((string) ($term->slug ?? '')));
+                    $name = strtolower(trim((string) ($term->name ?? '')));
+
+                    if ($slug === 'sell' || $name === 'sell') {
+                        $sellTermId = (int) $term->id;
                     }
-                )
-                ->groupBy('dp.author_id')
-                ->selectRaw("
-                dp.author_id as listing_user_id,
 
-                COUNT(
-                    DISTINCT CASE
-                        WHEN LOWER(tt.slug) = 'sell'
-                        THEN dp.id
-                    END
-                ) as properties_for_sell,
+                    if ($slug === 'rent' || $name === 'rent') {
+                        $rentTermId = (int) $term->id;
+                    }
+                }
+            }
 
-                COUNT(
-                    DISTINCT CASE
-                        WHEN LOWER(tt.slug) = 'rent'
-                        THEN dp.id
-                    END
-                ) as properties_for_rent
-            ");
+            $propertyPurposeCounts = DB::table('users')
+                ->selectRaw('
+                NULL as listing_user_id,
+                0 as properties_for_sell,
+                0 as properties_for_rent
+            ')
+                ->whereRaw('1 = 0');
+
+            if (
+                $propertyPostTypeId
+                && $purposeTaxonomyId
+                && Schema::hasTable('dynamic_posts')
+                && Schema::hasTable('post_taxonomy_terms')
+                && Schema::hasTable('taxonomy_terms')
+                && Schema::hasColumn('post_taxonomy_terms', 'dynamic_post_id')
+                && Schema::hasColumn('post_taxonomy_terms', 'taxonomy_term_id')
+            ) {
+                $hasAssignmentTable =
+                    Schema::hasTable('dynamic_post_user')
+                    && Schema::hasColumn('dynamic_post_user', 'dynamic_post_id')
+                    && Schema::hasColumn('dynamic_post_user', 'user_id');
+
+                $listingUserColumns = [];
+
+                if ($hasAssignmentTable) {
+                    $listingUserColumns[] = 'dpu.user_id';
+                }
+
+                if (Schema::hasColumn('dynamic_posts', 'user_id')) {
+                    $listingUserColumns[] = 'dp.user_id';
+                }
+
+                if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+                    $listingUserColumns[] = 'dp.author_id';
+                }
+
+                if (!empty($listingUserColumns)) {
+                    $listingUserExpression = count($listingUserColumns) === 1
+                        ? $listingUserColumns[0]
+                        : 'COALESCE(' . implode(', ', $listingUserColumns) . ')';
+
+                    $propertyPurposeCounts = DB::table('dynamic_posts as dp');
+
+                    if ($hasAssignmentTable) {
+                        $propertyPurposeCounts->leftJoin(
+                            'dynamic_post_user as dpu',
+                            'dpu.dynamic_post_id',
+                            '=',
+                            'dp.id'
+                        );
+                    }
+
+                    $propertyPurposeCounts
+                        ->join(
+                            'post_taxonomy_terms as ptt',
+                            'ptt.dynamic_post_id',
+                            '=',
+                            'dp.id'
+                        )
+                        ->join(
+                            'taxonomy_terms as tt',
+                            'tt.id',
+                            '=',
+                            'ptt.taxonomy_term_id'
+                        )
+                        ->where(
+                            'dp.post_type_id',
+                            (int) $propertyPostTypeId
+                        )
+                        ->where(
+                            'tt.taxonomy_id',
+                            (int) $purposeTaxonomyId
+                        )
+                        ->whereRaw(
+                            $listingUserExpression . ' IS NOT NULL'
+                        );
+
+                    if (
+                        Schema::hasColumn(
+                            'post_taxonomy_terms',
+                            'taxonomy_id'
+                        )
+                    ) {
+                        $propertyPurposeCounts->where(
+                            'ptt.taxonomy_id',
+                            (int) $purposeTaxonomyId
+                        );
+                    }
+
+                    if (
+                        Schema::hasColumn(
+                            'dynamic_posts',
+                            'deleted_at'
+                        )
+                    ) {
+                        $propertyPurposeCounts->whereNull('dp.deleted_at');
+                    }
+
+                    $propertyPurposeCounts
+                        ->selectRaw(
+                            $listingUserExpression . ' as listing_user_id'
+                        )
+                        ->selectRaw(
+                            '
+                        COUNT(
+                            DISTINCT CASE
+                                WHEN (
+                                    LOWER(TRIM(tt.slug)) = ?
+                                    OR LOWER(TRIM(tt.name)) = ?
+                                )
+                                THEN dp.id
+                            END
+                        ) as properties_for_sell
+                        ',
+                            ['sell', 'sell']
+                        )
+                        ->selectRaw(
+                            '
+                        COUNT(
+                            DISTINCT CASE
+                                WHEN (
+                                    LOWER(TRIM(tt.slug)) = ?
+                                    OR LOWER(TRIM(tt.name)) = ?
+                                )
+                                THEN dp.id
+                            END
+                        ) as properties_for_rent
+                        ',
+                            ['rent', 'rent']
+                        )
+                        ->where(function ($query) use ($sellTermId, $rentTermId) {
+                            if ($sellTermId) {
+                                $query->orWhere('tt.id', $sellTermId);
+                            }
+
+                            if ($rentTermId) {
+                                $query->orWhere('tt.id', $rentTermId);
+                            }
+
+                            $query
+                                ->orWhereRaw("LOWER(TRIM(tt.slug)) IN ('sell', 'rent')")
+                                ->orWhereRaw("LOWER(TRIM(tt.name)) IN ('sell', 'rent')");
+                        })
+                        ->groupByRaw($listingUserExpression);
+                }
+            }
 
             $query = DB::table('users')
-                ->where('users.isapproved', '=', 1)
-
+                ->where('users.isapproved', 1)
                 ->leftJoin(
                     'user_details',
                     'users.id',
                     '=',
                     'user_details.user_id'
                 )
-
                 ->leftJoin(
                     'roles',
                     'users.role_id',
                     '=',
                     'roles.id'
                 )
-
                 ->leftJoin(
                     'countries',
                     'user_details.country_id',
                     '=',
                     'countries.id'
                 )
-
                 ->leftJoin(
                     'states',
                     'user_details.state_id',
                     '=',
                     'states.id'
                 )
-
                 ->leftJoin(
                     'cities',
                     'user_details.city_id',
                     '=',
                     'cities.id'
                 )
-
-                /*
-             * Attach Sell/Rent counts to every user.
-             */
                 ->leftJoinSub(
                     $propertyPurposeCounts,
                     'property_purpose_counts',
@@ -3045,9 +3158,7 @@ class UserController extends Controller
                         );
                     }
                 )
-
                 ->where('roles.name', '!=', 'admin')
-
                 ->select(
                     'users.id',
                     'users.first_name',
@@ -3055,48 +3166,35 @@ class UserController extends Controller
                     'users.email',
                     'users.phone',
                     'users.role_id',
-
-                    DB::raw("
-                    IFNULL(roles.name, 'No Role') as role_name
-                "),
-
+                    DB::raw("IFNULL(roles.name, 'No Role') as role_name"),
                     'users.unique_id',
                     'users.isapproved',
                     'users.country_id',
                     'users.state_id',
                     'users.city_id',
-
                     'countries.name as country',
                     'states.name as state',
                     'cities.name as city',
-
                     'users.area_locality',
                     'users.colony',
                     'users.street_address',
                     'users.pin_code',
                     'users.about',
-
                     'user_details.bussiness_name',
                     'user_details.profile_photo',
                     'user_details.about_us',
-
-                    /*
-                 * Return zero when user has no Sell/Rent listing.
-                 */
-                    DB::raw("
+                    DB::raw('
                     COALESCE(
                         property_purpose_counts.properties_for_sell,
                         0
                     ) as properties_for_sell
-                "),
-
-                    DB::raw("
+                '),
+                    DB::raw('
                     COALESCE(
                         property_purpose_counts.properties_for_rent,
                         0
                     ) as properties_for_rent
-                "),
-
+                '),
                     'users.created_at',
                     'users.updated_at'
                 );
@@ -3135,12 +3233,10 @@ class UserController extends Controller
                         'last_name' => $user->last_name,
                         'email' => $email,
                         'phone' => $phone,
-
                         'role_id' => $user->role_id,
                         'role_name' => $user->role_name,
                         'unique_id' => $user->unique_id,
                         'isapproved' => $user->isapproved,
-
                         'country' => $user->country ?? 'N/A',
                         'state' => $user->state ?? 'N/A',
                         'city' => $user->city ?? 'N/A',
@@ -3148,22 +3244,14 @@ class UserController extends Controller
                         'colony' => $user->colony ?? 'N/A',
                         'street_address' => $user->street_address ?? 'N/A',
                         'pin_code' => $user->pin_code ?? 'N/A',
-
                         'about' => $user->about,
                         'bussiness_name' => $user->bussiness_name,
-
                         'profile_photo' => $user->profile_photo
                             ? url($user->profile_photo)
                             : null,
-
                         'about_us' => $user->about_us,
-
-                        /*
-                     * New Sell/Rent count parameters.
-                     */
                         'properties_for_sell' => (int) $user->properties_for_sell,
                         'properties_for_rent' => (int) $user->properties_for_rent,
-
                         'created_at' => $user->created_at,
                         'updated_at' => $user->updated_at,
                     ];
@@ -3186,9 +3274,6 @@ class UserController extends Controller
             ], 500);
         }
     }
-
-
-
     public function getDataUserDetailsById(Request $request)
     {
         $AuthUser = auth('sanctum')->user();
