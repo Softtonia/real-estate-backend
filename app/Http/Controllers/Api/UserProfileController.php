@@ -405,9 +405,12 @@ class UserProfileController extends Controller
                 'digits:12',
                 Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
             ],
-            'license_number' => ['nullable', 'string', 'max:200'],
-            'rera_number' => ['nullable', 'string', 'max:50'],
         ];
+
+        if (!$this->isOwnerUser($user)) {
+            $rules['license_number'] = ['nullable', 'string', 'max:200'];
+            $rules['rera_number'] = ['nullable', 'string', 'max:50'];
+        }
 
         foreach ($allowedFields as $field => $label) {
             $rules[$field] = [
@@ -509,16 +512,21 @@ class UserProfileController extends Controller
         $this->normalizeKycRequest($request);
         $allowedFields = $this->documentUploadFieldsForUser($user);
 
-        $validator = Validator::make($request->all(), [
+        $rules = [
             'aadhaar_number' => [
                 'nullable',
                 'digits:12',
                 Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
             ],
-            'license_number' => ['nullable', 'string', 'max:200'],
-            'rera_number' => ['nullable', 'string', 'max:50'],
             'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
-        ]);
+        ];
+
+        if (!$this->isOwnerUser($user)) {
+            $rules['license_number'] = ['nullable', 'string', 'max:200'];
+            $rules['rera_number'] = ['nullable', 'string', 'max:50'];
+        }
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
@@ -581,7 +589,7 @@ class UserProfileController extends Controller
         $this->normalizeKycRequest($request);
         $allowedFields = $this->documentUploadFieldsForUser($user);
 
-        $validator = Validator::make($request->all(), [
+        $rules = [
             'upload_id' => ['nullable', 'string'],
             'field' => ['required', Rule::in(array_keys($allowedFields))],
             'file' => [
@@ -596,10 +604,15 @@ class UserProfileController extends Controller
                 'digits:12',
                 Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
             ],
-            'license_number' => ['nullable', 'string', 'max:200'],
-            'rera_number' => ['nullable', 'string', 'max:50'],
             'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
-        ]);
+        ];
+
+        if (!$this->isOwnerUser($user)) {
+            $rules['license_number'] = ['nullable', 'string', 'max:200'];
+            $rules['rera_number'] = ['nullable', 'string', 'max:50'];
+        }
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
@@ -931,8 +944,8 @@ class UserProfileController extends Controller
             'aadhaar_front' => $aadhaarFront,
             'aadhaar_back' => $aadhaarBack,
             'business_proof' => $isOwnerRole ? null : $businessProof,
-            'license_number' => $detail?->license_number ?? null,
-            'rera_number' => $detail?->rera_number ?? null,
+            'license_number' => $isOwnerRole ? null : ($detail?->license_number ?? null),
+            'rera_number' => $isOwnerRole ? null : ($detail?->rera_number ?? null),
             'alternate_number' => $detail?->alternate_number ?? null,
             'no_of_employees' => $detail?->no_of_employees ?? null,
             'about_us' => $detail?->about_us ?? null,
@@ -1226,14 +1239,6 @@ class UserProfileController extends Controller
                 'label' => 'Aadhaar Back',
                 'section' => 'documents',
             ],
-            'license_number' => [
-                'label' => 'License Number',
-                'section' => 'documents',
-            ],
-            'rera_number' => [
-                'label' => 'RERA Number',
-                'section' => 'documents',
-            ],
         ];
 
         /* Business fields are applicable only when they are visible for the role. */
@@ -1273,6 +1278,14 @@ class UserProfileController extends Controller
                 ],
                 'business_proof' => [
                     'label' => 'Business Proof',
+                    'section' => 'documents',
+                ],
+                'license_number' => [
+                    'label' => 'License Number',
+                    'section' => 'documents',
+                ],
+                'rera_number' => [
+                    'label' => 'RERA Number',
                     'section' => 'documents',
                 ],
             ]);
@@ -1864,7 +1877,14 @@ class UserProfileController extends Controller
             'user_id' => $user->id,
         ];
 
-        foreach (['aadhaar_number', 'license_number', 'rera_number'] as $column) {
+        $columns = ['aadhaar_number'];
+
+        if (!$this->isOwnerUser($user)) {
+            $columns[] = 'license_number';
+            $columns[] = 'rera_number';
+        }
+
+        foreach ($columns as $column) {
             if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
                 $payload[$column] = $request->input($column);
             }
