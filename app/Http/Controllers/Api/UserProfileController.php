@@ -1507,7 +1507,67 @@ class UserProfileController extends Controller
             ], $listingIds),
         ];
     }
+    private function propertyPurposeCounts(array $listingIds): array
+    {
+        $defaultCounts = [
+            'sell' => 0,
+            'rent' => 0,
+        ];
 
+        if (empty($listingIds)) {
+            return $defaultCounts;
+        }
+
+        if (
+            !Schema::hasTable('post_taxonomy_terms')
+            || !Schema::hasTable('taxonomy_terms')
+            || !Schema::hasTable('taxonomies')
+            || !Schema::hasColumn('post_taxonomy_terms', 'dynamic_post_id')
+            || !Schema::hasColumn('post_taxonomy_terms', 'taxonomy_term_id')
+            || !Schema::hasColumn('taxonomy_terms', 'taxonomy_id')
+            || !Schema::hasColumn('taxonomy_terms', 'slug')
+            || !Schema::hasColumn('taxonomies', 'slug')
+        ) {
+            return $defaultCounts;
+        }
+
+        $counts = DB::table('post_taxonomy_terms as ptt')
+            ->join(
+                'taxonomy_terms as tt',
+                'tt.id',
+                '=',
+                'ptt.taxonomy_term_id'
+            )
+            ->join(
+                'taxonomies as tx',
+                'tx.id',
+                '=',
+                'tt.taxonomy_id'
+            )
+            ->whereIn('ptt.dynamic_post_id', $listingIds)
+
+            // Purpose taxonomy only
+            ->whereRaw('LOWER(tx.slug) = ?', ['purpose'])
+
+            // Purpose terms only
+            ->whereIn(DB::raw('LOWER(tt.slug)'), [
+                'sell',
+                'rent',
+            ])
+
+            // Duplicate pivot rows se incorrect count prevent karega
+            ->selectRaw(
+                'LOWER(tt.slug) as purpose_slug,
+            COUNT(DISTINCT ptt.dynamic_post_id) as total'
+            )
+            ->groupByRaw('LOWER(tt.slug)')
+            ->pluck('total', 'purpose_slug');
+
+        return [
+            'sell' => (int) $counts->get('sell', 0),
+            'rent' => (int) $counts->get('rent', 0),
+        ];
+    }
     private function userListingIds(User $user): array
     {
         if (!Schema::hasTable('dynamic_posts')) {
