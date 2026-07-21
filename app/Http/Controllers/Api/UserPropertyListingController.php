@@ -31,12 +31,12 @@ class UserPropertyListingController extends Controller
                 'users_property_listings' => [
                     'nullable',
                     'string',
-                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish']),
+                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish', 'under_review', 'rejected', 'delete_pending']),
                 ],
                 'users-Property-listings' => [
                     'nullable',
                     'string',
-                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish']),
+                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish', 'under_review', 'rejected', 'delete_pending']),
                 ],
                 'search' => ['nullable', 'string', 'max:255'],
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
@@ -250,8 +250,16 @@ class UserPropertyListingController extends Controller
                 'city_id' => ['nullable', 'exists:cities,id'],
                 'area_locality' => ['nullable', 'string', 'max:255'],
 
+                'personal_email' => ['nullable', 'email', 'max:255'],
+                'business_email' => ['nullable', 'email', 'max:255'],
+                'personal_phone' => ['nullable', 'string', 'max:30'],
+                'business_phone' => ['nullable', 'string', 'max:30'],
+
                 'custom_fields' => ['nullable', 'array'],
                 'custom_fields.*.custom_field_id' => ['nullable', 'integer'],
+                'custom_fields.*.slug' => ['nullable', 'string', 'max:255'],
+                'custom_fields.*.name' => ['nullable', 'string', 'max:255'],
+                'custom_fields.*.label' => ['nullable', 'string', 'max:255'],
                 'custom_fields.*.value_string' => ['nullable'],
                 'custom_fields.*.value_text' => ['nullable'],
                 'custom_fields.*.value_number' => ['nullable'],
@@ -279,6 +287,8 @@ class UserPropertyListingController extends Controller
                 'gallery_image_ids' => ['nullable'],
                 'gallery_image_ids.*' => ['nullable'],
             ]);
+
+            $this->validatePersonalBusinessContacts($request);
 
             $postType = $this->propertyListingPostType();
 
@@ -319,7 +329,15 @@ class UserPropertyListingController extends Controller
                 ));
 
                 $this->putIfColumnExists($payload, 'status', $request->input('status', 'draft'));
-                $this->putIfColumnExists($payload, 'live_status', $request->input('live_status', 'under_review'));
+
+                // User-side requests can never directly approve a listing.
+                $this->putIfColumnExists($payload, 'live_status', 'under_review');
+
+                foreach (['personal_email', 'business_email', 'personal_phone', 'business_phone'] as $contactColumn) {
+                    if ($request->exists($contactColumn)) {
+                        $this->putIfColumnExists($payload, $contactColumn, $request->input($contactColumn));
+                    }
+                }
 
                 $this->putIfColumnExists($payload, 'content', $request->input('content'));
                 $this->putIfColumnExists($payload, 'excerpt', $request->input('excerpt'));
@@ -349,6 +367,7 @@ class UserPropertyListingController extends Controller
                 }
 
                 $listing = DynamicPost::create($payload);
+                $this->applyReviewMetadataToListing($listing, 'create');
 
                 $featuredImageFile = $this->featuredImageFile($request);
 
@@ -413,7 +432,7 @@ class UserPropertyListingController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Property listing created successfully.',
+                'message' => 'Property listing submitted for admin review.',
                 'data' => $this->formatFullDynamicPost($freshListing),
             ], 201);
         } catch (ValidationException $e) {
@@ -426,6 +445,360 @@ class UserPropertyListingController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to create property listing.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function show(Request $request, int $listing): JsonResponse
+    {
+        try {
+            $user = $this->resolveCurrentUser($request);
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthenticated user.',
+                ], 401);
+            }
+
+            if ($this->isAdminUser($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Admin token is not allowed for user property listing detail API.',
+                ], 403);
+            }
+
+            $ownedListing = $this->findOwnedPropertyListing($listing, $user);
+
+            if (!$ownedListing) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing not found.',
+                ], 404);
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Property listing fetched successfully.',
+                'data' => $this->formatFullDynamicPost($ownedListing),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch property listing.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function update(Request $request, int $listing): JsonResponse
+    {
+        try {
+            $user = $this->resolveCurrentUser($request);
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthenticated user.',
+                ], 401);
+            }
+
+            if ($this->isAdminUser($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Admin token is not allowed to update a user property listing.',
+                ], 403);
+            }
+
+            $ownedListing = $this->findOwnedPropertyListing($listing, $user);
+
+            if (!$ownedListing) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing not found.',
+                ], 404);
+            }
+
+            $request->validate([
+                'post_type_id' => ['sometimes', 'nullable', 'integer', 'exists:post_types,id'],
+                'title' => ['sometimes', 'required', 'string', 'max:255'],
+                'slug' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'status' => ['sometimes', 'nullable', 'string', Rule::in([
+                    'draft',
+                    'published',
+                    'private',
+                    'archived',
+                ])],
+
+                // Kept for frontend payload compatibility only. It is ignored below.
+                'live_status' => ['sometimes', 'nullable', 'string'],
+
+                'content' => ['sometimes', 'nullable', 'string'],
+                'excerpt' => ['sometimes', 'nullable', 'string'],
+                'country_id' => ['sometimes', 'nullable', 'exists:countries,id'],
+                'state_id' => ['sometimes', 'nullable', 'exists:states,id'],
+                'city_id' => ['sometimes', 'nullable', 'exists:cities,id'],
+                'area_locality' => ['sometimes', 'nullable', 'string', 'max:255'],
+
+                'personal_email' => ['sometimes', 'nullable', 'email', 'max:255'],
+                'business_email' => ['sometimes', 'nullable', 'email', 'max:255'],
+                'personal_phone' => ['sometimes', 'nullable', 'string', 'max:30'],
+                'business_phone' => ['sometimes', 'nullable', 'string', 'max:30'],
+
+                'custom_fields' => ['sometimes', 'nullable', 'array'],
+                'custom_fields.*.custom_field_id' => ['nullable', 'integer'],
+                'custom_fields.*.slug' => ['nullable', 'string', 'max:255'],
+                'custom_fields.*.name' => ['nullable', 'string', 'max:255'],
+                'custom_fields.*.label' => ['nullable', 'string', 'max:255'],
+                'custom_fields.*.value_string' => ['nullable'],
+                'custom_fields.*.value_text' => ['nullable'],
+                'custom_fields.*.value_number' => ['nullable'],
+                'custom_fields.*.value_date' => ['nullable'],
+                'custom_fields.*.value_datetime' => ['nullable'],
+                'custom_fields.*.value_json' => ['nullable'],
+
+                'taxonomy_term_ids' => ['sometimes', 'nullable'],
+                'taxonomy_term_ids.*' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+                'taxonomies' => ['sometimes', 'nullable', 'array'],
+                'taxonomies.*' => ['nullable'],
+                'taxonomies.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
+                'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
+                'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
+                'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+
+                'featured_image' => ['sometimes', 'nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
+                'featured_image_id' => ['sometimes', 'nullable'],
+                'featured_image_id.*' => ['nullable'],
+                'gallery_images' => ['sometimes', 'nullable'],
+                'gallery_images.*' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
+                'gallery_image_ids' => ['sometimes', 'nullable'],
+                'gallery_image_ids.*' => ['nullable'],
+            ]);
+
+            $postType = $this->propertyListingPostType();
+
+            if (!$postType) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing post type not found.',
+                ], 404);
+            }
+
+            if ($request->filled('post_type_id') && (int) $request->post_type_id !== (int) $postType->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid post_type_id. Only property-listing post type is allowed from user side.',
+                ], 422);
+            }
+
+            $this->validatePersonalBusinessContacts($request, $ownedListing);
+
+            DB::transaction(function () use ($request, $user, $postType, $ownedListing) {
+                $payload = [];
+
+                foreach ([
+                    'title',
+                    'content',
+                    'excerpt',
+                    'country_id',
+                    'state_id',
+                    'city_id',
+                    'area_locality',
+                    'personal_email',
+                    'business_email',
+                    'personal_phone',
+                    'business_phone',
+                ] as $column) {
+                    if ($request->exists($column)) {
+                        $this->putIfColumnExists($payload, $column, $request->input($column));
+                    }
+                }
+
+                if ($request->exists('status')) {
+                    $this->putIfColumnExists(
+                        $payload,
+                        'status',
+                        $request->input('status') ?: ($ownedListing->status ?? 'draft')
+                    );
+                }
+
+                if ($request->exists('slug') || $request->exists('title')) {
+                    $slugSource = $request->input('slug')
+                        ?: $request->input('title')
+                        ?: $ownedListing->title
+                        ?: 'listing';
+
+                    $this->putIfColumnExists($payload, 'slug', $this->uniqueDynamicPostSlug(
+                        $slugSource,
+                        (int) $postType->id,
+                        (int) $ownedListing->id
+                    ));
+                }
+
+                foreach ($payload as $column => $value) {
+                    $ownedListing->{$column} = $value;
+                }
+
+                $this->applyReviewMetadataToListing($ownedListing, 'update');
+
+                if (Schema::hasColumn('dynamic_posts', 'published_at') && $request->exists('status')) {
+                    $ownedListing->published_at = $request->input('status') === 'published'
+                        ? ($ownedListing->published_at ?: now())
+                        : null;
+                }
+
+                $featuredImageFile = $this->featuredImageFile($request);
+
+                if ($featuredImageFile) {
+                    $featuredMedia = $this->storeListingMediaFile(
+                        file: $featuredImageFile,
+                        user: $user,
+                        postType: $postType,
+                        fieldSlug: 'featured_image'
+                    );
+
+                    if ($featuredMedia && Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
+                        $ownedListing->featured_image_id = (int) $featuredMedia->id;
+                    }
+                } elseif ($request->exists('featured_image_id') && Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
+                    $ownedListing->featured_image_id = $this->numericInputValue(
+                        $request->input('featured_image_id')
+                    );
+                }
+
+                if ($request->exists('gallery_image_ids') || $request->hasFile('gallery_images')) {
+                    $galleryIds = $this->galleryMediaIdsFromRequest($request);
+
+                    foreach ($this->galleryImageFiles($request) as $galleryFile) {
+                        $galleryMedia = $this->storeListingMediaFile(
+                            file: $galleryFile,
+                            user: $user,
+                            postType: $postType,
+                            fieldSlug: 'gallery_images'
+                        );
+
+                        if ($galleryMedia) {
+                            $galleryIds[] = (int) $galleryMedia->id;
+                        }
+                    }
+
+                    $galleryIds = collect($galleryIds)
+                        ->filter()
+                        ->map(fn ($id) => (int) $id)
+                        ->unique()
+                        ->values()
+                        ->toArray();
+
+                    if (Schema::hasColumn('dynamic_posts', 'gallery_image_ids')) {
+                        $ownedListing->gallery_image_ids = json_encode($galleryIds);
+                    }
+                }
+
+                $ownedListing->save();
+
+                if ($request->exists('taxonomy_term_ids') || $request->exists('taxonomies')) {
+                    $termIds = $this->normalizeUserListingTaxonomyTermIds($request);
+                    $this->syncUserListingTaxonomyTerms($ownedListing, $termIds);
+                }
+
+                if ($request->exists('custom_fields')) {
+                    $this->storeCustomFieldsForListing(
+                        $ownedListing,
+                        $request->input('custom_fields', []) ?: []
+                    );
+                }
+            });
+
+            $freshListing = DynamicPost::query()
+                ->where('id', $ownedListing->id)
+                ->with($this->listingRelations())
+                ->first();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Listing changes submitted for admin review.',
+                'data' => $this->formatFullDynamicPost($freshListing),
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to update property listing.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function destroy(Request $request, int $listing): JsonResponse
+    {
+        try {
+            $user = $this->resolveCurrentUser($request);
+
+            if (!$user) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthenticated user.',
+                ], 401);
+            }
+
+            if ($this->isAdminUser($user)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Admin token is not allowed to request user listing deletion.',
+                ], 403);
+            }
+
+            $ownedListing = $this->findOwnedPropertyListing($listing, $user);
+
+            if (!$ownedListing) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing not found.',
+                ], 404);
+            }
+
+            if (
+                ($ownedListing->review_action ?? null) === 'delete'
+                && ($ownedListing->live_status ?? null) === 'under_review'
+            ) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Listing deletion request is already under admin review.',
+                    'data' => $this->formatFullDynamicPost($ownedListing),
+                ]);
+            }
+
+            DB::transaction(function () use ($ownedListing) {
+                $this->applyReviewMetadataToListing($ownedListing, 'delete');
+
+                // Moderated soft-delete: keep the database record until admin review.
+                if (Schema::hasColumn('dynamic_posts', 'status')) {
+                    $ownedListing->status = 'archived';
+                }
+
+                $ownedListing->save();
+            });
+
+            $freshListing = DynamicPost::query()
+                ->where('id', $ownedListing->id)
+                ->with($this->listingRelations())
+                ->first();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Listing deletion request submitted for admin review.',
+                'data' => $this->formatFullDynamicPost($freshListing),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to submit listing deletion request.',
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -485,6 +858,22 @@ class UserPropertyListingController extends Controller
 
             'publish' => $query
                 ->where('status', 'published'),
+
+            'under_review' => $query
+                ->whereIn('live_status', ['under_review', 'submit']),
+
+            'rejected' => $query
+                ->whereIn('live_status', ['reject', 'disapprove']),
+
+            'delete_pending' => $query
+                ->whereIn('live_status', ['under_review', 'submit'])
+                ->where(function ($q) {
+                    if (Schema::hasColumn('dynamic_posts', 'review_action')) {
+                        $q->where('review_action', 'delete');
+                    } else {
+                        $q->where('status', 'archived');
+                    }
+                }),
 
             default => null,
         };
@@ -567,6 +956,8 @@ class UserPropertyListingController extends Controller
         $data['property_listing_id'] = $listing->listing_code ?? null;
 
         $data['review_status_label'] = $this->reviewStatusLabel($listing->live_status ?? null);
+        $data['pending_action'] = $this->pendingReviewAction($listing);
+        $data['is_under_review'] = in_array($listing->live_status, ['under_review', 'submit'], true);
         $data['is_active'] = $listing->status === 'published' && $listing->live_status === 'approve';
         $data['is_rejected'] = in_array($listing->live_status, ['reject', 'disapprove'], true);
 
@@ -1015,6 +1406,291 @@ class UserPropertyListingController extends Controller
         return false;
     }
 
+    private function findOwnedPropertyListing(int $listingId, User $user): ?DynamicPost
+    {
+        $postType = $this->propertyListingPostType();
+
+        if (!$postType || !Schema::hasColumn('dynamic_posts', 'author_id')) {
+            return null;
+        }
+
+        return DynamicPost::query()
+            ->with($this->listingRelations())
+            ->where('id', $listingId)
+            ->where('post_type_id', (int) $postType->id)
+            ->where('author_id', (int) $user->id)
+            ->first();
+    }
+
+    private function applyReviewMetadataToListing(DynamicPost $listing, string $action): void
+    {
+        if ($action !== 'create') {
+            if (
+                Schema::hasColumn('dynamic_posts', 'review_previous_status')
+                && empty($listing->review_previous_status)
+            ) {
+                $listing->review_previous_status = $listing->status ?? null;
+            }
+
+            if (
+                Schema::hasColumn('dynamic_posts', 'review_previous_live_status')
+                && empty($listing->review_previous_live_status)
+            ) {
+                $listing->review_previous_live_status = $listing->live_status ?? null;
+            }
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'review_action')) {
+            $listing->review_action = $action;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'review_requested_at')) {
+            $listing->review_requested_at = now();
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'live_status')) {
+            $listing->live_status = 'under_review';
+        }
+    }
+
+    private function pendingReviewAction(DynamicPost $listing): ?string
+    {
+        if (!in_array($listing->live_status ?? null, ['under_review', 'submit'], true)) {
+            return null;
+        }
+
+        if (!empty($listing->review_action)) {
+            return (string) $listing->review_action;
+        }
+
+        if (($listing->status ?? null) === 'archived') {
+            return 'delete';
+        }
+
+        return 'update';
+    }
+
+    private function validatePersonalBusinessContacts(
+        Request $request,
+        ?DynamicPost $existingListing = null
+    ): void {
+        $values = $existingListing
+            ? $this->contactValuesFromListing($existingListing)
+            : [];
+
+        foreach (['personal_email', 'business_email', 'personal_phone', 'business_phone'] as $key) {
+            if ($request->exists($key)) {
+                $values[$key] = $request->input($key);
+            }
+        }
+
+        foreach (($request->input('custom_fields', []) ?: []) as $customField) {
+            if (!is_array($customField)) {
+                continue;
+            }
+
+            $contactKey = $this->contactKeyFromCustomField($customField);
+
+            if (!$contactKey) {
+                continue;
+            }
+
+            $values[$contactKey] = $this->customFieldRequestValue($customField);
+        }
+
+        $personalEmail = $this->normalizeEmailForComparison($values['personal_email'] ?? null);
+        $businessEmail = $this->normalizeEmailForComparison($values['business_email'] ?? null);
+
+        if ($personalEmail && $businessEmail && $personalEmail === $businessEmail) {
+            throw ValidationException::withMessages([
+                'personal_email' => ['Personal email and business email must be different.'],
+                'business_email' => ['Business email and personal email must be different.'],
+            ]);
+        }
+
+        $personalPhone = $this->normalizePhoneForComparison($values['personal_phone'] ?? null);
+        $businessPhone = $this->normalizePhoneForComparison($values['business_phone'] ?? null);
+
+        if ($personalPhone && $businessPhone && $personalPhone === $businessPhone) {
+            throw ValidationException::withMessages([
+                'personal_phone' => ['Personal phone and business phone must be different.'],
+                'business_phone' => ['Business phone and personal phone must be different.'],
+            ]);
+        }
+    }
+
+    private function contactValuesFromListing(DynamicPost $listing): array
+    {
+        $values = [];
+
+        foreach (['personal_email', 'business_email', 'personal_phone', 'business_phone'] as $column) {
+            if (Schema::hasColumn('dynamic_posts', $column)) {
+                $values[$column] = $listing->{$column} ?? null;
+            }
+        }
+
+        $listing->loadMissing('meta.customField');
+
+        foreach (($listing->meta ?? collect()) as $meta) {
+            $customField = $meta->customField ?? null;
+
+            if (!$customField) {
+                continue;
+            }
+
+            $descriptor = [];
+
+            foreach (['slug', 'name', 'label', 'field_name', 'meta_key', 'key'] as $property) {
+                if (!empty($customField->{$property})) {
+                    $descriptor[] = (string) $customField->{$property};
+                }
+            }
+
+            $contactKey = $this->contactKeyFromDescriptor(implode(' ', $descriptor));
+
+            if (!$contactKey) {
+                continue;
+            }
+
+            $values[$contactKey] = $meta->value_string
+                ?? $meta->value_text
+                ?? $meta->value_number
+                ?? $meta->field_meta_value
+                ?? null;
+        }
+
+        return $values;
+    }
+
+    private function contactKeyFromCustomField(array $customField): ?string
+    {
+        $descriptorParts = [];
+
+        foreach (['slug', 'name', 'label', 'field_name', 'meta_key', 'key'] as $key) {
+            if (!empty($customField[$key])) {
+                $descriptorParts[] = (string) $customField[$key];
+            }
+        }
+
+        if (empty($descriptorParts) && !empty($customField['custom_field_id'])) {
+            $descriptorParts = $this->customFieldDescriptorById((int) $customField['custom_field_id']);
+        }
+
+        return $this->contactKeyFromDescriptor(implode(' ', $descriptorParts));
+    }
+
+    private function customFieldDescriptorById(int $customFieldId): array
+    {
+        if (!$customFieldId || !Schema::hasTable('custom_fields')) {
+            return [];
+        }
+
+        $columns = collect([
+            'slug',
+            'name',
+            'label',
+            'field_name',
+            'meta_key',
+            'key',
+        ])->filter(fn ($column) => Schema::hasColumn('custom_fields', $column))
+            ->values()
+            ->toArray();
+
+        if (empty($columns)) {
+            return [];
+        }
+
+        $field = DB::table('custom_fields')
+            ->select(array_merge(['id'], $columns))
+            ->where('id', $customFieldId)
+            ->first();
+
+        if (!$field) {
+            return [];
+        }
+
+        return collect($columns)
+            ->map(fn ($column) => $field->{$column} ?? null)
+            ->filter()
+            ->map(fn ($value) => (string) $value)
+            ->values()
+            ->toArray();
+    }
+
+    private function contactKeyFromDescriptor(string $descriptor): ?string
+    {
+        $value = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', $descriptor) ?? ''));
+
+        $isEmail = str_contains($value, 'email');
+        $isPhone = str_contains($value, 'phone')
+            || str_contains($value, 'mobile')
+            || str_contains($value, 'telephone')
+            || str_contains($value, 'contact_number');
+
+        $isPersonal = str_contains($value, 'personal')
+            || str_contains($value, 'private');
+
+        $isBusiness = str_contains($value, 'business')
+            || str_contains($value, 'company')
+            || str_contains($value, 'office')
+            || str_contains($value, 'work');
+
+        return match (true) {
+            $isPersonal && $isEmail => 'personal_email',
+            $isBusiness && $isEmail => 'business_email',
+            $isPersonal && $isPhone => 'personal_phone',
+            $isBusiness && $isPhone => 'business_phone',
+            default => null,
+        };
+    }
+
+    private function customFieldRequestValue(array $customField): mixed
+    {
+        foreach ([
+            'value_string',
+            'value_text',
+            'value_number',
+            'value_date',
+            'value_datetime',
+            'value_json',
+        ] as $key) {
+            if (array_key_exists($key, $customField)) {
+                $value = $customField[$key];
+
+                return is_array($value) ? json_encode($value) : $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeEmailForComparison(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $email = strtolower(trim((string) $value));
+
+        return $email !== '' ? $email : null;
+    }
+
+    private function normalizePhoneForComparison(mixed $value): ?string
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', (string) $value) ?? '';
+
+        if ($digits === '') {
+            return null;
+        }
+
+        // +91 98765 43210 and 9876543210 are treated as the same number.
+        return strlen($digits) > 10 ? substr($digits, -10) : $digits;
+    }
+
     private function putIfColumnExists(array &$payload, string $column, mixed $value): void
     {
         if (Schema::hasColumn('dynamic_posts', $column)) {
@@ -1022,7 +1698,11 @@ class UserPropertyListingController extends Controller
         }
     }
 
-    private function uniqueDynamicPostSlug(string $title, ?int $postTypeId = null): string
+    private function uniqueDynamicPostSlug(
+        string $title,
+        ?int $postTypeId = null,
+        ?int $ignoreDynamicPostId = null
+    ): string
     {
         $baseSlug = Str::slug($title);
 
@@ -1033,7 +1713,7 @@ class UserPropertyListingController extends Controller
         $slug = $baseSlug;
         $counter = 1;
 
-        while ($this->dynamicPostSlugExists($slug, $postTypeId)) {
+        while ($this->dynamicPostSlugExists($slug, $postTypeId, $ignoreDynamicPostId)) {
             $slug = $baseSlug . '-' . $counter;
             $counter++;
         }
@@ -1041,7 +1721,11 @@ class UserPropertyListingController extends Controller
         return $slug;
     }
 
-    private function dynamicPostSlugExists(string $slug, ?int $postTypeId = null): bool
+    private function dynamicPostSlugExists(
+        string $slug,
+        ?int $postTypeId = null,
+        ?int $ignoreDynamicPostId = null
+    ): bool
     {
         if (!Schema::hasColumn('dynamic_posts', 'slug')) {
             return false;
@@ -1051,6 +1735,10 @@ class UserPropertyListingController extends Controller
 
         if ($postTypeId && Schema::hasColumn('dynamic_posts', 'post_type_id')) {
             $query->where('post_type_id', $postTypeId);
+        }
+
+        if ($ignoreDynamicPostId) {
+            $query->where('id', '!=', $ignoreDynamicPostId);
         }
 
         return $query->exists();
