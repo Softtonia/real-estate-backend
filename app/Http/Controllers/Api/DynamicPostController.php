@@ -644,6 +644,28 @@ class DynamicPostController extends Controller
     public function update(Request $request, int|string $dynamicPost): JsonResponse
     {
         try {
+            /*
+             * Multipart PUT/PATCH bodies are not reliably parsed by PHP.
+             * Keep the PUT route, but send uploads as POST with _method=PUT.
+             * JSON PUT requests continue to work normally.
+             */
+            $this->normalizeDynamicPostRequest($request);
+
+            $contentType = strtolower((string) $request->header('Content-Type', ''));
+
+            if (
+                in_array(strtoupper($request->getRealMethod()), ['PUT', 'PATCH'], true)
+                && str_contains($contentType, 'multipart/form-data')
+                && empty($request->all())
+                && empty($request->allFiles())
+            ) {
+                throw ValidationException::withMessages([
+                    'request' => [
+                        'Multipart PUT/PATCH body was not parsed. Send this request as POST with _method=PUT while keeping the same update URL.',
+                    ],
+                ]);
+            }
+
             $post = $this->findDynamicPost($dynamicPost);
 
             if (!$post) {
@@ -798,15 +820,29 @@ class DynamicPostController extends Controller
                     $postData['rejected_by'] = null;
                     $postData['rejected_at'] = null;
                 }
-                if (
-                    ($postData['status'] ?? null) === 'published'
-                    && empty($postData['published_at'])
-                    && empty($post->published_at)
-                ) {
-                    $postData['published_at'] = now();
+                if (array_key_exists('status', $postData)) {
+                    if (
+                        $postData['status'] === 'published'
+                        && empty($postData['published_at'])
+                        && empty($post->published_at)
+                    ) {
+                        $postData['published_at'] = now();
+                    }
+
+                    if (
+                        $postData['status'] !== 'published'
+                        && Schema::hasColumn('dynamic_posts', 'published_at')
+                    ) {
+                        $postData['published_at'] = null;
+                    }
                 }
 
-                $post->update($postData);
+                /*
+                 * forceFill avoids silent update failures when a valid database
+                 * column is missing from DynamicPost::$fillable.
+                 */
+                $post->forceFill($postData);
+                $post->save();
 
                 if (is_array($taxonomyTermIds)) {
                     $this->syncTaxonomyTerms($post, $taxonomyTermIds);
@@ -1744,6 +1780,132 @@ class DynamicPostController extends Controller
 
         return $prefix ?: 'DYN';
     }
+    /**
+     * Normalize JSON/form-data update payloads before validation.
+     *
+     * Supports:
+     * - normal JSON requests
+     * - multipart form-data values encoded with JSON.stringify()
+     * - payload/data/post wrapper objects
+     * - common status aliases used by frontend forms
+     */
+    private function normalizeDynamicPostRequest(Request $request): void
+    {
+        foreach (['payload', 'data', 'post'] as $wrapperKey) {
+            if (!$request->has($wrapperKey)) {
+                continue;
+            }
+
+            $wrapper = $request->input($wrapperKey);
+
+            if (is_string($wrapper)) {
+                $decoded = json_decode($wrapper, true);
+
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $wrapper = $decoded;
+                }
+            }
+
+            if (is_array($wrapper)) {
+                $request->merge(array_merge($wrapper, $request->except([
+                    'payload',
+                    'data',
+                    'post',
+                ])));
+            }
+        }
+
+        foreach (
+            [
+                'taxonomies',
+                'taxonomy_term_ids',
+                'custom_fields',
+                'gallery_image_ids',
+                'relationship_post_types',
+                'related_posts',
+                'keywords',
+            ] as $field
+        ) {
+            if (!$request->has($field)) {
+                continue;
+            }
+
+            $value = $request->input($field);
+
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $trimmed = trim($value);
+
+            if ($trimmed === '') {
+                if (in_array($field, [
+                    'taxonomies',
+                    'custom_fields',
+                    'gallery_image_ids',
+                    'relationship_post_types',
+                    'related_posts',
+                ], true)) {
+                    $request->merge([$field => []]);
+                }
+
+                continue;
+            }
+
+            $decoded = json_decode($trimmed, true);
+
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $request->merge([$field => $decoded]);
+            }
+        }
+
+        $status = $this->firstPresentRequestValue($request, [
+            'status',
+            'post_status',
+            'listing_status',
+        ]);
+
+        if ($status['found']) {
+            $request->merge([
+                'status' => is_string($status['value'])
+                    ? strtolower(trim($status['value']))
+                    : $status['value'],
+            ]);
+        }
+
+        $liveStatus = $this->firstPresentRequestValue($request, [
+            'live_status',
+            'liveStatus',
+            'listing_live_status',
+            'approval_status',
+        ]);
+
+        if ($liveStatus['found']) {
+            $request->merge([
+                'live_status' => is_string($liveStatus['value'])
+                    ? strtolower(trim($liveStatus['value']))
+                    : $liveStatus['value'],
+            ]);
+        }
+    }
+
+    private function firstPresentRequestValue(Request $request, array $keys): array
+    {
+        foreach ($keys as $key) {
+            if ($request->exists($key)) {
+                return [
+                    'found' => true,
+                    'value' => $request->input($key),
+                ];
+            }
+        }
+
+        return [
+            'found' => false,
+            'value' => null,
+        ];
+    }
+
     private function validatePost(Request $request, bool $isUpdate = false): array
     {
         $this->cleanEmptyUploadInputs($request);
@@ -2594,10 +2756,7 @@ class DynamicPostController extends Controller
         $featuredFile = $request->file('featured_image');
         $featuredInput = $request->input('featured_image');
 
-        if ($existingPost && !$featuredProvided) {
-            $this->deleteMediaFileById($existingPost->featured_image_id);
-            $validated['featured_image_id'] = null;
-        } elseif ($featuredFile) {
+        if ($featuredFile) {
             if ($existingPost && !empty($existingPost->featured_image_id)) {
                 $this->deleteMediaFileById($existingPost->featured_image_id);
             }
@@ -2638,8 +2797,7 @@ class DynamicPostController extends Controller
             || array_key_exists('gallery_image_ids', $validated);
 
         if ($existingPost && !$galleryProvided) {
-            $this->deleteMediaFilesByIds($currentGalleryIds);
-            $validated['gallery_image_ids'] = [];
+            // Gallery was not part of this update. Keep the existing gallery.
             return $validated;
         }
 
