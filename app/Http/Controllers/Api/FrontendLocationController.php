@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class FrontendLocationController extends Controller
 {
@@ -27,19 +28,21 @@ class FrontendLocationController extends Controller
             $query->where('status', 1);
         }
 
-        if (Schema::hasColumn('countries', 'sort_order')) {
-            $query->orderBy('sort_order', 'asc');
-        }
+
 
         $countries = $query
-            ->orderBy('name', 'asc')
+            ->orderByRaw('LOWER(name) ASC')
             ->get()
-            ->map(fn ($country) => [
-                'id' => (int) $country->id,
-                'value' => (int) $country->id,
-                'label' => $country->name,
-                'name' => $country->name,
-            ])
+            ->map(function ($country) {
+                $name = $this->formatLocationName($country->name);
+
+                return [
+                    'id' => (int) $country->id,
+                    'value' => (int) $country->id,
+                    'label' => $name,
+                    'name' => $name,
+                ];
+            })
             ->values();
 
         return response()->json([
@@ -79,20 +82,20 @@ class FrontendLocationController extends Controller
             $query->where('status', 1);
         }
 
-        if (Schema::hasColumn('states', 'sort_order')) {
-            $query->orderBy('sort_order', 'asc');
-        }
-
         $states = $query
-            ->orderBy('name', 'asc')
+            ->orderByRaw('LOWER(name) ASC')
             ->get()
-            ->map(fn ($state) => [
-                'id' => (int) $state->id,
-                'value' => (int) $state->id,
-                'label' => $state->name,
-                'name' => $state->name,
-                'country_id' => (int) $state->country_id,
-            ])
+            ->map(function ($state) {
+                $name = $this->formatLocationName($state->name);
+
+                return [
+                    'id' => (int) $state->id,
+                    'value' => (int) $state->id,
+                    'label' => $name,
+                    'name' => $name,
+                    'country_id' => (int) $state->country_id,
+                ];
+            })
             ->values();
 
         return response()->json([
@@ -133,20 +136,20 @@ class FrontendLocationController extends Controller
             $query->where('status', 1);
         }
 
-        if (Schema::hasColumn('cities', 'sort_order')) {
-            $query->orderBy('sort_order', 'asc');
-        }
-
         $cities = $query
-            ->orderBy('name', 'asc')
+            ->orderByRaw('LOWER(name) ASC')
             ->get()
-            ->map(fn ($city) => [
-                'id' => (int) $city->id,
-                'value' => (int) $city->id,
-                'label' => $city->name,
-                'name' => $city->name,
-                'state_id' => (int) $city->state_id,
-            ])
+            ->map(function ($city) {
+                $name = $this->formatLocationName($city->name);
+
+                return [
+                    'id' => (int) $city->id,
+                    'value' => (int) $city->id,
+                    'label' => $name,
+                    'name' => $name,
+                    'state_id' => (int) $city->state_id,
+                ];
+            })
             ->values();
 
         return response()->json([
@@ -200,5 +203,13 @@ class FrontendLocationController extends Controller
                 ])->filter()->values()->implode(', ') ?: '-',
             ],
         ]);
+    }
+    private function formatLocationName(?string $name): ?string
+    {
+        if ($name === null || trim($name) === '') {
+            return null;
+        }
+
+        return Str::ucfirst(Str::lower(trim($name)));
     }
 }
