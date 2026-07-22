@@ -106,6 +106,7 @@ use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\ListingUserAssignmentController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
+use App\Http\Controllers\Api\UserDynamicPostListingController;
 use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\UserPropertyListingController;
 use App\Http\Controllers\Frontend\FrontendListingController;
@@ -1092,6 +1093,14 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     );
 });
 Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
+    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])
+        ->get('/user-dynamic-posts', [UserDynamicPostListingController::class, 'getUserPosts']);
+
+    Route::middleware(['throttle:60,1'])
+        ->get('/get-posts-by-user-id-filter-by-taxonomy/{userId}', [UserDynamicPostListingController::class, 'getPostsByUserIdFilterByTaxonomy']);
+
+    Route::middleware(['throttle:60,1'])
+        ->get('/get-related-dynamic-posts/{postId}', [UserDynamicPostListingController::class, 'getRelatedPostsByPostId']);
     Route::middleware(['throttle:60,1'])->get(
         'auth/getuser',
         [UserProfileController::class, 'show']
@@ -1120,12 +1129,6 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('auth/profile/documents/file', [UserProfileController::class, 'uploadDocumentFile']);
     Route::get('auth/profile/documents/progress/{uploadId}', [UserProfileController::class, 'documentUploadProgress']);
     Route::get('frontend/listing-roles', [DynamicPostController::class, 'frontendListingRoleDropdown']);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Frontend User Listing Step Form
-    |--------------------------------------------------------------------------
-    */
 
     Route::get(
         'frontend/dynamic-post-step-form/{postType}',
