@@ -239,7 +239,74 @@ class RelatedPostQueryService
                 ->orWhere('dp.status', '1');
         });
     }
+    private function groupTermIdsByTaxonomy(array $termIds, bool $onlyLocationTaxonomies = false): \Illuminate\Support\Collection
+    {
+        if (! Schema::hasTable($this->taxonomyTermsTable) || ! Schema::hasTable($this->taxonomiesTable)) {
+            return collect();
+        }
 
+        $termIds = collect($termIds)
+            ->map(fn($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($termIds)) {
+            return collect();
+        }
+
+        $query = DB::table($this->taxonomyTermsTable . ' as tt')
+            ->join($this->taxonomiesTable . ' as tx', 'tx.id', '=', 'tt.taxonomy_id')
+            ->whereIn('tt.id', $termIds)
+            ->select(
+                'tt.id',
+                'tt.taxonomy_id',
+                'tx.slug as taxonomy_slug'
+            );
+
+        if ($onlyLocationTaxonomies) {
+            $query->whereIn('tx.slug', $this->locationTaxonomySlugs);
+        } else {
+            $query->whereNotIn('tx.slug', $this->locationTaxonomySlugs);
+        }
+
+        return $query->get()
+            ->groupBy('taxonomy_id')
+            ->map(function ($rows) {
+                return $rows->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->toArray();
+            })
+            ->filter(fn($ids) => ! empty($ids));
+    }
+
+    private function extractTermIdsFromPreviewContext(mixed $taxonomies): array
+    {
+        if (! is_array($taxonomies)) {
+            return [];
+        }
+
+        $ids = [];
+
+        foreach ($taxonomies as $terms) {
+            if (! is_array($terms)) {
+                continue;
+            }
+
+            foreach ($terms as $term) {
+                if (is_array($term) && ! empty($term['id'])) {
+                    $ids[] = (int) $term['id'];
+                } elseif (is_object($term) && ! empty($term->id)) {
+                    $ids[] = (int) $term->id;
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($ids)));
+    }
     private function applyCurrentPostTaxonomyMatch($query, int $currentPostId, bool $onlyLocationTaxonomies): void
     {
         $groups = $this->currentPostTermsGroupedByTaxonomy($currentPostId, $onlyLocationTaxonomies);

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\PageBuilder\Widgets;
 
 use App\Models\DynamicPost;
+use App\PageBuilder\Foundation\WidgetContext;
 use App\PageBuilder\Services\RelatedPostQueryService;
+use Throwable;
 
 class RelatedPostsWidget
 {
@@ -40,7 +42,10 @@ class RelatedPostsWidget
         return [
             'title' => 'Related Posts',
 
+            // default true
             'exclude_current' => true,
+
+            // current dynamic post/listing matching
             'match_post_type' => true,
             'match_taxonomy_terms' => true,
             'match_locations' => true,
@@ -49,6 +54,7 @@ class RelatedPostsWidget
             'orderby' => 'created_at',
             'order' => 'DESC',
 
+            // builder query section
             'query' => [
                 'relation' => 'AND',
                 'items' => [],
@@ -83,19 +89,19 @@ class RelatedPostsWidget
                     ],
                     [
                         'name' => 'match_post_type',
-                        'label' => 'Match Post Type',
+                        'label' => 'Match Current Post Type',
                         'type' => 'switch',
                         'default' => true,
                     ],
                     [
                         'name' => 'match_taxonomy_terms',
-                        'label' => 'Match Taxonomy & Terms',
+                        'label' => 'Match Current Taxonomy & Terms',
                         'type' => 'switch',
                         'default' => true,
                     ],
                     [
                         'name' => 'match_locations',
-                        'label' => 'Match Locations',
+                        'label' => 'Match Current Location',
                         'type' => 'switch',
                         'default' => true,
                     ],
@@ -142,7 +148,7 @@ class RelatedPostsWidget
                                 'name' => 'taxonomy',
                                 'label' => 'Taxonomy',
                                 'type' => 'text',
-                                'placeholder' => 'city, property-type',
+                                'placeholder' => 'city, property-type, property-status',
                             ],
                             [
                                 'name' => 'terms',
@@ -164,7 +170,7 @@ class RelatedPostsWidget
                                 'name' => 'column',
                                 'label' => 'Location Column',
                                 'type' => 'text',
-                                'placeholder' => 'city_id, area_id',
+                                'placeholder' => 'city_id, area_id, location_id',
                             ],
                             [
                                 'name' => 'compare',
@@ -240,15 +246,44 @@ class RelatedPostsWidget
         ];
     }
 
-    public function data(array $settings, ?DynamicPost $currentPost = null): array
-    {
+    public function render(
+        array $settings,
+        ?WidgetContext $context = null,
+        ?DynamicPost $currentPost = null
+    ): string {
+        try {
+            $contextData = $this->contextToArray($context);
+
+            if (! $currentPost) {
+                $currentPost = $this->resolveCurrentPost($contextData);
+            }
+
+            return $this->renderHtml(
+                settings: $settings,
+                currentPost: $currentPost,
+                context: $contextData
+            );
+        } catch (Throwable $e) {
+            return '<div class="pb-widget-error">' . e($e->getMessage()) . '</div>';
+        }
+    }
+
+    public function data(
+        array $settings,
+        ?DynamicPost $currentPost = null,
+        array $context = []
+    ): array {
         $settings = array_replace_recursive(
             $this->defaultSettings(),
             $settings
         );
 
         $posts = $this->relatedPostQueryService
-            ->getRelatedPosts($settings, $currentPost)
+            ->getRelatedPosts(
+                settings: $settings,
+                currentPost: $currentPost,
+                context: $context
+            )
             ->map(fn ($post) => $this->formatPost($post))
             ->values()
             ->all();
@@ -260,31 +295,146 @@ class RelatedPostsWidget
         ];
     }
 
-    public function renderHtml(array $settings, ?DynamicPost $currentPost = null): string
-    {
+    public function renderHtml(
+        array $settings,
+        ?DynamicPost $currentPost = null,
+        array $context = []
+    ): string {
         return view(
             'page-builder.widgets.related-posts',
-            $this->data($settings, $currentPost)
+            $this->data($settings, $currentPost, $context)
         )->render();
+    }
+
+    private function resolveCurrentPost(array $context): ?DynamicPost
+    {
+        foreach (['current_post', 'dynamic_post', 'post'] as $key) {
+            $value = data_get($context, $key);
+
+            if ($value instanceof DynamicPost) {
+                return $value;
+            }
+
+            if (is_array($value) && ! empty($value['id'])) {
+                return DynamicPost::find((int) $value['id']);
+            }
+
+            if (is_object($value) && ! empty($value->id)) {
+                return DynamicPost::find((int) $value->id);
+            }
+        }
+
+        $postId = data_get($context, 'entity_id')
+            ?? data_get($context, 'current_post_id')
+            ?? data_get($context, 'dynamic_post_id')
+            ?? data_get($context, 'post_id')
+            ?? data_get($context, 'id');
+
+        return $postId ? DynamicPost::find((int) $postId) : null;
+    }
+
+    private function contextToArray(?WidgetContext $context): array
+    {
+        if (! $context) {
+            return [];
+        }
+
+        if (method_exists($context, 'toArray')) {
+            try {
+                $data = $context->toArray();
+
+                if (is_array($data)) {
+                    return $data;
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        if (method_exists($context, 'data')) {
+            try {
+                $data = $context->data();
+
+                if (is_array($data)) {
+                    return $data;
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        $keys = [
+            'entity_id',
+            'post_id',
+            'dynamic_post_id',
+            'current_post_id',
+            'post_type_id',
+            'selected_taxonomy_term_ids',
+            'preview_values',
+            'taxonomies',
+            'terms',
+            'current_post',
+            'dynamic_post',
+            'post',
+            'request',
+        ];
+
+        $data = [];
+
+        foreach ($keys as $key) {
+            if (method_exists($context, 'get')) {
+                try {
+                    $value = $context->get($key);
+
+                    if ($value !== null) {
+                        $data[$key] = $value;
+                    }
+                } catch (Throwable) {
+                }
+            }
+
+            try {
+                if (isset($context->{$key})) {
+                    $data[$key] = $context->{$key};
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        return $data;
     }
 
     private function formatPost(object $post): array
     {
         return [
             'id' => $post->id ?? null,
+            'post_type_id' => $post->post_type_id ?? null,
+
             'title' => $post->title
                 ?? $post->post_title
                 ?? $post->name
                 ?? $post->property_title
+                ?? $post->project_name
+                ?? $post->developer_name
                 ?? null,
-            'slug' => $post->slug ?? $post->post_slug ?? null,
-            'content' => $post->content ?? $post->description ?? $post->post_content ?? null,
-            'excerpt' => $post->excerpt ?? $post->short_description ?? null,
+
+            'slug' => $post->slug
+                ?? $post->post_slug
+                ?? null,
+
+            'content' => $post->content
+                ?? $post->description
+                ?? $post->post_content
+                ?? null,
+
+            'excerpt' => $post->excerpt
+                ?? $post->short_description
+                ?? null,
+
             'featured_image' => $post->featured_image
                 ?? $post->thumbnail
                 ?? $post->image
                 ?? $post->banner_image
                 ?? null,
+
             'status' => $post->status ?? null,
             'created_at' => $post->created_at ?? null,
             'updated_at' => $post->updated_at ?? null,
