@@ -492,9 +492,20 @@ class UserListingController extends Controller
         }
     }
 
-    public function update(Request $request, int $listing): JsonResponse
-    {
+    public function update(
+        Request $request,
+        int|string $listing
+    ): JsonResponse {
         try {
+            $listingId = $this->normalizeListingId($listing);
+
+            if (!$listingId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invalid property listing ID.',
+                ], 422);
+            }
+
             $user = $this->resolveCurrentUser($request);
 
             if (!$user) {
@@ -511,7 +522,10 @@ class UserListingController extends Controller
                 ], 403);
             }
 
-            $ownedListing = $this->findOwnedPropertyListing($listing, $user);
+            $ownedListing = $this->findOwnedPropertyListing(
+                $listingId,
+                $user
+            );
 
             if (!$ownedListing) {
                 return response()->json([
@@ -521,36 +535,142 @@ class UserListingController extends Controller
             }
 
             $request->validate([
-                'post_type_id' => ['sometimes', 'nullable', 'integer', 'exists:post_types,id'],
-                'title' => ['sometimes', 'required', 'string', 'max:255'],
-                'slug' => ['sometimes', 'nullable', 'string', 'max:255'],
-                'status' => ['sometimes', 'nullable', 'string', Rule::in([
-                    'draft',
-                    'published',
-                    'private',
-                    'archived',
-                ])],
+                'post_type_id' => [
+                    'sometimes',
+                    'nullable',
+                    'integer',
+                    'exists:post_types,id',
+                ],
 
-                // Kept for frontend payload compatibility only. It is ignored below.
-                'live_status' => ['sometimes', 'nullable', 'string'],
+                'title' => [
+                    'sometimes',
+                    'required',
+                    'string',
+                    'max:255',
+                ],
 
-                'content' => ['sometimes', 'nullable', 'string'],
-                'excerpt' => ['sometimes', 'nullable', 'string'],
-                'country_id' => ['sometimes', 'nullable', 'exists:countries,id'],
-                'state_id' => ['sometimes', 'nullable', 'exists:states,id'],
-                'city_id' => ['sometimes', 'nullable', 'exists:cities,id'],
-                'area_locality' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'slug' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
 
-                'personal_email' => ['sometimes', 'nullable', 'email', 'max:255'],
-                'business_email' => ['sometimes', 'nullable', 'email', 'max:255'],
-                'personal_phone' => ['sometimes', 'nullable', 'string', 'max:30'],
-                'business_phone' => ['sometimes', 'nullable', 'string', 'max:30'],
+                'status' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                    Rule::in([
+                        'draft',
+                        'published',
+                        'private',
+                        'archived',
+                    ]),
+                ],
 
-                'custom_fields' => ['sometimes', 'nullable', 'array'],
-                'custom_fields.*.custom_field_id' => ['nullable', 'integer'],
-                'custom_fields.*.slug' => ['nullable', 'string', 'max:255'],
-                'custom_fields.*.name' => ['nullable', 'string', 'max:255'],
-                'custom_fields.*.label' => ['nullable', 'string', 'max:255'],
+                'live_status' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                ],
+
+                'content' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                ],
+
+                'excerpt' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                ],
+
+                'country_id' => [
+                    'sometimes',
+                    'nullable',
+                    'integer',
+                    'exists:countries,id',
+                ],
+
+                'state_id' => [
+                    'sometimes',
+                    'nullable',
+                    'integer',
+                    'exists:states,id',
+                ],
+
+                'city_id' => [
+                    'sometimes',
+                    'nullable',
+                    'integer',
+                    'exists:cities,id',
+                ],
+
+                'area_locality' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+
+                'personal_email' => [
+                    'sometimes',
+                    'nullable',
+                    'email',
+                    'max:255',
+                ],
+
+                'business_email' => [
+                    'sometimes',
+                    'nullable',
+                    'email',
+                    'max:255',
+                ],
+
+                'personal_phone' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                    'max:30',
+                ],
+
+                'business_phone' => [
+                    'sometimes',
+                    'nullable',
+                    'string',
+                    'max:30',
+                ],
+
+                'custom_fields' => [
+                    'sometimes',
+                    'nullable',
+                    'array',
+                ],
+
+                'custom_fields.*.custom_field_id' => [
+                    'nullable',
+                    'integer',
+                ],
+
+                'custom_fields.*.slug' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+
+                'custom_fields.*.name' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+
+                'custom_fields.*.label' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+
                 'custom_fields.*.value_string' => ['nullable'],
                 'custom_fields.*.value_text' => ['nullable'],
                 'custom_fields.*.value_number' => ['nullable'],
@@ -558,22 +678,86 @@ class UserListingController extends Controller
                 'custom_fields.*.value_datetime' => ['nullable'],
                 'custom_fields.*.value_json' => ['nullable'],
 
-                'taxonomy_term_ids' => ['sometimes', 'nullable'],
-                'taxonomy_term_ids.*' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
-                'taxonomies' => ['sometimes', 'nullable', 'array'],
-                'taxonomies.*' => ['nullable'],
-                'taxonomies.*.taxonomy_id' => ['nullable', 'integer', 'exists:taxonomies,id'],
-                'taxonomies.*.taxonomy_term_id' => ['nullable', 'integer', 'exists:taxonomy_terms,id'],
-                'taxonomies.*.taxonomy_term_ids' => ['nullable', 'array'],
-                'taxonomies.*.taxonomy_term_ids.*' => ['integer', 'exists:taxonomy_terms,id'],
+                'taxonomy_term_ids' => [
+                    'sometimes',
+                    'nullable',
+                ],
 
-                'featured_image' => ['sometimes', 'nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
-                'featured_image_id' => ['sometimes', 'nullable'],
-                'featured_image_id.*' => ['nullable'],
-                'gallery_images' => ['sometimes', 'nullable'],
-                'gallery_images.*' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
-                'gallery_image_ids' => ['sometimes', 'nullable'],
-                'gallery_image_ids.*' => ['nullable'],
+                'taxonomy_term_ids.*' => [
+                    'nullable',
+                    'integer',
+                    'exists:taxonomy_terms,id',
+                ],
+
+                'taxonomies' => [
+                    'sometimes',
+                    'nullable',
+                    'array',
+                ],
+
+                'taxonomies.*' => [
+                    'nullable',
+                ],
+
+                'taxonomies.*.taxonomy_id' => [
+                    'nullable',
+                    'integer',
+                    'exists:taxonomies,id',
+                ],
+
+                'taxonomies.*.taxonomy_term_id' => [
+                    'nullable',
+                    'integer',
+                    'exists:taxonomy_terms,id',
+                ],
+
+                'taxonomies.*.taxonomy_term_ids' => [
+                    'nullable',
+                    'array',
+                ],
+
+                'taxonomies.*.taxonomy_term_ids.*' => [
+                    'integer',
+                    'exists:taxonomy_terms,id',
+                ],
+
+                'featured_image' => [
+                    'sometimes',
+                    'nullable',
+                    'file',
+                    'mimes:jpg,jpeg,png,webp,gif',
+                    'max:10240',
+                ],
+
+                'featured_image_id' => [
+                    'sometimes',
+                    'nullable',
+                ],
+
+                'featured_image_id.*' => [
+                    'nullable',
+                ],
+
+                'gallery_images' => [
+                    'sometimes',
+                    'nullable',
+                ],
+
+                'gallery_images.*' => [
+                    'nullable',
+                    'file',
+                    'mimes:jpg,jpeg,png,webp,gif',
+                    'max:10240',
+                ],
+
+                'gallery_image_ids' => [
+                    'sometimes',
+                    'nullable',
+                ],
+
+                'gallery_image_ids.*' => [
+                    'nullable',
+                ],
             ]);
 
             $postType = $this->propertyListingPostType();
@@ -585,16 +769,27 @@ class UserListingController extends Controller
                 ], 404);
             }
 
-            if ($request->filled('post_type_id') && (int) $request->post_type_id !== (int) $postType->id) {
+            if (
+                $request->filled('post_type_id')
+                && (int) $request->post_type_id !== (int) $postType->id
+            ) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Invalid post_type_id. Only property-listing post type is allowed from user side.',
                 ], 422);
             }
 
-            $this->validatePersonalBusinessContacts($request, $ownedListing);
+            $this->validatePersonalBusinessContacts(
+                $request,
+                $ownedListing
+            );
 
-            DB::transaction(function () use ($request, $user, $postType, $ownedListing) {
+            DB::transaction(function () use (
+                $request,
+                $user,
+                $postType,
+                $ownedListing
+            ) {
                 $payload = [];
 
                 foreach (
@@ -613,7 +808,11 @@ class UserListingController extends Controller
                     ] as $column
                 ) {
                     if ($request->exists($column)) {
-                        $this->putIfColumnExists($payload, $column, $request->input($column));
+                        $this->putIfColumnExists(
+                            $payload,
+                            $column,
+                            $request->input($column)
+                        );
                     }
                 }
 
@@ -621,36 +820,56 @@ class UserListingController extends Controller
                     $this->putIfColumnExists(
                         $payload,
                         'status',
-                        $request->input('status') ?: ($ownedListing->status ?? 'draft')
+                        $request->input('status')
+                            ?: ($ownedListing->status ?? 'draft')
                     );
                 }
 
-                if ($request->exists('slug') || $request->exists('title')) {
+                if (
+                    $request->exists('slug')
+                    || $request->exists('title')
+                ) {
                     $slugSource = $request->input('slug')
                         ?: $request->input('title')
                         ?: $ownedListing->title
                         ?: 'listing';
 
-                    $this->putIfColumnExists($payload, 'slug', $this->uniqueDynamicPostSlug(
-                        $slugSource,
-                        (int) $postType->id,
-                        (int) $ownedListing->id
-                    ));
+                    $this->putIfColumnExists(
+                        $payload,
+                        'slug',
+                        $this->uniqueDynamicPostSlug(
+                            $slugSource,
+                            (int) $postType->id,
+                            (int) $ownedListing->id
+                        )
+                    );
                 }
 
                 foreach ($payload as $column => $value) {
                     $ownedListing->{$column} = $value;
                 }
 
-                $this->applyReviewMetadataToListing($ownedListing, 'update');
+                $this->applyReviewMetadataToListing(
+                    $ownedListing,
+                    'update'
+                );
 
-                if (Schema::hasColumn('dynamic_posts', 'published_at') && $request->exists('status')) {
-                    $ownedListing->published_at = $request->input('status') === 'published'
+                if (
+                    Schema::hasColumn(
+                        'dynamic_posts',
+                        'published_at'
+                    )
+                    && $request->exists('status')
+                ) {
+                    $ownedListing->published_at =
+                        $request->input('status') === 'published'
                         ? ($ownedListing->published_at ?: now())
                         : null;
                 }
 
-                $featuredImageFile = $this->featuredImageFile($request);
+                $featuredImageFile = $this->featuredImageFile(
+                    $request
+                );
 
                 if ($featuredImageFile) {
                     $featuredMedia = $this->storeListingMediaFile(
@@ -660,25 +879,48 @@ class UserListingController extends Controller
                         fieldSlug: 'featured_image'
                     );
 
-                    if ($featuredMedia && Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
-                        $ownedListing->featured_image_id = (int) $featuredMedia->id;
+                    if (
+                        $featuredMedia
+                        && Schema::hasColumn(
+                            'dynamic_posts',
+                            'featured_image_id'
+                        )
+                    ) {
+                        $ownedListing->featured_image_id =
+                            (int) $featuredMedia->id;
                     }
-                } elseif ($request->exists('featured_image_id') && Schema::hasColumn('dynamic_posts', 'featured_image_id')) {
-                    $ownedListing->featured_image_id = $this->numericInputValue(
-                        $request->input('featured_image_id')
-                    );
+                } elseif (
+                    $request->exists('featured_image_id')
+                    && Schema::hasColumn(
+                        'dynamic_posts',
+                        'featured_image_id'
+                    )
+                ) {
+                    $ownedListing->featured_image_id =
+                        $this->numericInputValue(
+                            $request->input('featured_image_id')
+                        );
                 }
 
-                if ($request->exists('gallery_image_ids') || $request->hasFile('gallery_images')) {
-                    $galleryIds = $this->galleryMediaIdsFromRequest($request);
+                if (
+                    $request->exists('gallery_image_ids')
+                    || $request->hasFile('gallery_images')
+                ) {
+                    $galleryIds = $this->galleryMediaIdsFromRequest(
+                        $request
+                    );
 
-                    foreach ($this->galleryImageFiles($request) as $galleryFile) {
-                        $galleryMedia = $this->storeListingMediaFile(
-                            file: $galleryFile,
-                            user: $user,
-                            postType: $postType,
-                            fieldSlug: 'gallery_images'
-                        );
+                    foreach (
+                        $this->galleryImageFiles($request)
+                        as $galleryFile
+                    ) {
+                        $galleryMedia =
+                            $this->storeListingMediaFile(
+                                file: $galleryFile,
+                                user: $user,
+                                postType: $postType,
+                                fieldSlug: 'gallery_images'
+                            );
 
                         if ($galleryMedia) {
                             $galleryIds[] = (int) $galleryMedia->id;
@@ -692,16 +934,32 @@ class UserListingController extends Controller
                         ->values()
                         ->toArray();
 
-                    if (Schema::hasColumn('dynamic_posts', 'gallery_image_ids')) {
-                        $ownedListing->gallery_image_ids = json_encode($galleryIds);
+                    if (
+                        Schema::hasColumn(
+                            'dynamic_posts',
+                            'gallery_image_ids'
+                        )
+                    ) {
+                        $ownedListing->gallery_image_ids =
+                            json_encode($galleryIds);
                     }
                 }
 
                 $ownedListing->save();
 
-                if ($request->exists('taxonomy_term_ids') || $request->exists('taxonomies')) {
-                    $termIds = $this->normalizeUserListingTaxonomyTermIds($request);
-                    $this->syncUserListingTaxonomyTerms($ownedListing, $termIds);
+                if (
+                    $request->exists('taxonomy_term_ids')
+                    || $request->exists('taxonomies')
+                ) {
+                    $termIds =
+                        $this->normalizeUserListingTaxonomyTermIds(
+                            $request
+                        );
+
+                    $this->syncUserListingTaxonomyTerms(
+                        $ownedListing,
+                        $termIds
+                    );
                 }
 
                 if ($request->exists('custom_fields')) {
@@ -713,14 +971,16 @@ class UserListingController extends Controller
             });
 
             $freshListing = DynamicPost::query()
-                ->where('id', $ownedListing->id)
+                ->where('id', $listingId)
                 ->with($this->listingRelations())
                 ->first();
 
             return response()->json([
                 'status' => true,
                 'message' => 'Listing changes submitted for admin review.',
-                'data' => $this->formatFullDynamicPost($freshListing),
+                'data' => $this->formatFullDynamicPost(
+                    $freshListing
+                ),
             ]);
         } catch (ValidationException $e) {
             return response()->json([
@@ -2415,5 +2675,17 @@ class UserListingController extends Controller
         if (Schema::hasColumn($table, $column)) {
             $payload[$column] = $value;
         }
+    }
+    private function normalizeListingId(int|string $listing): ?int
+    {
+        $listing = trim((string) $listing);
+
+        if ($listing === '' || !ctype_digit($listing)) {
+            return null;
+        }
+
+        $listingId = (int) $listing;
+
+        return $listingId > 0 ? $listingId : null;
     }
 }
