@@ -55,7 +55,7 @@ class UserListingController extends Controller
             if ($this->isAdminUser($user)) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Admin token is not allowed for user listings API.',
+                    'message' => 'Admin token is not allowed for user property listings API.',
                     'current_user' => [
                         'id' => (int) $user->id,
                         'name' => $this->userDisplayName($user),
@@ -75,12 +75,12 @@ class UserListingController extends Controller
                 ?? $request->query('users-Property-listings')
                 ?? 'all';
 
-            $postType = $this->listingPostTypeForUser($user);
+            $postType = $this->propertyListingPostType($user);
 
             if (!$postType) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'No listing post type is configured for your role.',
+                    'message' => 'Listing post type is not configured for this user role.',
                 ], 404);
             }
 
@@ -136,12 +136,6 @@ class UserListingController extends Controller
                     'id' => (int) $user->id,
                     'name' => $this->userDisplayName($user),
                     'email' => $user->email ?? null,
-                    'role_id' => $user->role_id ?? null,
-                ],
-                'post_type' => [
-                    'id' => (int) $postType->id,
-                    'name' => $postType->name,
-                    'slug' => $postType->slug,
                 ],
                 'filter' => $filter,
                 'analytics' => $analytics,
@@ -156,7 +150,7 @@ class UserListingController extends Controller
         } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
-                'message' => 'Unable to fetch user listings.',
+                'message' => 'Unable to fetch user property listings.',
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -181,12 +175,12 @@ class UserListingController extends Controller
                 ], 403);
             }
 
-            $postType = $this->listingPostTypeForUser($user);
+            $postType = $this->propertyListingPostType($user);
 
             if (!$postType) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'No listing post type is configured for your role.',
+                    'message' => 'Listing post type is not configured for this user role.',
                 ], 404);
             }
 
@@ -223,12 +217,12 @@ class UserListingController extends Controller
             if ($this->isAdminUser($user)) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Admin token is not allowed to create a user listing.',
+                    'message' => 'Admin token is not allowed to create user property listing.',
                 ], 403);
             }
 
             $request->validate([
-                'title' => ['required', 'string', 'max:255'],
+                'title' => ['nullable', 'string', 'max:255'],
                 'slug' => ['nullable', 'string', 'max:255'],
 
                 'status' => ['nullable', 'string', Rule::in([
@@ -295,12 +289,12 @@ class UserListingController extends Controller
 
             $this->validatePersonalBusinessContacts($request);
 
-            $postType = $this->listingPostTypeForUser($user);
+            $postType = $this->propertyListingPostType($user);
 
             if (!$postType) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'No listing post type is configured for your role.',
+                    'message' => 'Listing post type is not configured for this user role.',
                 ], 404);
             }
 
@@ -316,13 +310,27 @@ class UserListingController extends Controller
             DB::transaction(function () use ($request, $user, $postType, &$listing) {
                 $payload = [];
 
+                // title and slug are NOT NULL in dynamic_posts.
+                // The frontend may omit them, so safe values are generated here.
+                $title = trim((string) $request->input('title', ''));
+
+                if ($title === '') {
+                    $title = 'Untitled Listing';
+                }
+
+                $slugSource = trim((string) $request->input('slug', ''));
+
+                if ($slugSource === '') {
+                    $slugSource = $title;
+                }
+
                 $this->putIfColumnExists($payload, 'post_type_id', (int) $postType->id);
                 $this->putIfColumnExists($payload, 'author_id', (int) $user->id);
                 $this->putIfColumnExists($payload, 'user_id', (int) $user->id);
 
-                $this->putIfColumnExists($payload, 'title', $request->input('title'));
+                $this->putIfColumnExists($payload, 'title', $title);
                 $this->putIfColumnExists($payload, 'slug', $this->uniqueDynamicPostSlug(
-                    $request->input('slug') ?: $request->input('title'),
+                    $slugSource,
                     (int) $postType->id
                 ));
 
@@ -431,11 +439,6 @@ class UserListingController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Listing submitted for admin review.',
-                'post_type' => [
-                    'id' => (int) $postType->id,
-                    'name' => $postType->name,
-                    'slug' => $postType->slug,
-                ],
                 'data' => $this->formatFullDynamicPost($freshListing),
             ], 201);
         } catch (ValidationException $e) {
@@ -453,20 +456,9 @@ class UserListingController extends Controller
         }
     }
 
-    public function show(
-        Request $request,
-        int|string $listing
-    ): JsonResponse {
+    public function show(Request $request, int $listing): JsonResponse
+    {
         try {
-            $listingId = $this->normalizeListingId($listing);
-
-            if (!$listingId) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid listing ID.',
-                ], 422);
-            }
-
             $user = $this->resolveCurrentUser($request);
 
             if (!$user) {
@@ -479,11 +471,11 @@ class UserListingController extends Controller
             if ($this->isAdminUser($user)) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Admin token is not allowed for user listing detail API.',
+                    'message' => 'Admin token is not allowed for user property listing detail API.',
                 ], 403);
             }
 
-            $ownedListing = $this->findOwnedPropertyListing($listingId, $user);
+            $ownedListing = $this->findOwnedPropertyListing($listing, $user);
 
             if (!$ownedListing) {
                 return response()->json([
@@ -516,7 +508,7 @@ class UserListingController extends Controller
             if (!$listingId) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Invalid listing ID.',
+                    'message' => 'Invalid property listing ID.',
                 ], 422);
             }
 
@@ -532,7 +524,7 @@ class UserListingController extends Controller
             if ($this->isAdminUser($user)) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Admin token is not allowed to update a user listing.',
+                    'message' => 'Admin token is not allowed to update a user property listing.',
                 ], 403);
             }
 
@@ -551,7 +543,7 @@ class UserListingController extends Controller
             $request->validate([
                 'title' => [
                     'sometimes',
-                    'required',
+                    'nullable',
                     'string',
                     'max:255',
                 ],
@@ -767,12 +759,12 @@ class UserListingController extends Controller
                 ],
             ]);
 
-            $postType = $this->listingPostTypeForUser($user);
+            $postType = $this->propertyListingPostType($user);
 
             if (!$postType) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'No listing post type is configured for your role.',
+                    'message' => 'Listing post type is not configured for this user role.',
                 ], 404);
             }
 
@@ -805,10 +797,20 @@ class UserListingController extends Controller
                     ] as $column
                 ) {
                     if ($request->exists($column)) {
+                        $value = $request->input($column);
+
+                        if (
+                            $column === 'title'
+                            && trim((string) $value) === ''
+                        ) {
+                            $value = $ownedListing->title
+                                ?: 'Untitled Listing';
+                        }
+
                         $this->putIfColumnExists(
                             $payload,
                             $column,
-                            $request->input($column)
+                            $value
                         );
                     }
                 }
@@ -994,20 +996,9 @@ class UserListingController extends Controller
         }
     }
 
-    public function destroy(
-        Request $request,
-        int|string $listing
-    ): JsonResponse {
+    public function destroy(Request $request, int $listing): JsonResponse
+    {
         try {
-            $listingId = $this->normalizeListingId($listing);
-
-            if (!$listingId) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Invalid listing ID.',
-                ], 422);
-            }
-
             $user = $this->resolveCurrentUser($request);
 
             if (!$user) {
@@ -1020,11 +1011,11 @@ class UserListingController extends Controller
             if ($this->isAdminUser($user)) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Admin token is not allowed to delete user listings.',
+                    'message' => 'Admin token is not allowed to delete user property listings.',
                 ], 403);
             }
 
-            $ownedListing = $this->findOwnedPropertyListing($listingId, $user);
+            $ownedListing = $this->findOwnedPropertyListing($listing, $user);
 
             if (!$ownedListing) {
                 return response()->json([
@@ -1124,7 +1115,7 @@ class UserListingController extends Controller
                 'status' => true,
                 'message' => 'Listing and its images permanently deleted successfully.',
                 'data' => [
-                    'id' => $listingId,
+                    'id' => $listing,
                     'deleted' => true,
                 ],
             ]);
@@ -1137,8 +1128,15 @@ class UserListingController extends Controller
         }
     }
 
-    private function listingPostTypeForUser(User $user): ?PostType
+    private function propertyListingPostType(?User $user = null): ?PostType
     {
+        // Keeps the original function name and old no-argument behaviour.
+        if (!$user) {
+            return PostType::query()
+                ->where('slug', 'property-listing')
+                ->first();
+        }
+
         if (
             empty($user->role_id)
             || !Schema::hasTable('roles')
@@ -1154,53 +1152,42 @@ class UserListingController extends Controller
             return null;
         }
 
-        $roleIdPostTypeMap = [
-            2 => 'property-listing',
-            3 => 'property-listing',
-            4 => 'project-listing',
-            5 => 'property-listing',
-            6 => 'developer-listing',
+        $roleValues = collect([
+            $role->name ?? null,
+            $role->slug ?? null,
+            $role->role_name ?? null,
+        ])
+            ->filter()
+            ->map(fn($value) => Str::slug((string) $value))
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $rolePostTypeMap = [
+            'agent' => 'property-listing',
+            'agents' => 'property-listing',
+
+            'owner' => 'property-listing',
+            'owners' => 'property-listing',
+            'property-owner' => 'property-listing',
+
+            'consultancy' => 'property-listing',
+            'consultant' => 'property-listing',
+            'consultants' => 'property-listing',
+
+            'developer' => 'developer-listing',
+            'developers' => 'developer-listing',
+
+            'company' => 'project-listing',
+            'companies' => 'project-listing',
         ];
 
-        $postTypeSlug = $roleIdPostTypeMap[(int) $user->role_id] ?? null;
+        $postTypeSlug = null;
 
-        if (!$postTypeSlug) {
-            $roleValues = collect([
-                $role->name ?? null,
-                $role->slug ?? null,
-                $role->role_name ?? null,
-            ])
-                ->filter()
-                ->map(fn($value) => Str::slug((string) $value))
-                ->unique()
-                ->values()
-                ->toArray();
-
-            $rolePostTypeMap = [
-                'agent' => 'property-listing',
-                'agents' => 'property-listing',
-
-                'owner' => 'property-listing',
-                'owners' => 'property-listing',
-                'property-owner' => 'property-listing',
-
-                'consultancy' => 'property-listing',
-                'consultancies' => 'property-listing',
-                'consultant' => 'property-listing',
-                'consultants' => 'property-listing',
-
-                'developer' => 'developer-listing',
-                'developers' => 'developer-listing',
-
-                'company' => 'project-listing',
-                'companies' => 'project-listing',
-            ];
-
-            foreach ($roleValues as $roleValue) {
-                if (isset($rolePostTypeMap[$roleValue])) {
-                    $postTypeSlug = $rolePostTypeMap[$roleValue];
-                    break;
-                }
+        foreach ($roleValues as $roleValue) {
+            if (isset($rolePostTypeMap[$roleValue])) {
+                $postTypeSlug = $rolePostTypeMap[$roleValue];
+                break;
             }
         }
 
@@ -1900,16 +1887,11 @@ class UserListingController extends Controller
         return false;
     }
 
-    private function findOwnedPropertyListing(
-        int $listingId,
-        User $user
-    ): ?DynamicPost {
-        $postType = $this->listingPostTypeForUser($user);
+    private function findOwnedPropertyListing(int $listingId, User $user): ?DynamicPost
+    {
+        $postType = $this->propertyListingPostType($user);
 
-        if (
-            !$postType
-            || !Schema::hasColumn('dynamic_posts', 'author_id')
-        ) {
+        if (!$postType || !Schema::hasColumn('dynamic_posts', 'author_id')) {
             return null;
         }
 
