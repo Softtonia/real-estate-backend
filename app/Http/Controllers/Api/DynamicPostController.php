@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Controller;
 use App\Models\CustomField;
 use App\Models\CustomFieldValue;
@@ -33,6 +34,7 @@ use App\Models\UserDetail;
 use App\Models\Country;
 use App\Models\State;
 use App\Models\City;
+
 
 class DynamicPostController extends Controller
 {
@@ -645,10 +647,9 @@ class DynamicPostController extends Controller
     {
         try {
             /*
-             * Multipart PUT/PATCH bodies are not reliably parsed by PHP.
-             * Keep the PUT route, but send uploads as POST with _method=PUT.
-             * JSON PUT requests continue to work normally.
-             */
+         * Multipart PUT/PATCH bodies are not reliably parsed by PHP.
+         * For image upload, send POST with _method=PUT.
+         */
             $this->normalizeDynamicPostRequest($request);
 
             $contentType = strtolower((string) $request->header('Content-Type', ''));
@@ -675,6 +676,14 @@ class DynamicPostController extends Controller
             }
 
             $validated = $this->validatePost($request, true);
+
+            /*
+         * Important:
+         * If admin sends only status=published, listing should become live.
+         * If admin sends only live_status=approve, listing should become published.
+         */
+            $validated = $this->normalizeLiveVisibilityStatus($validated, $post);
+
             if (
                 in_array(($validated['live_status'] ?? null), ['reject', 'disapprove'], true)
                 && empty($validated['rejection_reason'])
@@ -685,6 +694,7 @@ class DynamicPostController extends Controller
                     ],
                 ]);
             }
+
             $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
 
             $postType = PostType::with('taxonomies')->find($postTypeId);
@@ -772,6 +782,10 @@ class DynamicPostController extends Controller
                 $newSlug = Str::slug($validated['title']);
             }
 
+            if (empty($newSlug)) {
+                $newSlug = $post->slug ?: ('post-' . $post->id);
+            }
+
             $slugExists = DynamicPost::where('post_type_id', $postTypeId)
                 ->where('slug', $newSlug)
                 ->where('id', '!=', $post->id)
@@ -800,30 +814,45 @@ class DynamicPostController extends Controller
                 $postType,
                 $hasKeywordPayload
             ) {
-
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
                 $postData['slug'] = $newSlug;
+
+                /*
+             * Rejection handling
+             */
                 if (
                     array_key_exists('live_status', $postData)
                     && in_array($postData['live_status'], ['reject', 'disapprove'], true)
                 ) {
                     $postData['rejected_by'] = Auth::id();
                     $postData['rejected_at'] = now();
+
+                    if (empty($postData['status'])) {
+                        $postData['status'] = 'draft';
+                    }
                 }
 
+                /*
+             * Approve / live handling
+             */
                 if (
                     array_key_exists('live_status', $postData)
-                    && !in_array($postData['live_status'], ['reject', 'disapprove'], true)
+                    && $postData['live_status'] === 'approve'
                 ) {
                     $postData['rejection_reason'] = null;
                     $postData['rejected_by'] = null;
                     $postData['rejected_at'] = null;
+
+                    if (empty($postData['status'])) {
+                        $postData['status'] = 'published';
+                    }
                 }
+
                 if (array_key_exists('status', $postData)) {
                     if (
                         $postData['status'] === 'published'
-                        && empty($postData['published_at'])
+                        && Schema::hasColumn('dynamic_posts', 'published_at')
                         && empty($post->published_at)
                     ) {
                         $postData['published_at'] = now();
@@ -838,9 +867,8 @@ class DynamicPostController extends Controller
                 }
 
                 /*
-                 * forceFill avoids silent update failures when a valid database
-                 * column is missing from DynamicPost::$fillable.
-                 */
+             * forceFill avoids fillable issue.
+             */
                 $post->forceFill($postData);
                 $post->save();
 
@@ -869,9 +897,13 @@ class DynamicPostController extends Controller
                 }
             });
 
+            $freshPost = $post->fresh()->load($this->postRelations);
+
+            $this->clearDynamicPostCaches($freshPost);
+
             return $this->successResponse(
                 'Dynamic post updated successfully.',
-                $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations))
+                $this->formatDynamicPostResponse($freshPost)
             );
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
@@ -881,7 +913,6 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to update dynamic post.', 500, $e->getMessage());
         }
     }
-
 
     public function destroy(int|string $dynamicPost): JsonResponse
     {
@@ -4803,13 +4834,13 @@ class DynamicPostController extends Controller
     {
         return [
             'id' => (int) $media->id,
-            'disk' => $media->disk,
+            'disk' => $media->disk ?: 'public',
             'context' => $media->context,
             'post_type_slug' => $media->post_type_slug,
             'field_slug' => $media->field_slug,
             'directory' => $media->directory,
             'path' => $media->path,
-            'url' => $media->url,
+            'url' => $this->mediaFileUrl($media),
             'file_name' => $media->file_name,
             'original_name' => $media->original_name,
             'mime_type' => $media->mime_type,
@@ -6280,5 +6311,91 @@ class DynamicPostController extends Controller
                 'state_id' => (int) $city->state_id,
             ] : null,
         ];
+    }
+    private function normalizeLiveVisibilityStatus(array $validated, DynamicPost $post): array
+    {
+        /*
+    |--------------------------------------------------------------------------
+    | Live visibility rule
+    |--------------------------------------------------------------------------
+    | Frontend/live listing ke liye:
+    | status      = published
+    | live_status = approve
+    |--------------------------------------------------------------------------
+    */
+
+        if (
+            array_key_exists('status', $validated)
+            && $validated['status'] === 'published'
+            && !array_key_exists('live_status', $validated)
+        ) {
+            $validated['live_status'] = 'approve';
+        }
+
+        if (
+            array_key_exists('live_status', $validated)
+            && $validated['live_status'] === 'approve'
+            && !array_key_exists('status', $validated)
+        ) {
+            $validated['status'] = 'published';
+        }
+
+        if (
+            array_key_exists('live_status', $validated)
+            && in_array($validated['live_status'], ['reject', 'disapprove', 'under_review', 'modify_review', 'submit'], true)
+            && !array_key_exists('status', $validated)
+        ) {
+            $validated['status'] = $post->status ?? 'draft';
+        }
+
+        return $validated;
+    }
+
+    private function clearDynamicPostCaches(?DynamicPost $post = null): void
+    {
+        try {
+            Cache::forget('dynamic_posts');
+            Cache::forget('frontend_dynamic_posts');
+            Cache::forget('live_dynamic_posts');
+
+            Cache::store('redis')->forget('dynamic_posts');
+            Cache::store('redis')->forget('frontend_dynamic_posts');
+            Cache::store('redis')->forget('live_dynamic_posts');
+
+            if ($post) {
+                Cache::forget('dynamic_post_' . $post->id);
+                Cache::forget('dynamic_post_slug_' . $post->slug);
+                Cache::forget('dynamic_post_type_' . $post->post_type_id);
+
+                Cache::store('redis')->forget('dynamic_post_' . $post->id);
+                Cache::store('redis')->forget('dynamic_post_slug_' . $post->slug);
+                Cache::store('redis')->forget('dynamic_post_type_' . $post->post_type_id);
+            }
+        } catch (Throwable $e) {
+            \Log::warning('Unable to clear dynamic post cache', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function mediaFileUrl(?MediaFile $media): ?string
+    {
+        if (!$media || empty($media->path)) {
+            return null;
+        }
+
+        $path = trim((string) $media->path);
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        $disk = $media->disk ?: 'public';
+
+        try {
+            return Storage::disk($disk)->url($path);
+        } catch (Throwable $e) {
+            return url($path);
+        }
     }
 }
