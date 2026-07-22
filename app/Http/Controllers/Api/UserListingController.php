@@ -1008,44 +1008,71 @@ class UserListingController extends Controller
 
         $data = $listing->toArray();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Listing Code Compatibility
-        |--------------------------------------------------------------------------
-        | listing_code is the real code.
-        | display_id and property_listing_id are frontend compatibility keys.
-        |--------------------------------------------------------------------------
-        */
         $data['listing_code'] = $listing->listing_code ?? null;
         $data['display_id'] = $listing->listing_code ?? null;
         $data['property_listing_id'] = $listing->listing_code ?? null;
 
-        $data['review_status_label'] = $this->reviewStatusLabel($listing->live_status ?? null);
+        $data['review_status_label'] = $this->reviewStatusLabel(
+            $listing->live_status ?? null
+        );
+
         $data['pending_action'] = $this->pendingReviewAction($listing);
-        $data['is_under_review'] = in_array($listing->live_status, ['under_review', 'submit'], true);
-        $data['is_active'] = $listing->status === 'published' && $listing->live_status === 'approve';
-        $data['is_rejected'] = in_array($listing->live_status, ['reject', 'disapprove'], true);
+
+        $data['is_under_review'] = in_array(
+            $listing->live_status,
+            ['under_review', 'submit'],
+            true
+        );
+
+        $data['is_active'] =
+            $listing->status === 'published'
+            && $listing->live_status === 'approve';
+
+        $data['is_rejected'] = in_array(
+            $listing->live_status,
+            ['reject', 'disapprove'],
+            true
+        );
 
         $data['post_type'] = [
-            'id' => $listing->postType ? (int) $listing->postType->id : null,
+            'id' => $listing->postType
+                ? (int) $listing->postType->id
+                : null,
             'name' => $listing->postType?->name,
             'slug' => $listing->postType?->slug,
         ];
 
         $data['location'] = $this->formatLocationForDynamicPost($listing);
 
+        $data['location_ids'] = [
+            'country_id' => $data['location']['country_id'],
+            'state_id' => $data['location']['state_id'],
+            'city_id' => $data['location']['city_id'],
+        ];
+
         $data['country'] = $data['location']['country_name'];
         $data['state'] = $data['location']['state_name'];
         $data['city'] = $data['location']['city_name'];
+
         $data['country_name'] = $data['location']['country_name'];
         $data['state_name'] = $data['location']['state_name'];
         $data['city_name'] = $data['location']['city_name'];
+
         $data['full_address'] = $data['location']['full_address'];
 
-        unset($data['country_id'], $data['state_id'], $data['city_id']);
+        unset(
+            $data['country_id'],
+            $data['state_id'],
+            $data['city_id']
+        );
 
-        $featuredMedia = $this->formatMediaFileById($listing->featured_image_id ?? null);
-        $galleryMedia = $this->formatMediaFilesByIds($listing->gallery_image_ids ?? []);
+        $featuredMedia = $this->formatMediaFileById(
+            $listing->featured_image_id ?? null
+        );
+
+        $galleryMedia = $this->formatMediaFilesByIds(
+            $listing->gallery_image_ids ?? []
+        );
 
         $data['featured_image'] = $featuredMedia['url'] ?? null;
         $data['featured_image_media'] = $featuredMedia;
@@ -1058,29 +1085,58 @@ class UserListingController extends Controller
 
         $data['gallery_image_files'] = $galleryMedia;
 
-        $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($listing);
+        $data['selected_taxonomies'] = $this->formatSelectedTaxonomies(
+            $listing
+        );
 
-        $data['meta'] = $this->formatMetaForFrontend($data['meta'] ?? []);
+        $data['meta'] = $this->formatMetaForFrontend(
+            $data['meta'] ?? []
+        );
 
         return $data;
     }
 
     private function formatLocationForDynamicPost(DynamicPost $post): array
     {
-        $countryId = $post->country_id ?? null;
-        $stateId = $post->state_id ?? null;
-        $cityId = $post->city_id ?? null;
+        $countryId = !empty($post->country_id)
+            ? (int) $post->country_id
+            : null;
+
+        $stateId = !empty($post->state_id)
+            ? (int) $post->state_id
+            : null;
+
+        $cityId = !empty($post->city_id)
+            ? (int) $post->city_id
+            : null;
 
         $country = $countryId
-            ? Country::query()->select('id', 'name')->find((int) $countryId)
+            ? Country::query()
+            ->select([
+                'id',
+                'name',
+            ])
+            ->find($countryId)
             : null;
 
         $state = $stateId
-            ? State::query()->select('id', 'name', 'country_id')->find((int) $stateId)
+            ? State::query()
+            ->select([
+                'id',
+                'name',
+                'country_id',
+            ])
+            ->find($stateId)
             : null;
 
         $city = $cityId
-            ? City::query()->select('id', 'name', 'state_id')->find((int) $cityId)
+            ? City::query()
+            ->select([
+                'id',
+                'name',
+                'state_id',
+            ])
+            ->find($cityId)
             : null;
 
         $fullAddress = collect([
@@ -1089,14 +1145,48 @@ class UserListingController extends Controller
             $state?->name,
             $country?->name,
         ])
-            ->filter()
+            ->filter(function ($value) {
+                return $value !== null && $value !== '';
+            })
             ->values()
             ->implode(', ');
 
         return [
+            'country_id' => $countryId,
+            'state_id' => $stateId,
+            'city_id' => $cityId,
+
             'country_name' => $country?->name,
             'state_name' => $state?->name,
             'city_name' => $city?->name,
+
+            'country' => $country
+                ? [
+                    'id' => (int) $country->id,
+                    'name' => $country->name,
+                ]
+                : null,
+
+            'state' => $state
+                ? [
+                    'id' => (int) $state->id,
+                    'name' => $state->name,
+                    'country_id' => !empty($state->country_id)
+                        ? (int) $state->country_id
+                        : null,
+                ]
+                : null,
+
+            'city' => $city
+                ? [
+                    'id' => (int) $city->id,
+                    'name' => $city->name,
+                    'state_id' => !empty($city->state_id)
+                        ? (int) $city->state_id
+                        : null,
+                ]
+                : null,
+
             'area_locality' => $post->area_locality ?? null,
             'full_address' => $fullAddress ?: null,
         ];
