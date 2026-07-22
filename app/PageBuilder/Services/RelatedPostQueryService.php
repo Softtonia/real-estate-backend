@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\PageBuilder\Services;
 
 use App\Models\DynamicPost;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -13,20 +14,17 @@ use RuntimeException;
 class RelatedPostQueryService
 {
     private string $postsTable = 'dynamic_posts';
-    private string $postTypesTable = 'post_types';
-    private string $taxonomiesTable = 'taxonomies';
     private string $taxonomyTermsTable = 'taxonomy_terms';
+    private string $taxonomiesTable = 'taxonomies';
     private string $customFieldsTable = 'custom_fields';
     private string $customFieldValuesTable = 'custom_field_values';
+    private string $pivotTable = 'post_taxonomy_terms';
 
-    private array $taxonomyPivotCandidates = [
-        'post_taxonomy_terms',
-        'dynamic_post_taxonomy_term',
-        'dynamic_post_taxonomy_terms',
-        'dynamic_post_term',
-        'dynamic_post_terms',
-        'taxonomy_term_dynamic_post',
-        'post_taxonomy_term',
+    private array $locationColumns = [
+        'country_id',
+        'state_id',
+        'city_id',
+        'area_locality',
     ];
 
     private array $locationTaxonomySlugs = [
@@ -41,44 +39,22 @@ class RelatedPostQueryService
         'zone',
     ];
 
-    private array $locationColumns = [
-        'location_id',
-        'country_id',
-        'state_id',
-        'city_id',
-        'area_id',
-        'locality_id',
-        'sector_id',
-        'zone_id',
-        'location',
-        'country',
-        'state',
-        'city',
-        'area',
-        'locality',
-        'sector',
-        'zone',
-    ];
-
     public function getRelatedPosts(
         array $settings,
         ?DynamicPost $currentPost = null,
         array $context = []
     ): Collection {
-        $settings = $this->normalizeSettings($settings);
+        if (! Schema::hasTable($this->postsTable)) {
+            throw new RuntimeException('dynamic_posts table not found.');
+        }
 
+        $settings = $this->normalizeSettings($settings);
         $selectedPostIds = $this->normalizeIds($settings['selected_post_ids'] ?? []);
 
-        /*
-     * If admin selected related posts, render only selected posts.
-     */
-        if (!empty($selectedPostIds)) {
+        if (! empty($selectedPostIds)) {
             return $this->getSelectedPosts($selectedPostIds, $settings);
         }
 
-        /*
-     * Fallback: if nothing selected, show auto matched posts.
-     */
         return $this->getMatchedPosts($settings, $currentPost, $context)
             ->limit((int) ($settings['posts_per_page'] ?? 6))
             ->get();
@@ -89,12 +65,16 @@ class RelatedPostQueryService
         ?DynamicPost $currentPost = null,
         array $context = []
     ): Collection {
+        if (! Schema::hasTable($this->postsTable)) {
+            throw new RuntimeException('dynamic_posts table not found.');
+        }
+
         $settings = $this->normalizeSettings($settings);
 
         return $this->getMatchedPosts($settings, $currentPost, $context)
             ->limit(100)
             ->get()
-            ->map(fn($post) => $this->formatCandidatePost($post))
+            ->map(fn ($post) => $this->formatCandidatePost($post))
             ->values();
     }
 
@@ -102,106 +82,63 @@ class RelatedPostQueryService
         array $settings,
         ?DynamicPost $currentPost = null,
         array $context = []
-    ) {
+    ): Builder {
         $currentPostId = $currentPost?->id
             ?? data_get($context, 'entity_id')
-            ?? data_get($context, 'post_id')
+            ?? data_get($context, 'current_post_id')
             ?? data_get($context, 'dynamic_post_id')
-            ?? data_get($context, 'current_post_id');
+            ?? data_get($context, 'post_id');
 
-        if (!$currentPost && $currentPostId) {
+        if (! $currentPost && $currentPostId) {
             $currentPost = DynamicPost::find((int) $currentPostId);
         }
 
         $currentPostTypeId = $currentPost?->post_type_id
             ?? data_get($context, 'post_type_id');
 
-        $selectedTaxonomyTermIds = data_get($context, 'selected_taxonomy_term_ids', []);
+        $selectedTaxonomyTermIds = $this->normalizeIds(
+            data_get($context, 'selected_taxonomy_term_ids', [])
+        );
 
-        if (empty($selectedTaxonomyTermIds) && $currentPost) {
-            $selectedTaxonomyTermIds = DB::table('post_taxonomy_terms')
-                ->where('dynamic_post_id', $currentPost->id)
-                ->pluck('taxonomy_term_id')
-                ->map(fn($id) => (int) $id)
-                ->values()
-                ->toArray();
+        if (empty($selectedTaxonomyTermIds) && $currentPostId) {
+            $selectedTaxonomyTermIds = $this->currentPostTermIds((int) $currentPostId);
         }
 
-        $query = DB::table('dynamic_posts as dp')
+        $query = DB::table($this->postsTable . ' as dp')
             ->select('dp.*')
             ->distinct();
 
-        /*
-     * Only live/published posts.
-     */
-        if (Schema::hasColumn('dynamic_posts', 'status')) {
-            $query->whereIn('dp.status', ['published']);
-        }
+        $this->applyStatus($query, $settings);
+        $this->applyLiveStatus($query);
 
-        if (Schema::hasColumn('dynamic_posts', 'live_status')) {
-            $query->whereIn('dp.live_status', ['approve']);
-        }
-
-        /*
-     * Exclude current post.
-     */
         if (($settings['exclude_current'] ?? true) && $currentPostId) {
             $query->where('dp.id', '!=', (int) $currentPostId);
         }
 
-        /*
-     * Match current post type.
-     */
         if (($settings['match_post_type'] ?? true) && $currentPostTypeId) {
             $query->where('dp.post_type_id', (int) $currentPostTypeId);
         }
 
-        /*
-     * Match current taxonomy + terms.
-     */
-        if (($settings['match_taxonomy_terms'] ?? true) && !empty($selectedTaxonomyTermIds)) {
-            $taxonomyGroups = $this->groupTermIdsByTaxonomy($selectedTaxonomyTermIds);
+        if (($settings['match_taxonomy_terms'] ?? true) && ! empty($selectedTaxonomyTermIds)) {
+            $taxonomyGroups = $this->groupTermIdsByTaxonomy(
+                termIds: $selectedTaxonomyTermIds,
+                onlyLocationTaxonomies: false
+            );
 
             foreach ($taxonomyGroups as $termIds) {
-                $query->whereExists(function ($sub) use ($termIds) {
-                    $sub->select(DB::raw(1))
-                        ->from('post_taxonomy_terms as ptt')
-                        ->whereColumn('ptt.dynamic_post_id', 'dp.id')
-                        ->whereIn('ptt.taxonomy_term_id', $termIds);
-                });
+                $query->whereExists($this->termExistsQuery($termIds));
             }
         }
 
-        /*
-     * Match location from current dynamic post.
-     * Your system stores location in dynamic_posts:
-     * country_id, state_id, city_id, area_locality
-     */
         if (($settings['match_locations'] ?? true) && $currentPost) {
-            foreach (['country_id', 'state_id', 'city_id', 'area_locality'] as $column) {
-                if (!Schema::hasColumn('dynamic_posts', $column)) {
-                    continue;
-                }
-
-                $value = $currentPost->{$column} ?? null;
-
-                if ($value !== null && $value !== '') {
-                    $query->where('dp.' . $column, $value);
-                }
-            }
+            $this->applyCurrentPostLocationMatch($query, $currentPost);
         }
 
-        /*
-     * Extra manual query section.
-     * Keep your existing applyBuilderQuery() method.
-     */
-        if (method_exists($this, 'applyBuilderQuery')) {
-            $this->applyBuilderQuery(
-                query: $query,
-                builderQuery: $settings['query'] ?? [],
-                currentPost: $currentPost
-            );
-        }
+        $this->applyBuilderQuery(
+            query: $query,
+            builderQuery: $settings['query'] ?? [],
+            currentPost: $currentPost
+        );
 
         $this->applyOrder($query, $settings);
 
@@ -210,114 +147,21 @@ class RelatedPostQueryService
 
     private function getSelectedPosts(array $selectedPostIds, array $settings): Collection
     {
-        $query = DB::table('dynamic_posts as dp')
+        $query = DB::table($this->postsTable . ' as dp')
             ->select('dp.*')
             ->whereIn('dp.id', $selectedPostIds);
 
-        if (Schema::hasColumn('dynamic_posts', 'status')) {
-            $query->whereIn('dp.status', ['published']);
-        }
-
-        if (Schema::hasColumn('dynamic_posts', 'live_status')) {
-            $query->whereIn('dp.live_status', ['approve']);
-        }
+        $this->applyStatus($query, $settings);
+        $this->applyLiveStatus($query);
 
         $posts = $query->get();
 
+        $limit = max(1, min((int) ($settings['posts_per_page'] ?? 6), 50));
+
         return $posts
-            ->sortBy(fn($post) => array_search((int) $post->id, $selectedPostIds, true))
+            ->sortBy(fn ($post) => array_search((int) $post->id, $selectedPostIds, true))
+            ->take($limit)
             ->values();
-    }
-
-    private function groupTermIdsByTaxonomy(array $termIds): Collection
-    {
-        $termIds = collect($termIds)
-            ->map(fn($id) => (int) $id)
-            ->filter()
-            ->unique()
-            ->values()
-            ->toArray();
-
-        if (empty($termIds)) {
-            return collect();
-        }
-
-        return DB::table('taxonomy_terms')
-            ->whereIn('id', $termIds)
-            ->select('id', 'taxonomy_id')
-            ->get()
-            ->groupBy('taxonomy_id')
-            ->map(function ($rows) {
-                return $rows->pluck('id')
-                    ->map(fn($id) => (int) $id)
-                    ->unique()
-                    ->values()
-                    ->toArray();
-            })
-            ->filter(fn($ids) => !empty($ids));
-    }
-
-    private function formatCandidatePost(object $post): array
-    {
-        return [
-            'id' => (int) $post->id,
-            'value' => (int) $post->id,
-            'label' => $this->candidateLabel($post),
-
-            'title' => $post->title ?? null,
-            'slug' => $post->slug ?? null,
-            'listing_code' => $post->listing_code ?? null,
-            'post_type_id' => $post->post_type_id ?? null,
-
-            'country_id' => $post->country_id ?? null,
-            'state_id' => $post->state_id ?? null,
-            'city_id' => $post->city_id ?? null,
-            'area_locality' => $post->area_locality ?? null,
-
-            'status' => $post->status ?? null,
-            'live_status' => $post->live_status ?? null,
-        ];
-    }
-
-    private function candidateLabel(object $post): string
-    {
-        $title = $post->title
-            ?? $post->slug
-            ?? ('Post #' . $post->id);
-
-        if (!empty($post->listing_code)) {
-            return $post->listing_code . ' - ' . $title;
-        }
-
-        return (string) $title;
-    }
-
-    private function normalizeIds(mixed $ids): array
-    {
-        if ($ids === null || $ids === '') {
-            return [];
-        }
-
-        if (is_string($ids)) {
-            $decoded = json_decode($ids, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $ids = $decoded;
-            } else {
-                $ids = str_contains($ids, ',') ? explode(',', $ids) : [$ids];
-            }
-        }
-
-        if (!is_array($ids)) {
-            return [];
-        }
-
-        return collect($ids)
-            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
     }
 
     public function normalizeSettings(array $settings): array
@@ -330,24 +174,28 @@ class RelatedPostQueryService
             'match_taxonomy_terms' => filter_var($settings['match_taxonomy_terms'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'match_locations' => filter_var($settings['match_locations'] ?? true, FILTER_VALIDATE_BOOLEAN),
 
-            'posts_per_page' => (int) ($settings['posts_per_page'] ?? 6),
+            'posts_per_page' => max(1, min((int) ($settings['posts_per_page'] ?? 6), 50)),
 
-            /*
-         * Admin selected posts will be saved here.
-         */
             'selected_post_ids' => $this->normalizeIds($settings['selected_post_ids'] ?? []),
 
-            'query' => $settings['query'] ?? [
-                'relation' => 'AND',
-                'items' => [],
-            ],
+            'query' => $this->normalizeBuilderQuery($settings['query'] ?? []),
 
             'orderby' => $settings['orderby'] ?? 'created_at',
             'order' => strtoupper((string) ($settings['order'] ?? 'DESC')) === 'ASC' ? 'ASC' : 'DESC',
         ];
     }
 
-    private function applyStatus($query, array $settings): void
+    private function normalizeBuilderQuery(array $query): array
+    {
+        $relation = strtoupper((string) ($query['relation'] ?? 'AND'));
+
+        return [
+            'relation' => in_array($relation, ['AND', 'OR'], true) ? $relation : 'AND',
+            'rules' => $query['rules'] ?? $query['items'] ?? [],
+        ];
+    }
+
+    private function applyStatus(Builder $query, array $settings): void
     {
         if (! Schema::hasColumn($this->postsTable, 'status')) {
             return;
@@ -366,88 +214,21 @@ class RelatedPostQueryService
                 ->orWhere('dp.status', '1');
         });
     }
-    private function groupTermIdsByTaxonomy(array $termIds, bool $onlyLocationTaxonomies = false): \Illuminate\Support\Collection
+
+    private function applyLiveStatus(Builder $query): void
     {
-        if (! Schema::hasTable($this->taxonomyTermsTable) || ! Schema::hasTable($this->taxonomiesTable)) {
-            return collect();
-        }
-
-        $termIds = collect($termIds)
-            ->map(fn($id) => (int) $id)
-            ->filter()
-            ->unique()
-            ->values()
-            ->toArray();
-
-        if (empty($termIds)) {
-            return collect();
-        }
-
-        $query = DB::table($this->taxonomyTermsTable . ' as tt')
-            ->join($this->taxonomiesTable . ' as tx', 'tx.id', '=', 'tt.taxonomy_id')
-            ->whereIn('tt.id', $termIds)
-            ->select(
-                'tt.id',
-                'tt.taxonomy_id',
-                'tx.slug as taxonomy_slug'
-            );
-
-        if ($onlyLocationTaxonomies) {
-            $query->whereIn('tx.slug', $this->locationTaxonomySlugs);
-        } else {
-            $query->whereNotIn('tx.slug', $this->locationTaxonomySlugs);
-        }
-
-        return $query->get()
-            ->groupBy('taxonomy_id')
-            ->map(function ($rows) {
-                return $rows->pluck('id')
-                    ->map(fn($id) => (int) $id)
-                    ->unique()
-                    ->values()
-                    ->toArray();
-            })
-            ->filter(fn($ids) => ! empty($ids));
-    }
-
-    private function extractTermIdsFromPreviewContext(mixed $taxonomies): array
-    {
-        if (! is_array($taxonomies)) {
-            return [];
-        }
-
-        $ids = [];
-
-        foreach ($taxonomies as $terms) {
-            if (! is_array($terms)) {
-                continue;
-            }
-
-            foreach ($terms as $term) {
-                if (is_array($term) && ! empty($term['id'])) {
-                    $ids[] = (int) $term['id'];
-                } elseif (is_object($term) && ! empty($term->id)) {
-                    $ids[] = (int) $term->id;
-                }
-            }
-        }
-
-        return array_values(array_unique(array_filter($ids)));
-    }
-    private function applyCurrentPostTaxonomyMatch($query, int $currentPostId, bool $onlyLocationTaxonomies): void
-    {
-        $groups = $this->currentPostTermsGroupedByTaxonomy($currentPostId, $onlyLocationTaxonomies);
-
-        if ($groups->isEmpty()) {
+        if (! Schema::hasColumn($this->postsTable, 'live_status')) {
             return;
         }
 
-        foreach ($groups as $termIds) {
-            $query->whereExists($this->termExistsQuery($termIds));
-        }
+        $query->where(function ($q) {
+            $q->where('dp.live_status', 'approve')
+                ->orWhereNull('dp.live_status')
+                ->orWhere('dp.live_status', '');
+        });
     }
 
-    private function applyCurrentPostLocationMatch($query, DynamicPost $currentPost): void
+    private function applyCurrentPostLocationMatch(Builder $query, DynamicPost $currentPost): void
     {
         foreach ($this->locationColumns as $column) {
             if (! Schema::hasColumn($this->postsTable, $column)) {
@@ -460,16 +241,119 @@ class RelatedPostQueryService
                 $query->where('dp.' . $column, $value);
             }
         }
-
-        $this->applyCurrentPostTaxonomyMatch($query, (int) $currentPost->id, true);
     }
 
-    private function applyBuilderQuery($query, array $builderQuery, ?DynamicPost $currentPost): void
+    private function currentPostTermIds(int $postId): array
     {
+        if (! Schema::hasTable($this->pivotTable)) {
+            return [];
+        }
+
+        if (
+            ! Schema::hasColumn($this->pivotTable, 'dynamic_post_id')
+            || ! Schema::hasColumn($this->pivotTable, 'taxonomy_term_id')
+        ) {
+            return [];
+        }
+
+        return DB::table($this->pivotTable)
+            ->where('dynamic_post_id', $postId)
+            ->pluck('taxonomy_term_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function currentPostTermIdsByTaxonomy(int $postId, int $taxonomyId): array
+    {
+        if (! Schema::hasTable($this->pivotTable)) {
+            return [];
+        }
+
+        if (! Schema::hasColumn($this->pivotTable, 'taxonomy_id')) {
+            return [];
+        }
+
+        return DB::table($this->pivotTable)
+            ->where('dynamic_post_id', $postId)
+            ->where('taxonomy_id', $taxonomyId)
+            ->pluck('taxonomy_term_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function groupTermIdsByTaxonomy(
+        array $termIds,
+        bool $onlyLocationTaxonomies = false
+    ): Collection {
+        if (
+            ! Schema::hasTable($this->taxonomyTermsTable)
+            || ! Schema::hasTable($this->taxonomiesTable)
+        ) {
+            return collect();
+        }
+
+        $termIds = $this->normalizeIds($termIds);
+
+        if (empty($termIds)) {
+            return collect();
+        }
+
+        $query = DB::table($this->taxonomyTermsTable . ' as tt')
+            ->join($this->taxonomiesTable . ' as tx', 'tx.id', '=', 'tt.taxonomy_id')
+            ->whereIn('tt.id', $termIds)
+            ->select('tt.id', 'tt.taxonomy_id', 'tx.slug as taxonomy_slug');
+
+        if ($onlyLocationTaxonomies) {
+            $query->whereIn('tx.slug', $this->locationTaxonomySlugs);
+        } else {
+            $query->whereNotIn('tx.slug', $this->locationTaxonomySlugs);
+        }
+
+        return $query->get()
+            ->groupBy('taxonomy_id')
+            ->map(function ($rows) {
+                return $rows->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->toArray();
+            })
+            ->filter(fn ($ids) => ! empty($ids));
+    }
+
+    private function termExistsQuery(array $termIds): \Closure
+    {
+        $termIds = $this->normalizeIds($termIds);
+
+        return function ($sub) use ($termIds) {
+            $sub->select(DB::raw(1))
+                ->from($this->pivotTable . ' as ptt')
+                ->whereColumn('ptt.dynamic_post_id', 'dp.id')
+                ->whereIn('ptt.taxonomy_term_id', $termIds);
+        };
+    }
+
+    private function applyBuilderQuery(
+        Builder $query,
+        array $builderQuery,
+        ?DynamicPost $currentPost
+    ): void {
         $relation = strtoupper((string) ($builderQuery['relation'] ?? 'AND'));
-        $rules = $builderQuery['rules'] ?? [];
+        $rules = $builderQuery['rules'] ?? $builderQuery['items'] ?? [];
+
+        if (! is_array($rules) || empty($rules)) {
+            return;
+        }
 
         foreach ($rules as $rule) {
+            if (! is_array($rule)) {
+                continue;
+            }
+
             $callback = function ($innerQuery) use ($rule, $currentPost) {
                 $type = strtolower((string) ($rule['type'] ?? 'custom_field'));
 
@@ -497,15 +381,15 @@ class RelatedPostQueryService
         $taxonomy = $this->resolveTaxonomy($rule['taxonomy'] ?? null);
 
         if (! $taxonomy) {
-            throw new RuntimeException('Invalid taxonomy in related posts query.');
+            return;
         }
 
         $operator = strtoupper((string) ($rule['operator'] ?? 'IN'));
         $source = $rule['source'] ?? $rule['terms_from'] ?? 'manual';
 
         if ($source === 'current_post') {
-            $termIds = $currentPost?->id
-                ? $this->currentPostTermIds((int) $currentPost->id, (int) $taxonomy->id)
+            $termIds = $currentPost
+                ? $this->currentPostTermIdsByTaxonomy((int) $currentPost->id, (int) $taxonomy->id)
                 : [];
         } else {
             $termIds = $this->resolveTermIds(
@@ -554,24 +438,22 @@ class RelatedPostQueryService
 
         if ($column && Schema::hasColumn($this->postsTable, (string) $column)) {
             $query->where('dp.' . $column, $rule['value'] ?? null);
-            return;
-        }
-
-        if (! empty($rule['taxonomy'])) {
-            $this->applyTaxonomyRule($query, $rule, $currentPost);
         }
     }
 
     private function applyCustomFieldRule($query, array $rule): void
     {
-        if (! Schema::hasTable($this->customFieldsTable) || ! Schema::hasTable($this->customFieldValuesTable)) {
+        if (
+            ! Schema::hasTable($this->customFieldsTable)
+            || ! Schema::hasTable($this->customFieldValuesTable)
+        ) {
             return;
         }
 
         $fieldKey = $rule['key'] ?? $rule['field'] ?? null;
 
         if (! $fieldKey) {
-            throw new RuntimeException('Custom field key is required in related posts query.');
+            return;
         }
 
         $compare = strtoupper((string) ($rule['compare'] ?? '='));
@@ -601,14 +483,22 @@ class RelatedPostQueryService
     private function customFieldBaseExistsQuery(string $fieldKey): \Closure
     {
         return function ($sub) use ($fieldKey) {
-            [$postColumn, $fieldColumn] = $this->customFieldValueColumns();
+            $postColumn = $this->customFieldPostColumn();
+            $fieldColumn = $this->customFieldIdColumn();
+
+            if (! $postColumn || ! $fieldColumn) {
+                $sub->select(DB::raw(1))->whereRaw('1 = 0');
+                return;
+            }
 
             $sub->select(DB::raw(1))
                 ->from($this->customFieldValuesTable . ' as cfv')
                 ->join($this->customFieldsTable . ' as cf', 'cf.id', '=', 'cfv.' . $fieldColumn)
                 ->whereColumn('cfv.' . $postColumn, 'dp.id')
                 ->where(function ($fieldQuery) use ($fieldKey) {
-                    $fieldQuery->where('cf.field_name_slug', $fieldKey);
+                    if (Schema::hasColumn($this->customFieldsTable, 'field_name_slug')) {
+                        $fieldQuery->where('cf.field_name_slug', $fieldKey);
+                    }
 
                     if (Schema::hasColumn($this->customFieldsTable, 'field_label')) {
                         $fieldQuery->orWhere('cf.field_label', $fieldKey);
@@ -639,432 +529,78 @@ class RelatedPostQueryService
         };
     }
 
-    private function applyCustomFieldValueCompare($query, mixed $value, string $compare, string $valueType): void
-    {
+    private function applyCustomFieldValueCompare(
+        $query,
+        mixed $value,
+        string $compare,
+        string $valueType
+    ): void {
         $compare = $compare === '==' ? '=' : $compare;
 
-        $isNumeric = in_array($valueType, [
-            'NUMERIC',
-            'NUMBER',
-            'DECIMAL',
-            'INTEGER',
-        ], true);
+        $allowed = [
+            '=',
+            '!=',
+            '<>',
+            '>',
+            '>=',
+            '<',
+            '<=',
+            'LIKE',
+            'NOT LIKE',
+            'IN',
+            'NOT IN',
+            'BETWEEN',
+            'NOT BETWEEN',
+        ];
 
-        if ($compare === 'BETWEEN' || $compare === 'NOT BETWEEN') {
-            [$min, $max] = $this->betweenValues($value);
-
-            $expression = $this->numericValueExpression();
-
-            $compare === 'NOT BETWEEN'
-                ? $query->whereNotBetween($expression, [(float) $min, (float) $max])
-                : $query->whereBetween($expression, [(float) $min, (float) $max]);
-
-            return;
-        }
-
-        $expression = $isNumeric
-            ? $this->numericValueExpression()
-            : $this->stringValueExpression();
-
-        if ($compare === 'IN' || $compare === 'NOT IN') {
-            $values = $this->parseList($value);
-
-            $compare === 'NOT IN'
-                ? $query->whereNotIn($expression, $values)
-                : $query->whereIn($expression, $values);
-
-            return;
-        }
-
-        if ($compare === 'LIKE' || $compare === 'NOT LIKE') {
-            $query->where(
-                $this->stringValueExpression(),
-                $compare,
-                '%' . trim((string) $value) . '%'
-            );
-
-            return;
-        }
-
-        if (! in_array($compare, ['=', '!=', '<>', '>', '>=', '<', '<='], true)) {
+        if (! in_array($compare, $allowed, true)) {
             $compare = '=';
         }
 
-        $query->where($expression, $compare, $isNumeric ? (float) $value : $value);
-    }
+        $expr = $this->customFieldValueExpression($valueType);
 
-    private function stringValueExpression()
-    {
-        $parts = [];
-
-        foreach (['value_string', 'value_text', 'value', 'field_meta_value'] as $column) {
-            if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
-                $parts[] = 'cfv.' . $column;
-            }
-        }
-
-        if (Schema::hasColumn($this->customFieldValuesTable, 'value_json')) {
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$.value'))";
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$.amount'))";
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$.price'))";
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$'))";
-        }
-
-        if (empty($parts)) {
-            throw new RuntimeException('No custom field text value column found.');
-        }
-
-        return DB::raw('COALESCE(' . implode(', ', $parts) . ')');
-    }
-
-    private function numericValueExpression()
-    {
-        $parts = [];
-
-        if (Schema::hasColumn($this->customFieldValuesTable, 'value_number')) {
-            $parts[] = 'cfv.value_number';
-        }
-
-        foreach (['value_string', 'value_text', 'value'] as $column) {
-            if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
-                $parts[] = "NULLIF(cfv.{$column}, '')";
-            }
-        }
-
-        if (Schema::hasColumn($this->customFieldValuesTable, 'value_json')) {
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$.value'))";
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$.amount'))";
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$.price'))";
-            $parts[] = "JSON_UNQUOTE(JSON_EXTRACT(cfv.value_json, '$'))";
-        }
-
-        if (empty($parts)) {
-            throw new RuntimeException('No custom field numeric value column found.');
-        }
-
-        return DB::raw('CAST(COALESCE(' . implode(', ', $parts) . ') AS DECIMAL(18,2))');
-    }
-
-    private function customFieldValueColumns(): array
-    {
-        $postColumn = $this->firstExistingColumn($this->customFieldValuesTable, [
-            'entity_id',
-            'dynamic_post_id',
-            'post_id',
-            'content_id',
-            'object_id',
-        ]);
-
-        $fieldColumn = $this->firstExistingColumn($this->customFieldValuesTable, [
-            'custom_field_id',
-            'field_id',
-        ]);
-
-        if (! $postColumn || ! $fieldColumn) {
-            throw new RuntimeException('custom_field_values post/field columns not found.');
-        }
-
-        return [$postColumn, $fieldColumn];
-    }
-
-    private function currentPostTermsGroupedByTaxonomy(int $postId, bool $onlyLocationTaxonomies): \Illuminate\Support\Collection
-    {
-        $pivot = $this->taxonomyPivotTable();
-
-        if (! $pivot) {
-            return collect();
-        }
-
-        [$postColumn, $termColumn] = $this->taxonomyPivotColumns($pivot);
-
-        if (! $postColumn || ! $termColumn) {
-            return collect();
-        }
-
-        $query = DB::table($pivot . ' as p')
-            ->join($this->taxonomyTermsTable . ' as tt', 'tt.id', '=', 'p.' . $termColumn)
-            ->join($this->taxonomiesTable . ' as tx', 'tx.id', '=', 'tt.taxonomy_id')
-            ->where('p.' . $postColumn, $postId)
-            ->select('tt.id', 'tt.taxonomy_id', 'tx.slug as taxonomy_slug');
-
-        if (Schema::hasColumn($pivot, 'entity_type')) {
-            $query->where('p.entity_type', 'post');
-        }
-
-        if ($onlyLocationTaxonomies) {
-            $query->whereIn('tx.slug', $this->locationTaxonomySlugs);
-        } else {
-            $query->whereNotIn('tx.slug', $this->locationTaxonomySlugs);
-        }
-
-        return $query->get()
-            ->groupBy('taxonomy_id')
-            ->map(function ($rows) {
-                return $rows->pluck('id')
-                    ->map(fn($id) => (int) $id)
-                    ->unique()
-                    ->values()
-                    ->toArray();
-            })
-            ->filter(fn($ids) => ! empty($ids));
-    }
-
-    private function currentPostTermIds(int $postId, int $taxonomyId): array
-    {
-        $pivot = $this->taxonomyPivotTable();
-
-        if (! $pivot) {
-            return [];
-        }
-
-        [$postColumn, $termColumn] = $this->taxonomyPivotColumns($pivot);
-
-        if (! $postColumn || ! $termColumn) {
-            return [];
-        }
-
-        $query = DB::table($pivot . ' as p')
-            ->join($this->taxonomyTermsTable . ' as tt', 'tt.id', '=', 'p.' . $termColumn)
-            ->where('p.' . $postColumn, $postId)
-            ->where('tt.taxonomy_id', $taxonomyId);
-
-        if (Schema::hasColumn($pivot, 'entity_type')) {
-            $query->where('p.entity_type', 'post');
-        }
-
-        return $query->pluck('tt.id')
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
-    }
-
-    private function termExistsQuery(array $termIds): \Closure
-    {
-        return function ($sub) use ($termIds) {
-            $pivot = $this->taxonomyPivotTable();
-
-            if (! $pivot) {
-                $sub->select(DB::raw(1))->whereRaw('1 = 0');
-                return;
-            }
-
-            [$postColumn, $termColumn] = $this->taxonomyPivotColumns($pivot);
-
-            if (! $postColumn || ! $termColumn) {
-                $sub->select(DB::raw(1))->whereRaw('1 = 0');
-                return;
-            }
-
-            $sub->select(DB::raw(1))
-                ->from($pivot . ' as taxp')
-                ->whereColumn('taxp.' . $postColumn, 'dp.id')
-                ->whereIn('taxp.' . $termColumn, $termIds);
-
-            if (Schema::hasColumn($pivot, 'entity_type')) {
-                $sub->where('taxp.entity_type', 'post');
-            }
-        };
-    }
-
-    private function resolveTaxonomy(mixed $value): ?object
-    {
-        if (! Schema::hasTable($this->taxonomiesTable)) {
-            return null;
-        }
-
-        $value = trim((string) $value);
-
-        if ($value === '') {
-            return null;
-        }
-
-        $query = DB::table($this->taxonomiesTable);
-
-        if (is_numeric($value)) {
-            return $query->where('id', (int) $value)->first();
-        }
-
-        return $query->where(function ($q) use ($value) {
-            $q->where('slug', $value)
-                ->orWhere('name', $value);
-        })->first();
-    }
-
-    private function resolveTermIds(mixed $value, int $taxonomyId): array
-    {
-        if (! Schema::hasTable($this->taxonomyTermsTable)) {
-            return [];
-        }
-
-        $items = $this->parseList($value);
-
-        if (empty($items)) {
-            return [];
-        }
-
-        $ids = [];
-
-        foreach ($items as $item) {
-            $query = DB::table($this->taxonomyTermsTable)
-                ->where('taxonomy_id', $taxonomyId);
-
-            $term = is_numeric($item)
-                ? $query->where('id', (int) $item)->first()
-                : $query->where(function ($q) use ($item) {
-                    $q->where('slug', $item)
-                        ->orWhere('name', $item);
-                })->first();
-
-            if ($term) {
-                $ids[] = (int) $term->id;
-            }
-        }
-
-        return array_values(array_unique($ids));
-    }
-
-    private function applyOrder($query, array $settings): void
-    {
-        $orderby = (string) ($settings['orderby'] ?? 'created_at');
-        $order = (string) ($settings['order'] ?? 'DESC');
-
-        if (in_array($orderby, ['rand', 'random'], true)) {
-            $query->inRandomOrder();
+        if ($compare === 'LIKE') {
+            $query->whereRaw($expr . ' LIKE ?', ['%' . (string) $value . '%']);
             return;
         }
 
-        if (Schema::hasColumn($this->postsTable, $orderby)) {
-            $query->orderBy('dp.' . $orderby, $order);
+        if ($compare === 'NOT LIKE') {
+            $query->whereRaw($expr . ' NOT LIKE ?', ['%' . (string) $value . '%']);
             return;
         }
 
-        $query->orderBy('dp.id', 'DESC');
-    }
+        if (in_array($compare, ['IN', 'NOT IN'], true)) {
+            $values = $this->normalizeListValues($value);
 
-    private function normalizeQuery(array $query): array
-    {
-        $relation = strtoupper((string) ($query['relation'] ?? 'AND'));
-        $rules = [];
-
-        if (isset($query['rules']) && is_array($query['rules'])) {
-            $rules = $query['rules'];
-        } elseif (isset($query['items']) && is_array($query['items'])) {
-            $rules = $query['items'];
-        } else {
-            foreach ($query as $key => $value) {
-                if ($key === 'relation') {
-                    continue;
-                }
-
-                if (is_array($value)) {
-                    $rules[] = $value;
-                }
+            if (empty($values)) {
+                $query->whereRaw($compare === 'IN' ? '1 = 0' : '1 = 1');
+                return;
             }
+
+            $placeholders = implode(',', array_fill(0, count($values), '?'));
+            $query->whereRaw($expr . ' ' . $compare . ' (' . $placeholders . ')', $values);
+            return;
         }
 
-        return [
-            'relation' => $relation === 'OR' ? 'OR' : 'AND',
-            'rules' => array_values(array_filter($rules, fn($rule) => is_array($rule))),
-        ];
-    }
+        if (in_array($compare, ['BETWEEN', 'NOT BETWEEN'], true)) {
+            $values = $this->normalizeBetweenValues($value);
 
-    private function parseList(mixed $value): array
-    {
-        if ($value === null) {
-            return [];
-        }
-
-        if (is_array($value)) {
-            return collect($value)
-                ->flatten()
-                ->map(fn($item) => trim((string) $item))
-                ->filter()
-                ->unique()
-                ->values()
-                ->toArray();
-        }
-
-        $value = trim((string) $value);
-
-        if ($value === '') {
-            return [];
-        }
-
-        $decoded = json_decode($value, true);
-
-        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-            return $this->parseList($decoded);
-        }
-
-        return collect(explode(',', $value))
-            ->map(fn($item) => trim((string) $item))
-            ->filter()
-            ->unique()
-            ->values()
-            ->toArray();
-    }
-
-    private function betweenValues(mixed $value): array
-    {
-        if (is_array($value)) {
-            return [
-                $value[0] ?? 0,
-                $value[1] ?? 0,
-            ];
-        }
-
-        $value = trim((string) $value);
-
-        if (str_contains($value, '-')) {
-            $parts = explode('-', $value, 2);
-
-            return [
-                trim($parts[0]),
-                trim($parts[1]),
-            ];
-        }
-
-        $parts = explode(',', $value, 2);
-
-        return [
-            trim($parts[0] ?? '0'),
-            trim($parts[1] ?? '0'),
-        ];
-    }
-
-    private function taxonomyPivotTable(): ?string
-    {
-        foreach ($this->taxonomyPivotCandidates as $table) {
-            if (Schema::hasTable($table)) {
-                return $table;
+            if (count($values) !== 2) {
+                $query->whereRaw('1 = 0');
+                return;
             }
+
+            $query->whereRaw($expr . ' ' . $compare . ' ? AND ?', [$values[0], $values[1]]);
+            return;
         }
 
-        return null;
+        $query->whereRaw($expr . ' ' . $compare . ' ?', [$value]);
     }
 
-    private function taxonomyPivotColumns(string $pivot): array
+    private function customFieldPostColumn(): ?string
     {
-        return [
-            $this->firstExistingColumn($pivot, [
-                'dynamic_post_id',
-                'post_id',
-                'entity_id',
-                'content_id',
-                'object_id',
-            ]),
-            $this->firstExistingColumn($pivot, [
-                'taxonomy_term_id',
-                'term_id',
-            ]),
-        ];
-    }
-
-    private function firstExistingColumn(string $table, array $columns): ?string
-    {
-        foreach ($columns as $column) {
-            if (Schema::hasColumn($table, $column)) {
+        foreach (['entity_id', 'dynamic_post_id', 'post_id'] as $column) {
+            if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
                 return $column;
             }
         }
@@ -1072,8 +608,248 @@ class RelatedPostQueryService
         return null;
     }
 
-    private function boolValue(mixed $value): bool
+    private function customFieldIdColumn(): ?string
     {
-        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+        foreach (['custom_field_id', 'field_id'] as $column) {
+            if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
+
+    private function customFieldValueExpression(string $valueType): string
+    {
+        $columns = [];
+
+        foreach ([
+            'value_number',
+            'value_string',
+            'value_text',
+            'value_date',
+            'value_datetime',
+            'value',
+            'field_meta_value',
+        ] as $column) {
+            if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
+                $columns[] = 'NULLIF(cfv.' . $column . ", '')";
+            }
+        }
+
+        if (empty($columns)) {
+            return 'NULL';
+        }
+
+        $expr = 'COALESCE(' . implode(', ', $columns) . ')';
+
+        if (in_array($valueType, ['NUMERIC', 'NUMBER', 'INTEGER', 'DECIMAL'], true)) {
+            return 'CAST(' . $expr . ' AS DECIMAL(15,4))';
+        }
+
+        return $expr;
+    }
+
+    private function resolveTaxonomy(mixed $taxonomy): ?object
+    {
+        if (! $taxonomy || ! Schema::hasTable($this->taxonomiesTable)) {
+            return null;
+        }
+
+        return DB::table($this->taxonomiesTable)
+            ->where(function ($query) use ($taxonomy) {
+                if (is_numeric($taxonomy)) {
+                    $query->where('id', (int) $taxonomy);
+                }
+
+                $query->orWhere('slug', (string) $taxonomy)
+                    ->orWhere('name', (string) $taxonomy);
+            })
+            ->first();
+    }
+
+    private function resolveTermIds(mixed $terms, int $taxonomyId): array
+    {
+        if (! Schema::hasTable($this->taxonomyTermsTable)) {
+            return [];
+        }
+
+        if ($terms === null || $terms === '') {
+            return [];
+        }
+
+        if (is_string($terms)) {
+            $decoded = json_decode($terms, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $terms = $decoded;
+            } else {
+                $terms = str_contains($terms, ',') ? explode(',', $terms) : [$terms];
+            }
+        }
+
+        if (! is_array($terms)) {
+            $terms = [$terms];
+        }
+
+        $numericIds = collect($terms)
+            ->filter(fn ($term) => is_numeric($term))
+            ->map(fn ($term) => (int) $term)
+            ->values()
+            ->toArray();
+
+        $slugsOrNames = collect($terms)
+            ->reject(fn ($term) => is_numeric($term))
+            ->map(fn ($term) => trim((string) $term))
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $query = DB::table($this->taxonomyTermsTable)
+            ->where('taxonomy_id', $taxonomyId)
+            ->where(function ($q) use ($numericIds, $slugsOrNames) {
+                if (! empty($numericIds)) {
+                    $q->whereIn('id', $numericIds);
+                }
+
+                if (! empty($slugsOrNames)) {
+                    $q->orWhereIn('slug', $slugsOrNames)
+                        ->orWhereIn('name', $slugsOrNames);
+                }
+            });
+
+        return $query->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function applyOrder(Builder $query, array $settings): void
+    {
+        $orderby = (string) ($settings['orderby'] ?? 'created_at');
+        $order = strtoupper((string) ($settings['order'] ?? 'DESC')) === 'ASC' ? 'ASC' : 'DESC';
+
+        if ($orderby === 'rand') {
+            $query->inRandomOrder();
+            return;
+        }
+
+        $allowed = ['sort_order', 'created_at', 'updated_at', 'title', 'id'];
+
+        if (! in_array($orderby, $allowed, true)) {
+            $orderby = 'created_at';
+        }
+
+        if (! Schema::hasColumn($this->postsTable, $orderby)) {
+            $orderby = Schema::hasColumn($this->postsTable, 'id') ? 'id' : 'created_at';
+        }
+
+        $query->orderBy('dp.' . $orderby, $order);
+    }
+
+    private function formatCandidatePost(object $post): array
+    {
+        return [
+            'id' => (int) $post->id,
+            'value' => (int) $post->id,
+            'label' => $this->candidateLabel($post),
+
+            'title' => $post->title ?? null,
+            'slug' => $post->slug ?? null,
+            'listing_code' => $post->listing_code ?? null,
+            'post_type_id' => isset($post->post_type_id) ? (int) $post->post_type_id : null,
+
+            'country_id' => $post->country_id ?? null,
+            'state_id' => $post->state_id ?? null,
+            'city_id' => $post->city_id ?? null,
+            'area_locality' => $post->area_locality ?? null,
+
+            'status' => $post->status ?? null,
+            'live_status' => $post->live_status ?? null,
+        ];
+    }
+
+    private function candidateLabel(object $post): string
+    {
+        $title = $post->title
+            ?? $post->slug
+            ?? ('Post #' . $post->id);
+
+        if (! empty($post->listing_code)) {
+            return $post->listing_code . ' - ' . $title;
+        }
+
+        return (string) $title;
+    }
+
+    private function normalizeIds(mixed $ids): array
+    {
+        if ($ids === null || $ids === '') {
+            return [];
+        }
+
+        if (is_string($ids)) {
+            $decoded = json_decode($ids, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $ids = $decoded;
+            } else {
+                $ids = str_contains($ids, ',') ? explode(',', $ids) : [$ids];
+            }
+        }
+
+        if (! is_array($ids)) {
+            return [];
+        }
+
+        return collect($ids)
+            ->filter(fn ($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    private function normalizeListValues(mixed $value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $value = $decoded;
+            } else {
+                $value = str_contains($value, ',') ? explode(',', $value) : [$value];
+            }
+        }
+
+        return collect((array) $value)
+            ->map(fn ($item) => trim((string) $item))
+            ->filter(fn ($item) => $item !== '')
+            ->values()
+            ->toArray();
+    }
+
+    private function normalizeBetweenValues(mixed $value): array
+    {
+        if (is_array($value)) {
+            return array_values(array_slice($value, 0, 2));
+        }
+
+        $value = (string) $value;
+
+        if (str_contains($value, '-')) {
+            return array_map('trim', explode('-', $value, 2));
+        }
+
+        if (str_contains($value, ',')) {
+            return array_map('trim', explode(',', $value, 2));
+        }
+
+        return [];
     }
 }

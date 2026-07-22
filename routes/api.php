@@ -113,6 +113,7 @@ use App\Http\Controllers\Frontend\FrontendListingController;
 use App\Http\Controllers\Frontend\FrontendListingTaxonomyController;
 use App\Http\Controllers\Template\PageBuilderContextController;
 use App\Http\Controllers\Template\RelatedPostsWidgetCandidateController;
+use App\Http\Controllers\Template\RelatedPostsWidgetPreviewController;
 use App\Http\Controllers\Template\TemplateConflictController;
 use App\Http\Controllers\Template\TemplateDuplicateController;
 use App\Http\Controllers\Template\TemplateDynamicFieldController;
@@ -1205,5 +1206,7 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('frontend/listings/{listing}/update', [UserListingController::class, 'update']);
     Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy']);
 
+    Route::get('template-builder/related-posts-widget/schema', [RelatedPostsWidgetPreviewController::class, 'schema']);
+    Route::post('template-builder/related-posts-widget/preview', [RelatedPostsWidgetPreviewController::class, 'preview']);
     Route::post('template-builder/related-posts-widget/candidates', [RelatedPostsWidgetCandidateController::class, 'candidates']);
 });

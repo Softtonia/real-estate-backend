@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\PageBuilder\Services;
 
+use App\Models\DynamicPost;
 use App\Models\Template;
 use App\PageBuilder\Widgets\RelatedPostsWidget;
 use App\PageBuilder\Foundation\WidgetContext;
@@ -42,7 +43,10 @@ class TemplateRenderService
                 ?? $payload['content_data']
                 ?? []
         );
-
+        $currentPost = $this->resolveCurrentPostFromPayload(
+            $payload,
+            $template->post_type_id ? (int) $template->post_type_id : null
+        );
         $context = WidgetContext::preview([
             'post_type_id' => $template->post_type_id,
             'fields' => $fields,
@@ -53,8 +57,20 @@ class TemplateRenderService
             'current_post' => $currentPost,
             'dynamic_post' => $currentPost,
             'post' => $currentPost,
+
+            'entity_id' => $currentPost?->id
+                ?? $payload['entity_id']
+                ?? $payload['post_id']
+                ?? $payload['dynamic_post_id']
+                ?? $payload['current_post_id']
+                ?? null,
+
             'post_id' => $currentPost?->id,
             'dynamic_post_id' => $currentPost?->id,
+            'current_post_id' => $currentPost?->id,
+
+            'selected_taxonomy_term_ids' => $payload['selected_taxonomy_term_ids'] ?? [],
+            'preview_values' => $payload['preview_values'] ?? [],
         ]);
 
         $normalizedLayoutJson = $this->normalizeLayoutJsonForRender($layoutJson);
@@ -844,6 +860,7 @@ class TemplateRenderService
         $postId = $payload['current_post_id']
             ?? $payload['dynamic_post_id']
             ?? $payload['post_id']
+            ?? $payload['entity_id']
             ?? $payload['id']
             ?? null;
 
@@ -859,7 +876,6 @@ class TemplateRenderService
 
         return $query->first();
     }
-
     protected function resolveCurrentPostFromContext(WidgetContext $context): ?DynamicPost
     {
         foreach (['current_post', 'dynamic_post', 'post'] as $key) {
