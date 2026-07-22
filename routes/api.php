@@ -108,7 +108,7 @@ use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
 use App\Http\Controllers\Api\UserDynamicPostListingController;
 use App\Http\Controllers\Api\UserProfileController;
-use App\Http\Controllers\Api\UserPropertyListingController;
+use App\Http\Controllers\Api\UserListingController;
 use App\Http\Controllers\Frontend\FrontendListingController;
 use App\Http\Controllers\Frontend\FrontendListingTaxonomyController;
 use App\Http\Controllers\Template\PageBuilderContextController;
@@ -868,13 +868,18 @@ Route::middleware(['throttle:60,1'])->group(function () {
 });
 // ================= VK Admin CRM Builder APIs =================
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
+    /*
+    |--------------------------------------------------------------------------
+    | Templates
+    |--------------------------------------------------------------------------
+    */
 
-
-    // Templates
+    // Template dropdowns and helpers
     Route::get('template-dynamic-fields', [TemplateDynamicFieldController::class, 'index']);
     Route::get('template-options', [TemplateController::class, 'options']);
     Route::get('template-shortcodes', [TemplateController::class, 'shortcodes']);
 
+    // Template CRUD
     Route::get('templates-list', [TemplateController::class, 'index']);
     Route::post('templates-create', [TemplateController::class, 'create']);
     Route::get('templates-show/{id}', [TemplateController::class, 'show'])->whereNumber('id');
@@ -882,92 +887,127 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('templates-update-status/{id}', [TemplateController::class, 'updateStatus'])->whereNumber('id');
     Route::delete('templates-delete/{id}', [TemplateController::class, 'destroy'])->whereNumber('id');
 
+    // Template import and export
     Route::get('template-export/{id}', [TemplateExportImportController::class, 'export'])->whereNumber('id');
     Route::post('template-import', [TemplateExportImportController::class, 'import']);
 
-    Route::get('template-revisions/{template_id}', [TemplateRevisionController::class, 'index'])->whereNumber('template_id');
+    // Template revisions
+    Route::get('template-revisions/{template_id}', [TemplateRevisionController::class, 'index'])
+        ->whereNumber('template_id');
+
     Route::get('template-revisions/{template_id}/{revision_id}', [TemplateRevisionController::class, 'show'])
         ->whereNumber('template_id')
         ->whereNumber('revision_id');
+
     Route::post('template-revisions/{template_id}/{revision_id}/restore', [TemplateRevisionController::class, 'restore'])
         ->whereNumber('template_id')
         ->whereNumber('revision_id');
 
-    Route::get('template-publish-validate/{id}', [TemplatePublishValidationController::class, 'check'])->whereNumber('id');
-    Route::post('template-duplicate/{id}', [TemplateDuplicateController::class, 'duplicate'])->whereNumber('id');
+    // Template validation, duplication, conflicts, and preview
+    Route::get('template-publish-validate/{id}', [TemplatePublishValidationController::class, 'check'])
+        ->whereNumber('id');
+    Route::post('template-duplicate/{id}', [TemplateDuplicateController::class, 'duplicate'])
+        ->whereNumber('id');
+    Route::get('template-conflicts/{id}', [TemplateConflictController::class, 'check'])
+        ->whereNumber('id');
+    Route::post('template-preview/{template_id}', [TemplatePreviewController::class, 'preview'])
+        ->whereNumber('template_id');
 
+    // Template trash
     Route::get('template-trash', [TemplateTrashController::class, 'trashed']);
     Route::post('template-bulk-trash', [TemplateTrashController::class, 'bulkTrash']);
     Route::post('template-bulk-restore', [TemplateTrashController::class, 'bulkRestore']);
     Route::post('template-bulk-force-delete', [TemplateTrashController::class, 'bulkForceDelete']);
     Route::post('template-empty-trash', [TemplateTrashController::class, 'emptyTrash']);
-
-    Route::get('template-conflicts/{id}', [TemplateConflictController::class, 'check'])->whereNumber('id');
     Route::post('template-trash/{id}', [TemplateTrashController::class, 'trash'])->whereNumber('id');
     Route::post('template-restore/{id}', [TemplateTrashController::class, 'restore'])->whereNumber('id');
-    Route::delete('template-force-delete/{id}', [TemplateTrashController::class, 'forceDelete'])->whereNumber('id');
+    Route::delete('template-force-delete/{id}', [TemplateTrashController::class, 'forceDelete'])
+        ->whereNumber('id');
 
-    Route::post('template-preview/{template_id}', [TemplatePreviewController::class, 'preview'])->whereNumber('template_id');
-    Route::post('page-builder/context', [PageBuilderContextController::class, 'resolve']);
-
-    // Template Display Conditions
-    Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index'])->whereNumber('template_id');
+    // Template display conditions
+    Route::get('template-conditions-list/{template_id}', [TemplateDisplayConditionController::class, 'index'])
+        ->whereNumber('template_id');
     Route::post('template-conditions-replace', [TemplateDisplayConditionController::class, 'replace']);
     Route::post('template-conditions-create', [TemplateDisplayConditionController::class, 'create']);
     Route::post('template-conditions-update', [TemplateDisplayConditionController::class, 'update']);
-    Route::delete('template-conditions-delete/{id}', [TemplateDisplayConditionController::class, 'destroy'])->whereNumber('id');
+    Route::delete('template-conditions-delete/{id}', [TemplateDisplayConditionController::class, 'destroy'])
+        ->whereNumber('id');
 
-    // Template Builder Layout
-    Route::get('template-builder-show/{template_id}', [TemplateBuilderController::class, 'show'])->whereNumber('template_id');
-    Route::post('template-builder-save/{template_id}', [TemplateBuilderController::class, 'save'])->whereNumber('template_id');
+    // Template builder layout
+    Route::get('template-builder-show/{template_id}', [TemplateBuilderController::class, 'show'])
+        ->whereNumber('template_id');
+    Route::post('template-builder-save/{template_id}', [TemplateBuilderController::class, 'save'])
+        ->whereNumber('template_id');
 
-    // Post Types
+    // Page builder context
+    Route::post('page-builder/context', [PageBuilderContextController::class, 'resolve']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Post Types
+    |--------------------------------------------------------------------------
+    */
+
+    // Static and utility routes must remain before parameter routes
     Route::get('post-types-support-options', [PostTypeController::class, 'supportOptions']);
+    Route::get('post-types-menu', [PostTypeController::class, 'menu']);
     Route::get('post-types/trash', [PostTypeController::class, 'trash']);
     Route::post('post-types/bulk-delete', [PostTypeController::class, 'bulkDelete']);
     Route::post('post-types/bulk-restore', [PostTypeController::class, 'bulkRestore']);
     Route::delete('post-types/bulk-force-delete', [PostTypeController::class, 'bulkForceDelete']);
-    Route::get('post-types-menu', [PostTypeController::class, 'menu']);
-
     Route::get('post-types/export-csv', [PostTypeExportImportController::class, 'exportToCsv']);
     Route::post('post-types/import-csv', [PostTypeExportImportController::class, 'importFromCsv']);
 
-    Route::post('post-types/{id}/restore', [PostTypeController::class, 'restore'])->whereNumber('id');
-    Route::delete('post-types/{id}/force-delete', [PostTypeController::class, 'forceDelete'])->whereNumber('id');
-    Route::get('post-types/{postType}/fields', [PostTypeController::class, 'fields']);
-
+    // Post type CRUD
     Route::get('post-types', [PostTypeController::class, 'index']);
     Route::post('post-types', [PostTypeController::class, 'store']);
+    Route::post('post-types/{id}/restore', [PostTypeController::class, 'restore'])->whereNumber('id');
+    Route::delete('post-types/{id}/force-delete', [PostTypeController::class, 'forceDelete'])
+        ->whereNumber('id');
+    Route::get('post-types/{postType}/fields', [PostTypeController::class, 'fields']);
     Route::get('post-types/{postType}', [PostTypeController::class, 'show']);
     Route::put('post-types/{postType}', [PostTypeController::class, 'update']);
     Route::delete('post-types/{postType}', [PostTypeController::class, 'destroy']);
 
-    // Dynamic Posts
+    /*
+    |--------------------------------------------------------------------------
+    | Dynamic Posts
+    |--------------------------------------------------------------------------
+    */
+
+    // Dropdowns, helpers, and assignments
     Route::get('dynamic-posts/dropdown', [DynamicPostController::class, 'dropdownByPostType']);
     Route::get('dynamic-posts/by-post-type/{slug}', [DynamicPostController::class, 'byPostType']);
-    Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
-
     Route::get('dynamic-post-form/{postType}', [DynamicPostController::class, 'formOptions']);
     Route::post('resolve-custom-fields', [DynamicPostController::class, 'resolveCustomFieldsForCreate']);
     Route::get('custom-fields', [DynamicPostController::class, 'customFieldsByPostType']);
     Route::get('dynamic-post-keyword-suggestions', [DynamicPostController::class, 'keywordSuggestions']);
-    // Assignment dropdown APIs
     Route::get('dynamic-post-assignment/users', [DynamicPostController::class, 'assignmentUserDropdown']);
     Route::get('dynamic-post-assignment/roles', [DynamicPostController::class, 'assignmentRoleDropdown']);
 
-
-    Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
-    Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
+    // Dynamic post bulk and CSV routes
+    Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
     Route::get('dynamic-posts/template-csv', [DynamicPostCsvController::class, 'template']);
     Route::get('dynamic-posts/export-csv', [DynamicPostCsvController::class, 'export']);
     Route::post('dynamic-posts/import-csv', [DynamicPostCsvController::class, 'import']);
-    Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])->whereNumber('dynamicPost');
-    Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])->whereNumber('dynamicPost');
-    Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])->whereNumber('dynamicPost');
 
-    // Taxonomies
-    Route::get('taxonomies', [TaxonomyController::class, 'index']);
-    Route::post('taxonomies', [TaxonomyController::class, 'store']);
+    // Dynamic post CRUD
+    Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
+    Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
+    Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
+        ->whereNumber('dynamicPost');
+    Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
+        ->whereNumber('dynamicPost');
+    Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
+        ->whereNumber('dynamicPost');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Taxonomies
+    |--------------------------------------------------------------------------
+    */
+
+    // Static and utility routes must remain before parameter routes
     Route::get('taxonomies-tree', [TaxonomyController::class, 'tree']);
     Route::get('taxonomies/export-csv', [TaxonomyExportImportController::class, 'exportToCsv']);
     Route::post('taxonomies/import-csv', [TaxonomyExportImportController::class, 'importFromCsv']);
@@ -976,107 +1016,164 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('taxonomies/bulk-restore', [TaxonomyController::class, 'bulkRestore']);
     Route::post('taxonomies/bulk-force-delete', [TaxonomyController::class, 'bulkForceDelete']);
 
+    // Taxonomy CRUD and relationships
+    Route::get('taxonomies', [TaxonomyController::class, 'index']);
+    Route::post('taxonomies', [TaxonomyController::class, 'store']);
     Route::get('taxonomies/{taxonomy}/terms', [TaxonomyController::class, 'terms']);
     Route::get('taxonomies/{taxonomy}/fields', [TaxonomyController::class, 'fields']);
     Route::post('taxonomies/{id}/restore', [TaxonomyController::class, 'restore'])->whereNumber('id');
-    Route::delete('taxonomies/{id}/force-delete', [TaxonomyController::class, 'forceDelete'])->whereNumber('id');
-
+    Route::delete('taxonomies/{id}/force-delete', [TaxonomyController::class, 'forceDelete'])
+        ->whereNumber('id');
     Route::get('taxonomies/{taxonomy}', [TaxonomyController::class, 'show']);
     Route::put('taxonomies/{taxonomy}', [TaxonomyController::class, 'update']);
     Route::delete('taxonomies/{taxonomy}', [TaxonomyController::class, 'destroy']);
 
-    // Taxonomy Terms
+    /*
+    |--------------------------------------------------------------------------
+    | Taxonomy Terms
+    |--------------------------------------------------------------------------
+    */
+
     Route::post('taxonomy-terms/bulk-delete', [TaxonomyTermController::class, 'bulkDelete']);
     Route::get('term-relations/taxonomies', [TaxonomyTermController::class, 'relationTaxonomies']);
     Route::get('relation-taxonomies/{taxonomy}/terms', [TaxonomyTermController::class, 'relationValues']);
 
     Route::get('taxonomy-terms', [TaxonomyTermController::class, 'index']);
     Route::post('taxonomy-terms', [TaxonomyTermController::class, 'store']);
-    Route::get('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'show'])->whereNumber('taxonomyTerm');
-    Route::put('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'update'])->whereNumber('taxonomyTerm');
-    Route::delete('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'destroy'])->whereNumber('taxonomyTerm');
+    Route::get('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'show'])
+        ->whereNumber('taxonomyTerm');
+    Route::put('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'update'])
+        ->whereNumber('taxonomyTerm');
+    Route::delete('taxonomy-terms/{taxonomyTerm}', [TaxonomyTermController::class, 'destroy'])
+        ->whereNumber('taxonomyTerm');
 
-    // Post Taxonomy Terms
+    /*
+    |--------------------------------------------------------------------------
+    | Post Taxonomy Terms
+    |--------------------------------------------------------------------------
+    */
+
     Route::post('post-taxonomy-terms/sync', [PostTaxonomyTermController::class, 'sync']);
     Route::post('post-taxonomy-terms/bulk-delete', [PostTaxonomyTermController::class, 'bulkDelete']);
 
     Route::get('post-taxonomy-terms', [PostTaxonomyTermController::class, 'index']);
     Route::post('post-taxonomy-terms', [PostTaxonomyTermController::class, 'store']);
-    Route::get('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'show'])->whereNumber('postTaxonomyTerm');
-    Route::put('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'update'])->whereNumber('postTaxonomyTerm');
-    Route::delete('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'destroy'])->whereNumber('postTaxonomyTerm');
+    Route::get('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'show'])
+        ->whereNumber('postTaxonomyTerm');
+    Route::put('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'update'])
+        ->whereNumber('postTaxonomyTerm');
+    Route::delete('post-taxonomy-terms/{postTaxonomyTerm}', [PostTaxonomyTermController::class, 'destroy'])
+        ->whereNumber('postTaxonomyTerm');
 
-    // Custom Field Groups
+    /*
+    |--------------------------------------------------------------------------
+    | Custom Field Groups and Fields
+    |--------------------------------------------------------------------------
+    */
+
+    // Dropdown and lookup routes
+    Route::get('post-types-list', [CustomFieldGroupController::class, 'postTypesList']);
+    Route::get('taxonomies-list', [CustomFieldGroupController::class, 'taxonomiesList']);
+    Route::get('taxonomy-terms-list/{taxonomyId}', [CustomFieldGroupController::class, 'taxonomyTermsList'])
+        ->whereNumber('taxonomyId');
+    Route::get('custom-field-groups-by-post-type/{postType}', [CustomFieldGroupController::class, 'groupsByPostType']);
+    Route::post('custom-field-groups-by-taxonomy/{taxonomy}', [CustomFieldGroupController::class, 'groupsByTaxonomy']);
+
+    // Custom field group utility routes
     Route::get('custom-field-groups/export-csv', [CustomFieldGroupExportImportController::class, 'exportToCsv']);
     Route::post('custom-field-groups/import-csv', [CustomFieldGroupExportImportController::class, 'importFromCsv']);
     Route::post('custom-field-groups-bulk-delete', [CustomFieldGroupController::class, 'bulkDelete']);
 
+    // Custom field group CRUD
     Route::get('custom-field-groups', [CustomFieldGroupController::class, 'index']);
     Route::post('custom-field-groups', [CustomFieldGroupController::class, 'store']);
-    Route::get('custom-field-groups/{id}', [CustomFieldGroupController::class, 'show'])->whereNumber('id');
-    Route::put('custom-field-groups/{id}', [CustomFieldGroupController::class, 'update'])->whereNumber('id');
-    Route::delete('custom-field-groups/{id}', [CustomFieldGroupController::class, 'destroy'])->whereNumber('id');
 
-    // Custom Fields
-    Route::get('custom-fields-paginated', [CustomFieldGroupController::class, 'fieldsIndex']);
-    Route::post('custom-fields/bulk-delete', [CustomFieldGroupController::class, 'bulkDeleteFields']);
-
-    Route::get('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'showFieldById'])->whereNumber('fieldId');
-    Route::match(['put', 'patch'], 'custom-fields/{fieldId}', [CustomFieldGroupController::class, 'updateFieldById'])->whereNumber('fieldId');
-    Route::delete('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'destroyFieldById'])->whereNumber('fieldId');
-
-    Route::post('custom-field-groups/{groupId}/fields', [CustomFieldGroupController::class, 'storeField'])->whereNumber('groupId');
+    // Nested custom fields
+    Route::post('custom-field-groups/{groupId}/fields', [CustomFieldGroupController::class, 'storeField'])
+        ->whereNumber('groupId');
+    Route::post('custom-field-groups/{groupId}/fields/reorder', [CustomFieldGroupController::class, 'reorderFields'])
+        ->whereNumber('groupId');
     Route::put('custom-field-groups/{groupId}/fields/{fieldId}', [CustomFieldGroupController::class, 'updateField'])
         ->whereNumber('groupId')
         ->whereNumber('fieldId');
     Route::delete('custom-field-groups/{groupId}/fields/{fieldId}', [CustomFieldGroupController::class, 'destroyField'])
         ->whereNumber('groupId')
         ->whereNumber('fieldId');
-    Route::post('custom-field-groups/{groupId}/fields/reorder', [CustomFieldGroupController::class, 'reorderFields'])->whereNumber('groupId');
 
-    // Dropdown/List APIs
-    Route::get('post-types-list', [CustomFieldGroupController::class, 'postTypesList']);
-    Route::get('taxonomies-list', [CustomFieldGroupController::class, 'taxonomiesList']);
-    Route::get('taxonomy-terms-list/{taxonomyId}', [CustomFieldGroupController::class, 'taxonomyTermsList'])->whereNumber('taxonomyId');
+    Route::get('custom-field-groups/{id}', [CustomFieldGroupController::class, 'show'])->whereNumber('id');
+    Route::put('custom-field-groups/{id}', [CustomFieldGroupController::class, 'update'])->whereNumber('id');
+    Route::delete('custom-field-groups/{id}', [CustomFieldGroupController::class, 'destroy'])->whereNumber('id');
 
-    Route::get('custom-field-groups-by-post-type/{postType}', [CustomFieldGroupController::class, 'groupsByPostType']);
-    Route::post('custom-field-groups-by-taxonomy/{taxonomy}', [CustomFieldGroupController::class, 'groupsByTaxonomy']);
+    // Direct custom field routes
+    Route::get('custom-fields-paginated', [CustomFieldGroupController::class, 'fieldsIndex']);
+    Route::post('custom-fields/bulk-delete', [CustomFieldGroupController::class, 'bulkDeleteFields']);
+    Route::get('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'showFieldById'])
+        ->whereNumber('fieldId');
+    Route::match(['put', 'patch'], 'custom-fields/{fieldId}', [CustomFieldGroupController::class, 'updateFieldById'])
+        ->whereNumber('fieldId');
+    Route::delete('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'destroyFieldById'])
+        ->whereNumber('fieldId');
 
-    // Page Builder
+    /*
+    |--------------------------------------------------------------------------
+    | Page Builder
+    |--------------------------------------------------------------------------
+    */
+
     Route::prefix('page-builder')->group(function () {
         Route::get('/widgets', [WidgetApiController::class, 'index']);
         Route::get('/dynamic-fields', [DynamicFieldApiController::class, 'index']);
         Route::get('/widgets/{type}', [WidgetApiController::class, 'show']);
     });
-    // Keywords custom routes should come before apiResource
-    Route::get('keywords-list', [KeywordController::class, 'index']);
-    Route::post('keywords-create', [KeywordController::class, 'store']);
-    Route::get('keywords-show/{id}', [KeywordController::class, 'show']);
-    Route::post('keywords-update/{id}', [KeywordController::class, 'update']);
-    Route::delete('keywords-delete/{id}', [KeywordController::class, 'destroy']);
-    Route::post('keywords-status/{id}', [KeywordController::class, 'changeStatus']);
-    Route::post('keywords-bulk-delete', [KeywordController::class, 'bulkDelete']);
 
+    /*
+    |--------------------------------------------------------------------------
+    | Keywords
+    |--------------------------------------------------------------------------
+    */
+
+    // Options and analytics
     Route::get('keywords-analytics', [KeywordController::class, 'analytics']);
-
     Route::get('keywords-options-keyword-types', [KeywordController::class, 'keywordTypes']);
     Route::get('keywords-options-listings/{keywordType}', [KeywordController::class, 'listings']);
 
+    // Import and export
     Route::post('keywords-import-upload', [KeywordImportController::class, 'upload']);
     Route::get('keywords-import-headers/{uploadId}', [KeywordImportController::class, 'headers']);
     Route::post('keywords-import-map', [KeywordImportController::class, 'map']);
     Route::post('keywords-import-validate', [KeywordImportController::class, 'validateImport']);
     Route::post('keywords-import-confirm', [KeywordImportController::class, 'confirm']);
     Route::get('keywords-import-progress/{batchId}', [KeywordImportController::class, 'progress']);
-
     Route::get('keywords-export', [KeywordExportController::class, 'export']);
     Route::get('keywords-template', [KeywordExportController::class, 'template']);
+
+    // Keyword CRUD and status
+    Route::get('keywords-list', [KeywordController::class, 'index']);
+    Route::post('keywords-create', [KeywordController::class, 'store']);
+    Route::post('keywords-bulk-delete', [KeywordController::class, 'bulkDelete']);
+    Route::get('keywords-show/{id}', [KeywordController::class, 'show']);
+    Route::post('keywords-update/{id}', [KeywordController::class, 'update']);
+    Route::post('keywords-status/{id}', [KeywordController::class, 'changeStatus']);
+    Route::delete('keywords-delete/{id}', [KeywordController::class, 'destroy']);
 });
 
 Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
+    /*
+    |--------------------------------------------------------------------------
+    | Dynamic Post Template Resolution
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('dynamic-posts/template/{slug}', [TemplateResolveController::class, 'showDynamicPostTemplateBySlug']);
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
         ->whereNumber('dynamicPost');
-    Route::get('dynamic-posts/template/{slug}', [TemplateResolveController::class, 'showDynamicPostTemplateBySlug']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dynamic Post Form Steps
+    |--------------------------------------------------------------------------
+    */
+
     Route::get(
         'dynamic-post-form-steps/{postType}/builder',
         [DynamicPostFormStepController::class, 'builder']
@@ -1092,68 +1189,41 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
         [DynamicPostFormStepController::class, 'saveMapping']
     );
 });
+
 Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])
-        ->get('/user-dynamic-posts', [UserDynamicPostListingController::class, 'getUserPosts']);
+    /*
+    |--------------------------------------------------------------------------
+    | Authentication and User Profile
+    |--------------------------------------------------------------------------
+    */
 
-    Route::middleware(['throttle:60,1'])
-        ->get('/get-posts-by-user-id-filter-by-taxonomy/{userId}', [UserDynamicPostListingController::class, 'getPostsByUserIdFilterByTaxonomy']);
+    Route::get('auth/getuser', [UserProfileController::class, 'show']);
+    Route::post('auth/profile/personal', [UserProfileController::class, 'updatePersonal']);
+    Route::post('auth/profile/address', [UserProfileController::class, 'updateAddress']);
+    Route::post('auth/profile/documents', [UserProfileController::class, 'updateDocuments']);
+    Route::post('auth/profile/photo', [UserProfileController::class, 'updatePhoto']);
 
-    Route::middleware(['throttle:60,1'])
-        ->get('/get-related-dynamic-posts/{postId}', [UserDynamicPostListingController::class, 'getRelatedPostsByPostId']);
-    Route::middleware(['throttle:60,1'])->get(
-        'auth/getuser',
-        [UserProfileController::class, 'show']
-    );
-
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/personal',
-        [UserProfileController::class, 'updatePersonal']
-    );
-
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/address',
-        [UserProfileController::class, 'updateAddress']
-    );
-
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/documents',
-        [UserProfileController::class, 'updateDocuments']
-    );
-
-    Route::middleware(['throttle:60,1'])->post(
-        'auth/profile/photo',
-        [UserProfileController::class, 'updatePhoto']
-    );
+    // Profile document upload
     Route::post('auth/profile/documents/start', [UserProfileController::class, 'startDocumentUpload']);
     Route::post('auth/profile/documents/file', [UserProfileController::class, 'uploadDocumentFile']);
     Route::get('auth/profile/documents/progress/{uploadId}', [UserProfileController::class, 'documentUploadProgress']);
-    Route::get('frontend/listing-roles', [DynamicPostController::class, 'frontendListingRoleDropdown']);
 
+    // Registration checks
+    Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
+    Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Frontend Listing Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('frontend/listing-roles', [DynamicPostController::class, 'frontendListingRoleDropdown']);
     Route::get(
         'frontend/dynamic-post-step-form/{postType}',
         [DynamicPostFormStepController::class, 'frontendForm']
     );
-    Route::post('frontend/listings', [UserPropertyListingController::class, 'store']);
 
-    Route::get(
-        'users-property-listing/{listing}',
-        [UserPropertyListingController::class, 'show']
-    );
-
-    Route::post(
-        'users-property-listing/{listing}/update',
-        [UserPropertyListingController::class, 'update']
-    );
-
-    Route::delete(
-        'users-property-listing/{listing}',
-        [UserPropertyListingController::class, 'destroy']
-    );
-    Route::post('/check-user-duplicate', [Rolecontroller::class, 'checkUserDuplicate']);
-    Route::post('/verify-register-otp', [AuthController::class, 'verifyRegisterOtp']);
-    Route::get('users-property-listing', [UserPropertyListingController::class, 'index']);
-    Route::get('user-listing-analytics', [UserPropertyListingController::class, 'analytics']);
     Route::prefix('frontend')->name('frontend.listings.')->group(function () {
         Route::get('locations/countries', [FrontendLocationController::class, 'countries']);
         Route::get('locations/states', [FrontendLocationController::class, 'states']);
@@ -1161,4 +1231,17 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         Route::get('locations/selected', [FrontendLocationController::class, 'selected']);
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
     });
+
+    /*
+    |--------------------------------------------------------------------------
+    | User Property Listings
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('user-listing-analytics', [UserListingController::class, 'analytics']);
+    Route::get('users-property-listing', [UserListingController::class, 'index']);
+    Route::post('frontend/listings', [UserListingController::class, 'store']);
+    Route::get('users-property-listing/{listing}', [UserListingController::class, 'show']);
+    Route::post('users-property-listing/{listing}/update', [UserListingController::class, 'update']);
+    Route::delete('users-property-listing/{listing}', [UserListingController::class, 'destroy']);
 });

@@ -22,7 +22,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
-class UserPropertyListingController extends Controller
+class UserListingController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
