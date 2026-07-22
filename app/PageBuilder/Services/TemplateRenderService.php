@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\PageBuilder\Services;
 
 use App\Models\Template;
+use App\PageBuilder\Widgets\RelatedPostsWidget;
 use App\PageBuilder\Foundation\WidgetContext;
 use App\PageBuilder\Foundation\WidgetManager;
 use Illuminate\Support\Str;
@@ -14,7 +15,8 @@ class TemplateRenderService
 {
     public function __construct(
         protected WidgetManager $widgetManager,
-        protected PageBuilderStyleService $styleService
+        protected PageBuilderStyleService $styleService,
+        protected RelatedPostsWidget $relatedPostsWidget
     ) {}
 
     public function preview(Template $template, array $payload = []): array
@@ -47,6 +49,12 @@ class TemplateRenderService
             'request' => $payload,
             'taxonomies' => $payload['taxonomies'] ?? [],
             'terms' => $payload['terms'] ?? [],
+
+            'current_post' => $currentPost,
+            'dynamic_post' => $currentPost,
+            'post' => $currentPost,
+            'post_id' => $currentPost?->id,
+            'dynamic_post_id' => $currentPost?->id,
         ]);
 
         $normalizedLayoutJson = $this->normalizeLayoutJsonForRender($layoutJson);
@@ -501,11 +509,23 @@ class TemplateRenderService
             return $this->previewPlaceholder('Missing widget type.', $context);
         }
 
+        $settings = $this->normalizeSettings($type, $node);
+
+        if ($type === 'related_posts') {
+            try {
+                return $this->relatedPostsWidget->render(
+                    settings: $settings,
+                    context: $context,
+                    currentPost: $this->resolveCurrentPostFromContext($context)
+                );
+            } catch (Throwable $e) {
+                return $this->previewPlaceholder($e->getMessage(), $context);
+            }
+        }
+
         if (! $this->widgetManager->has($type)) {
             return $this->previewPlaceholder("Widget [{$type}] is not registered.", $context);
         }
-
-        $settings = $this->normalizeSettings($type, $node);
 
         try {
             return $this->widgetManager->render($type, $settings, $context);
@@ -818,5 +838,109 @@ class TemplateRenderService
         $id = Str::slug($id, '_');
 
         return $id !== '' ? $id : uniqid('pb_', false);
+    }
+    protected function resolveCurrentPostFromPayload(array $payload, ?int $templatePostTypeId = null): ?DynamicPost
+    {
+        $postId = $payload['current_post_id']
+            ?? $payload['dynamic_post_id']
+            ?? $payload['post_id']
+            ?? $payload['id']
+            ?? null;
+
+        if (! $postId) {
+            return null;
+        }
+
+        $query = DynamicPost::query()->whereKey((int) $postId);
+
+        if ($templatePostTypeId) {
+            $query->where('post_type_id', $templatePostTypeId);
+        }
+
+        return $query->first();
+    }
+
+    protected function resolveCurrentPostFromContext(WidgetContext $context): ?DynamicPost
+    {
+        foreach (['current_post', 'dynamic_post', 'post'] as $key) {
+            $value = $this->contextValue($context, $key);
+
+            if ($value instanceof DynamicPost) {
+                return $value;
+            }
+
+            if (is_object($value) && isset($value->id)) {
+                return DynamicPost::find((int) $value->id);
+            }
+
+            if (is_array($value) && ! empty($value['id'])) {
+                return DynamicPost::find((int) $value['id']);
+            }
+        }
+
+        $postId = $this->contextValue($context, 'current_post_id')
+            ?? $this->contextValue($context, 'dynamic_post_id')
+            ?? $this->contextValue($context, 'post_id');
+
+        if ($postId) {
+            return DynamicPost::find((int) $postId);
+        }
+
+        $request = $this->contextValue($context, 'request');
+
+        if (is_array($request)) {
+            $requestPostId = $request['current_post_id']
+                ?? $request['dynamic_post_id']
+                ?? $request['post_id']
+                ?? $request['id']
+                ?? null;
+
+            if ($requestPostId) {
+                return DynamicPost::find((int) $requestPostId);
+            }
+        }
+
+        return null;
+    }
+
+    protected function contextValue(WidgetContext $context, string $key): mixed
+    {
+        if (method_exists($context, 'get')) {
+            try {
+                return $context->get($key);
+            } catch (Throwable) {
+            }
+        }
+
+        if (method_exists($context, 'data')) {
+            try {
+                $data = $context->data();
+
+                if (is_array($data)) {
+                    return data_get($data, $key);
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        if (method_exists($context, 'toArray')) {
+            try {
+                $data = $context->toArray();
+
+                if (is_array($data)) {
+                    return data_get($data, $key);
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        try {
+            if (isset($context->{$key})) {
+                return $context->{$key};
+            }
+        } catch (Throwable) {
+        }
+
+        return null;
     }
 }

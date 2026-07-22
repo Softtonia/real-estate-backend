@@ -961,6 +961,8 @@ class TemplateDynamicFieldController extends Controller
 
     private function getBasicWidgets(): array
     {
+        $relatedPostsWidget = app(\App\PageBuilder\Widgets\RelatedPostsWidget::class);
+
         return [
             [
                 'label' => 'Heading',
@@ -1019,6 +1021,11 @@ class TemplateDynamicFieldController extends Controller
                     'target' => '_self',
                 ],
             ],
+
+            /*
+         * New Related Posts widget.
+         */
+            $relatedPostsWidget->sidebarItem(),
         ];
     }
 
@@ -1048,8 +1055,8 @@ class TemplateDynamicFieldController extends Controller
 
         return collect($value)
             ->flatten()
-            ->filter(fn ($id) => $id !== null && $id !== '')
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '')
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
