@@ -783,47 +783,6 @@ Route::middleware(['throttle:60,1', 'admin.token'])
         Route::get('api-auth-failures/top-ips', [ApiAuthFailureController::class, 'topIps']);
     });
 
-// Route::prefix('v1')
-//     ->middleware([
-//         'validate.api.client',
-//         'app.blocked_ip',
-//         'app.password',
-//         'app.origin',
-//         'app.signature',
-//         'app.rate',
-//         'app.log',
-//     ])
-//     ->group(function () {
-//         Route::get('secure-test', function () {
-//             $client = request()->attributes->get('api_client');
-
-//             return response()->json([
-//                 'success' => true,
-//                 'message' => 'Secure API access granted.',
-//                 'client' => [
-//                     'id' => $client->id,
-//                     'name' => $client->name,
-//                     'type' => $client->type,
-//                 ],
-//             ]);
-//         })->middleware('client.permission:*');
-
-//         Route::prefix('post-types')->group(function () {
-//             Route::get('/', [PostTypeController::class, 'index']);
-
-//             Route::get('{postType:slug}', [PostTypeController::class, 'show']);
-
-//             Route::get('{postType:slug}/posts', [DynamicPostController::class, 'index']);
-
-//             Route::get('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'show']);
-
-//             Route::post('{postType:slug}/posts', [DynamicPostController::class, 'store']);
-
-//             Route::put('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'update']);
-
-//             Route::delete('{postType:slug}/posts/{dynamicPost}', [DynamicPostController::class, 'destroy']);
-//         });
-//     });
 
 // IpLog
 
@@ -997,6 +956,8 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
         ->whereNumber('dynamicPost');
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
+        ->whereNumber('dynamicPost');
+    Route::post('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
         ->whereNumber('dynamicPost');
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
         ->whereNumber('dynamicPost');
