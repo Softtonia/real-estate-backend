@@ -112,7 +112,7 @@ use App\Http\Controllers\Api\UserListingController;
 use App\Http\Controllers\Frontend\FrontendListingController;
 use App\Http\Controllers\Frontend\FrontendListingTaxonomyController;
 use App\Http\Controllers\Template\PageBuilderContextController;
-use App\Http\Controllers\Template\RelatedPostsWidgetPreviewController;
+use App\Http\Controllers\Template\RelatedPostsWidgetCandidateController;
 use App\Http\Controllers\Template\TemplateConflictController;
 use App\Http\Controllers\Template\TemplateDuplicateController;
 use App\Http\Controllers\Template\TemplateDynamicFieldController;
@@ -1127,8 +1127,7 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     Route::get('dynamic-posts/template/{slug}', [TemplateResolveController::class, 'showDynamicPostTemplateBySlug']);
     Route::get('dynamic-posts/{dynamicPost}/template', [TemplateResolveController::class, 'showDynamicPostTemplate'])
         ->whereNumber('dynamicPost');
-    Route::get('template-builder/related-posts-widget/schema', [RelatedPostsWidgetPreviewController::class, 'schema']);
-    Route::post('template-builder/related-posts-widget/preview', [RelatedPostsWidgetPreviewController::class, 'preview']);
+
     /*
     |--------------------------------------------------------------------------
     | Dynamic Post Form Steps
@@ -1205,4 +1204,6 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::get('frontend/listings/{listing}', [UserListingController::class, 'show']);
     Route::post('frontend/listings/{listing}/update', [UserListingController::class, 'update']);
     Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy']);
+
+    Route::post('template-builder/related-posts-widget/candidates', [RelatedPostsWidgetCandidateController::class, 'candidates']);
 });

@@ -65,25 +65,51 @@ class RelatedPostQueryService
         ?DynamicPost $currentPost = null,
         array $context = []
     ): Collection {
-        if (! Schema::hasTable($this->postsTable)) {
-            throw new RuntimeException('dynamic_posts table not found.');
-        }
-
         $settings = $this->normalizeSettings($settings);
 
+        $selectedPostIds = $this->normalizeIds($settings['selected_post_ids'] ?? []);
+
         /*
-     * Current listing context.
-     * Works for both:
-     * - real frontend render with DynamicPost object
-     * - builder preview response with entity_id/post_type_id/selected_taxonomy_term_ids
+     * If admin selected related posts, render only selected posts.
      */
+        if (!empty($selectedPostIds)) {
+            return $this->getSelectedPosts($selectedPostIds, $settings);
+        }
+
+        /*
+     * Fallback: if nothing selected, show auto matched posts.
+     */
+        return $this->getMatchedPosts($settings, $currentPost, $context)
+            ->limit((int) ($settings['posts_per_page'] ?? 6))
+            ->get();
+    }
+
+    public function getCandidatePosts(
+        array $settings,
+        ?DynamicPost $currentPost = null,
+        array $context = []
+    ): Collection {
+        $settings = $this->normalizeSettings($settings);
+
+        return $this->getMatchedPosts($settings, $currentPost, $context)
+            ->limit(100)
+            ->get()
+            ->map(fn($post) => $this->formatCandidatePost($post))
+            ->values();
+    }
+
+    private function getMatchedPosts(
+        array $settings,
+        ?DynamicPost $currentPost = null,
+        array $context = []
+    ) {
         $currentPostId = $currentPost?->id
             ?? data_get($context, 'entity_id')
             ?? data_get($context, 'post_id')
             ?? data_get($context, 'dynamic_post_id')
             ?? data_get($context, 'current_post_id');
 
-        if (! $currentPost && $currentPostId) {
+        if (!$currentPost && $currentPostId) {
             $currentPost = DynamicPost::find((int) $currentPostId);
         }
 
@@ -92,30 +118,39 @@ class RelatedPostQueryService
 
         $selectedTaxonomyTermIds = data_get($context, 'selected_taxonomy_term_ids', []);
 
-        if (empty($selectedTaxonomyTermIds)) {
-            $selectedTaxonomyTermIds = $this->extractTermIdsFromPreviewContext(
-                data_get($context, 'preview_values.taxonomies', [])
-            );
+        if (empty($selectedTaxonomyTermIds) && $currentPost) {
+            $selectedTaxonomyTermIds = DB::table('post_taxonomy_terms')
+                ->where('dynamic_post_id', $currentPost->id)
+                ->pluck('taxonomy_term_id')
+                ->map(fn($id) => (int) $id)
+                ->values()
+                ->toArray();
         }
 
-        $query = DB::table($this->postsTable . ' as dp')
+        $query = DB::table('dynamic_posts as dp')
             ->select('dp.*')
             ->distinct();
 
         /*
-     * Status filter
+     * Only live/published posts.
      */
-        $this->applyStatus($query, $settings);
+        if (Schema::hasColumn('dynamic_posts', 'status')) {
+            $query->whereIn('dp.status', ['published']);
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'live_status')) {
+            $query->whereIn('dp.live_status', ['approve']);
+        }
 
         /*
-     * Exclude current post/listing
+     * Exclude current post.
      */
         if (($settings['exclude_current'] ?? true) && $currentPostId) {
             $query->where('dp.id', '!=', (int) $currentPostId);
         }
 
         /*
-     * Match current post type
+     * Match current post type.
      */
         if (($settings['match_post_type'] ?? true) && $currentPostTypeId) {
             $query->where('dp.post_type_id', (int) $currentPostTypeId);
@@ -123,81 +158,166 @@ class RelatedPostQueryService
 
         /*
      * Match current taxonomy + terms.
-     *
-     * Important:
-     * It groups selected term IDs by taxonomy.
-     * Example:
-     * purpose => Sell
-     * property => Residential
-     * property-type => Apartment
-     * property-status => Ready To Move
-     *
-     * Candidate post must match each taxonomy group.
      */
-        if ($settings['match_taxonomy_terms'] ?? true) {
-            $taxonomyGroups = collect();
-
-            if (! empty($selectedTaxonomyTermIds)) {
-                $taxonomyGroups = $this->groupTermIdsByTaxonomy(
-                    termIds: $selectedTaxonomyTermIds,
-                    onlyLocationTaxonomies: false
-                );
-            } elseif ($currentPostId) {
-                $taxonomyGroups = $this->currentPostTermsGroupedByTaxonomy(
-                    postId: (int) $currentPostId,
-                    onlyLocationTaxonomies: false
-                );
-            }
+        if (($settings['match_taxonomy_terms'] ?? true) && !empty($selectedTaxonomyTermIds)) {
+            $taxonomyGroups = $this->groupTermIdsByTaxonomy($selectedTaxonomyTermIds);
 
             foreach ($taxonomyGroups as $termIds) {
-                $query->whereExists(
-                    $this->termExistsQuery($termIds)
-                );
+                $query->whereExists(function ($sub) use ($termIds) {
+                    $sub->select(DB::raw(1))
+                        ->from('post_taxonomy_terms as ptt')
+                        ->whereColumn('ptt.dynamic_post_id', 'dp.id')
+                        ->whereIn('ptt.taxonomy_term_id', $termIds);
+                });
             }
         }
 
         /*
-     * Match locations.
-     *
-     * Works if location is saved as:
-     * - dynamic_posts.city_id / area_id / location_id etc.
-     * - taxonomy terms with slug city/location/area etc.
+     * Match location from current dynamic post.
+     * Your system stores location in dynamic_posts:
+     * country_id, state_id, city_id, area_locality
      */
-        if ($settings['match_locations'] ?? true) {
-            if ($currentPost) {
-                $this->applyCurrentPostLocationMatch($query, $currentPost);
-            } elseif (! empty($selectedTaxonomyTermIds)) {
-                $locationGroups = $this->groupTermIdsByTaxonomy(
-                    termIds: $selectedTaxonomyTermIds,
-                    onlyLocationTaxonomies: true
-                );
+        if (($settings['match_locations'] ?? true) && $currentPost) {
+            foreach (['country_id', 'state_id', 'city_id', 'area_locality'] as $column) {
+                if (!Schema::hasColumn('dynamic_posts', $column)) {
+                    continue;
+                }
 
-                foreach ($locationGroups as $termIds) {
-                    $query->whereExists(
-                        $this->termExistsQuery($termIds)
-                    );
+                $value = $currentPost->{$column} ?? null;
+
+                if ($value !== null && $value !== '') {
+                    $query->where('dp.' . $column, $value);
                 }
             }
         }
 
         /*
-     * Manual Query section:
-     * bedroom = 1BHK
-     * price BETWEEN 1000-2000
-     * taxonomy custom rules
-     * location custom rules
+     * Extra manual query section.
+     * Keep your existing applyBuilderQuery() method.
      */
-        $this->applyBuilderQuery(
-            query: $query,
-            builderQuery: $settings['query'] ?? [],
-            currentPost: $currentPost
-        );
+        if (method_exists($this, 'applyBuilderQuery')) {
+            $this->applyBuilderQuery(
+                query: $query,
+                builderQuery: $settings['query'] ?? [],
+                currentPost: $currentPost
+            );
+        }
 
         $this->applyOrder($query, $settings);
 
-        $limit = max(1, min((int) ($settings['posts_per_page'] ?? 6), 50));
+        return $query;
+    }
 
-        return $query->limit($limit)->get();
+    private function getSelectedPosts(array $selectedPostIds, array $settings): Collection
+    {
+        $query = DB::table('dynamic_posts as dp')
+            ->select('dp.*')
+            ->whereIn('dp.id', $selectedPostIds);
+
+        if (Schema::hasColumn('dynamic_posts', 'status')) {
+            $query->whereIn('dp.status', ['published']);
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'live_status')) {
+            $query->whereIn('dp.live_status', ['approve']);
+        }
+
+        $posts = $query->get();
+
+        return $posts
+            ->sortBy(fn($post) => array_search((int) $post->id, $selectedPostIds, true))
+            ->values();
+    }
+
+    private function groupTermIdsByTaxonomy(array $termIds): Collection
+    {
+        $termIds = collect($termIds)
+            ->map(fn($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($termIds)) {
+            return collect();
+        }
+
+        return DB::table('taxonomy_terms')
+            ->whereIn('id', $termIds)
+            ->select('id', 'taxonomy_id')
+            ->get()
+            ->groupBy('taxonomy_id')
+            ->map(function ($rows) {
+                return $rows->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->toArray();
+            })
+            ->filter(fn($ids) => !empty($ids));
+    }
+
+    private function formatCandidatePost(object $post): array
+    {
+        return [
+            'id' => (int) $post->id,
+            'value' => (int) $post->id,
+            'label' => $this->candidateLabel($post),
+
+            'title' => $post->title ?? null,
+            'slug' => $post->slug ?? null,
+            'listing_code' => $post->listing_code ?? null,
+            'post_type_id' => $post->post_type_id ?? null,
+
+            'country_id' => $post->country_id ?? null,
+            'state_id' => $post->state_id ?? null,
+            'city_id' => $post->city_id ?? null,
+            'area_locality' => $post->area_locality ?? null,
+
+            'status' => $post->status ?? null,
+            'live_status' => $post->live_status ?? null,
+        ];
+    }
+
+    private function candidateLabel(object $post): string
+    {
+        $title = $post->title
+            ?? $post->slug
+            ?? ('Post #' . $post->id);
+
+        if (!empty($post->listing_code)) {
+            return $post->listing_code . ' - ' . $title;
+        }
+
+        return (string) $title;
+    }
+
+    private function normalizeIds(mixed $ids): array
+    {
+        if ($ids === null || $ids === '') {
+            return [];
+        }
+
+        if (is_string($ids)) {
+            $decoded = json_decode($ids, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $ids = $decoded;
+            } else {
+                $ids = str_contains($ids, ',') ? explode(',', $ids) : [$ids];
+            }
+        }
+
+        if (!is_array($ids)) {
+            return [];
+        }
+
+        return collect($ids)
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
     }
 
     public function normalizeSettings(array $settings): array
@@ -205,15 +325,22 @@ class RelatedPostQueryService
         return [
             'title' => $settings['title'] ?? 'Related Posts',
 
-            'exclude_current' => $this->boolValue($settings['exclude_current'] ?? true),
-            'match_post_type' => $this->boolValue($settings['match_post_type'] ?? true),
-            'match_taxonomy_terms' => $this->boolValue($settings['match_taxonomy_terms'] ?? true),
-            'match_locations' => $this->boolValue($settings['match_locations'] ?? true),
+            'exclude_current' => filter_var($settings['exclude_current'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            'match_post_type' => filter_var($settings['match_post_type'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            'match_taxonomy_terms' => filter_var($settings['match_taxonomy_terms'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            'match_locations' => filter_var($settings['match_locations'] ?? true, FILTER_VALIDATE_BOOLEAN),
 
             'posts_per_page' => (int) ($settings['posts_per_page'] ?? 6),
-            'status' => $settings['status'] ?? null,
 
-            'query' => $this->normalizeQuery($settings['query'] ?? []),
+            /*
+         * Admin selected posts will be saved here.
+         */
+            'selected_post_ids' => $this->normalizeIds($settings['selected_post_ids'] ?? []),
+
+            'query' => $settings['query'] ?? [
+                'relation' => 'AND',
+                'items' => [],
+            ],
 
             'orderby' => $settings['orderby'] ?? 'created_at',
             'order' => strtoupper((string) ($settings['order'] ?? 'DESC')) === 'ASC' ? 'ASC' : 'DESC',

@@ -13,8 +13,7 @@ class RelatedPostsWidget
 {
     public function __construct(
         protected RelatedPostQueryService $relatedPostQueryService
-    ) {
-    }
+    ) {}
 
     public function key(): string
     {
@@ -41,100 +40,19 @@ class RelatedPostsWidget
     {
         return [
             'title' => 'Related Posts',
+
             'exclude_current' => true,
+            'match_post_type' => true,
+            'match_taxonomy_terms' => true,
+            'match_locations' => true,
+
+            'selected_post_ids' => [],
+
             'posts_per_page' => 6,
             'orderby' => 'created_at',
             'order' => 'DESC',
 
-            /*
-             * Post Type Mapping
-             *
-             * same_post_type:
-             * current post_type_id = related post post_type_id
-             *
-             * related_post_types:
-             * use post type relationship mapping from PostType module
-             */
-            'post_type_mapping' => [
-                'enabled' => true,
-                'source' => 'current_post_type',
-                'target' => 'same_post_type',
-            ],
-
-            /*
-             * Taxonomy Mapping
-             *
-             * source_taxonomy = current post taxonomy
-             * target_taxonomy = related post taxonomy
-             */
-            'taxonomy_mapping' => [
-                'enabled' => true,
-                'relation' => 'AND',
-                'items' => [
-                    [
-                        'source_taxonomy' => 'purpose',
-                        'target_taxonomy' => 'purpose',
-                        'terms_source' => 'current_post',
-                        'operator' => 'IN',
-                    ],
-                    [
-                        'source_taxonomy' => 'property',
-                        'target_taxonomy' => 'property',
-                        'terms_source' => 'current_post',
-                        'operator' => 'IN',
-                    ],
-                    [
-                        'source_taxonomy' => 'property-type',
-                        'target_taxonomy' => 'property-type',
-                        'terms_source' => 'current_post',
-                        'operator' => 'IN',
-                    ],
-                    [
-                        'source_taxonomy' => 'property-status',
-                        'target_taxonomy' => 'property-status',
-                        'terms_source' => 'current_post',
-                        'operator' => 'IN',
-                    ],
-                ],
-            ],
-
-            /*
-             * Location Mapping
-             *
-             * source_field = current post location field
-             * target_field = related post location field
-             */
-            'location_mapping' => [
-                'enabled' => true,
-                'relation' => 'AND',
-                'items' => [
-                    [
-                        'source_field' => 'country_id',
-                        'target_field' => 'country_id',
-                    ],
-                    [
-                        'source_field' => 'state_id',
-                        'target_field' => 'state_id',
-                    ],
-                    [
-                        'source_field' => 'city_id',
-                        'target_field' => 'city_id',
-                    ],
-                    [
-                        'source_field' => 'area_locality',
-                        'target_field' => 'area_locality',
-                    ],
-                ],
-            ],
-
-            /*
-             * Extra Query Mapping
-             *
-             * Example:
-             * current bedroom field -> related bedroom field
-             * related price field between 1000-2000
-             */
-            'query_mapping' => [
+            'query' => [
                 'relation' => 'AND',
                 'items' => [],
             ],
@@ -168,7 +86,23 @@ class RelatedPostsWidget
                     ],
                 ],
             ],
-
+            [
+                'tab' => 'Layout',
+                'section' => 'Matched Related Posts',
+                'fields' => [
+                    [
+                        'name' => 'selected_post_ids',
+                        'label' => 'Choose Related Posts',
+                        'type' => 'async_multiselect',
+                        'multiple' => true,
+                        'options_api' => 'template-builder/related-posts-widget/candidates',
+                        'value_key' => 'id',
+                        'label_key' => 'label',
+                        'placeholder' => 'Matched dynamic posts will appear here',
+                        'help' => 'Only posts matching current post type, taxonomy terms and location will be shown.',
+                    ],
+                ],
+            ],
             [
                 'tab' => 'Layout',
                 'section' => 'Post Type Mapping',
@@ -480,7 +414,7 @@ class RelatedPostsWidget
                 currentPost: $currentPost,
                 context: $context
             )
-            ->map(fn ($post) => $this->formatPost($post))
+            ->map(fn($post) => $this->formatPost($post))
             ->values()
             ->all();
 
