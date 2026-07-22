@@ -60,37 +60,139 @@ class RelatedPostQueryService
         'zone',
     ];
 
-    public function getRelatedPosts(array $settings, ?DynamicPost $currentPost = null): Collection
-    {
+    public function getRelatedPosts(
+        array $settings,
+        ?DynamicPost $currentPost = null,
+        array $context = []
+    ): Collection {
         if (! Schema::hasTable($this->postsTable)) {
             throw new RuntimeException('dynamic_posts table not found.');
         }
 
         $settings = $this->normalizeSettings($settings);
 
+        /*
+     * Current listing context.
+     * Works for both:
+     * - real frontend render with DynamicPost object
+     * - builder preview response with entity_id/post_type_id/selected_taxonomy_term_ids
+     */
+        $currentPostId = $currentPost?->id
+            ?? data_get($context, 'entity_id')
+            ?? data_get($context, 'post_id')
+            ?? data_get($context, 'dynamic_post_id')
+            ?? data_get($context, 'current_post_id');
+
+        if (! $currentPost && $currentPostId) {
+            $currentPost = DynamicPost::find((int) $currentPostId);
+        }
+
+        $currentPostTypeId = $currentPost?->post_type_id
+            ?? data_get($context, 'post_type_id');
+
+        $selectedTaxonomyTermIds = data_get($context, 'selected_taxonomy_term_ids', []);
+
+        if (empty($selectedTaxonomyTermIds)) {
+            $selectedTaxonomyTermIds = $this->extractTermIdsFromPreviewContext(
+                data_get($context, 'preview_values.taxonomies', [])
+            );
+        }
+
         $query = DB::table($this->postsTable . ' as dp')
             ->select('dp.*')
             ->distinct();
 
+        /*
+     * Status filter
+     */
         $this->applyStatus($query, $settings);
 
-        if (($settings['exclude_current'] ?? true) && $currentPost?->id) {
-            $query->where('dp.id', '!=', (int) $currentPost->id);
+        /*
+     * Exclude current post/listing
+     */
+        if (($settings['exclude_current'] ?? true) && $currentPostId) {
+            $query->where('dp.id', '!=', (int) $currentPostId);
         }
 
-        if (($settings['match_post_type'] ?? true) && $currentPost?->post_type_id) {
-            $query->where('dp.post_type_id', (int) $currentPost->post_type_id);
+        /*
+     * Match current post type
+     */
+        if (($settings['match_post_type'] ?? true) && $currentPostTypeId) {
+            $query->where('dp.post_type_id', (int) $currentPostTypeId);
         }
 
-        if (($settings['match_taxonomy_terms'] ?? true) && $currentPost?->id) {
-            $this->applyCurrentPostTaxonomyMatch($query, (int) $currentPost->id, false);
+        /*
+     * Match current taxonomy + terms.
+     *
+     * Important:
+     * It groups selected term IDs by taxonomy.
+     * Example:
+     * purpose => Sell
+     * property => Residential
+     * property-type => Apartment
+     * property-status => Ready To Move
+     *
+     * Candidate post must match each taxonomy group.
+     */
+        if ($settings['match_taxonomy_terms'] ?? true) {
+            $taxonomyGroups = collect();
+
+            if (! empty($selectedTaxonomyTermIds)) {
+                $taxonomyGroups = $this->groupTermIdsByTaxonomy(
+                    termIds: $selectedTaxonomyTermIds,
+                    onlyLocationTaxonomies: false
+                );
+            } elseif ($currentPostId) {
+                $taxonomyGroups = $this->currentPostTermsGroupedByTaxonomy(
+                    postId: (int) $currentPostId,
+                    onlyLocationTaxonomies: false
+                );
+            }
+
+            foreach ($taxonomyGroups as $termIds) {
+                $query->whereExists(
+                    $this->termExistsQuery($termIds)
+                );
+            }
         }
 
-        if (($settings['match_locations'] ?? true) && $currentPost?->id) {
-            $this->applyCurrentPostLocationMatch($query, $currentPost);
+        /*
+     * Match locations.
+     *
+     * Works if location is saved as:
+     * - dynamic_posts.city_id / area_id / location_id etc.
+     * - taxonomy terms with slug city/location/area etc.
+     */
+        if ($settings['match_locations'] ?? true) {
+            if ($currentPost) {
+                $this->applyCurrentPostLocationMatch($query, $currentPost);
+            } elseif (! empty($selectedTaxonomyTermIds)) {
+                $locationGroups = $this->groupTermIdsByTaxonomy(
+                    termIds: $selectedTaxonomyTermIds,
+                    onlyLocationTaxonomies: true
+                );
+
+                foreach ($locationGroups as $termIds) {
+                    $query->whereExists(
+                        $this->termExistsQuery($termIds)
+                    );
+                }
+            }
         }
 
-        $this->applyBuilderQuery($query, $settings['query'] ?? [], $currentPost);
+        /*
+     * Manual Query section:
+     * bedroom = 1BHK
+     * price BETWEEN 1000-2000
+     * taxonomy custom rules
+     * location custom rules
+     */
+        $this->applyBuilderQuery(
+            query: $query,
+            builderQuery: $settings['query'] ?? [],
+            currentPost: $currentPost
+        );
+
         $this->applyOrder($query, $settings);
 
         $limit = max(1, min((int) ($settings['posts_per_page'] ?? 6), 50));
@@ -505,12 +607,12 @@ class RelatedPostQueryService
             ->groupBy('taxonomy_id')
             ->map(function ($rows) {
                 return $rows->pluck('id')
-                    ->map(fn ($id) => (int) $id)
+                    ->map(fn($id) => (int) $id)
                     ->unique()
                     ->values()
                     ->toArray();
             })
-            ->filter(fn ($ids) => ! empty($ids));
+            ->filter(fn($ids) => ! empty($ids));
     }
 
     private function currentPostTermIds(int $postId, int $taxonomyId): array
@@ -537,7 +639,7 @@ class RelatedPostQueryService
         }
 
         return $query->pluck('tt.id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -669,7 +771,7 @@ class RelatedPostQueryService
 
         return [
             'relation' => $relation === 'OR' ? 'OR' : 'AND',
-            'rules' => array_values(array_filter($rules, fn ($rule) => is_array($rule))),
+            'rules' => array_values(array_filter($rules, fn($rule) => is_array($rule))),
         ];
     }
 
@@ -682,7 +784,7 @@ class RelatedPostQueryService
         if (is_array($value)) {
             return collect($value)
                 ->flatten()
-                ->map(fn ($item) => trim((string) $item))
+                ->map(fn($item) => trim((string) $item))
                 ->filter()
                 ->unique()
                 ->values()
@@ -702,7 +804,7 @@ class RelatedPostQueryService
         }
 
         return collect(explode(',', $value))
-            ->map(fn ($item) => trim((string) $item))
+            ->map(fn($item) => trim((string) $item))
             ->filter()
             ->unique()
             ->values()
