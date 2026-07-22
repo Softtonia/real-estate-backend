@@ -41,21 +41,100 @@ class RelatedPostsWidget
     {
         return [
             'title' => 'Related Posts',
-
-            // default true
             'exclude_current' => true,
-
-            // current dynamic post/listing matching
-            'match_post_type' => true,
-            'match_taxonomy_terms' => true,
-            'match_locations' => true,
-
             'posts_per_page' => 6,
             'orderby' => 'created_at',
             'order' => 'DESC',
 
-            // builder query section
-            'query' => [
+            /*
+             * Post Type Mapping
+             *
+             * same_post_type:
+             * current post_type_id = related post post_type_id
+             *
+             * related_post_types:
+             * use post type relationship mapping from PostType module
+             */
+            'post_type_mapping' => [
+                'enabled' => true,
+                'source' => 'current_post_type',
+                'target' => 'same_post_type',
+            ],
+
+            /*
+             * Taxonomy Mapping
+             *
+             * source_taxonomy = current post taxonomy
+             * target_taxonomy = related post taxonomy
+             */
+            'taxonomy_mapping' => [
+                'enabled' => true,
+                'relation' => 'AND',
+                'items' => [
+                    [
+                        'source_taxonomy' => 'purpose',
+                        'target_taxonomy' => 'purpose',
+                        'terms_source' => 'current_post',
+                        'operator' => 'IN',
+                    ],
+                    [
+                        'source_taxonomy' => 'property',
+                        'target_taxonomy' => 'property',
+                        'terms_source' => 'current_post',
+                        'operator' => 'IN',
+                    ],
+                    [
+                        'source_taxonomy' => 'property-type',
+                        'target_taxonomy' => 'property-type',
+                        'terms_source' => 'current_post',
+                        'operator' => 'IN',
+                    ],
+                    [
+                        'source_taxonomy' => 'property-status',
+                        'target_taxonomy' => 'property-status',
+                        'terms_source' => 'current_post',
+                        'operator' => 'IN',
+                    ],
+                ],
+            ],
+
+            /*
+             * Location Mapping
+             *
+             * source_field = current post location field
+             * target_field = related post location field
+             */
+            'location_mapping' => [
+                'enabled' => true,
+                'relation' => 'AND',
+                'items' => [
+                    [
+                        'source_field' => 'country_id',
+                        'target_field' => 'country_id',
+                    ],
+                    [
+                        'source_field' => 'state_id',
+                        'target_field' => 'state_id',
+                    ],
+                    [
+                        'source_field' => 'city_id',
+                        'target_field' => 'city_id',
+                    ],
+                    [
+                        'source_field' => 'area_locality',
+                        'target_field' => 'area_locality',
+                    ],
+                ],
+            ],
+
+            /*
+             * Extra Query Mapping
+             *
+             * Example:
+             * current bedroom field -> related bedroom field
+             * related price field between 1000-2000
+             */
+            'query_mapping' => [
                 'relation' => 'AND',
                 'items' => [],
             ],
@@ -87,33 +166,55 @@ class RelatedPostsWidget
                         'type' => 'switch',
                         'default' => true,
                     ],
+                ],
+            ],
+
+            [
+                'tab' => 'Layout',
+                'section' => 'Post Type Mapping',
+                'fields' => [
                     [
-                        'name' => 'match_post_type',
-                        'label' => 'Match Current Post Type',
+                        'name' => 'post_type_mapping.enabled',
+                        'label' => 'Enable Post Type Mapping',
                         'type' => 'switch',
                         'default' => true,
                     ],
                     [
-                        'name' => 'match_taxonomy_terms',
-                        'label' => 'Match Current Taxonomy & Terms',
-                        'type' => 'switch',
-                        'default' => true,
+                        'name' => 'post_type_mapping.source',
+                        'label' => 'Current Post Source',
+                        'type' => 'select',
+                        'default' => 'current_post_type',
+                        'options' => [
+                            'current_post_type' => 'Current Post Type',
+                        ],
                     ],
                     [
-                        'name' => 'match_locations',
-                        'label' => 'Match Current Location',
-                        'type' => 'switch',
-                        'default' => true,
+                        'name' => 'post_type_mapping.target',
+                        'label' => 'Map With Related Posts',
+                        'type' => 'select',
+                        'default' => 'same_post_type',
+                        'options' => [
+                            'same_post_type' => 'Same Post Type',
+                            'related_post_types' => 'Mapped Related Post Types',
+                            'same_or_related_post_types' => 'Same + Mapped Related Post Types',
+                        ],
                     ],
                 ],
             ],
+
             [
                 'tab' => 'Layout',
-                'section' => 'Query',
+                'section' => 'Taxonomy Mapping',
                 'fields' => [
                     [
-                        'name' => 'query.relation',
-                        'label' => 'Relation',
+                        'name' => 'taxonomy_mapping.enabled',
+                        'label' => 'Enable Taxonomy Mapping',
+                        'type' => 'switch',
+                        'default' => true,
+                    ],
+                    [
+                        'name' => 'taxonomy_mapping.relation',
+                        'label' => 'Taxonomy Relation',
                         'type' => 'select',
                         'default' => 'AND',
                         'options' => [
@@ -122,55 +223,151 @@ class RelatedPostsWidget
                         ],
                     ],
                     [
-                        'name' => 'query.items',
-                        'label' => 'Add Query',
+                        'name' => 'taxonomy_mapping.items',
+                        'label' => 'Map Taxonomies',
                         'type' => 'repeater',
-                        'button_label' => 'Add Query',
+                        'button_label' => 'Add Taxonomy Mapping',
                         'fields' => [
                             [
-                                'name' => 'type',
-                                'label' => 'Query Type',
+                                'name' => 'source_taxonomy',
+                                'label' => 'Current Post Taxonomy',
+                                'type' => 'text',
+                                'placeholder' => 'purpose, property, property-type',
+                            ],
+                            [
+                                'name' => 'target_taxonomy',
+                                'label' => 'Related Post Taxonomy',
+                                'type' => 'text',
+                                'placeholder' => 'purpose, property, property-type',
+                            ],
+                            [
+                                'name' => 'terms_source',
+                                'label' => 'Terms Source',
                                 'type' => 'select',
-                                'default' => 'custom_field',
+                                'default' => 'current_post',
                                 'options' => [
-                                    'custom_field' => 'Custom Field',
-                                    'taxonomy' => 'Taxonomy',
-                                    'location' => 'Location',
+                                    'current_post' => 'Use Current Post Selected Terms',
+                                    'manual' => 'Manual Terms',
                                 ],
                             ],
                             [
-                                'name' => 'key',
-                                'label' => 'Custom Field Key',
-                                'type' => 'text',
-                                'placeholder' => 'bedroom, property_price',
-                            ],
-                            [
-                                'name' => 'taxonomy',
-                                'label' => 'Taxonomy',
-                                'type' => 'text',
-                                'placeholder' => 'city, property-type, property-status',
-                            ],
-                            [
-                                'name' => 'terms',
-                                'label' => 'Terms',
+                                'name' => 'manual_terms',
+                                'label' => 'Manual Terms',
                                 'type' => 'text',
                                 'placeholder' => 'term slug/id comma separated',
                             ],
                             [
-                                'name' => 'source',
-                                'label' => 'Source',
+                                'name' => 'operator',
+                                'label' => 'Operator',
                                 'type' => 'select',
-                                'default' => 'manual',
+                                'default' => 'IN',
                                 'options' => [
-                                    'manual' => 'Manual',
-                                    'current_post' => 'Current Post',
+                                    'IN' => 'IN',
+                                    'NOT IN' => 'NOT IN',
+                                    'AND' => 'AND',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+
+            [
+                'tab' => 'Layout',
+                'section' => 'Location Mapping',
+                'fields' => [
+                    [
+                        'name' => 'location_mapping.enabled',
+                        'label' => 'Enable Location Mapping',
+                        'type' => 'switch',
+                        'default' => true,
+                    ],
+                    [
+                        'name' => 'location_mapping.relation',
+                        'label' => 'Location Relation',
+                        'type' => 'select',
+                        'default' => 'AND',
+                        'options' => [
+                            'AND' => 'AND',
+                            'OR' => 'OR',
+                        ],
+                    ],
+                    [
+                        'name' => 'location_mapping.items',
+                        'label' => 'Map Locations',
+                        'type' => 'repeater',
+                        'button_label' => 'Add Location Mapping',
+                        'fields' => [
+                            [
+                                'name' => 'source_field',
+                                'label' => 'Current Post Location Field',
+                                'type' => 'select',
+                                'default' => 'city_id',
+                                'options' => [
+                                    'country_id' => 'Country',
+                                    'state_id' => 'State',
+                                    'city_id' => 'City',
+                                    'area_locality' => 'Area Locality',
                                 ],
                             ],
                             [
-                                'name' => 'column',
-                                'label' => 'Location Column',
+                                'name' => 'target_field',
+                                'label' => 'Related Post Location Field',
+                                'type' => 'select',
+                                'default' => 'city_id',
+                                'options' => [
+                                    'country_id' => 'Country',
+                                    'state_id' => 'State',
+                                    'city_id' => 'City',
+                                    'area_locality' => 'Area Locality',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+
+            [
+                'tab' => 'Layout',
+                'section' => 'Query Mapping',
+                'fields' => [
+                    [
+                        'name' => 'query_mapping.relation',
+                        'label' => 'Query Relation',
+                        'type' => 'select',
+                        'default' => 'AND',
+                        'options' => [
+                            'AND' => 'AND',
+                            'OR' => 'OR',
+                        ],
+                    ],
+                    [
+                        'name' => 'query_mapping.items',
+                        'label' => 'Add Query Mapping',
+                        'type' => 'repeater',
+                        'button_label' => 'Add Query Mapping',
+                        'fields' => [
+                            [
+                                'name' => 'source_type',
+                                'label' => 'Source Type',
+                                'type' => 'select',
+                                'default' => 'manual',
+                                'options' => [
+                                    'current_post_field' => 'Current Post Field',
+                                    'manual' => 'Manual Value',
+                                ],
+                            ],
+                            [
+                                'name' => 'source_key',
+                                'label' => 'Current Post Field Key',
                                 'type' => 'text',
-                                'placeholder' => 'city_id, area_id, location_id',
+                                'placeholder' => 'bedroom',
+                            ],
+                            [
+                                'name' => 'target_key',
+                                'label' => 'Related Post Field Key',
+                                'type' => 'text',
+                                'placeholder' => 'bedroom, property_price',
                             ],
                             [
                                 'name' => 'compare',
@@ -189,13 +386,11 @@ class RelatedPostsWidget
                                     'NOT IN' => 'NOT IN',
                                     'BETWEEN' => 'BETWEEN',
                                     'NOT BETWEEN' => 'NOT BETWEEN',
-                                    'EXISTS' => 'EXISTS',
-                                    'NOT EXISTS' => 'NOT EXISTS',
                                 ],
                             ],
                             [
-                                'name' => 'value',
-                                'label' => 'Value',
+                                'name' => 'manual_value',
+                                'label' => 'Manual Value',
                                 'type' => 'text',
                                 'placeholder' => '1BHK or 1000-2000',
                             ],
@@ -215,6 +410,7 @@ class RelatedPostsWidget
                     ],
                 ],
             ],
+
             [
                 'tab' => 'Layout',
                 'section' => 'Order',
