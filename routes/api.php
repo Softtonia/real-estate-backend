@@ -1239,9 +1239,9 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     */
 
     Route::get('user-listing-analytics', [UserListingController::class, 'analytics']);
-    Route::get('users-property-listing', [UserListingController::class, 'index']);
+    Route::get('frontend/listings', [UserListingController::class, 'index']);
     Route::post('frontend/listings', [UserListingController::class, 'store']);
-    Route::get('users-property-listing/{listing}', [UserListingController::class, 'show']);
+    Route::get('frontend/listings/{listing}', [UserListingController::class, 'show']);
     Route::post('frontend/listings/{listing}/update', [UserListingController::class, 'update']);
-    Route::delete('users-property-listing/{listing}', [UserListingController::class, 'destroy']);
+    Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy']);
 });
