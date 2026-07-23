@@ -610,16 +610,6 @@ class DynamicPostFormStepService
 
     private function mappingFieldsFromStepPayload(array $stepPayload): array
     {
-        /*
-    |--------------------------------------------------------------------------
-    | New Payload
-    |--------------------------------------------------------------------------
-    | custom_fields: [
-    |   { custom_field_id: 1, field_width: 50 },
-    |   { custom_field_id: 2, field_width: 100 }
-    | ]
-    |--------------------------------------------------------------------------
-    */
         if (!empty($stepPayload['custom_fields']) && is_array($stepPayload['custom_fields'])) {
             return collect($stepPayload['custom_fields'])
                 ->filter(fn($field) => is_array($field) && !empty($field['custom_field_id']))

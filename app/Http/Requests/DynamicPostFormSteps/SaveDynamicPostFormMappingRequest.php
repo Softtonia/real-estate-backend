@@ -34,6 +34,24 @@ class SaveDynamicPostFormMappingRequest extends FormRequest
                 'integer',
                 'exists:custom_fields,id',
             ],
+
+            'steps.*.custom_fields' => [
+                'nullable',
+                'array',
+            ],
+
+            'steps.*.custom_fields.*.custom_field_id' => [
+                'required_with:steps.*.custom_fields',
+                'integer',
+                'exists:custom_fields,id',
+            ],
+
+            'steps.*.custom_fields.*.sort_order' => [
+                'nullable',
+                'integer',
+                'min:0',
+            ],
+
             'steps.*.custom_fields.*.field_width' => [
                 'nullable',
                 'integer',
@@ -49,8 +67,15 @@ class SaveDynamicPostFormMappingRequest extends FormRequest
             'steps.required' => 'Steps are required.',
             'steps.array' => 'Steps must be an array.',
             'steps.*.step_key.required' => 'Step key is required.',
+
             'steps.*.custom_field_ids.array' => 'Custom field ids must be an array.',
             'steps.*.custom_field_ids.*.exists' => 'One or more custom fields are invalid.',
+
+            'steps.*.custom_fields.array' => 'Custom fields must be an array.',
+            'steps.*.custom_fields.*.custom_field_id.required_with' => 'Custom field id is required.',
+            'steps.*.custom_fields.*.custom_field_id.exists' => 'One or more custom fields are invalid.',
+
+            'steps.*.custom_fields.*.sort_order.integer' => 'Sort order must be a number.',
             'steps.*.custom_fields.*.field_width.integer' => 'Field width must be a number.',
             'steps.*.custom_fields.*.field_width.min' => 'Field width must be at least 1 percent.',
             'steps.*.custom_fields.*.field_width.max' => 'Field width must not be greater than 100 percent.',
