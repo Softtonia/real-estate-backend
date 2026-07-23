@@ -384,7 +384,7 @@ class DynamicPostController extends Controller
             $newToken = $frontendUserResult['token'];
             $isNewUser = $frontendUserResult['is_new_user'];
 
-            $this->assertAssignableUser((int) $frontendUser->id);
+            $this->assertAssignableUser((int) $frontendUser->id, $postType);
 
             // Important: frontend cannot decide user_id manually.
             // Server will always assign logged-in or newly registered user.
@@ -1145,7 +1145,7 @@ class DynamicPostController extends Controller
                     ],
                     'supports' => $supports,
                     'base_fields' => $this->baseFields($supports),
-                    'assigned_user_field' => $this->assignedUserField(),
+                    'assigned_user_field' => $this->assignedUserField($postTypeData),
                     'relationship_post_types' => $relationshipPostTypes,
                     'taxonomy_fields' => $taxonomyFields,
                     'custom_fields_count' => $customFields->count(),
@@ -1160,8 +1160,12 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to fetch dynamic post form options.', 500, $e->getMessage());
         }
     }
-    private function assignedUserField(): array
+    private function assignedUserField(?PostType $postType = null): array
     {
+        $queryString = $postType
+            ? '?post_type_id=' . (int) $postType->id
+            : '';
+
         return [
             'key' => 'user_id',
             'label' => 'Assigned User',
@@ -1169,11 +1173,108 @@ class DynamicPostController extends Controller
             'multiple' => false,
             'request_key' => 'user_id',
             'nullable' => true,
-            'user_dropdown_api' => 'dynamic-post-assignment/users',
-            'role_dropdown_api' => 'dynamic-post-assignment/roles',
+
+            // This API will now return only matched role users.
+            'user_dropdown_api' => 'dynamic-post-assignment/users' . $queryString,
+
+            // Optional role dropdown also filtered by post type.
+            'role_dropdown_api' => 'dynamic-post-assignment/roles' . $queryString,
+
             'auto_assign_anonymous_if_empty' => true,
+
+            'allowed_roles' => $postType
+                ? $this->assignmentRoleNamesForPostTypeSlug((string) $postType->slug)
+                : [],
         ];
     }
+private function assignmentRoleNamesForPostTypeSlug(?string $postTypeSlug): array
+{
+    $postTypeSlug = strtolower(trim((string) $postTypeSlug));
+
+    return match ($postTypeSlug) {
+        'property-listing' => ['owner', 'agent', 'consultancy'],
+        'project-listing' => ['company'],
+        'developer-listing' => ['developer'],
+        default => [],
+    };
+}
+
+private function resolveAssignmentPostType(Request $request): ?PostType
+{
+    if (
+        !$request->filled('post_type_id')
+        && !$request->filled('post_type')
+        && !$request->filled('post_type_slug')
+    ) {
+        return null;
+    }
+
+    return PostType::query()
+        ->where(function ($q) use ($request) {
+            if ($request->filled('post_type_id')) {
+                $q->where('id', (int) $request->post_type_id);
+            }
+
+            if ($request->filled('post_type')) {
+                $q->orWhere('slug', $request->post_type)
+                    ->orWhere('name', $request->post_type);
+            }
+
+            if ($request->filled('post_type_slug')) {
+                $q->orWhere('slug', $request->post_type_slug);
+            }
+        })
+        ->first();
+}
+
+private function assignmentAllowedRoleIdsForPostType(?PostType $postType): array
+{
+    if (!$postType || !Schema::hasTable('roles')) {
+        return [];
+    }
+
+    $allowedRoleNames = $this->assignmentRoleNamesForPostTypeSlug((string) $postType->slug);
+
+    if (empty($allowedRoleNames)) {
+        return [];
+    }
+
+    $roleColumns = collect(['name', 'slug', 'role_name'])
+        ->filter(fn (string $column) => Schema::hasColumn('roles', $column))
+        ->values()
+        ->toArray();
+
+    if (empty($roleColumns)) {
+        return [];
+    }
+
+    return DB::table('roles')
+        ->where(function ($q) use ($roleColumns, $allowedRoleNames) {
+            foreach ($roleColumns as $column) {
+                $q->orWhereIn(DB::raw("LOWER({$column})"), $allowedRoleNames);
+            }
+        })
+        ->pluck('id')
+        ->map(fn ($id) => (int) $id)
+        ->unique()
+        ->values()
+        ->toArray();
+}
+
+private function emptyAssignmentDropdownResponse(string $message = 'Users fetched successfully.'): JsonResponse
+{
+    return $this->successResponse($message, [
+        'count' => 0,
+        'options' => [],
+    ]);
+}
+
+private function isAnonymousAssignmentUser(User $user): bool
+{
+    return ($user->email ?? null) === 'anonymous@system.local'
+        || ($user->name ?? null) === 'Anonymous User'
+        || ($user->first_name ?? null) === 'Anonymous';
+}
     private function hasRelationshipPayload(array $input): bool
     {
         if (array_key_exists('relationship_post_types', $input) || array_key_exists('related_posts', $input)) {
@@ -5484,49 +5585,54 @@ class DynamicPostController extends Controller
         return is_numeric($userId) ? (int) $userId : null;
     }
 
-    private function syncDynamicPostAssignedUser(DynamicPost $post, array $payload): void
-    {
-        if (!Schema::hasTable('dynamic_post_user')) {
+private function syncDynamicPostAssignedUser(DynamicPost $post, array $payload): void
+{
+    if (!Schema::hasTable('dynamic_post_user')) {
+        throw ValidationException::withMessages([
+            'dynamic_post_user' => [
+                'dynamic_post_user pivot table does not exist. Please run migration first.',
+            ],
+        ]);
+    }
+
+    $userId = $this->getAssignedUserIdFromPayload($payload);
+    $allowAnonymousUser = false;
+
+    if (!$userId) {
+        $anonymousUser = $this->getAnonymousUser();
+
+        if (!$anonymousUser) {
             throw ValidationException::withMessages([
-                'dynamic_post_user' => [
-                    'dynamic_post_user pivot table does not exist. Please run migration first.',
+                'user_id' => [
+                    'No user selected and Anonymous User does not exist. Please create Anonymous User first.',
                 ],
             ]);
         }
 
-        $userId = $this->getAssignedUserIdFromPayload($payload);
-
-        if (!$userId) {
-            $anonymousUser = $this->getAnonymousUser();
-
-            if (!$anonymousUser) {
-                throw ValidationException::withMessages([
-                    'user_id' => [
-                        'No user selected and Anonymous User does not exist. Please create Anonymous User first.',
-                    ],
-                ]);
-            }
-
-            $userId = (int) $anonymousUser->id;
-        }
-
-        $this->assertAssignableUser($userId);
-
-        $now = now();
-
-        DB::table('dynamic_post_user')->updateOrInsert(
-            [
-                'dynamic_post_id' => (int) $post->id,
-            ],
-            [
-                'user_id' => $userId,
-                'assigned_by' => Auth::id(),
-                'updated_at' => $now,
-                'created_at' => $now,
-            ]
-        );
+        $userId = (int) $anonymousUser->id;
+        $allowAnonymousUser = true;
     }
 
+    $postType = $post->relationLoaded('postType')
+        ? $post->postType
+        : PostType::find($post->post_type_id);
+
+    $this->assertAssignableUser($userId, $postType, $allowAnonymousUser);
+
+    $now = now();
+
+    DB::table('dynamic_post_user')->updateOrInsert(
+        [
+            'dynamic_post_id' => (int) $post->id,
+        ],
+        [
+            'user_id' => $userId,
+            'assigned_by' => Auth::id(),
+            'updated_at' => $now,
+            'created_at' => $now,
+        ]
+    );
+}
     private function getAnonymousUser(): ?User
     {
         $query = User::query();
@@ -5548,23 +5654,64 @@ class DynamicPostController extends Controller
         return $query->first();
     }
 
-    private function assertAssignableUser(int $userId): void
-    {
-        $user = User::find($userId);
+private function assertAssignableUser(
+    int $userId,
+    ?PostType $postType = null,
+    bool $allowAnonymousUser = false
+): void {
+    $user = User::find($userId);
 
-        if (!$user) {
-            throw ValidationException::withMessages([
-                'user_id' => ['Selected user does not exist.'],
-            ]);
-        }
-
-        if ($this->isAdminOrSuperAdminUser($user)) {
-            throw ValidationException::withMessages([
-                'user_id' => ['Admin or Super Admin cannot be assigned to a listing.'],
-            ]);
-        }
+    if (!$user) {
+        throw ValidationException::withMessages([
+            'user_id' => ['Selected user does not exist.'],
+        ]);
     }
 
+    if ($this->isAdminOrSuperAdminUser($user)) {
+        throw ValidationException::withMessages([
+            'user_id' => ['Admin or Super Admin cannot be assigned to a listing.'],
+        ]);
+    }
+
+    if ($allowAnonymousUser && $this->isAnonymousAssignmentUser($user)) {
+        return;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | If post type is not provided, only block admin/super admin.
+    |--------------------------------------------------------------------------
+    */
+    if (!$postType) {
+        return;
+    }
+
+    $allowedRoleIds = $this->assignmentAllowedRoleIdsForPostType($postType);
+
+    if (empty($allowedRoleIds)) {
+        throw ValidationException::withMessages([
+            'user_id' => [
+                'No assignable roles are configured for this post type.',
+            ],
+        ]);
+    }
+
+    if (!Schema::hasColumn('users', 'role_id')) {
+        throw ValidationException::withMessages([
+            'user_id' => [
+                'User role_id column does not exist, so assignment cannot be validated.',
+            ],
+        ]);
+    }
+
+    if (empty($user->role_id) || !in_array((int) $user->role_id, $allowedRoleIds, true)) {
+        throw ValidationException::withMessages([
+            'user_id' => [
+                'Selected user role is not allowed for this listing type.',
+            ],
+        ]);
+    }
+}
     private function isAdminOrSuperAdminUser(User $user): bool
     {
         $blockedRoles = $this->blockedAssignmentRoleValues();
@@ -5671,118 +5818,197 @@ class DynamicPostController extends Controller
                 || ($user->first_name ?? null) === 'Anonymous',
         ];
     }
-    public function assignmentUserDropdown(Request $request): JsonResponse
-    {
-        try {
-            $request->validate([
-                'search' => ['nullable', 'string', 'max:255'],
-                'role_id' => ['nullable', 'integer'],
-                'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
-            ]);
+public function assignmentUserDropdown(Request $request): JsonResponse
+{
+    try {
+        $request->validate([
+            'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'post_type' => ['nullable', 'string', 'max:255'],
+            'post_type_slug' => ['nullable', 'string', 'max:255'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'role_id' => ['nullable', 'integer', 'exists:roles,id'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+        ]);
 
-            $limit = min((int) $request->get('limit', 100), 500);
+        $postType = $this->resolveAssignmentPostType($request);
 
-            $query = User::query();
+        /*
+        |--------------------------------------------------------------------------
+        | Safety
+        |--------------------------------------------------------------------------
+        | If frontend does not send post_type/post_type_id/role_id,
+        | do not return all users.
+        */
+        if (!$postType && !$request->filled('role_id')) {
+            return $this->emptyAssignmentDropdownResponse();
+        }
 
-            $blockedRoleIds = $this->blockedAssignmentRoleIds();
+        $limit = min((int) $request->get('limit', 100), 500);
 
-            if (
-                Schema::hasColumn('users', 'role_id')
-                && !empty($blockedRoleIds)
-            ) {
-                $query->whereNotIn('role_id', $blockedRoleIds);
+        $columns = collect([
+            'id',
+            'first_name',
+            'last_name',
+            'name',
+            'email',
+            'phone',
+            'role_id',
+            'role',
+            'status',
+        ])
+            ->filter(fn (string $column) => Schema::hasColumn('users', $column))
+            ->values()
+            ->toArray();
+
+        if (empty($columns)) {
+            return $this->emptyAssignmentDropdownResponse();
+        }
+
+        $query = User::query()->select($columns);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Block Admin / Super Admin
+        |--------------------------------------------------------------------------
+        */
+        $blockedRoleIds = $this->blockedAssignmentRoleIds();
+
+        if (Schema::hasColumn('users', 'role_id') && !empty($blockedRoleIds)) {
+            $query->whereNotIn('role_id', $blockedRoleIds);
+        }
+
+        if (Schema::hasColumn('users', 'role')) {
+            $blockedRoles = $this->blockedAssignmentRoleValues();
+
+            $query->where(function ($q) use ($blockedRoles) {
+                $q->whereNull('role');
+
+                foreach ($blockedRoles as $blockedRole) {
+                    $q->whereRaw('LOWER(role) != ?', [$blockedRole]);
+                }
+            });
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Main Post Type Role Matching
+        |--------------------------------------------------------------------------
+        | property-listing   => Owner, Agent, Consultancy
+        | project-listing    => Company
+        | developer-listing  => Developer
+        */
+        if ($postType) {
+            $allowedRoleIds = $this->assignmentAllowedRoleIdsForPostType($postType);
+
+            if (empty($allowedRoleIds)) {
+                return $this->emptyAssignmentDropdownResponse();
             }
 
-            if (
-                Schema::hasColumn('users', 'role')
-            ) {
-                $blockedRoles = $this->blockedAssignmentRoleValues();
-
-                $query->where(function ($q) use ($blockedRoles) {
-                    $q->whereNull('role');
-
-                    foreach ($blockedRoles as $blockedRole) {
-                        $q->whereRaw('LOWER(role) != ?', [$blockedRole]);
-                    }
-                });
-            }
-
-            if ($request->filled('role_id') && Schema::hasColumn('users', 'role_id')) {
+            if ($request->filled('role_id')) {
                 $roleId = (int) $request->role_id;
 
-                if (in_array($roleId, $blockedRoleIds, true)) {
-                    return $this->successResponse('Users fetched successfully.', [
-                        'count' => 0,
-                        'options' => [],
-                    ]);
+                if (!in_array($roleId, $allowedRoleIds, true)) {
+                    return $this->emptyAssignmentDropdownResponse();
                 }
 
                 $query->where('role_id', $roleId);
+            } else {
+                $query->whereIn('role_id', $allowedRoleIds);
+            }
+        } elseif ($request->filled('role_id') && Schema::hasColumn('users', 'role_id')) {
+            $roleId = (int) $request->role_id;
+
+            if (in_array($roleId, $blockedRoleIds, true)) {
+                return $this->emptyAssignmentDropdownResponse();
             }
 
-            if ($request->filled('search')) {
-                $search = trim((string) $request->search);
-
-                $query->where(function ($q) use ($search) {
-                    if (Schema::hasColumn('users', 'first_name')) {
-                        $q->orWhere('first_name', 'like', "%{$search}%");
-                    }
-
-                    if (Schema::hasColumn('users', 'last_name')) {
-                        $q->orWhere('last_name', 'like', "%{$search}%");
-                    }
-
-                    if (Schema::hasColumn('users', 'name')) {
-                        $q->orWhere('name', 'like', "%{$search}%");
-                    }
-
-                    if (Schema::hasColumn('users', 'email')) {
-                        $q->orWhere('email', 'like', "%{$search}%");
-                    }
-                });
-            }
-
-            if (Schema::hasColumn('users', 'status')) {
-                $query->where(function ($q) {
-                    $q->where('status', true)
-                        ->orWhere('status', 1)
-                        ->orWhere('status', 'active');
-                });
-            }
-
-            $users = $query
-                ->orderBy('id', 'desc')
-                ->limit($limit)
-                ->get();
-
-            $options = $users->map(function ($user) {
-                $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
-
-                $label = $fullName
-                    ?: ($user->name ?? null)
-                    ?: ($user->email ?? null)
-                    ?: ('User #' . $user->id);
-
-                return [
-                    'id' => (int) $user->id,
-                    'value' => (int) $user->id,
-                    'label' => $label,
-                    'name' => $label,
-                    'email' => $user->email ?? null,
-                    'role_id' => $user->role_id ?? null,
-                ];
-            })->values();
-
-            return $this->successResponse('Users fetched successfully.', [
-                'count' => $options->count(),
-                'options' => $options,
-            ]);
-        } catch (ValidationException $e) {
-            return $this->validationErrorResponse($e);
-        } catch (Throwable $e) {
-            return $this->errorResponse('Unable to fetch users.', 500, $e->getMessage());
+            $query->where('role_id', $roleId);
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+
+            $query->where(function ($q) use ($search) {
+                if (Schema::hasColumn('users', 'first_name')) {
+                    $q->orWhere('first_name', 'like', "%{$search}%");
+                }
+
+                if (Schema::hasColumn('users', 'last_name')) {
+                    $q->orWhere('last_name', 'like', "%{$search}%");
+                }
+
+                if (Schema::hasColumn('users', 'name')) {
+                    $q->orWhere('name', 'like', "%{$search}%");
+                }
+
+                if (Schema::hasColumn('users', 'email')) {
+                    $q->orWhere('email', 'like', "%{$search}%");
+                }
+
+                if (Schema::hasColumn('users', 'phone')) {
+                    $q->orWhere('phone', 'like', "%{$search}%");
+                }
+            });
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Active Users Only
+        |--------------------------------------------------------------------------
+        */
+        if (Schema::hasColumn('users', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', true)
+                    ->orWhere('status', 1)
+                    ->orWhere('status', 'active');
+            });
+        }
+
+        $users = $query
+            ->orderBy('id', 'desc')
+            ->limit($limit)
+            ->get();
+
+        $options = $users->map(function ($user) {
+            $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+
+            $label = $fullName
+                ?: ($user->name ?? null)
+                ?: ($user->email ?? null)
+                ?: ('User #' . $user->id);
+
+            return [
+                'id' => (int) $user->id,
+                'value' => (int) $user->id,
+                'label' => $label,
+                'name' => $label,
+                'email' => $user->email ?? null,
+                'phone' => $user->phone ?? null,
+                'role_id' => isset($user->role_id) ? (int) $user->role_id : null,
+            ];
+        })->values();
+
+        return $this->successResponse('Users fetched successfully.', [
+            'post_type' => $postType ? [
+                'id' => (int) $postType->id,
+                'name' => $postType->name,
+                'slug' => $postType->slug,
+                'allowed_roles' => $this->assignmentRoleNamesForPostTypeSlug((string) $postType->slug),
+            ] : null,
+            'count' => $options->count(),
+            'options' => $options,
+        ]);
+    } catch (ValidationException $e) {
+        return $this->validationErrorResponse($e);
+    } catch (Throwable $e) {
+        return $this->errorResponse('Unable to fetch users.', 500, $e->getMessage());
     }
+}
 
     private function blockedAssignmentRoleIds(): array
     {
@@ -5807,84 +6033,123 @@ class DynamicPostController extends Controller
             ->map(fn($id) => (int) $id)
             ->toArray();
     }
-    public function assignmentRoleDropdown(Request $request): JsonResponse
-    {
-        try {
-            $request->validate([
-                'search' => ['nullable', 'string', 'max:255'],
-                'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
-            ]);
+public function assignmentRoleDropdown(Request $request): JsonResponse
+{
+    try {
+        $request->validate([
+            'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+            'post_type' => ['nullable', 'string', 'max:255'],
+            'post_type_slug' => ['nullable', 'string', 'max:255'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
 
-            if (!Schema::hasTable('roles')) {
+        if (!Schema::hasTable('roles')) {
+            return $this->successResponse('Roles fetched successfully.', [
+                'count' => 0,
+                'options' => [],
+            ]);
+        }
+
+        $postType = $this->resolveAssignmentPostType($request);
+        $limit = min((int) $request->get('limit', 100), 200);
+        $blockedRoles = $this->blockedAssignmentRoleValues();
+
+        $query = DB::table('roles');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Block Admin / Super Admin roles
+        |--------------------------------------------------------------------------
+        */
+        $query->where(function ($q) use ($blockedRoles) {
+            foreach (['name', 'slug', 'role_name'] as $column) {
+                if (Schema::hasColumn('roles', $column)) {
+                    $q->whereNotIn(DB::raw("LOWER({$column})"), $blockedRoles);
+                }
+            }
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | Filter roles by selected post type
+        |--------------------------------------------------------------------------
+        */
+        if ($postType) {
+            $allowedRoleIds = $this->assignmentAllowedRoleIdsForPostType($postType);
+
+            if (empty($allowedRoleIds)) {
                 return $this->successResponse('Roles fetched successfully.', [
+                    'post_type' => [
+                        'id' => (int) $postType->id,
+                        'name' => $postType->name,
+                        'slug' => $postType->slug,
+                        'allowed_roles' => [],
+                    ],
                     'count' => 0,
                     'options' => [],
                 ]);
             }
 
-            $limit = min((int) $request->get('limit', 100), 200);
-            $blockedRoles = $this->blockedAssignmentRoleValues();
+            $query->whereIn('id', $allowedRoleIds);
+        }
 
-            $query = DB::table('roles');
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
 
-            $query->where(function ($q) use ($blockedRoles) {
+            $query->where(function ($q) use ($search) {
                 foreach (['name', 'slug', 'role_name'] as $column) {
                     if (Schema::hasColumn('roles', $column)) {
-                        $q->whereNotIn(DB::raw("LOWER({$column})"), $blockedRoles);
+                        $q->orWhere($column, 'like', "%{$search}%");
                     }
                 }
             });
-
-            if ($request->filled('search')) {
-                $search = trim((string) $request->search);
-
-                $query->where(function ($q) use ($search) {
-                    foreach (['name', 'slug', 'role_name'] as $column) {
-                        if (Schema::hasColumn('roles', $column)) {
-                            $q->orWhere($column, 'like', "%{$search}%");
-                        }
-                    }
-                });
-            }
-
-            if (Schema::hasColumn('roles', 'status')) {
-                $query->where(function ($q) {
-                    $q->where('status', true)
-                        ->orWhere('status', 1)
-                        ->orWhere('status', 'active');
-                });
-            }
-
-            $roles = $query
-                ->orderBy('id', 'asc')
-                ->limit($limit)
-                ->get();
-
-            $options = $roles->map(function ($role) {
-                $label = $role->name
-                    ?? $role->role_name
-                    ?? $role->slug
-                    ?? ('Role #' . $role->id);
-
-                return [
-                    'id' => (int) $role->id,
-                    'value' => (int) $role->id,
-                    'label' => $label,
-                    'name' => $label,
-                    'slug' => $role->slug ?? null,
-                ];
-            })->values();
-
-            return $this->successResponse('Roles fetched successfully.', [
-                'count' => $options->count(),
-                'options' => $options,
-            ]);
-        } catch (ValidationException $e) {
-            return $this->validationErrorResponse($e);
-        } catch (Throwable $e) {
-            return $this->errorResponse('Unable to fetch roles.', 500, $e->getMessage());
         }
+
+        if (Schema::hasColumn('roles', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', true)
+                    ->orWhere('status', 1)
+                    ->orWhere('status', 'active');
+            });
+        }
+
+        $roles = $query
+            ->orderBy('id', 'asc')
+            ->limit($limit)
+            ->get();
+
+        $options = $roles->map(function ($role) {
+            $label = $role->name
+                ?? $role->role_name
+                ?? $role->slug
+                ?? ('Role #' . $role->id);
+
+            return [
+                'id' => (int) $role->id,
+                'value' => (int) $role->id,
+                'label' => $label,
+                'name' => $label,
+                'slug' => $role->slug ?? null,
+            ];
+        })->values();
+
+        return $this->successResponse('Roles fetched successfully.', [
+            'post_type' => $postType ? [
+                'id' => (int) $postType->id,
+                'name' => $postType->name,
+                'slug' => $postType->slug,
+                'allowed_roles' => $this->assignmentRoleNamesForPostTypeSlug((string) $postType->slug),
+            ] : null,
+            'count' => $options->count(),
+            'options' => $options,
+        ]);
+    } catch (ValidationException $e) {
+        return $this->validationErrorResponse($e);
+    } catch (Throwable $e) {
+        return $this->errorResponse('Unable to fetch roles.', 500, $e->getMessage());
     }
+}
     private function resolveOrCreateFrontendUser(Request $request): array
     {
         $loggedInUser = $this->resolveLoggedInFrontendUser($request);
