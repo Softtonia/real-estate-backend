@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class TemplateDynamicFieldController extends Controller
@@ -93,7 +94,7 @@ class TemplateDynamicFieldController extends Controller
 
                 'entity_id' => $entityId,
                 'selected_taxonomy_term_ids' => $selectedTermIds,
-
+                'post_data' => $entityId ? $postPreviewData : null,
                 'basic_widgets' => $basicWidgets,
 
                 'dynamic_fields' => [
@@ -173,8 +174,32 @@ class TemplateDynamicFieldController extends Controller
 
         $row = $this->rowToArray($post);
 
+        $featuredMedia = $this->formatMediaFileById($row['featured_image_id'] ?? null);
+
+        $rawFeaturedImage = $row['featured_image']
+            ?? $row['thumbnail']
+            ?? $row['image']
+            ?? $row['banner_image']
+            ?? null;
+
+        $featuredImageUrl = $featuredMedia['url'] ?? $this->rawMediaUrl($rawFeaturedImage);
+
+        $galleryMedia = $this->formatMediaFilesByIds($row['gallery_image_ids'] ?? []);
+
+        if (empty($galleryMedia)) {
+            $galleryMedia = $this->normalizeStoredMediaFiles($row['gallery_images'] ?? null);
+        }
+
+        $galleryImageUrls = collect($galleryMedia)
+            ->pluck('url')
+            ->filter()
+            ->values()
+            ->toArray();
+
         return [
-            'id' => $row['id'] ?? null,
+            'id' => isset($row['id']) ? (int) $row['id'] : null,
+            'post_type_id' => isset($row['post_type_id']) ? (int) $row['post_type_id'] : null,
+
             'title' => $row['title']
                 ?? $row['post_title']
                 ?? $row['name']
@@ -182,20 +207,38 @@ class TemplateDynamicFieldController extends Controller
                 ?? $row['project_name']
                 ?? $row['developer_name']
                 ?? null,
+
             'slug' => $row['slug'] ?? $row['post_slug'] ?? null,
+            'listing_code' => $row['listing_code'] ?? null,
+
             'content' => $row['content']
                 ?? $row['description']
                 ?? $row['post_content']
                 ?? null,
+
             'excerpt' => $row['excerpt']
                 ?? $row['short_description']
                 ?? null,
-            'featured_image' => $row['featured_image']
-                ?? $row['thumbnail']
-                ?? $row['image']
-                ?? $row['banner_image']
-                ?? null,
+
+            'featured_image_id' => isset($row['featured_image_id'])
+                ? (int) $row['featured_image_id']
+                : null,
+
+            'featured_image' => $featuredImageUrl,
+            'featured_image_media' => $featuredMedia,
+
+            'gallery_image_ids' => $this->normalizeIds($row['gallery_image_ids'] ?? []),
+            'gallery_images' => $galleryImageUrls,
+            'gallery_image_files' => $galleryMedia,
+
             'status' => $row['status'] ?? null,
+            'live_status' => $row['live_status'] ?? null,
+
+            'country_id' => isset($row['country_id']) ? (int) $row['country_id'] : null,
+            'state_id' => isset($row['state_id']) ? (int) $row['state_id'] : null,
+            'city_id' => isset($row['city_id']) ? (int) $row['city_id'] : null,
+            'area_locality' => $row['area_locality'] ?? null,
+
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
         ];
@@ -274,6 +317,10 @@ class TemplateDynamicFieldController extends Controller
                             $entityId,
                             (int) $field->id
                         );
+
+                        if (in_array($fieldType, ['media', 'file', 'image', 'gallery'], true)) {
+                            $fieldValue = $this->formatDynamicMediaFieldValue($fieldValue, $fieldType);
+                        }
                     }
                 }
 
@@ -326,6 +373,16 @@ class TemplateDynamicFieldController extends Controller
             ->filter()
             ->values()
             ->all();
+    }
+    private function formatDynamicMediaFieldValue(mixed $value, string $fieldType): mixed
+    {
+        $mediaFiles = $this->normalizeStoredMediaFiles($value);
+
+        if ($fieldType === 'gallery') {
+            return $mediaFiles;
+        }
+
+        return $mediaFiles[0] ?? $value;
     }
 
     private function fieldMatchesLocationRules(object $field, object $postTypeRecord, array $selectedTermIds): bool
@@ -732,56 +789,336 @@ class TemplateDynamicFieldController extends Controller
             ->values()
             ->all();
     }
+    private function systemField(
+        string $label,
+        string $key,
+        string $type,
+        string $componentKey,
+        mixed $value = null,
+        array $settings = [],
+        array $extra = []
+    ): array {
+        $fieldPath = 'system.' . $key;
 
+        return array_merge([
+            'label' => $label,
+            'key' => $key,
+            'field_key' => $key,
+            'field_path' => $fieldPath,
+            'source' => 'system',
+            'type' => $type,
+            'component_key' => $componentKey,
+            'field_value' => $value,
+            'value' => $value,
+            'has_value' => $this->hasRealValue($value),
+            'binding' => [
+                'source' => 'system',
+                'field_key' => $key,
+                'path' => $fieldPath,
+            ],
+            'settings' => ! empty($settings) ? $settings : [
+                'source' => 'dynamic',
+                'field' => $fieldPath,
+            ],
+        ], $extra);
+    }
+
+    private function formatMediaFileById(null|int|string $mediaId): ?array
+    {
+        if (empty($mediaId) || ! is_numeric($mediaId)) {
+            return null;
+        }
+
+        if (! Schema::hasTable('media_files')) {
+            return null;
+        }
+
+        $media = DB::table('media_files')->where('id', (int) $mediaId)->first();
+
+        return $media ? $this->formatMediaFileRow($media) : null;
+    }
+
+    private function formatMediaFilesByIds(mixed $mediaIds): array
+    {
+        $ids = $this->normalizeIds($mediaIds);
+
+        if (empty($ids) || ! Schema::hasTable('media_files')) {
+            return [];
+        }
+
+        $mediaFiles = DB::table('media_files')
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        return collect($ids)
+            ->map(fn($id) => $mediaFiles->get((int) $id))
+            ->filter()
+            ->map(fn($media) => $this->formatMediaFileRow($media))
+            ->values()
+            ->toArray();
+    }
+
+    private function formatMediaFileRow(object $media): array
+    {
+        $path = $media->path ?? null;
+        $url = $this->mediaPublicUrl(
+            path: $path,
+            existingUrl: $media->url ?? null,
+            disk: $media->disk ?? null
+        );
+
+        return [
+            'id' => isset($media->id) ? (int) $media->id : null,
+            'disk' => $media->disk ?? null,
+            'context' => $media->context ?? null,
+            'post_type_slug' => $media->post_type_slug ?? null,
+            'field_slug' => $media->field_slug ?? null,
+            'directory' => $media->directory ?? null,
+            'path' => $path,
+            'url' => $url,
+            'file_name' => $media->file_name ?? null,
+            'original_name' => $media->original_name ?? null,
+            'mime_type' => $media->mime_type ?? null,
+            'extension' => $media->extension ?? null,
+            'size' => $media->size ?? null,
+            'size_kb' => ! empty($media->size) ? round(((int) $media->size) / 1024, 2) : null,
+            'created_at' => $media->created_at ?? null,
+            'updated_at' => $media->updated_at ?? null,
+        ];
+    }
+
+    private function normalizeStoredMediaFiles(mixed $value): array
+    {
+        $value = $this->decodeMaybeJson($value);
+
+        if ($value === null || $value === '') {
+            return [];
+        }
+
+        if (is_numeric($value)) {
+            return $this->formatMediaFilesByIds([$value]);
+        }
+
+        if (is_string($value)) {
+            $url = $this->mediaPublicUrl($value);
+
+            return $url ? [[
+                'id' => null,
+                'path' => $value,
+                'url' => $url,
+            ]] : [];
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        if (isset($value['media']) && is_array($value['media'])) {
+            $value = $value['media'];
+        }
+
+        if (isset($value['id']) && is_numeric($value['id'])) {
+            return $this->formatMediaFilesByIds([(int) $value['id']]);
+        }
+
+        if (isset($value['url']) || isset($value['path'])) {
+            $path = $value['path'] ?? null;
+            $url = $this->mediaPublicUrl(
+                path: $path,
+                existingUrl: $value['url'] ?? null,
+                disk: $value['disk'] ?? null
+            );
+
+            return $url ? [array_merge($value, [
+                'url' => $url,
+            ])] : [];
+        }
+
+        return collect($value)
+            ->flatMap(function ($item) {
+                if (is_numeric($item)) {
+                    return $this->formatMediaFilesByIds([(int) $item]);
+                }
+
+                if (is_string($item)) {
+                    $url = $this->mediaPublicUrl($item);
+
+                    return $url ? [[
+                        'id' => null,
+                        'path' => $item,
+                        'url' => $url,
+                    ]] : [];
+                }
+
+                if (! is_array($item)) {
+                    return [];
+                }
+
+                if (isset($item['id']) && is_numeric($item['id'])) {
+                    return $this->formatMediaFilesByIds([(int) $item['id']]);
+                }
+
+                $path = $item['path'] ?? null;
+                $url = $this->mediaPublicUrl(
+                    path: $path,
+                    existingUrl: $item['url'] ?? null,
+                    disk: $item['disk'] ?? null
+                );
+
+                return $url ? [array_merge($item, [
+                    'url' => $url,
+                ])] : [];
+            })
+            ->filter(fn($media) => ! empty($media['url']))
+            ->values()
+            ->toArray();
+    }
+
+    private function rawMediaUrl(mixed $value): ?string
+    {
+        $value = $this->decodeMaybeJson($value);
+
+        if (is_array($value)) {
+            $value = $value['url'] ?? $value['path'] ?? null;
+        }
+
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        return $this->mediaPublicUrl($value);
+    }
+
+    private function mediaPublicUrl(?string $path = null, ?string $existingUrl = null, ?string $disk = null): ?string
+    {
+        $existingUrl = $existingUrl ? trim($existingUrl) : null;
+
+        if ($existingUrl && filter_var($existingUrl, FILTER_VALIDATE_URL)) {
+            return $existingUrl;
+        }
+
+        if ($existingUrl && str_starts_with($existingUrl, '/')) {
+            return url($existingUrl);
+        }
+
+        $path = $path ? trim($path) : $existingUrl;
+
+        if (! $path) {
+            return null;
+        }
+
+        $path = str_replace('\\', '/', $path);
+
+        if (filter_var($path, FILTER_VALIDATE_URL)) {
+            return $path;
+        }
+
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'storage/') || str_starts_with($path, 'uploads/')) {
+            return url($path);
+        }
+
+        try {
+            return Storage::disk($disk ?: 'public')->url($path);
+        } catch (Throwable $e) {
+            return url('storage/' . $path);
+        }
+    }
     private function getSystemFields(array $postPreviewData = []): array
     {
         return [
-            [
-                'label' => 'Title',
-                'key' => 'title',
-                'field_path' => 'system.title',
-                'source' => 'system',
-                'type' => 'text',
-                'component_key' => 'heading',
-                'field_value' => $postPreviewData['title'] ?? null,
-                'value' => $postPreviewData['title'] ?? null,
-                'has_value' => $this->hasRealValue($postPreviewData['title'] ?? null),
-                'settings' => [
+            $this->systemField(
+                label: 'Title',
+                key: 'title',
+                type: 'text',
+                componentKey: 'heading',
+                value: $postPreviewData['title'] ?? null,
+                settings: [
                     'source' => 'dynamic',
                     'field' => 'system.title',
                     'tag' => 'h1',
-                ],
-            ],
-            [
-                'label' => 'Content',
-                'key' => 'content',
-                'field_path' => 'system.content',
-                'source' => 'system',
-                'type' => 'texteditor',
-                'component_key' => 'text',
-                'field_value' => $postPreviewData['content'] ?? null,
-                'value' => $postPreviewData['content'] ?? null,
-                'has_value' => $this->hasRealValue($postPreviewData['content'] ?? null),
-                'settings' => [
-                    'source' => 'dynamic',
-                    'field' => 'system.content',
-                ],
-            ],
-            [
-                'label' => 'Featured Image',
-                'key' => 'featured_image',
-                'field_path' => 'system.featured_image',
-                'source' => 'system',
-                'type' => 'image',
-                'component_key' => 'image',
-                'field_value' => $postPreviewData['featured_image'] ?? null,
-                'value' => $postPreviewData['featured_image'] ?? null,
-                'has_value' => $this->hasRealValue($postPreviewData['featured_image'] ?? null),
-                'settings' => [
-                    'source' => 'dynamic',
-                    'field' => 'system.featured_image',
-                ],
-            ],
+                ]
+            ),
+
+            $this->systemField(
+                label: 'Slug',
+                key: 'slug',
+                type: 'text',
+                componentKey: 'text',
+                value: $postPreviewData['slug'] ?? null
+            ),
+
+            $this->systemField(
+                label: 'Listing Code',
+                key: 'listing_code',
+                type: 'text',
+                componentKey: 'text',
+                value: $postPreviewData['listing_code'] ?? null
+            ),
+
+            $this->systemField(
+                label: 'Content',
+                key: 'content',
+                type: 'texteditor',
+                componentKey: 'text',
+                value: $postPreviewData['content'] ?? null
+            ),
+
+            $this->systemField(
+                label: 'Excerpt',
+                key: 'excerpt',
+                type: 'textarea',
+                componentKey: 'text',
+                value: $postPreviewData['excerpt'] ?? null
+            ),
+
+            $this->systemField(
+                label: 'Featured Image',
+                key: 'featured_image',
+                type: 'image',
+                componentKey: 'image',
+                value: $postPreviewData['featured_image'] ?? null,
+                extra: [
+                    'media' => $postPreviewData['featured_image_media'] ?? null,
+                ]
+            ),
+
+            $this->systemField(
+                label: 'Gallery Images',
+                key: 'gallery_images',
+                type: 'gallery',
+                componentKey: 'gallery',
+                value: $postPreviewData['gallery_images'] ?? [],
+                extra: [
+                    'media' => $postPreviewData['gallery_image_files'] ?? [],
+                ]
+            ),
+
+            $this->systemField(
+                label: 'Status',
+                key: 'status',
+                type: 'text',
+                componentKey: 'text',
+                value: $postPreviewData['status'] ?? null
+            ),
+
+            $this->systemField(
+                label: 'Live Status',
+                key: 'live_status',
+                type: 'text',
+                componentKey: 'text',
+                value: $postPreviewData['live_status'] ?? null
+            ),
+
+            $this->systemField(
+                label: 'Area Locality',
+                key: 'area_locality',
+                type: 'text',
+                componentKey: 'text',
+                value: $postPreviewData['area_locality'] ?? null
+            ),
         ];
     }
 
