@@ -36,28 +36,46 @@ class RelatedPostsWidget
         ];
     }
 
-    public function defaultSettings(): array
-    {
-        return [
-            'title' => 'Related Posts',
+public function defaultSettings(): array
+{
+    return [
+        'title' => 'Related Posts',
 
-            'exclude_current' => true,
-            'match_post_type' => true,
-            'match_taxonomy_terms' => true,
-            'match_locations' => true,
+        'exclude_current' => true,
 
-            'selected_post_ids' => [],
+        'match_post_type' => true,
+        'match_taxonomy_terms' => true,
+        'match_locations' => true,
 
-            'posts_per_page' => 6,
-            'orderby' => 'created_at',
-            'order' => 'DESC',
+        'selected_post_ids' => [],
 
-            'query' => [
-                'relation' => 'AND',
-                'items' => [],
-            ],
-        ];
-    }
+        'posts_per_page' => 6,
+        'orderby' => 'created_at',
+        'order' => 'DESC',
+
+        'post_type_mapping' => [
+            'enabled' => true,
+            'target' => 'same_post_type',
+        ],
+
+        'taxonomy_mapping' => [
+            'enabled' => true,
+            'relation' => 'AND',
+            'items' => [],
+        ],
+
+        'location_mapping' => [
+            'enabled' => true,
+            'relation' => 'AND',
+            'items' => [],
+        ],
+
+        'query_mapping' => [
+            'relation' => 'AND',
+            'items' => [],
+        ],
+    ];
+}
 
     public function settingsSchema(): array
     {

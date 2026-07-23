@@ -74,7 +74,7 @@ class RelatedPostQueryService
         return $this->getMatchedPosts($settings, $currentPost, $context)
             ->limit(100)
             ->get()
-            ->map(fn ($post) => $this->formatCandidatePost($post))
+            ->map(fn($post) => $this->formatCandidatePost($post))
             ->values();
     }
 
@@ -159,26 +159,58 @@ class RelatedPostQueryService
         $limit = max(1, min((int) ($settings['posts_per_page'] ?? 6), 50));
 
         return $posts
-            ->sortBy(fn ($post) => array_search((int) $post->id, $selectedPostIds, true))
+            ->sortBy(fn($post) => array_search((int) $post->id, $selectedPostIds, true))
             ->take($limit)
             ->values();
     }
 
     public function normalizeSettings(array $settings): array
     {
+        $queryMapping = $settings['query_mapping'] ?? [];
+        $oldQuery = $settings['query'] ?? [];
+
         return [
             'title' => $settings['title'] ?? 'Related Posts',
 
             'exclude_current' => filter_var($settings['exclude_current'] ?? true, FILTER_VALIDATE_BOOLEAN),
-            'match_post_type' => filter_var($settings['match_post_type'] ?? true, FILTER_VALIDATE_BOOLEAN),
-            'match_taxonomy_terms' => filter_var($settings['match_taxonomy_terms'] ?? true, FILTER_VALIDATE_BOOLEAN),
-            'match_locations' => filter_var($settings['match_locations'] ?? true, FILTER_VALIDATE_BOOLEAN),
+
+            'match_post_type' => filter_var(
+                data_get($settings, 'post_type_mapping.enabled', $settings['match_post_type'] ?? true),
+                FILTER_VALIDATE_BOOLEAN
+            ),
+
+            'match_taxonomy_terms' => filter_var(
+                data_get($settings, 'taxonomy_mapping.enabled', $settings['match_taxonomy_terms'] ?? true),
+                FILTER_VALIDATE_BOOLEAN
+            ),
+
+            'match_locations' => filter_var(
+                data_get($settings, 'location_mapping.enabled', $settings['match_locations'] ?? true),
+                FILTER_VALIDATE_BOOLEAN
+            ),
 
             'posts_per_page' => max(1, min((int) ($settings['posts_per_page'] ?? 6), 50)),
 
             'selected_post_ids' => $this->normalizeIds($settings['selected_post_ids'] ?? []),
 
-            'query' => $this->normalizeBuilderQuery($settings['query'] ?? []),
+            'post_type_mapping' => [
+                'enabled' => filter_var(data_get($settings, 'post_type_mapping.enabled', true), FILTER_VALIDATE_BOOLEAN),
+                'target' => data_get($settings, 'post_type_mapping.target', 'same_post_type'),
+            ],
+
+            'taxonomy_mapping' => [
+                'enabled' => filter_var(data_get($settings, 'taxonomy_mapping.enabled', true), FILTER_VALIDATE_BOOLEAN),
+                'relation' => strtoupper((string) data_get($settings, 'taxonomy_mapping.relation', 'AND')),
+                'items' => data_get($settings, 'taxonomy_mapping.items', []),
+            ],
+
+            'location_mapping' => [
+                'enabled' => filter_var(data_get($settings, 'location_mapping.enabled', true), FILTER_VALIDATE_BOOLEAN),
+                'relation' => strtoupper((string) data_get($settings, 'location_mapping.relation', 'AND')),
+                'items' => data_get($settings, 'location_mapping.items', []),
+            ],
+
+            'query' => $this->normalizeBuilderQuery(! empty($queryMapping) ? $queryMapping : $oldQuery),
 
             'orderby' => $settings['orderby'] ?? 'created_at',
             'order' => strtoupper((string) ($settings['order'] ?? 'DESC')) === 'ASC' ? 'ASC' : 'DESC',
@@ -189,9 +221,44 @@ class RelatedPostQueryService
     {
         $relation = strtoupper((string) ($query['relation'] ?? 'AND'));
 
+        $items = $query['items']
+            ?? $query['rules']
+            ?? [];
+
+        $rules = collect($items)
+            ->filter(fn($item) => is_array($item))
+            ->map(function (array $item) {
+                $sourceType = $item['source_type'] ?? 'manual';
+
+                $targetKey = $item['target_key']
+                    ?? $item['key']
+                    ?? $item['field']
+                    ?? null;
+
+                if (! $targetKey) {
+                    return null;
+                }
+
+                return [
+                    'type' => 'custom_field',
+                    'field' => $targetKey,
+                    'key' => $targetKey,
+                    'compare' => $item['compare'] ?? '=',
+                    'value' => $sourceType === 'current_post_field'
+                        ? null
+                        : ($item['manual_value'] ?? $item['value'] ?? null),
+                    'source_type' => $sourceType,
+                    'source_key' => $item['source_key'] ?? null,
+                    'value_type' => $item['value_type'] ?? 'CHAR',
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray();
+
         return [
             'relation' => in_array($relation, ['AND', 'OR'], true) ? $relation : 'AND',
-            'rules' => $query['rules'] ?? $query['items'] ?? [],
+            'rules' => $rules,
         ];
     }
 
@@ -259,7 +326,7 @@ class RelatedPostQueryService
         return DB::table($this->pivotTable)
             ->where('dynamic_post_id', $postId)
             ->pluck('taxonomy_term_id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -279,7 +346,7 @@ class RelatedPostQueryService
             ->where('dynamic_post_id', $postId)
             ->where('taxonomy_id', $taxonomyId)
             ->pluck('taxonomy_term_id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -317,12 +384,12 @@ class RelatedPostQueryService
             ->groupBy('taxonomy_id')
             ->map(function ($rows) {
                 return $rows->pluck('id')
-                    ->map(fn ($id) => (int) $id)
+                    ->map(fn($id) => (int) $id)
                     ->unique()
                     ->values()
                     ->toArray();
             })
-            ->filter(fn ($ids) => ! empty($ids));
+            ->filter(fn($ids) => ! empty($ids));
     }
 
     private function termExistsQuery(array $termIds): \Closure
@@ -349,31 +416,35 @@ class RelatedPostQueryService
             return;
         }
 
-        foreach ($rules as $rule) {
-            if (! is_array($rule)) {
-                continue;
+        $query->where(function ($mainQuery) use ($rules, $relation, $currentPost) {
+            foreach ($rules as $rule) {
+                if (! is_array($rule)) {
+                    continue;
+                }
+
+                $callback = function ($innerQuery) use ($rule, $currentPost) {
+                    $type = strtolower((string) ($rule['type'] ?? 'custom_field'));
+
+                    if ($type === 'taxonomy') {
+                        $this->applyTaxonomyRule($innerQuery, $rule, $currentPost);
+                        return;
+                    }
+
+                    if ($type === 'location') {
+                        $this->applyLocationRule($innerQuery, $rule, $currentPost);
+                        return;
+                    }
+
+                    $this->applyCustomFieldRule($innerQuery, $rule, $currentPost);
+                };
+
+                if ($relation === 'OR') {
+                    $mainQuery->orWhere($callback);
+                } else {
+                    $mainQuery->where($callback);
+                }
             }
-
-            $callback = function ($innerQuery) use ($rule, $currentPost) {
-                $type = strtolower((string) ($rule['type'] ?? 'custom_field'));
-
-                if ($type === 'taxonomy') {
-                    $this->applyTaxonomyRule($innerQuery, $rule, $currentPost);
-                    return;
-                }
-
-                if ($type === 'location') {
-                    $this->applyLocationRule($innerQuery, $rule, $currentPost);
-                    return;
-                }
-
-                $this->applyCustomFieldRule($innerQuery, $rule);
-            };
-
-            $relation === 'OR'
-                ? $query->orWhere($callback)
-                : $query->where($callback);
-        }
+        });
     }
 
     private function applyTaxonomyRule($query, array $rule, ?DynamicPost $currentPost): void
@@ -441,7 +512,7 @@ class RelatedPostQueryService
         }
     }
 
-    private function applyCustomFieldRule($query, array $rule): void
+    private function applyCustomFieldRule($query, array $rule, ?DynamicPost $currentPost = null): void
     {
         if (
             ! Schema::hasTable($this->customFieldsTable)
@@ -458,7 +529,16 @@ class RelatedPostQueryService
 
         $compare = strtoupper((string) ($rule['compare'] ?? '='));
         $valueType = strtoupper((string) ($rule['value_type'] ?? 'CHAR'));
+
         $value = $rule['value'] ?? null;
+
+        if (($rule['source_type'] ?? null) === 'current_post_field') {
+            $sourceKey = $rule['source_key'] ?? null;
+
+            if ($sourceKey && $currentPost) {
+                $value = $this->getCurrentPostCustomFieldValue((int) $currentPost->id, (string) $sourceKey);
+            }
+        }
 
         if ($compare === 'NOT EXISTS') {
             $query->whereNotExists($this->customFieldBaseExistsQuery((string) $fieldKey));
@@ -467,6 +547,11 @@ class RelatedPostQueryService
 
         if ($compare === 'EXISTS') {
             $query->whereExists($this->customFieldBaseExistsQuery((string) $fieldKey));
+            return;
+        }
+
+        if ($value === null || $value === '') {
+            $query->whereRaw('1 = 0');
             return;
         }
 
@@ -479,41 +564,96 @@ class RelatedPostQueryService
             )
         );
     }
-
-    private function customFieldBaseExistsQuery(string $fieldKey): \Closure
+    private function getCurrentPostCustomFieldValue(int $postId, string $fieldKey): mixed
     {
-        return function ($sub) use ($fieldKey) {
-            $postColumn = $this->customFieldPostColumn();
-            $fieldColumn = $this->customFieldIdColumn();
+        $postColumn = $this->customFieldPostColumn();
+        $fieldColumn = $this->customFieldIdColumn();
 
-            if (! $postColumn || ! $fieldColumn) {
-                $sub->select(DB::raw(1))->whereRaw('1 = 0');
-                return;
-            }
+        if (! $postColumn || ! $fieldColumn) {
+            return null;
+        }
 
-            $sub->select(DB::raw(1))
-                ->from($this->customFieldValuesTable . ' as cfv')
-                ->join($this->customFieldsTable . ' as cf', 'cf.id', '=', 'cfv.' . $fieldColumn)
-                ->whereColumn('cfv.' . $postColumn, 'dp.id')
-                ->where(function ($fieldQuery) use ($fieldKey) {
-                    if (Schema::hasColumn($this->customFieldsTable, 'field_name_slug')) {
-                        $fieldQuery->where('cf.field_name_slug', $fieldKey);
-                    }
+        $valueColumn = $this->customFieldValueColumn();
 
-                    if (Schema::hasColumn($this->customFieldsTable, 'field_label')) {
-                        $fieldQuery->orWhere('cf.field_label', $fieldKey);
-                    }
+        if (! $valueColumn) {
+            return null;
+        }
 
-                    if (Schema::hasColumn($this->customFieldsTable, 'name')) {
-                        $fieldQuery->orWhere('cf.name', $fieldKey);
-                    }
-                });
+        $row = DB::table($this->customFieldValuesTable . ' as cfv')
+            ->join($this->customFieldsTable . ' as cf', 'cf.id', '=', 'cfv.' . $fieldColumn)
+            ->where('cfv.' . $postColumn, $postId)
+            ->where(function ($query) use ($fieldKey) {
+                if (Schema::hasColumn($this->customFieldsTable, 'field_name_slug')) {
+                    $query->where('cf.field_name_slug', $fieldKey);
+                }
 
-            if (Schema::hasColumn($this->customFieldValuesTable, 'entity_type')) {
-                $sub->where('cfv.entity_type', 'post');
-            }
-        };
+                if (Schema::hasColumn($this->customFieldsTable, 'field_label')) {
+                    $query->orWhere('cf.field_label', $fieldKey);
+                }
+
+                if (Schema::hasColumn($this->customFieldsTable, 'name')) {
+                    $query->orWhere('cf.name', $fieldKey);
+                }
+            })
+            ->select('cfv.' . $valueColumn . ' as field_value')
+            ->first();
+
+        return $row->field_value ?? null;
     }
+
+    private function customFieldValueColumn(): ?string
+    {
+        foreach (
+            [
+                'value',
+                'field_value',
+                'meta_value',
+                'value_text',
+                'value_string',
+                'value_number',
+            ] as $column
+        ) {
+            if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
+private function customFieldBaseExistsQuery(string $fieldKey): \Closure
+{
+    return function ($sub) use ($fieldKey) {
+        $postColumn = $this->customFieldPostColumn();
+        $fieldColumn = $this->customFieldIdColumn();
+
+        if (! $postColumn || ! $fieldColumn) {
+            $sub->select(DB::raw(1))->whereRaw('1 = 0');
+            return;
+        }
+
+        $sub->select(DB::raw(1))
+            ->from($this->customFieldValuesTable . ' as cfv')
+            ->join($this->customFieldsTable . ' as cf', 'cf.id', '=', 'cfv.' . $fieldColumn)
+            ->whereColumn('cfv.' . $postColumn, 'dp.id')
+            ->where(function ($fieldQuery) use ($fieldKey) {
+                if (Schema::hasColumn($this->customFieldsTable, 'field_name_slug')) {
+                    $fieldQuery->where('cf.field_name_slug', $fieldKey);
+                }
+
+                if (Schema::hasColumn($this->customFieldsTable, 'field_label')) {
+                    $fieldQuery->orWhere('cf.field_label', $fieldKey);
+                }
+
+                if (Schema::hasColumn($this->customFieldsTable, 'name')) {
+                    $fieldQuery->orWhere('cf.name', $fieldKey);
+                }
+            });
+
+        if (Schema::hasColumn($this->customFieldValuesTable, 'entity_type')) {
+            $sub->where('cfv.entity_type', 'post');
+        }
+    };
+}
 
     private function customFieldCompareExistsQuery(
         string $fieldKey,
@@ -623,15 +763,17 @@ class RelatedPostQueryService
     {
         $columns = [];
 
-        foreach ([
-            'value_number',
-            'value_string',
-            'value_text',
-            'value_date',
-            'value_datetime',
-            'value',
-            'field_meta_value',
-        ] as $column) {
+        foreach (
+            [
+                'value_number',
+                'value_string',
+                'value_text',
+                'value_date',
+                'value_datetime',
+                'value',
+                'field_meta_value',
+            ] as $column
+        ) {
             if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
                 $columns[] = 'NULLIF(cfv.' . $column . ", '')";
             }
@@ -693,14 +835,14 @@ class RelatedPostQueryService
         }
 
         $numericIds = collect($terms)
-            ->filter(fn ($term) => is_numeric($term))
-            ->map(fn ($term) => (int) $term)
+            ->filter(fn($term) => is_numeric($term))
+            ->map(fn($term) => (int) $term)
             ->values()
             ->toArray();
 
         $slugsOrNames = collect($terms)
-            ->reject(fn ($term) => is_numeric($term))
-            ->map(fn ($term) => trim((string) $term))
+            ->reject(fn($term) => is_numeric($term))
+            ->map(fn($term) => trim((string) $term))
             ->filter()
             ->values()
             ->toArray();
@@ -719,7 +861,7 @@ class RelatedPostQueryService
             });
 
         return $query->pluck('id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -804,8 +946,8 @@ class RelatedPostQueryService
         }
 
         return collect($ids)
-            ->filter(fn ($id) => $id !== null && $id !== '' && is_numeric($id))
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->toArray();
@@ -828,8 +970,8 @@ class RelatedPostQueryService
         }
 
         return collect((array) $value)
-            ->map(fn ($item) => trim((string) $item))
-            ->filter(fn ($item) => $item !== '')
+            ->map(fn($item) => trim((string) $item))
+            ->filter(fn($item) => $item !== '')
             ->values()
             ->toArray();
     }
