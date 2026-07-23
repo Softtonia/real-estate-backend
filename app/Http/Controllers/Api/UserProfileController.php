@@ -2079,4 +2079,55 @@ class UserProfileController extends Controller
 
         return $payload;
     }
+    public function updatePassword(Request $request): JsonResponse
+    {
+        $user = $this->resolveCurrentUser($request);
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid or expired token.',
+            ], 401);
+        }
+
+        if ($request->filled('confirm_password') && !$request->filled('new_password_confirmation')) {
+            $request->merge([
+                'new_password_confirmation' => $request->confirm_password,
+            ]);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'new_password' => [
+                'required',
+                'string',
+                'min:8',
+                'confirmed',
+            ],
+        ], [
+            'new_password.required' => 'New password is required.',
+            'new_password.min' => 'New password must be at least 8 characters.',
+            'new_password.confirmed' => 'New password and confirm password do not match.',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $user->update([
+                'password' => Hash::make($request->new_password),
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Password updated successfully.',
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to update password.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }

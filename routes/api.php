@@ -1163,6 +1163,7 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('auth/profile/address', [UserProfileController::class, 'updateAddress']);
     Route::post('auth/profile/documents', [UserProfileController::class, 'updateDocuments']);
     Route::post('auth/profile/photo', [UserProfileController::class, 'updatePhoto']);
+    Route::post('auth/profile/password', [UserProfileController::class, 'updatePassword']);
 
     // Profile document upload
     Route::post('auth/profile/documents/start', [UserProfileController::class, 'startDocumentUpload']);
