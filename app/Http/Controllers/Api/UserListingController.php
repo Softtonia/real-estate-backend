@@ -2192,15 +2192,46 @@ class UserListingController extends Controller
             $baseSlug = 'listing';
         }
 
+        /*
+     * If frontend sends empty title, title becomes "Untitled Listing".
+     * In that case, always generate a fresh time-based slug.
+     *
+     * Example:
+     * untitled-listing-20260723144520
+     */
+        if ($baseSlug === 'untitled-listing' || $baseSlug === 'listing') {
+            $slug = $baseSlug . '-' . $this->dynamicPostSlugTimeSuffix();
+
+            while ($this->dynamicPostSlugExists($slug, $postTypeId, $ignoreDynamicPostId)) {
+                $slug = $baseSlug . '-' . $this->dynamicPostSlugTimeSuffix() . '-' . Str::lower(Str::random(5));
+            }
+
+            return $slug;
+        }
+
+        /*
+     * Normal title:
+     * First try clean slug.
+     * If already exists, then add time.
+     */
         $slug = $baseSlug;
-        $counter = 1;
+
+        if (!$this->dynamicPostSlugExists($slug, $postTypeId, $ignoreDynamicPostId)) {
+            return $slug;
+        }
+
+        $slug = $baseSlug . '-' . $this->dynamicPostSlugTimeSuffix();
 
         while ($this->dynamicPostSlugExists($slug, $postTypeId, $ignoreDynamicPostId)) {
-            $slug = $baseSlug . '-' . $counter;
-            $counter++;
+            $slug = $baseSlug . '-' . $this->dynamicPostSlugTimeSuffix() . '-' . Str::lower(Str::random(5));
         }
 
         return $slug;
+    }
+
+    private function dynamicPostSlugTimeSuffix(): string
+    {
+        return now()->format('YmdHis');
     }
 
     private function dynamicPostSlugExists(
