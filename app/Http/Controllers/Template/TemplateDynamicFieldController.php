@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class TemplateDynamicFieldController extends Controller
 {
@@ -158,14 +159,6 @@ class TemplateDynamicFieldController extends Controller
             $query->where('post_type_id', $postTypeRecord->id);
         }
 
-        if (Schema::hasColumn('dynamic_posts', 'post_type_slug')) {
-            $query->where('post_type_slug', $postTypeRecord->slug);
-        }
-
-        if (Schema::hasColumn('dynamic_posts', 'post_type')) {
-            $query->where('post_type', $postTypeRecord->slug);
-        }
-
         $post = $query->first();
 
         if (! $post) {
@@ -176,13 +169,14 @@ class TemplateDynamicFieldController extends Controller
 
         $featuredMedia = $this->formatMediaFileById($row['featured_image_id'] ?? null);
 
-        $rawFeaturedImage = $row['featured_image']
-            ?? $row['thumbnail']
-            ?? $row['image']
-            ?? $row['banner_image']
-            ?? null;
-
-        $featuredImageUrl = $featuredMedia['url'] ?? $this->rawMediaUrl($rawFeaturedImage);
+        $featuredImageUrl = $featuredMedia['url']
+            ?? $this->rawMediaUrl(
+                $row['featured_image']
+                    ?? $row['thumbnail']
+                    ?? $row['image']
+                    ?? $row['banner_image']
+                    ?? null
+            );
 
         $galleryMedia = $this->formatMediaFilesByIds($row['gallery_image_ids'] ?? []);
 
@@ -196,34 +190,21 @@ class TemplateDynamicFieldController extends Controller
             ->values()
             ->toArray();
 
+        $location = $this->getDynamicPostLocation($row);
+        $keywords = $this->getDynamicPostKeywords($entityId);
+        $relationships = $this->getDynamicPostRelationships($entityId);
+
         return [
             'id' => isset($row['id']) ? (int) $row['id'] : null,
             'post_type_id' => isset($row['post_type_id']) ? (int) $row['post_type_id'] : null,
 
-            'title' => $row['title']
-                ?? $row['post_title']
-                ?? $row['name']
-                ?? $row['property_title']
-                ?? $row['project_name']
-                ?? $row['developer_name']
-                ?? null,
-
-            'slug' => $row['slug'] ?? $row['post_slug'] ?? null,
+            'title' => $row['title'] ?? null,
+            'slug' => $row['slug'] ?? null,
             'listing_code' => $row['listing_code'] ?? null,
+            'content' => $row['content'] ?? $row['description'] ?? null,
+            'excerpt' => $row['excerpt'] ?? null,
 
-            'content' => $row['content']
-                ?? $row['description']
-                ?? $row['post_content']
-                ?? null,
-
-            'excerpt' => $row['excerpt']
-                ?? $row['short_description']
-                ?? null,
-
-            'featured_image_id' => isset($row['featured_image_id'])
-                ? (int) $row['featured_image_id']
-                : null,
-
+            'featured_image_id' => isset($row['featured_image_id']) ? (int) $row['featured_image_id'] : null,
             'featured_image' => $featuredImageUrl,
             'featured_image_media' => $featuredMedia,
 
@@ -231,14 +212,20 @@ class TemplateDynamicFieldController extends Controller
             'gallery_images' => $galleryImageUrls,
             'gallery_image_files' => $galleryMedia,
 
+            'country_id' => $location['country_id'],
+            'state_id' => $location['state_id'],
+            'city_id' => $location['city_id'],
+            'area_locality' => $location['area_locality'],
+            'location' => $location,
+
+            'keywords' => $keywords,
+            'selected_keywords' => $keywords,
+
+            'related_posts' => $relationships['flat'],
+            'selected_relationship_post_types' => $relationships['grouped'],
+
             'status' => $row['status'] ?? null,
             'live_status' => $row['live_status'] ?? null,
-
-            'country_id' => isset($row['country_id']) ? (int) $row['country_id'] : null,
-            'state_id' => isset($row['state_id']) ? (int) $row['state_id'] : null,
-            'city_id' => isset($row['city_id']) ? (int) $row['city_id'] : null,
-            'area_locality' => $row['area_locality'] ?? null,
-
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
         ];
@@ -1026,99 +1013,275 @@ class TemplateDynamicFieldController extends Controller
             return url('storage/' . $path);
         }
     }
+    private function getDynamicPostLocation(array $row): array
+    {
+        $countryId = ! empty($row['country_id']) ? (int) $row['country_id'] : null;
+        $stateId = ! empty($row['state_id']) ? (int) $row['state_id'] : null;
+        $cityId = ! empty($row['city_id']) ? (int) $row['city_id'] : null;
+
+        $country = null;
+        $state = null;
+        $city = null;
+
+        if ($countryId && Schema::hasTable('countries')) {
+            $country = DB::table('countries')
+                ->select('id', 'name')
+                ->where('id', $countryId)
+                ->first();
+        }
+
+        if ($stateId && Schema::hasTable('states')) {
+            $state = DB::table('states')
+                ->select('id', 'name', 'country_id')
+                ->where('id', $stateId)
+                ->first();
+        }
+
+        if ($cityId && Schema::hasTable('cities')) {
+            $city = DB::table('cities')
+                ->select('id', 'name', 'state_id')
+                ->where('id', $cityId)
+                ->first();
+        }
+
+        $areaLocality = $row['area_locality'] ?? null;
+
+        $fullAddress = collect([
+            $areaLocality,
+            $city->name ?? null,
+            $state->name ?? null,
+            $country->name ?? null,
+        ])->filter()->implode(', ');
+
+        return [
+            'country_id' => $country ? (int) $country->id : $countryId,
+            'country_name' => $country->name ?? null,
+
+            'state_id' => $state ? (int) $state->id : $stateId,
+            'state_name' => $state->name ?? null,
+
+            'city_id' => $city ? (int) $city->id : $cityId,
+            'city_name' => $city->name ?? null,
+
+            'area_locality' => $areaLocality,
+            'full_address' => $fullAddress ?: null,
+
+            'country' => $country ? [
+                'id' => (int) $country->id,
+                'name' => $country->name,
+            ] : null,
+
+            'state' => $state ? [
+                'id' => (int) $state->id,
+                'name' => $state->name,
+                'country_id' => isset($state->country_id) ? (int) $state->country_id : null,
+            ] : null,
+
+            'city' => $city ? [
+                'id' => (int) $city->id,
+                'name' => $city->name,
+                'state_id' => isset($city->state_id) ? (int) $city->state_id : null,
+            ] : null,
+        ];
+    }
+
+    private function getDynamicPostKeywords(int $entityId): array
+    {
+        if (! Schema::hasTable('keywords') || ! Schema::hasTable('keyword_dynamic_post')) {
+            return [];
+        }
+
+        return DB::table('keyword_dynamic_post as kdp')
+            ->join('keywords as k', 'k.id', '=', 'kdp.keyword_id')
+            ->where('kdp.dynamic_post_id', $entityId)
+            ->select(
+                'k.id',
+                'k.keyword',
+                'k.status',
+                'k.avg_search_volume',
+                'k.avg_ranking'
+            )
+            ->orderBy('k.keyword')
+            ->get()
+            ->map(function ($keyword) {
+                return [
+                    'id' => (int) $keyword->id,
+                    'value' => $keyword->keyword,
+                    'label' => $keyword->keyword,
+                    'keyword' => $keyword->keyword,
+                    'status' => $keyword->status,
+                    'avg_search_volume' => $keyword->avg_search_volume,
+                    'avg_ranking' => $keyword->avg_ranking,
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function getDynamicPostRelationships(int $entityId): array
+    {
+        if (! Schema::hasTable('dynamic_post_relationships')) {
+            return [
+                'grouped' => [],
+                'flat' => [],
+            ];
+        }
+
+        $rows = DB::table('dynamic_post_relationships')
+            ->where('dynamic_post_id', $entityId)
+            ->orderBy('related_post_type_id')
+            ->orderBy('related_post_id')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return [
+                'grouped' => [],
+                'flat' => [],
+            ];
+        }
+
+        $postTypeIds = $rows
+            ->pluck('related_post_type_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $postIds = $rows
+            ->pluck('related_post_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $postTypes = Schema::hasTable('post_types')
+            ? DB::table('post_types')
+            ->whereIn('id', $postTypeIds)
+            ->get()
+            ->keyBy('id')
+            : collect();
+
+        $posts = Schema::hasTable('dynamic_posts')
+            ? DB::table('dynamic_posts')
+            ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
+            ->whereIn('id', $postIds)
+            ->get()
+            ->keyBy('id')
+            : collect();
+
+        $grouped = $rows
+            ->groupBy('related_post_type_id')
+            ->map(function ($items, $postTypeId) use ($postTypes, $posts) {
+                $postType = $postTypes->get((int) $postTypeId);
+
+                $selectedPosts = $items
+                    ->map(fn($item) => $posts->get((int) $item->related_post_id))
+                    ->filter()
+                    ->values();
+
+                return [
+                    'post_type_id' => (int) $postTypeId,
+                    'post_type_name' => $postType->name ?? null,
+                    'post_type_slug' => $postType->slug ?? null,
+
+                    'selected_post_ids' => $selectedPosts
+                        ->pluck('id')
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray(),
+
+                    'selected_posts' => $selectedPosts
+                        ->map(fn($post) => [
+                            'id' => (int) $post->id,
+                            'post_type_id' => (int) $post->post_type_id,
+                            'title' => $post->title,
+                            'slug' => $post->slug,
+                            'status' => $post->status,
+                            'live_status' => $post->live_status,
+                        ])
+                        ->values()
+                        ->toArray(),
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        $flat = collect($grouped)
+            ->flatMap(function ($group) {
+                return collect($group['selected_posts'] ?? [])
+                    ->map(function ($post) use ($group) {
+                        return array_merge($post, [
+                            'related_post_type_id' => $group['post_type_id'] ?? null,
+                            'related_post_type_name' => $group['post_type_name'] ?? null,
+                            'related_post_type_slug' => $group['post_type_slug'] ?? null,
+                        ]);
+                    });
+            })
+            ->values()
+            ->toArray();
+
+        return [
+            'grouped' => $grouped,
+            'flat' => $flat,
+        ];
+    }
     private function getSystemFields(array $postPreviewData = []): array
     {
         return [
-            $this->systemField(
-                label: 'Title',
-                key: 'title',
-                type: 'text',
-                componentKey: 'heading',
-                value: $postPreviewData['title'] ?? null,
-                settings: [
-                    'source' => 'dynamic',
-                    'field' => 'system.title',
-                    'tag' => 'h1',
-                ]
-            ),
+            $this->systemField('Title', 'title', 'text', 'heading', $postPreviewData['title'] ?? null),
+            $this->systemField('Slug', 'slug', 'text', 'text', $postPreviewData['slug'] ?? null),
+            $this->systemField('Listing Code', 'listing_code', 'text', 'text', $postPreviewData['listing_code'] ?? null),
+            $this->systemField('Content', 'content', 'texteditor', 'text', $postPreviewData['content'] ?? null),
+            $this->systemField('Excerpt', 'excerpt', 'textarea', 'text', $postPreviewData['excerpt'] ?? null),
 
             $this->systemField(
-                label: 'Slug',
-                key: 'slug',
-                type: 'text',
-                componentKey: 'text',
-                value: $postPreviewData['slug'] ?? null
-            ),
-
-            $this->systemField(
-                label: 'Listing Code',
-                key: 'listing_code',
-                type: 'text',
-                componentKey: 'text',
-                value: $postPreviewData['listing_code'] ?? null
-            ),
-
-            $this->systemField(
-                label: 'Content',
-                key: 'content',
-                type: 'texteditor',
-                componentKey: 'text',
-                value: $postPreviewData['content'] ?? null
-            ),
-
-            $this->systemField(
-                label: 'Excerpt',
-                key: 'excerpt',
-                type: 'textarea',
-                componentKey: 'text',
-                value: $postPreviewData['excerpt'] ?? null
-            ),
-
-            $this->systemField(
-                label: 'Featured Image',
-                key: 'featured_image',
-                type: 'image',
-                componentKey: 'image',
-                value: $postPreviewData['featured_image'] ?? null,
-                extra: [
+                'Featured Image',
+                'featured_image',
+                'image',
+                'image',
+                $postPreviewData['featured_image'] ?? null,
+                [],
+                [
                     'media' => $postPreviewData['featured_image_media'] ?? null,
                 ]
             ),
 
             $this->systemField(
-                label: 'Gallery Images',
-                key: 'gallery_images',
-                type: 'gallery',
-                componentKey: 'gallery',
-                value: $postPreviewData['gallery_images'] ?? [],
-                extra: [
+                'Gallery Images',
+                'gallery_images',
+                'gallery',
+                'gallery',
+                $postPreviewData['gallery_images'] ?? [],
+                [],
+                [
                     'media' => $postPreviewData['gallery_image_files'] ?? [],
                 ]
             ),
 
-            $this->systemField(
-                label: 'Status',
-                key: 'status',
-                type: 'text',
-                componentKey: 'text',
-                value: $postPreviewData['status'] ?? null
-            ),
+            $this->systemField('Location', 'location', 'location', 'location', $postPreviewData['location'] ?? null),
+            $this->systemField('Country', 'country', 'text', 'text', $postPreviewData['location']['country_name'] ?? null),
+            $this->systemField('State', 'state', 'text', 'text', $postPreviewData['location']['state_name'] ?? null),
+            $this->systemField('City', 'city', 'text', 'text', $postPreviewData['location']['city_name'] ?? null),
+            $this->systemField('Area Locality', 'area_locality', 'text', 'text', $postPreviewData['area_locality'] ?? null),
+
+            $this->systemField('Keywords', 'keywords', 'keywords', 'tags', $postPreviewData['keywords'] ?? []),
 
             $this->systemField(
-                label: 'Live Status',
-                key: 'live_status',
-                type: 'text',
-                componentKey: 'text',
-                value: $postPreviewData['live_status'] ?? null
+                'Related Posts',
+                'related_posts',
+                'related_posts',
+                'related_posts',
+                $postPreviewData['related_posts'] ?? [],
+                [],
+                [
+                    'grouped' => $postPreviewData['selected_relationship_post_types'] ?? [],
+                ]
             ),
 
-            $this->systemField(
-                label: 'Area Locality',
-                key: 'area_locality',
-                type: 'text',
-                componentKey: 'text',
-                value: $postPreviewData['area_locality'] ?? null
-            ),
+            $this->systemField('Status', 'status', 'text', 'text', $postPreviewData['status'] ?? null),
+            $this->systemField('Live Status', 'live_status', 'text', 'text', $postPreviewData['live_status'] ?? null),
         ];
     }
 
