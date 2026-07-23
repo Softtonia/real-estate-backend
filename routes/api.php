@@ -957,7 +957,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
         ->whereNumber('dynamicPost');
-    Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
+    Route::post('dynamic-posts/{dynamicPost}/update', [DynamicPostController::class, 'update'])
         ->whereNumber('dynamicPost');
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
         ->whereNumber('dynamicPost');
