@@ -62,7 +62,6 @@ class TemplateDynamicFieldController extends Controller
         $postPreviewData = $this->getPostPreviewData($entityId, $postTypeRecord);
 
         $selectedTermIds = $this->resolveSelectedTermIds($payload, $entityId);
-
         $basicWidgets = $this->getBasicWidgets();
 
         $systemFields = $this->getSystemFields($postPreviewData);
@@ -78,13 +77,18 @@ class TemplateDynamicFieldController extends Controller
             $selectedTermIds
         );
 
+        if ($entityId) {
+            $systemFields = $this->onlyFieldsWithValue($systemFields);
+            $customFields = $this->onlyFieldsWithValue($customFields);
+            $taxonomyFields = $this->onlyFieldsWithValue($taxonomyFields);
+        }
+
         $builderItems = array_merge(
             $basicWidgets,
             $systemFields,
             $customFields,
             $taxonomyFields
         );
-
         return response()->json([
             'status' => true,
             'message' => 'Builder dynamic fields fetched successfully.',
@@ -120,7 +124,29 @@ class TemplateDynamicFieldController extends Controller
             ],
         ]);
     }
+    private function onlyFieldsWithValue(array $fields): array
+    {
+        return collect($fields)
+            ->filter(function (array $field) {
+                /*
+             * Related Posts must not come from system fields.
+             * Related Posts should exist only as basic widget.
+             */
+                if (($field['key'] ?? null) === 'related_posts') {
+                    return false;
+                }
 
+                if (array_key_exists('has_value', $field)) {
+                    return (bool) $field['has_value'];
+                }
+
+                $value = $field['field_value'] ?? $field['value'] ?? null;
+
+                return $this->hasRealValue($value);
+            })
+            ->values()
+            ->toArray();
+    }
     private function getPostTypeRecord(array $payload): ?object
     {
         if (! Schema::hasTable('post_types')) {
@@ -1268,18 +1294,6 @@ class TemplateDynamicFieldController extends Controller
 
             $this->systemField('Keywords', 'keywords', 'keywords', 'tags', $postPreviewData['keywords'] ?? []),
 
-            $this->systemField(
-                'Related Posts',
-                'related_posts',
-                'related_posts',
-                'related_posts',
-                $postPreviewData['related_posts'] ?? [],
-                [],
-                [
-                    'grouped' => $postPreviewData['selected_relationship_post_types'] ?? [],
-                ]
-            ),
-
             $this->systemField('Status', 'status', 'text', 'text', $postPreviewData['status'] ?? null),
             $this->systemField('Live Status', 'live_status', 'text', 'text', $postPreviewData['live_status'] ?? null),
         ];
@@ -1593,17 +1607,20 @@ class TemplateDynamicFieldController extends Controller
             return false;
         }
 
-        if ($value === '') {
-            return false;
+        if (is_string($value)) {
+            return trim($value) !== '';
         }
 
-        if (is_array($value) && empty($value)) {
-            return false;
+        if (is_array($value)) {
+            return ! empty($value);
+        }
+
+        if (is_object($value)) {
+            return ! empty((array) $value);
         }
 
         return true;
     }
-
     private function rowToArray(object $row): array
     {
         return json_decode(json_encode($row), true) ?: [];
