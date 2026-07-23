@@ -101,7 +101,7 @@ class UserController extends Controller
                     $value === 'deleted'
                 ) {
                     $request->merge([
-                        'remove_' . $field => true,
+                        'remove_' . $field => 1,
                     ]);
                 }
 
@@ -137,19 +137,14 @@ class UserController extends Controller
             }
         }
     }
-    private function userFileFieldsForRole(Role $role): array
+    private function removableUserFileFields(): array
     {
-        $fields = [
+        return [
             'profile_photo',
             'aadhaar_front',
             'aadhaar_back',
+            'business_proof',
         ];
-
-        if (!$this->isOwnerRole($role)) {
-            $fields[] = 'business_proof';
-        }
-
-        return $fields;
     }
 
     private function shouldRemoveUserFile(Request $request, string $field): bool
@@ -159,9 +154,7 @@ class UserController extends Controller
                 continue;
             }
 
-            $value = $request->input($key);
-
-            return in_array($value, [true, 1, '1', 'true', 'yes', 'on'], true);
+            return in_array($request->input($key), [1, '1', true, 'true', 'yes', 'on'], true);
         }
 
         return false;
@@ -169,13 +162,12 @@ class UserController extends Controller
 
     private function removedUserFilesFromRequest(
         Request $request,
-        Role $role,
         ?UserDetail $oldDetail,
         array &$oldFiles = []
     ): array {
         $removedFiles = [];
 
-        foreach ($this->userFileFieldsForRole($role) as $field) {
+        foreach ($this->removableUserFileFields() as $field) {
             if (!$this->shouldRemoveUserFile($request, $field)) {
                 continue;
             }
@@ -189,7 +181,6 @@ class UserController extends Controller
 
         return $removedFiles;
     }
-
     private function storePublicUpload(UploadedFile $file, string $folder, string $prefix): string
     {
         if (!$file || !$file->isValid()) {
@@ -3621,7 +3612,6 @@ class UserController extends Controller
 
             $removedFiles = $this->removedUserFilesFromRequest(
                 request: $request,
-                role: $role,
                 oldDetail: $existingDetail,
                 oldFiles: $oldFiles
             );
