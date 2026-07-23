@@ -620,40 +620,40 @@ class RelatedPostQueryService
 
         return null;
     }
-private function customFieldBaseExistsQuery(string $fieldKey): \Closure
-{
-    return function ($sub) use ($fieldKey) {
-        $postColumn = $this->customFieldPostColumn();
-        $fieldColumn = $this->customFieldIdColumn();
+    private function customFieldBaseExistsQuery(string $fieldKey): \Closure
+    {
+        return function ($sub) use ($fieldKey) {
+            $postColumn = $this->customFieldPostColumn();
+            $fieldColumn = $this->customFieldIdColumn();
 
-        if (! $postColumn || ! $fieldColumn) {
-            $sub->select(DB::raw(1))->whereRaw('1 = 0');
-            return;
-        }
+            if (! $postColumn || ! $fieldColumn) {
+                $sub->select(DB::raw(1))->whereRaw('1 = 0');
+                return;
+            }
 
-        $sub->select(DB::raw(1))
-            ->from($this->customFieldValuesTable . ' as cfv')
-            ->join($this->customFieldsTable . ' as cf', 'cf.id', '=', 'cfv.' . $fieldColumn)
-            ->whereColumn('cfv.' . $postColumn, 'dp.id')
-            ->where(function ($fieldQuery) use ($fieldKey) {
-                if (Schema::hasColumn($this->customFieldsTable, 'field_name_slug')) {
-                    $fieldQuery->where('cf.field_name_slug', $fieldKey);
-                }
+            $sub->select(DB::raw(1))
+                ->from($this->customFieldValuesTable . ' as cfv')
+                ->join($this->customFieldsTable . ' as cf', 'cf.id', '=', 'cfv.' . $fieldColumn)
+                ->whereColumn('cfv.' . $postColumn, 'dp.id')
+                ->where(function ($fieldQuery) use ($fieldKey) {
+                    if (Schema::hasColumn($this->customFieldsTable, 'field_name_slug')) {
+                        $fieldQuery->where('cf.field_name_slug', $fieldKey);
+                    }
 
-                if (Schema::hasColumn($this->customFieldsTable, 'field_label')) {
-                    $fieldQuery->orWhere('cf.field_label', $fieldKey);
-                }
+                    if (Schema::hasColumn($this->customFieldsTable, 'field_label')) {
+                        $fieldQuery->orWhere('cf.field_label', $fieldKey);
+                    }
 
-                if (Schema::hasColumn($this->customFieldsTable, 'name')) {
-                    $fieldQuery->orWhere('cf.name', $fieldKey);
-                }
-            });
+                    if (Schema::hasColumn($this->customFieldsTable, 'name')) {
+                        $fieldQuery->orWhere('cf.name', $fieldKey);
+                    }
+                });
 
-        if (Schema::hasColumn($this->customFieldValuesTable, 'entity_type')) {
-            $sub->where('cfv.entity_type', 'post');
-        }
-    };
-}
+            if (Schema::hasColumn($this->customFieldValuesTable, 'entity_type')) {
+                $sub->where('cfv.entity_type', 'post');
+            }
+        };
+    }
 
     private function customFieldCompareExistsQuery(
         string $fieldKey,

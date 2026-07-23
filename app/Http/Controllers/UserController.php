@@ -64,7 +64,18 @@ class UserController extends Controller
     }
     private function normalizeUserRequestBeforeValidation(Request $request): void
     {
+        $fileFields = [
+            'profile_photo',
+            'aadhaar_front',
+            'aadhaar_back',
+            'business_proof',
+        ];
+
         foreach ($request->all() as $key => $value) {
+            if (in_array($key, $fileFields, true)) {
+                continue;
+            }
+
             if (
                 $value === 'null' ||
                 $value === 'undefined' ||
@@ -77,15 +88,23 @@ class UserController extends Controller
             }
         }
 
-        foreach (
-            [
-                'profile_photo',
-                'aadhaar_front',
-                'aadhaar_back',
-                'business_proof',
-            ] as $field
-        ) {
+        foreach ($fileFields as $field) {
             if ($request->has($field) && !$request->hasFile($field)) {
+                $value = $request->input($field);
+
+                if (
+                    $value === null ||
+                    $value === '' ||
+                    $value === 'null' ||
+                    $value === 'undefined' ||
+                    $value === 'remove' ||
+                    $value === 'deleted'
+                ) {
+                    $request->merge([
+                        'remove_' . $field => true,
+                    ]);
+                }
+
                 $request->request->remove($field);
             }
         }
@@ -117,6 +136,58 @@ class UserController extends Controller
                 $request->request->remove($field);
             }
         }
+    }
+    private function userFileFieldsForRole(Role $role): array
+    {
+        $fields = [
+            'profile_photo',
+            'aadhaar_front',
+            'aadhaar_back',
+        ];
+
+        if (!$this->isOwnerRole($role)) {
+            $fields[] = 'business_proof';
+        }
+
+        return $fields;
+    }
+
+    private function shouldRemoveUserFile(Request $request, string $field): bool
+    {
+        foreach (['remove_' . $field, 'delete_' . $field, $field . '_removed'] as $key) {
+            if (!$request->has($key)) {
+                continue;
+            }
+
+            $value = $request->input($key);
+
+            return in_array($value, [true, 1, '1', 'true', 'yes', 'on'], true);
+        }
+
+        return false;
+    }
+
+    private function removedUserFilesFromRequest(
+        Request $request,
+        Role $role,
+        ?UserDetail $oldDetail,
+        array &$oldFiles = []
+    ): array {
+        $removedFiles = [];
+
+        foreach ($this->userFileFieldsForRole($role) as $field) {
+            if (!$this->shouldRemoveUserFile($request, $field)) {
+                continue;
+            }
+
+            if ($oldDetail && !empty($oldDetail->{$field})) {
+                $oldFiles[] = $oldDetail->{$field};
+            }
+
+            $removedFiles[$field] = null;
+        }
+
+        return $removedFiles;
     }
 
     private function storePublicUpload(UploadedFile $file, string $folder, string $prefix): string
@@ -3541,11 +3612,19 @@ class UserController extends Controller
 
         $newFiles = [];
         $oldFiles = [];
+        $removedFiles = [];
 
         try {
             $existingDetail = UserDetail::query()
                 ->where('user_id', $user->id)
                 ->first();
+
+            $removedFiles = $this->removedUserFilesFromRequest(
+                request: $request,
+                role: $role,
+                oldDetail: $existingDetail,
+                oldFiles: $oldFiles
+            );
 
             $newFiles = $this->storeUserFilesFromRequest(
                 request: $request,
@@ -3555,7 +3634,14 @@ class UserController extends Controller
                 oldFiles: $oldFiles
             );
 
-            DB::transaction(function () use ($request, $user, $role, $newFiles, $adminMode) {
+            DB::transaction(function () use (
+                $request,
+                $user,
+                $role,
+                $newFiles,
+                $removedFiles,
+                $adminMode
+            ) {
                 $userPayload = $this->userPayloadFromRequest($request, $role, false);
 
                 if ($request->has('role_id')) {
@@ -3584,6 +3670,15 @@ class UserController extends Controller
 
                 $detailPayload = $this->userDetailPayloadFromRequest($request, $user, $role);
 
+                foreach ($removedFiles as $column => $value) {
+                    if (
+                        Schema::hasColumn('user_details', $column)
+                        && !array_key_exists($column, $newFiles)
+                    ) {
+                        $detailPayload[$column] = null;
+                    }
+                }
+
                 foreach ($newFiles as $column => $path) {
                     if (Schema::hasColumn('user_details', $column)) {
                         $detailPayload[$column] = $path;
@@ -3593,7 +3688,7 @@ class UserController extends Controller
                 $this->persistUserDetailPayload($user, $detailPayload);
             });
 
-            foreach ($oldFiles as $oldPath) {
+            foreach (array_unique(array_filter($oldFiles)) as $oldPath) {
                 $this->deletePublicUpload($oldPath);
             }
 
