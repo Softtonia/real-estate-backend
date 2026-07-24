@@ -931,7 +931,7 @@ Route::middleware(['admin.token'])
     });
 
 Route::middleware(['admin.token'])
-    ->prefix('admin/kyc/settings')
+    ->prefix('kyc/settings')
     ->group(function () {
         Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
             ->get('roles', [KycSettingsController::class, 'availableRoles']);
