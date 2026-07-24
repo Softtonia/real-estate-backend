@@ -88,6 +88,9 @@ use App\Http\Controllers\Api\DynamicPostFormStepController;
 use App\Http\Controllers\Api\FrontendLocationController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
+use App\Http\Controllers\Api\Kyc\AdminKycController;
+use App\Http\Controllers\Api\Kyc\KycSettingsController;
+use App\Http\Controllers\Api\Kyc\UserKycController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
 use App\Http\Controllers\Api\UserProfileController;
@@ -820,27 +823,54 @@ Route::middleware('admin.token')->get('api-client-secrect-export-csv/{id}', [Api
 Route::middleware(['throttle:60,1', 'admin.token'])
     ->prefix('admin')
     ->group(function () {
-        Route::get('api-clients/available-permissions', [ApiClientController::class, 'availablePermissions']);
+        Route::middleware('permission.check:api_clients,read')
+            ->get('api-clients/available-permissions', [ApiClientController::class, 'availablePermissions']);
 
-        Route::apiResource('api-clients', ApiClientController::class)
-            ->parameters([
-                'api-clients' => 'apiClient',
-            ]);
+        Route::middleware('permission.check:api_clients,read')
+            ->get('api-clients', [ApiClientController::class, 'index']);
 
-        Route::get('api-clients/{apiClient}/application-passwords', [ApplicationPasswordController::class, 'index']);
-        Route::post('api-clients/{apiClient}/application-passwords', [ApplicationPasswordController::class, 'store']);
-        Route::delete('api-clients/{apiClient}/application-passwords/{applicationPassword}', [ApplicationPasswordController::class, 'destroy']);
-        Route::post('api-clients/{apiClient}/application-passwords/{applicationPassword}/rotate', [ApplicationPasswordController::class, 'rotate']);
+        Route::middleware('permission.check:api_clients,create')
+            ->post('api-clients', [ApiClientController::class, 'store']);
 
-        Route::get('blocked-api-ips', [BlockedApiIpController::class, 'index']);
-        Route::post('blocked-api-ips', [BlockedApiIpController::class, 'store']);
-        Route::delete('blocked-api-ips/{blockedApiIp}', [BlockedApiIpController::class, 'destroy']);
+        Route::middleware('permission.check:api_clients,read')
+            ->get('api-clients/{apiClient}', [ApiClientController::class, 'show']);
 
-        Route::get('api-auth-failures', [ApiAuthFailureController::class, 'index']);
-        Route::get('api-auth-failures/reasons', [ApiAuthFailureController::class, 'reasons']);
-        Route::get('api-auth-failures/top-ips', [ApiAuthFailureController::class, 'topIps']);
+        Route::middleware('permission.check:api_clients,edit')
+            ->match(['put', 'patch'], 'api-clients/{apiClient}', [ApiClientController::class, 'update']);
+
+        Route::middleware('permission.check:api_clients,delete')
+            ->delete('api-clients/{apiClient}', [ApiClientController::class, 'destroy']);
+
+        Route::middleware('permission.check:application_passwords,read')
+            ->get('api-clients/{apiClient}/application-passwords', [ApplicationPasswordController::class, 'index']);
+
+        Route::middleware('permission.check:application_passwords,create')
+            ->post('api-clients/{apiClient}/application-passwords', [ApplicationPasswordController::class, 'store']);
+
+        Route::middleware('permission.check:application_passwords,delete')
+            ->delete('api-clients/{apiClient}/application-passwords/{applicationPassword}', [ApplicationPasswordController::class, 'destroy']);
+
+        Route::middleware('permission.check:application_passwords,edit')
+            ->post('api-clients/{apiClient}/application-passwords/{applicationPassword}/rotate', [ApplicationPasswordController::class, 'rotate']);
+
+        Route::middleware('permission.check:blocked_api_ips,read')
+            ->get('blocked-api-ips', [BlockedApiIpController::class, 'index']);
+
+        Route::middleware('permission.check:blocked_api_ips,create')
+            ->post('blocked-api-ips', [BlockedApiIpController::class, 'store']);
+
+        Route::middleware('permission.check:blocked_api_ips,delete')
+            ->delete('blocked-api-ips/{blockedApiIp}', [BlockedApiIpController::class, 'destroy']);
+
+        Route::middleware('permission.check:api_auth_failures,read')
+            ->get('api-auth-failures', [ApiAuthFailureController::class, 'index']);
+
+        Route::middleware('permission.check:api_auth_failures,read')
+            ->get('api-auth-failures/reasons', [ApiAuthFailureController::class, 'reasons']);
+
+        Route::middleware('permission.check:api_auth_failures,read')
+            ->get('api-auth-failures/top-ips', [ApiAuthFailureController::class, 'topIps']);
     });
-
 
 // IpLog
 
@@ -859,9 +889,73 @@ Route::middleware(['throttle:60,1', 'admin.token'])->get('/business-enquiries/{i
 Route::middleware(['throttle:60,1', 'admin.token'])->delete('/business-enquiries/{id}', [BusinessEnquiryController::class, 'destroy']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('/business-enquiries/bulk-delete', [BusinessEnquiryController::class, 'bulkDelete']);
 
+Route::middleware(['admin.token'])
+    ->prefix('kyc')
+    ->group(function () {
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('stats', [AdminKycController::class, 'stats']);
 
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('requests', [AdminKycController::class, 'index']);
 
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('requests/{kycRequest}', [AdminKycController::class, 'show'])
+            ->whereNumber('kycRequest');
 
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('requests/{kycRequest}/documents', [AdminKycController::class, 'documents'])
+            ->whereNumber('kycRequest');
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('requests/{kycRequest}/timeline', [AdminKycController::class, 'timeline'])
+            ->whereNumber('kycRequest');
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,edit'])
+            ->post('requests/{kycRequest}/start-review', [AdminKycController::class, 'startReview'])
+            ->whereNumber('kycRequest')
+            ->defaults('review_action', 'start_review');
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,approve'])
+            ->post('requests/{kycRequest}/approve', [AdminKycController::class, 'approve'])
+            ->whereNumber('kycRequest')
+            ->defaults('review_action', 'approve');
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,reject'])
+            ->post('requests/{kycRequest}/reject', [AdminKycController::class, 'reject'])
+            ->whereNumber('kycRequest')
+            ->defaults('review_action', 'reject');
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
+            ->whereNumber('document');
+    });
+
+Route::middleware(['admin.token'])
+    ->prefix('admin/kyc/settings')
+    ->group(function () {
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+            ->get('roles', [KycSettingsController::class, 'availableRoles']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+            ->get('role-rules', [KycSettingsController::class, 'roleRules']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,edit'])
+            ->post('role-rules', [KycSettingsController::class, 'updateRoleRule']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+            ->get('user-exemptions', [KycSettingsController::class, 'userExemptions']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,edit'])
+            ->post('user-exemptions', [KycSettingsController::class, 'createUserExemption']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,edit'])
+            ->post('user-exemptions/{exemption}/revoke', [KycSettingsController::class, 'revokeUserExemption'])
+            ->whereNumber('exemption');
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+            ->get('users/{userId}/access-status', [KycSettingsController::class, 'userAccessStatus'])
+            ->whereNumber('userId');
+    });
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get(
         'auth/google',
@@ -1009,15 +1103,18 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('dynamic-posts/import-csv', [DynamicPostCsvController::class, 'import']);
 
     // Dynamic post CRUD
-    Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
-    Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
+    Route::post('dynamic-posts', [DynamicPostController::class, 'store'])
+        ->middleware('kyc.publish');
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
         ->whereNumber('dynamicPost');
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
+        ->middleware('kyc.publish')
         ->whereNumber('dynamicPost');
 
     Route::post('dynamic-posts/{dynamicPost}/update', [DynamicPostController::class, 'update'])
+        ->middleware('kyc.publish')
         ->whereNumber('dynamicPost');
+
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
         ->whereNumber('dynamicPost');
 
@@ -1262,11 +1359,32 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::get('user-listing-analytics', [UserListingController::class, 'analytics']);
     Route::get('frontend/listings', [UserListingController::class, 'index']);
     Route::post('frontend/listings', [UserListingController::class, 'store']);
-    Route::get('frontend/listings/{listing}', [UserListingController::class, 'show']);
-    Route::post('frontend/listings/{listing}/update', [UserListingController::class, 'update']);
-    Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy']);
+    Route::middleware(['throttle:30,1', 'kyc.publish'])->get('frontend/listings/{listing}', [UserListingController::class, 'show']);
+    Route::post('frontend/listings/{listing}/update', [UserListingController::class, 'update'])
+        ->middleware('kyc.publish')
+        ->whereNumber('listing');
+
+    Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy'])
+        ->middleware('kyc.publish')
+        ->whereNumber('listing');
 
     Route::get('template-builder/related-posts-widget/schema', [RelatedPostsWidgetPreviewController::class, 'schema']);
     Route::post('template-builder/related-posts-widget/preview', [RelatedPostsWidgetPreviewController::class, 'preview']);
     Route::post('template-builder/related-posts-widget/candidates', [RelatedPostsWidgetCandidateController::class, 'candidates']);
+
+    Route::middleware(['throttle:30,1'])->prefix('kyc')->group(function () {
+        Route::get('status', [UserKycController::class, 'status']);
+        Route::get('details', [UserKycController::class, 'details']);
+        Route::get('documents', [UserKycController::class, 'documents']);
+        Route::get('timeline', [UserKycController::class, 'timeline']);
+
+        Route::post('uploads/start', [UserKycController::class, 'startBatchUpload']);
+        Route::get('uploads/{uploadId}/progress', [UserKycController::class, 'uploadProgress']);
+
+        Route::post('submit', [UserKycController::class, 'submit']);
+        Route::post('resubmit', [UserKycController::class, 'resubmit']);
+
+        Route::get('documents/{documentId}/view', [UserKycController::class, 'viewDocument'])
+            ->whereNumber('documentId');
+    });
 });

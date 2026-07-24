@@ -324,4 +324,35 @@ class User extends Authenticatable implements CanResetPassword
             new ResetPasswordNotification($token)
         );
     }
+    public function kycRequests()
+    {
+        return $this->hasMany(\App\Models\KycRequest::class);
+    }
+
+    public function latestKycRequest()
+    {
+        return $this->hasOne(\App\Models\KycRequest::class)->latestOfMany();
+    }
+
+    public function approvedKycRequest()
+    {
+        return $this->hasOne(\App\Models\KycRequest::class)
+            ->where('status', \App\Models\KycRequest::STATUS_APPROVED)
+            ->latestOfMany();
+    }
+
+    public function kycDocuments()
+    {
+        return $this->hasMany(\App\Models\KycDocument::class);
+    }
+
+    public function kycActivities()
+    {
+        return $this->hasMany(\App\Models\KycActivity::class);
+    }
+
+    public function kycExemption()
+    {
+        return $this->hasOne(\App\Models\KycUserExemption::class);
+    }
 }

@@ -262,6 +262,15 @@ return [
             'label' => 'Subscribers',
             'actions' => ['read', 'create', 'delete'],
         ],
+        'kyc_requests' => [
+            'label' => 'KYC Requests',
+            'actions' => ['read', 'create', 'edit', 'delete', 'approve', 'reject'],
+        ],
+
+        'kyc_settings' => [
+            'label' => 'KYC Settings',
+            'actions' => ['read', 'edit'],
+        ],
 
     ],
 

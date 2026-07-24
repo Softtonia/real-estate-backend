@@ -29,19 +29,22 @@ class DatabaseSeeder extends Seeder
         $this->call(TicketStatusTableSeeder::class);
         $this->call(HelpCategorySeeder::class);
         $this->call(HelpSubcategorySeeder::class);
-         $this->call(HelpChildcategorySeeder::class);
-         $this->call([ApiClientTableSeeder::class,ApplicationPasswordTableSeeder::class]);
-         $this->call(SiteSettingsSeeder::class);
-         $this->call(ClientReviewsSeeder::class);
-         $this->call(LocationSeeder::class);
-         $this->call(LeadTypesSeeder::class);
-         $this->call(DefaultUser::class);
+        $this->call(HelpChildcategorySeeder::class);
+        $this->call([ApiClientTableSeeder::class, ApplicationPasswordTableSeeder::class]);
+        $this->call(SiteSettingsSeeder::class);
+        $this->call(ClientReviewsSeeder::class);
+        $this->call(LocationSeeder::class);
+        $this->call(LeadTypesSeeder::class);
+        $this->call(DefaultUser::class);
         $this->call(DefaultPostTypeSeeder::class);
         $this->call(TaxonomySeeder::class);
         $this->call(PostTypeTaxonomySeeder::class);
         $this->call(TaxonomyTermSeeder::class);
-         $this->call([
+        $this->call([
             TicketModuleSeeder::class,
+        ]);
+        $this->call([
+            KycRoleRuleSeeder::class,
         ]);
     }
 }

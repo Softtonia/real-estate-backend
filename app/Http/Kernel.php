@@ -111,7 +111,7 @@ class Kernel extends HttpKernel
         'app.log' => \App\Http\Middleware\LogApiRequest::class,
         'client.permission' => \App\Http\Middleware\CheckClientPermission::class,
         'permission.check' => \App\Http\Middleware\CheckPermission::class,
-
+        'kyc.publish' => \App\Http\Middleware\EnsureKycApprovedForListingPublish::class,
 
     ];
 }

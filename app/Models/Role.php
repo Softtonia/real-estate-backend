@@ -65,4 +65,8 @@ class Role extends SpatieRole
     {
         return $this->belongsToMany(User::class);
     }
+    public function kycRule()
+    {
+        return $this->hasOne(\App\Models\KycRoleRule::class);
+    }
 }

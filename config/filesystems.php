@@ -58,6 +58,18 @@ return [
             'root' => env('DOCUMENT_TEMP_ROOT', storage_path('app/private/document-temp')),
             'throw' => true,
         ],
+        'kyc_temp' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/kyc-temp'),
+            'visibility' => 'private',
+            'throw' => false,
+        ],
+        'kyc_private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/kyc'),
+            'visibility' => 'private',
+            'throw' => false,
+        ],
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
