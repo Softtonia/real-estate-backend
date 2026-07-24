@@ -110,7 +110,7 @@ class Kernel extends HttpKernel
         'app.rate' => \App\Http\Middleware\ApiClientRateLimit::class,
         'app.log' => \App\Http\Middleware\LogApiRequest::class,
         'client.permission' => \App\Http\Middleware\CheckClientPermission::class,
-
+        'permission.check' => \App\Http\Middleware\CheckPermission::class,
 
 
     ];

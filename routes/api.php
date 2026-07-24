@@ -1,14 +1,12 @@
 <?php
 
 use App\Http\Controllers\Admin\ApiClient\ApiClientController;
-use App\Http\Controllers\Admin\DashboardAnalyticsController;
 use App\Http\Controllers\AgentProject\AgentProjectController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CompanyConsultancy\CompanyConsultancyController;
 use App\Http\Controllers\CompanyProject\CompanyProjectController;
 use App\Http\Controllers\ConsultancyProject\ConsultancyProjectController;
 use App\Http\Controllers\ContactUsLead\ContactUsLeadController;
-use App\Http\Controllers\CustomMultipleFieldController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\IpLog\IpLogController;
@@ -28,9 +26,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\VerificationController;
-use App\Http\Controllers\PropertyListing\PropertylistingController;
 use App\Http\Controllers\Location\Locationcontroller;
-use App\Http\Controllers\Status\statuscontroller;
 use App\Http\Controllers\Admin\Admincontroller;
 use App\Http\Controllers\Admin\ApiClient\ApiAuthFailureController;
 use App\Http\Controllers\Admin\ApiClient\ApplicationPasswordController;
@@ -46,13 +42,7 @@ use App\Http\Controllers\Ticket\TicketStatusController;
 use App\Http\Controllers\Ticket\TicketTypeController;
 use App\Http\Controllers\Agent\AgentController;
 use App\Http\Controllers\Media\MediaController;
-use App\Http\Controllers\Builder\Buildercontroller;
 use App\Http\Controllers\Profile\profilecontroller;
-use App\Http\Controllers\ProjectController;
-use App\Http\Controllers\PropertylistingController as frontPropertylistingController;
-use App\Http\Controllers\ProjectlistingController as frontProjectlistingController;
-use App\Http\Controllers\Setting\SettingController;
-use App\Http\Controllers\ProjectListing\ProjectlistingController;
 use App\Http\Controllers\ClientReviewController;
 use App\Http\Controllers\FaqCategoryController;
 use App\Http\Controllers\FaqController;
@@ -65,7 +55,6 @@ use App\Http\Controllers\Help\HelpCategoryController;
 use App\Http\Controllers\Help\HelpSubcategoryController;
 use App\Http\Controllers\Help\HelpChildcategoryController;
 use App\Http\Controllers\Help\HelpArticleController;
-use App\Http\Controllers\DeveloperListing\DeveloperlistingController;
 use App\Http\Controllers\Admin\MailConfigController;
 use App\Http\Controllers\Admin\SystemController;
 use App\Http\Controllers\Api\CustomFieldGroupController;
@@ -81,12 +70,9 @@ use App\Http\Controllers\Connections\UserAssociationController;
 use App\Http\Controllers\Auth\Kyc\KycController;
 
 use App\Http\Controllers\BusinessEnquiry\BusinessEnquiryController;
-use App\Http\Controllers\Template\CustomWidgetController;
 use App\Http\Controllers\Template\TemplateController;
 use App\Http\Controllers\Template\TemplateBuilderController;
 use App\Http\Controllers\Template\TemplateDisplayConditionController;
-use App\Http\Controllers\Template\TemplateComponentController;
-use App\Http\Controllers\Template\TemplateApiController;
 
 use App\Http\Controllers\Api\KeywordController;
 use App\Http\Controllers\Api\PostTypeController;
@@ -94,7 +80,6 @@ use App\Http\Controllers\Api\PostTypeExportImportController;
 use App\Http\Controllers\Api\TaxonomyController;
 use App\Http\Controllers\Api\TaxonomyExportImportController;
 use App\Http\Controllers\Api\TaxonomyTermController;
-use App\Http\Controllers\Api\DynamicCustomFieldController;
 use App\Http\Controllers\Api\PostTaxonomyTermController;
 use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
@@ -103,10 +88,8 @@ use App\Http\Controllers\Api\DynamicPostFormStepController;
 use App\Http\Controllers\Api\FrontendLocationController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
-use App\Http\Controllers\Api\ListingUserAssignmentController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
-use App\Http\Controllers\Api\UserDynamicPostListingController;
 use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\UserListingController;
 use App\Http\Controllers\Frontend\FrontendListingController;
@@ -208,32 +191,71 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::post('forget-password', [ForgotPasswordController::class, 'forgetPassword'])->middleware(['throttle:60,1']);
     Route::post('/reset-password-from', [ForgotPasswordController::class, 'resetPassword'])->middleware(['throttle:60,1']);
     Route::get('/validate-reset-token', [ForgotPasswordController::class, 'validateResetToken'])->middleware(['throttle:60,1']);
+    /*
+    |--------------------------------------------------------------------------
+    | User Admin APIs
+    |--------------------------------------------------------------------------
+    | Admin user management routes.
+    | Permission module: users
+    |--------------------------------------------------------------------------
+    */
 
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('/user/search', [UserController::class, 'SearchUser']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('all-user-listing', [UserController::class, 'alluserlist']);
+    Route::middleware(['throttle:60,1', 'admin.token'])->group(function () {
+
+        Route::post('/user/search', [UserController::class, 'SearchUser'])
+            ->middleware('permission.check:users,read');
+
+        Route::get('all-user-listing', [UserController::class, 'alluserlist'])
+            ->middleware('permission.check:users,read');
+
+        Route::get('/users/filter-by-role', [UserController::class, 'filterByRole'])
+            ->middleware('permission.check:users,read');
+
+        Route::get('/users/filter-by-status', [UserController::class, 'filterByStatus'])
+            ->middleware('permission.check:users,read');
+
+        Route::get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole'])
+            ->middleware('permission.check:users,read');
+
+        Route::get('/get-userdata-by-id', [UserController::class, 'getDataUserDetailsById'])
+            ->middleware('permission.check:users,read');
+
+        Route::get('/user-analytics', [UserController::class, 'userAnalytics'])
+            ->middleware('permission.check:users,read');
+
+        Route::get('/get-user-status', [UserController::class, 'getUserStatusList'])
+            ->middleware('permission.check:users,read');
+
+        Route::post('create-user', [UserController::class, 'createUser'])
+            ->middleware('permission.check:users,create');
 
 
-    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']); // Done By softtonia
-    Route::middleware(['throttle:60,1', 'allrole.token'])->post('update-current-user-by-token', [UserController::class, 'updateCurrentUser']);
+        Route::post('update-user-byuserid', [UserController::class, 'updateuserbyid'])
+            ->middleware('permission.check:users,edit');
 
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('user-kyc-update', [KycController::class, 'updateKycStatus']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->post('user-complete-kyc', [KycController::class, 'completeKyc']);
+        Route::post('update-user-status', [UserController::class, 'updateuserstatus'])
+            ->middleware('permission.check:users,edit');
+
+        Route::post('user-kyc-update', [KycController::class, 'updateKycStatus'])
+            ->middleware('permission.check:users,edit');
+
+        Route::post('delete-user', [UserController::class, 'deleteUser'])
+            ->middleware('permission.check:users,delete');
+
+        Route::post('user-bulk-delete', [UserController::class, 'bulkDelete'])
+            ->middleware('permission.check:users,delete');
+    });
 
 
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('update-user-byuserid', [UserController::class, 'updateuserbyid']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('update-user-status', [UserController::class, 'updateuserstatus']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('create-user', [UserController::class, 'createUser']);
-    Route::middleware(['throttle:60,1', 'allrole.token'])->post('update-front-user-by-id', [UserController::class, 'updateUser']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('delete-user', [UserController::class, 'deleteUser']);
-    Route::post('user-bulk-delete', [UserController::class, 'bulkDelete'])->middleware(['throttle:60,1']);
-    Route::get('/users/filter-by-role', [UserController::class, 'filterByRole'])->middleware(['throttle:60,1']);
-    Route::get('/users/filter-by-status', [UserController::class, 'filterByStatus'])->middleware(['throttle:60,1']);
-    Route::get('/get-user-status', [UserController::class, 'getUserStatusList'])->middleware(['throttle:60,1']);
+    Route::middleware(['throttle:60,1', 'adminOrCurrentUser'])->group(function () {
+        Route::get('get-details-byuserid', [UserController::class, 'getdetailsbyuserid']);
+    });
 
-    Route::get('/get-all-users-by-role', [UserController::class, 'getDataUserDetailsByRole'])->middleware(['throttle:60,1']);
-    Route::get('/get-userdata-by-id', [UserController::class, 'getDataUserDetailsById'])->middleware(['throttle:60,1']);
-    Route::get('/user-analytics', [UserController::class, 'userAnalytics'])->middleware(['throttle:60,1']);
-
+    Route::middleware(['throttle:60,1', 'allrole.token'])->group(function () {
+        Route::post('update-current-user-by-token', [UserController::class, 'updateCurrentUser']);
+        Route::post('update-front-user-by-id', [UserController::class, 'updateUser']);
+        Route::post('user-complete-kyc', [KycController::class, 'completeKyc']);
+    });
 
 
     Route::middleware(['throttle:60,1', 'OnlyCompany'])->get('get-company-consultancy-listing', [CompanyConsultancyController::class, 'getConsultancyListingByCompany']);   // Done By softtonia
@@ -372,16 +394,27 @@ Route::middleware(['validate.api.client'])->group(function () {
         Route::post('/delete-role-prefix-repeater/{ic}', [SystemController::class, 'DeleteRolePrefixRepeater'])->middleware(['throttle:60,1']);
         Route::post('/update-role-prefix-repeater-by-id/{id}', [SystemController::class, 'UpdateRolePrefixRepeater'])->middleware(['throttle:60,1']);
 
-        Route::post('role-create', [RoleController::class, 'createRole'])->middleware(['throttle:60,1']);
-        Route::post('role-edit', [RoleController::class, 'editRole'])->middleware(['throttle:60,1']);
-        Route::post('role-delete', [RoleController::class, 'deleteRole'])->middleware(['throttle:60,1']);
-        Route::get('role-listing/{id?}', [RoleController::class, 'index'])->middleware(['throttle:60,1']); // Optional ID parameter
-        Route::post('roles/bulk-delete', [RoleController::class, 'bulkDeleteRoles'])->middleware(['throttle:60,1']);
-        Route::post('roles/search', [RoleController::class, 'searchRole'])->middleware(['throttle:60,1']);
+        Route::middleware(['throttle:60,1', 'permission.check:roles,create'])
+            ->post('role-create', [RoleController::class, 'createRole']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:roles,edit'])
+            ->post('role-edit', [RoleController::class, 'editRole']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:roles,delete'])
+            ->post('role-delete', [RoleController::class, 'deleteRole']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:roles,read'])
+            ->get('role-listing/{id?}', [RoleController::class, 'index']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:roles,delete'])
+            ->post('roles/bulk-delete', [RoleController::class, 'bulkDeleteRoles']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:roles,read'])
+            ->post('roles/search', [RoleController::class, 'searchRole']);
     });
 
     // ======= Analytics =========
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
+    Route::middleware(['throttle:60,1', 'admin.token', 'permission.check:dashboard,read'])->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
     Route::middleware(['throttle:60,1', 'api.token'])->get('business-dashboard-analytics', [BusinessDashboardAnalyticsController::class, 'businessDashboardAnalytics']);
     Route::middleware(['throttle:60,1', 'allow.owner.role'])->get('owner-dashboard-analytics', [OwnerDashboardAnalyticsController::class, 'ownerDashboardAnalytics']);
 
@@ -415,16 +448,39 @@ Route::middleware(['validate.api.client'])->group(function () {
     // Group Route will end from here
 
     // Permission Route will start from here
-    Route::post('permissions-delete', [PermissionController::class, 'deletePermission'])->middleware(['throttle:60,1']);
-    Route::get('permissions-listing', [PermissionController::class, 'index'])->middleware(['throttle:60,1']);
-    Route::post('permissions/assign', [PermissionController::class, 'assignPermission'])->middleware(['throttle:60,1']);
-    Route::post('role/assign', [Rolecontroller::class, 'assignRole'])->middleware(['throttle:60,1']);
-    Route::post('remove/permission', [PermissionController::class, 'removePermission'])->middleware(['throttle:60,1']);
-    Route::get('/role/{roleId}/permissions', [PermissionController::class, 'getPermissionsByRole'])->middleware(['throttle:60,1']);
+    Route::middleware(['admin.token'])->group(function () {
+        Route::middleware(['throttle:30,1', 'permission.check:permissions,create'])
+            ->post('permissions/sync', [PermissionController::class, 'syncConfiguredPermissions']);
 
-    Route::post('assign-permissions', [PermissionController::class, 'assignDynamicPermissions'])->middleware(['throttle:60,1']);
-    Route::get('/permissions/{role_id}', [PermissionController::class, 'getPermissionsByRole'])->middleware(['throttle:60,1']);
-    Route::get('/model-names', [PermissionController::class, 'getModelNames'])->middleware(['throttle:60,1']);
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,delete'])
+            ->post('permissions-delete', [PermissionController::class, 'deletePermission']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,read'])
+            ->get('permissions-listing', [PermissionController::class, 'index']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,edit'])
+            ->post('permissions/assign', [PermissionController::class, 'assignPermission']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:users,edit'])
+            ->post('role/assign', [Rolecontroller::class, 'assignRole']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,edit'])
+            ->post('remove/permission', [PermissionController::class, 'removePermission']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,read'])
+            ->get('/role/{roleId}/permissions', [PermissionController::class, 'getPermissionsByRole']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,edit'])
+            ->post('assign-permissions', [PermissionController::class, 'assignDynamicPermissions']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,read'])
+            ->get('/permissions/{role_id}', [PermissionController::class, 'getPermissionsByRole']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:permissions,read'])
+            ->get('/model-names', [PermissionController::class, 'getModelNames']);
+        Route::middleware(['throttle:60,1'])
+            ->get('auth/permissions', [PermissionController::class, 'currentUserPermissions']);
+    });
     // Permission Route will end from here
 
 
