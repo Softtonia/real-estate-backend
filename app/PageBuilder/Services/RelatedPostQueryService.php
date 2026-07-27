@@ -39,45 +39,105 @@ class RelatedPostQueryService
         'zone',
     ];
 
-    public function getRelatedPosts(
-        array $settings,
-        ?DynamicPost $currentPost = null,
-        array $context = []
-    ): Collection {
-        if (! Schema::hasTable($this->postsTable)) {
-            throw new RuntimeException('dynamic_posts table not found.');
-        }
-
-        $settings = $this->normalizeSettings($settings);
-        $selectedPostIds = $this->normalizeIds($settings['selected_post_ids'] ?? []);
-
-        if (! empty($selectedPostIds)) {
-            return $this->getSelectedPosts($selectedPostIds, $settings);
-        }
-
-        return $this->getMatchedPosts($settings, $currentPost, $context)
-            ->limit((int) ($settings['posts_per_page'] ?? 6))
-            ->get();
+public function getRelatedPosts(
+    array $settings,
+    ?DynamicPost $currentPost = null,
+    array $context = []
+): Collection {
+    if (! Schema::hasTable($this->postsTable)) {
+        throw new RuntimeException('dynamic_posts table not found.');
     }
 
-    public function getCandidatePosts(
-        array $settings,
-        ?DynamicPost $currentPost = null,
-        array $context = []
-    ): Collection {
-        if (! Schema::hasTable($this->postsTable)) {
-            throw new RuntimeException('dynamic_posts table not found.');
-        }
+    $settings = $this->normalizeSettings($settings);
+    $selectedPostIds = $this->normalizeIds($settings['selected_post_ids'] ?? []);
 
-        $settings = $this->normalizeSettings($settings);
-
-        return $this->getMatchedPosts($settings, $currentPost, $context)
-            ->limit(100)
-            ->get()
-            ->map(fn($post) => $this->formatCandidatePost($post))
-            ->values();
+    if (! empty($selectedPostIds)) {
+        return $this->getSelectedPosts($selectedPostIds, $settings);
     }
 
+    $limit = (int) ($settings['posts_per_page'] ?? 6);
+
+    $posts = $this->getMatchedPosts($settings, $currentPost, $context)
+        ->limit($limit)
+        ->get();
+
+    if ($posts->isEmpty()) {
+        $posts = $this->getFallbackPosts($settings, $currentPost, $context, $limit);
+    }
+
+    return $posts;
+}
+public function getCandidatePosts(
+    array $settings,
+    ?DynamicPost $currentPost = null,
+    array $context = []
+): Collection {
+    if (! Schema::hasTable($this->postsTable)) {
+        throw new RuntimeException('dynamic_posts table not found.');
+    }
+
+    $settings = $this->normalizeSettings($settings);
+
+    $posts = $this->getMatchedPosts($settings, $currentPost, $context)
+        ->limit(100)
+        ->get();
+
+    if ($posts->isEmpty()) {
+        $posts = $this->getFallbackPosts($settings, $currentPost, $context, 100);
+    }
+
+    return $posts
+        ->map(fn ($post) => $this->formatCandidatePost($post))
+        ->values();
+}
+private function getFallbackPosts(
+    array $settings,
+    ?DynamicPost $currentPost,
+    array $context,
+    int $limit = 100
+): Collection {
+    $currentPostId = $currentPost?->id
+        ?? data_get($context, 'entity_id')
+        ?? data_get($context, 'current_post_id')
+        ?? data_get($context, 'dynamic_post_id')
+        ?? data_get($context, 'post_id');
+
+    if (! $currentPost && $currentPostId) {
+        $currentPost = DynamicPost::find((int) $currentPostId);
+    }
+
+    $currentPostTypeId = $currentPost?->post_type_id
+        ?? data_get($context, 'post_type_id');
+
+    $query = DB::table($this->postsTable . ' as dp')
+        ->select('dp.*')
+        ->distinct();
+
+    $this->applyStatus($query, $settings);
+    $this->applyLiveStatus($query);
+
+    if (($settings['exclude_current'] ?? true) && $currentPostId) {
+        $query->where('dp.id', '!=', (int) $currentPostId);
+    }
+
+    if (($settings['match_post_type'] ?? true) && $currentPostTypeId) {
+        $query->where('dp.post_type_id', (int) $currentPostTypeId);
+    }
+
+    // Keep custom query filter like price <= 100
+    // But ignore taxonomy/location here because strict matching returned 0.
+    $this->applyBuilderQuery(
+        query: $query,
+        builderQuery: $settings['query'] ?? [],
+        currentPost: $currentPost
+    );
+
+    $this->applyOrder($query, $settings);
+
+    return $query
+        ->limit(max(1, min($limit, 100)))
+        ->get();
+}
     private function getMatchedPosts(
         array $settings,
         ?DynamicPost $currentPost = null,
