@@ -9,6 +9,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
+use App\Models\MediaFile;
+use Illuminate\Support\Facades\Storage;
 
 class RelatedPostsWidgetCandidateController extends Controller
 {
@@ -124,19 +126,19 @@ class RelatedPostsWidgetCandidateController extends Controller
                     /*
                  * Frontend can use this for cards/list display.
                  */
-                    'posts' => $this->formatFrontendPosts($displayCandidates),
+                    'posts' => $this->formatFullDynamicPosts($displayCandidates),
+                    'full_posts' => $this->formatFullDynamicPosts($displayCandidates),
 
                     /*
                  * Exact matched result only.
                  */
                     'strict_options' => $strictCandidates->values(),
-                    'strict_posts' => $this->formatFrontendPosts($strictCandidates),
-
+                    'strict_posts' => $this->formatFullDynamicPosts($strictCandidates),
                     /*
                  * Suggestions shown when exact match is empty.
                  */
                     'suggested_options' => $suggestedCandidates->values(),
-                    'suggested_posts' => $this->formatFrontendPosts($suggestedCandidates),
+                    'suggested_posts' => $this->formatFullDynamicPosts($suggestedCandidates),
 
                     'matched_count' => $strictCandidates->count(),
                     'display_count' => $displayCandidates->count(),
@@ -192,30 +194,244 @@ class RelatedPostsWidgetCandidateController extends Controller
         return $settings;
     }
 
-    private function formatFrontendPosts($posts): array
+    private function formatFullDynamicPosts($posts): array
     {
-        return collect($posts)
+        $ids = collect($posts)
             ->map(function ($post) {
                 $post = is_array($post) ? $post : (array) $post;
 
+                return $post['id'] ?? null;
+            })
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $dynamicPosts = DynamicPost::query()
+            ->with([
+                'postType',
+                'parent:id,post_type_id,title,slug,status,live_status',
+                'taxonomyTerms.taxonomy',
+                'meta.customField.options',
+                'meta.customField.repeaters.options',
+            ])
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        return collect($ids)
+            ->map(fn($id) => $dynamicPosts->get($id))
+            ->filter()
+            ->map(fn(DynamicPost $post) => $this->formatFullDynamicPost($post))
+            ->values()
+            ->toArray();
+    }
+
+    private function formatFullDynamicPost(DynamicPost $post): array
+    {
+        $data = $post->toArray();
+
+        $featuredMedia = $this->formatMediaFileById($post->featured_image_id ?? null);
+        $galleryMedia = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
+
+        $data['value'] = (int) $post->id;
+        $data['label'] = $this->dynamicPostLabel($post);
+        $data['display_id'] = $post->listing_code ?? null;
+
+        $data['featured_image'] = $featuredMedia['url'] ?? null;
+        $data['featured_image_media'] = $featuredMedia;
+
+        $data['gallery_images'] = collect($galleryMedia)
+            ->pluck('url')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $data['gallery_image_files'] = $galleryMedia;
+
+        $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
+        $data['custom_fields'] = $this->formatCustomFields($post);
+
+        $data['country_id'] = $post->country_id ? (int) $post->country_id : null;
+        $data['state_id'] = $post->state_id ? (int) $post->state_id : null;
+        $data['city_id'] = $post->city_id ? (int) $post->city_id : null;
+        $data['area_locality'] = $post->area_locality ?? null;
+
+        return $data;
+    }
+
+    private function dynamicPostLabel(DynamicPost $post): string
+    {
+        $title = $post->title
+            ?? $post->slug
+            ?? ('Post #' . $post->id);
+
+        if (! empty($post->listing_code)) {
+            return $post->listing_code . ' - ' . $title;
+        }
+
+        return (string) $title;
+    }
+
+    private function formatSelectedTaxonomies(DynamicPost $post): array
+    {
+        return $post->taxonomyTerms
+            ->groupBy(fn($term) => $term->taxonomy?->slug ?? 'taxonomy')
+            ->map(function ($terms, $taxonomySlug) {
+                $taxonomy = $terms->first()?->taxonomy;
+
                 return [
-                    'id' => isset($post['id']) ? (int) $post['id'] : null,
-                    'value' => isset($post['value']) ? (int) $post['value'] : (isset($post['id']) ? (int) $post['id'] : null),
-                    'label' => $post['label'] ?? $post['title'] ?? null,
-                    'title' => $post['title'] ?? $post['label'] ?? null,
-                    'slug' => $post['slug'] ?? null,
-                    'listing_code' => $post['listing_code'] ?? null,
-                    'post_type_id' => isset($post['post_type_id']) ? (int) $post['post_type_id'] : null,
-                    'status' => $post['status'] ?? null,
-                    'live_status' => $post['live_status'] ?? null,
-                    'country_id' => $post['country_id'] ?? null,
-                    'state_id' => $post['state_id'] ?? null,
-                    'city_id' => $post['city_id'] ?? null,
-                    'area_locality' => $post['area_locality'] ?? null,
+                    'taxonomy_id' => $taxonomy?->id ? (int) $taxonomy->id : null,
+                    'taxonomy_name' => $taxonomy?->name,
+                    'taxonomy_slug' => $taxonomySlug,
+                    'terms' => $terms
+                        ->map(fn($term) => [
+                            'id' => (int) $term->id,
+                            'name' => $term->name,
+                            'slug' => $term->slug,
+                        ])
+                        ->values()
+                        ->toArray(),
                 ];
             })
             ->values()
             ->toArray();
+    }
+
+    private function formatCustomFields(DynamicPost $post): array
+    {
+        return collect($post->meta ?? [])
+            ->mapWithKeys(function ($meta) {
+                $field = $meta->customField ?? null;
+
+                $key = $field?->field_name_slug
+                    ?? $field?->slug
+                    ?? $field?->field_key
+                    ?? $field?->field_label
+                    ?? ('field_' . ($field?->id ?? $meta->id));
+
+                return [
+                    $key => [
+                        'custom_field_id' => $field?->id ? (int) $field->id : null,
+                        'label' => $field?->field_label ?? $field?->name ?? $key,
+                        'type' => $field?->field_type ?? null,
+                        'value' => $this->metaValue($meta),
+                        'raw' => is_object($meta) && method_exists($meta, 'toArray')
+                            ? $meta->toArray()
+                            : (array) $meta,
+                    ],
+                ];
+            })
+            ->toArray();
+    }
+
+    private function metaValue($meta): mixed
+    {
+        foreach (
+            [
+                'value_number',
+                'value_string',
+                'value_text',
+                'value_json',
+                'value_date',
+                'value_datetime',
+                'value',
+                'field_value',
+                'meta_value',
+            ] as $column
+        ) {
+            if (! isset($meta->{$column}) || $meta->{$column} === null || $meta->{$column} === '') {
+                continue;
+            }
+
+            $value = $meta->{$column};
+
+            if ($column === 'value_json' && is_string($value)) {
+                $decoded = json_decode($value, true);
+
+                return json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
+            }
+
+            return $value;
+        }
+
+        return null;
+    }
+
+    private function formatMediaFileById(null|int|string $mediaId): ?array
+    {
+        if (empty($mediaId)) {
+            return null;
+        }
+
+        $media = MediaFile::query()->find((int) $mediaId);
+
+        return $media ? $this->formatMediaFile($media) : null;
+    }
+
+    private function formatMediaFilesByIds(array|string|null $mediaIds): array
+    {
+        $ids = $this->normalizeIds($mediaIds);
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $mediaFiles = MediaFile::query()
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        return collect($ids)
+            ->map(fn($id) => $mediaFiles->get((int) $id))
+            ->filter()
+            ->map(fn(MediaFile $media) => $this->formatMediaFile($media))
+            ->values()
+            ->toArray();
+    }
+
+    private function formatMediaFile(MediaFile $media): array
+    {
+        return [
+            'id' => (int) $media->id,
+            'disk' => $media->disk ?: 'public',
+            'context' => $media->context ?? null,
+            'post_type_slug' => $media->post_type_slug ?? null,
+            'field_slug' => $media->field_slug ?? null,
+            'directory' => $media->directory ?? null,
+            'path' => $media->path ?? null,
+            'url' => $this->mediaFileUrl($media),
+            'file_name' => $media->file_name ?? null,
+            'original_name' => $media->original_name ?? null,
+            'mime_type' => $media->mime_type ?? null,
+            'extension' => $media->extension ?? null,
+            'size' => $media->size ?? null,
+            'size_kb' => $media->size ? round(((int) $media->size) / 1024, 2) : null,
+            'created_at' => optional($media->created_at)->toDateTimeString(),
+            'updated_at' => optional($media->updated_at)->toDateTimeString(),
+        ];
+    }
+
+    private function mediaFileUrl(MediaFile $media): ?string
+    {
+        if (! empty($media->url)) {
+            return $media->url;
+        }
+
+        if (empty($media->path)) {
+            return null;
+        }
+
+        try {
+            return Storage::disk($media->disk ?: 'public')->url($media->path);
+        } catch (Throwable) {
+            return $media->path;
+        }
     }
     private function getPayload(Request $request): array
     {
