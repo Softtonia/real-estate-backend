@@ -506,4 +506,5 @@ class RelatedPostsWidgetCandidateController extends Controller
             ->values()
             ->toArray();
     }
+    
 }
