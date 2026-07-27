@@ -76,14 +76,11 @@ class RelatedPostsWidgetCandidateController extends Controller
                 $context
             );
 
-            if ($candidates->isEmpty()) {
-                $candidates = $this->fallbackCandidatePosts(
-                    $settings,
-                    $currentPost,
-                    $context
-                );
-            }
-
+            $candidates = $this->relatedPostQueryService->getCandidatePosts(
+                $settings,
+                $currentPost,
+                $context
+            );
             return response()->json([
                 'status' => true,
                 'message' => 'Matched related posts fetched successfully.',
@@ -506,5 +503,4 @@ class RelatedPostsWidgetCandidateController extends Controller
             ->values()
             ->toArray();
     }
-    
 }
