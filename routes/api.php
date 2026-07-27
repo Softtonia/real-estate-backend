@@ -1105,6 +1105,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     // Dynamic post CRUD
     Route::post('dynamic-posts', [DynamicPostController::class, 'store'])
         ->middleware('kyc.publish');
+    Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
         ->whereNumber('dynamicPost');
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
