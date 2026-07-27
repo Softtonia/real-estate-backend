@@ -172,21 +172,32 @@ class RelatedPostQueryService
         return [
             'title' => $settings['title'] ?? 'Related Posts',
 
-            'exclude_current' => filter_var($settings['exclude_current'] ?? true, FILTER_VALIDATE_BOOLEAN),
-
-            'match_post_type' => filter_var(
-                data_get($settings, 'post_type_mapping.enabled', $settings['match_post_type'] ?? true),
-                FILTER_VALIDATE_BOOLEAN
+            'exclude_current' => $this->boolSetting(
+                $settings,
+                'exclude_current',
+                null,
+                true
             ),
 
-            'match_taxonomy_terms' => filter_var(
-                data_get($settings, 'taxonomy_mapping.enabled', $settings['match_taxonomy_terms'] ?? true),
-                FILTER_VALIDATE_BOOLEAN
+            'match_post_type' => $this->boolSetting(
+                $settings,
+                'match_post_type',
+                'post_type_mapping.enabled',
+                true
             ),
 
-            'match_locations' => filter_var(
-                data_get($settings, 'location_mapping.enabled', $settings['match_locations'] ?? true),
-                FILTER_VALIDATE_BOOLEAN
+            'match_taxonomy_terms' => $this->boolSetting(
+                $settings,
+                'match_taxonomy_terms',
+                'taxonomy_mapping.enabled',
+                true
+            ),
+
+            'match_locations' => $this->boolSetting(
+                $settings,
+                'match_locations',
+                'location_mapping.enabled',
+                true
             ),
 
             'posts_per_page' => max(1, min((int) ($settings['posts_per_page'] ?? 6), 50)),
@@ -194,18 +205,33 @@ class RelatedPostQueryService
             'selected_post_ids' => $this->normalizeIds($settings['selected_post_ids'] ?? []),
 
             'post_type_mapping' => [
-                'enabled' => filter_var(data_get($settings, 'post_type_mapping.enabled', true), FILTER_VALIDATE_BOOLEAN),
+                'enabled' => $this->boolSetting(
+                    $settings,
+                    'match_post_type',
+                    'post_type_mapping.enabled',
+                    true
+                ),
                 'target' => data_get($settings, 'post_type_mapping.target', 'same_post_type'),
             ],
 
             'taxonomy_mapping' => [
-                'enabled' => filter_var(data_get($settings, 'taxonomy_mapping.enabled', true), FILTER_VALIDATE_BOOLEAN),
+                'enabled' => $this->boolSetting(
+                    $settings,
+                    'match_taxonomy_terms',
+                    'taxonomy_mapping.enabled',
+                    true
+                ),
                 'relation' => strtoupper((string) data_get($settings, 'taxonomy_mapping.relation', 'AND')),
                 'items' => data_get($settings, 'taxonomy_mapping.items', []),
             ],
 
             'location_mapping' => [
-                'enabled' => filter_var(data_get($settings, 'location_mapping.enabled', true), FILTER_VALIDATE_BOOLEAN),
+                'enabled' => $this->boolSetting(
+                    $settings,
+                    'match_locations',
+                    'location_mapping.enabled',
+                    true
+                ),
                 'relation' => strtoupper((string) data_get($settings, 'location_mapping.relation', 'AND')),
                 'items' => data_get($settings, 'location_mapping.items', []),
             ],
@@ -216,7 +242,42 @@ class RelatedPostQueryService
             'order' => strtoupper((string) ($settings['order'] ?? 'DESC')) === 'ASC' ? 'ASC' : 'DESC',
         ];
     }
+    private function boolSetting(
+        array $settings,
+        string $directKey,
+        ?string $fallbackPath = null,
+        bool $default = true
+    ): bool {
+        if (array_key_exists($directKey, $settings)) {
+            return $this->toBoolean($settings[$directKey], $default);
+        }
 
+        if ($fallbackPath !== null) {
+            $value = data_get($settings, $fallbackPath);
+
+            if ($value !== null) {
+                return $this->toBoolean($value, $default);
+            }
+        }
+
+        return $default;
+    }
+
+    private function toBoolean(mixed $value, bool $default = true): bool
+    {
+        $bool = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+
+        return $bool ?? $default;
+    }
+
+    private function isNumericValueType(string $valueType): bool
+    {
+        return in_array(
+            strtoupper($valueType),
+            ['NUMERIC', 'NUMBER', 'INTEGER', 'DECIMAL'],
+            true
+        );
+    }
     private function normalizeBuilderQuery(array $query): array
     {
         $relation = strtoupper((string) ($query['relation'] ?? 'AND'));
@@ -233,22 +294,23 @@ class RelatedPostQueryService
                 $targetKey = $item['target_key']
                     ?? $item['key']
                     ?? $item['field']
+                    ?? $item['source_key']
                     ?? null;
 
-                if (! $targetKey) {
+                if (! $targetKey || trim((string) $targetKey) === '') {
                     return null;
                 }
 
                 return [
                     'type' => 'custom_field',
-                    'field' => $targetKey,
-                    'key' => $targetKey,
+                    'field' => trim((string) $targetKey),
+                    'key' => trim((string) $targetKey),
                     'compare' => $item['compare'] ?? '=',
                     'value' => $sourceType === 'current_post_field'
                         ? null
                         : ($item['manual_value'] ?? $item['value'] ?? null),
                     'source_type' => $sourceType,
-                    'source_key' => $item['source_key'] ?? null,
+                    'source_key' => $item['source_key'] ?? $targetKey,
                     'value_type' => $item['value_type'] ?? 'CHAR',
                 ];
             })
@@ -417,7 +479,7 @@ class RelatedPostQueryService
         }
 
         $query->where(function ($mainQuery) use ($rules, $relation, $currentPost) {
-            foreach ($rules as $rule) {
+            foreach ($rules as $index => $rule) {
                 if (! is_array($rule)) {
                     continue;
                 }
@@ -438,7 +500,7 @@ class RelatedPostQueryService
                     $this->applyCustomFieldRule($innerQuery, $rule, $currentPost);
                 };
 
-                if ($relation === 'OR') {
+                if ($index > 0 && $relation === 'OR') {
                     $mainQuery->orWhere($callback);
                 } else {
                     $mainQuery->where($callback);
@@ -675,7 +737,8 @@ class RelatedPostQueryService
         string $compare,
         string $valueType
     ): void {
-        $compare = $compare === '==' ? '=' : $compare;
+        $compare = strtoupper($compare === '==' ? '=' : $compare);
+        $valueType = strtoupper($valueType);
 
         $allowed = [
             '=',
@@ -717,7 +780,12 @@ class RelatedPostQueryService
                 return;
             }
 
+            if ($this->isNumericValueType($valueType)) {
+                $values = array_map('floatval', $values);
+            }
+
             $placeholders = implode(',', array_fill(0, count($values), '?'));
+
             $query->whereRaw($expr . ' ' . $compare . ' (' . $placeholders . ')', $values);
             return;
         }
@@ -730,8 +798,19 @@ class RelatedPostQueryService
                 return;
             }
 
+            if ($this->isNumericValueType($valueType)) {
+                $values = [
+                    (float) $values[0],
+                    (float) $values[1],
+                ];
+            }
+
             $query->whereRaw($expr . ' ' . $compare . ' ? AND ?', [$values[0], $values[1]]);
             return;
+        }
+
+        if ($this->isNumericValueType($valueType)) {
+            $value = (float) $value;
         }
 
         $query->whereRaw($expr . ' ' . $compare . ' ?', [$value]);
@@ -761,35 +840,87 @@ class RelatedPostQueryService
 
     private function customFieldValueExpression(string $valueType): string
     {
+        $valueType = strtoupper($valueType);
+
+        if ($this->isNumericValueType($valueType)) {
+            $columns = [];
+
+            if (Schema::hasColumn($this->customFieldValuesTable, 'value_number')) {
+                $columns[] = 'cfv.value_number';
+            }
+
+            foreach (['value_string', 'value_text', 'value', 'field_meta_value'] as $column) {
+                if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
+                    $columns[] = "NULLIF(cfv.{$column}, '')";
+                }
+            }
+
+            if (empty($columns)) {
+                return 'NULL';
+            }
+
+            return 'CAST(COALESCE(' . implode(', ', $columns) . ') AS DECIMAL(15,4))';
+        }
+
+        if ($valueType === 'DATE') {
+            if (Schema::hasColumn($this->customFieldValuesTable, 'value_date')) {
+                return 'cfv.value_date';
+            }
+
+            $columns = [];
+
+            foreach (['value_string', 'value_text', 'value', 'field_meta_value'] as $column) {
+                if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
+                    $columns[] = "NULLIF(cfv.{$column}, '')";
+                }
+            }
+
+            return empty($columns)
+                ? 'NULL'
+                : 'DATE(COALESCE(' . implode(', ', $columns) . '))';
+        }
+
+        if ($valueType === 'DATETIME') {
+            if (Schema::hasColumn($this->customFieldValuesTable, 'value_datetime')) {
+                return 'cfv.value_datetime';
+            }
+
+            $columns = [];
+
+            foreach (['value_string', 'value_text', 'value', 'field_meta_value'] as $column) {
+                if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
+                    $columns[] = "NULLIF(cfv.{$column}, '')";
+                }
+            }
+
+            return empty($columns)
+                ? 'NULL'
+                : 'CAST(COALESCE(' . implode(', ', $columns) . ') AS DATETIME)';
+        }
+
         $columns = [];
 
-        foreach (
-            [
-                'value_number',
-                'value_string',
-                'value_text',
-                'value_date',
-                'value_datetime',
-                'value',
-                'field_meta_value',
-            ] as $column
-        ) {
+        foreach (['value_string', 'value_text', 'value', 'field_meta_value'] as $column) {
             if (Schema::hasColumn($this->customFieldValuesTable, $column)) {
-                $columns[] = 'NULLIF(cfv.' . $column . ", '')";
+                $columns[] = "NULLIF(cfv.{$column}, '')";
             }
         }
 
-        if (empty($columns)) {
-            return 'NULL';
+        if (Schema::hasColumn($this->customFieldValuesTable, 'value_number')) {
+            $columns[] = 'CAST(cfv.value_number AS CHAR)';
         }
 
-        $expr = 'COALESCE(' . implode(', ', $columns) . ')';
-
-        if (in_array($valueType, ['NUMERIC', 'NUMBER', 'INTEGER', 'DECIMAL'], true)) {
-            return 'CAST(' . $expr . ' AS DECIMAL(15,4))';
+        if (Schema::hasColumn($this->customFieldValuesTable, 'value_date')) {
+            $columns[] = 'CAST(cfv.value_date AS CHAR)';
         }
 
-        return $expr;
+        if (Schema::hasColumn($this->customFieldValuesTable, 'value_datetime')) {
+            $columns[] = 'CAST(cfv.value_datetime AS CHAR)';
+        }
+
+        return empty($columns)
+            ? 'NULL'
+            : 'COALESCE(' . implode(', ', $columns) . ')';
     }
 
     private function resolveTaxonomy(mixed $taxonomy): ?object
