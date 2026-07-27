@@ -123,22 +123,11 @@ class RelatedPostsWidgetCandidateController extends Controller
                  */
                     'options' => $displayCandidates->values(),
 
-                    /*
-                 * Frontend can use this for cards/list display.
-                 */
-                    'posts' => $this->formatFullDynamicPosts($displayCandidates),
-                    'full_posts' => $this->formatFullDynamicPosts($displayCandidates),
+                    'options' => $this->formatFullDynamicPosts($displayCandidates),
 
-                    /*
-                 * Exact matched result only.
-                 */
-                    'strict_options' => $strictCandidates->values(),
-                    'strict_posts' => $this->formatFullDynamicPosts($strictCandidates),
-                    /*
-                 * Suggestions shown when exact match is empty.
-                 */
-                    'suggested_options' => $suggestedCandidates->values(),
-                    'suggested_posts' => $this->formatFullDynamicPosts($suggestedCandidates),
+                    'strict_options' => $this->formatFullDynamicPosts($strictCandidates),
+
+                    'suggested_options' => $this->formatFullDynamicPosts($suggestedCandidates),
 
                     'matched_count' => $strictCandidates->count(),
                     'display_count' => $displayCandidates->count(),
