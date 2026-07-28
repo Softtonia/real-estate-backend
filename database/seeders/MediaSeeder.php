@@ -220,7 +220,7 @@ class MediaSeeder extends Seeder
 
             ["icon_css_id" => "Cooking basics-ur", "icon_name" => "Cooking basics", "media_icon" => "/uploads/media_icons/1749024989_HugeiconsKitchenUtensils.png", "created_at" => now(), "updated_at" => now()],
 
-            ["icon_css_id" => "Dishes and cutlery-ur", "icon_name" => "Dishes and cutlery", "media_icon" => "/uploads/media_icons/1749028051_StreamlineFoodKitchenwareSpoonPlateForkPlateFoodDineCookUtensilsEatRestaurantDining.png", "created_at" => now() ,"updated_at" => now()],
+            ["icon_css_id" => "Dishes and cutlery-ur", "icon_name" => "Dishes and cutlery", "media_icon" => "/uploads/media_icons/1749028051_StreamlineFoodKitchenwareSpoonPlateForkPlateFoodDineCookUtensilsEatRestaurantDining.png", "created_at" => now(), "updated_at" => now()],
 
             ["icon_css_id" => "Stainless steel cooker-ur", "icon_name" => "Stainless steel cooker", "media_icon" => "/uploads/media_icons/1749028262_MingcuteElectricCookerLine.png", "created_at" => now(), "updated_at" => now()],
 
@@ -255,8 +255,16 @@ class MediaSeeder extends Seeder
 
 
         foreach ($mediaData as $media) {
-            Media::create($media);
+            Media::updateOrCreate(
+                [
+                    'icon_css_id' => $media['icon_css_id'],
+                ],
+                [
+                    'icon_name' => $media['icon_name'],
+                    'media_icon' => $media['media_icon'],
+                    'updated_at' => now(),
+                ]
+            );
         }
-
     }
 }
