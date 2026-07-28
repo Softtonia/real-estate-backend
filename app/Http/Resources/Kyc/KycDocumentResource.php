@@ -44,7 +44,7 @@ class KycDocumentResource extends JsonResource
              * Frontend should use this document id to call protected view/download API.
              */
             'private_file_available' => !empty($this->file_path),
-            'private_file_endpoint' => '/api/admin/kyc/documents/' . $this->id . '/view',
+            'private_file_endpoint' => '/api/kyc/documents/' . $this->id . '/view',
 
             'uploaded_at' => optional($this->uploaded_at)->toDateTimeString(),
             'reviewed_at' => optional($this->reviewed_at)->toDateTimeString(),
