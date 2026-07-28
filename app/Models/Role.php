@@ -69,4 +69,19 @@ class Role extends SpatieRole
     {
         return $this->hasOne(\App\Models\KycRoleRule::class);
     }
+    public function membershipPlanRules()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipPlanRoleRule::class);
+    }
+
+    public function membershipPlans()
+    {
+        return $this->belongsToMany(
+            \App\Models\Membership\MembershipPlan::class,
+            'membership_plan_role_rules',
+            'role_id',
+            'plan_id'
+        )->withPivot(['is_active'])
+            ->withTimestamps();
+    }
 }

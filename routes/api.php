@@ -91,6 +91,22 @@ use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\Kyc\AdminKycController;
 use App\Http\Controllers\Api\Kyc\KycSettingsController;
 use App\Http\Controllers\Api\Kyc\UserKycController;
+use App\Http\Controllers\Api\Membership\AdminMembershipAddonController;
+use App\Http\Controllers\Api\Membership\AdminMembershipAddonOrderController;
+use App\Http\Controllers\Api\Membership\AdminMembershipAuditLogController;
+use App\Http\Controllers\Api\Membership\AdminMembershipCatalogController;
+use App\Http\Controllers\Api\Membership\AdminMembershipCouponController;
+use App\Http\Controllers\Api\Membership\AdminMembershipInvoiceController;
+use App\Http\Controllers\Api\Membership\AdminMembershipRefundController;
+use App\Http\Controllers\Api\Membership\AdminMembershipReportController;
+use App\Http\Controllers\Api\Membership\AdminMembershipSettingController;
+use App\Http\Controllers\Api\Membership\AdminMembershipUserController;
+use App\Http\Controllers\Api\Membership\RazorpayWebhookController;
+use App\Http\Controllers\Api\Membership\UserMembershipAddonController;
+use App\Http\Controllers\Api\Membership\UserMembershipController;
+use App\Http\Controllers\Api\Membership\UserMembershipFeatureUsageController;
+use App\Http\Controllers\Api\Membership\UserMembershipInvoiceController;
+use App\Http\Controllers\Api\Membership\UserMembershipNotificationController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
 use App\Http\Controllers\Api\UserProfileController;
@@ -976,6 +992,190 @@ Route::middleware(['throttle:60,1'])->group(function () {
         'auth/google/complete-registration',
         [GoogleAuthController::class, 'completeGoogleRegistration']
     );
+    Route::prefix('membership')->group(function () {
+        Route::get('categories', [AdminMembershipCatalogController::class, 'categories'])
+            ->middleware('permission.check:membership_categories,read');
+
+        Route::post('categories', [AdminMembershipCatalogController::class, 'storeCategory'])
+            ->middleware('permission.check:membership_categories,create');
+
+        Route::put('categories/{category}', [AdminMembershipCatalogController::class, 'updateCategory'])
+            ->middleware('permission.check:membership_categories,edit');
+
+        Route::delete('categories/{category}', [AdminMembershipCatalogController::class, 'deleteCategory'])
+            ->middleware('permission.check:membership_categories,delete');
+
+
+        Route::get('features', [AdminMembershipCatalogController::class, 'features'])
+            ->middleware('permission.check:membership_features,read');
+
+        Route::post('features', [AdminMembershipCatalogController::class, 'storeFeature'])
+            ->middleware('permission.check:membership_features,create');
+
+        Route::put('features/{feature}', [AdminMembershipCatalogController::class, 'updateFeature'])
+            ->middleware('permission.check:membership_features,edit');
+
+        Route::delete('features/{feature}', [AdminMembershipCatalogController::class, 'deleteFeature'])
+            ->middleware('permission.check:membership_features,delete');
+
+
+        Route::get('plans', [AdminMembershipCatalogController::class, 'plans'])
+            ->middleware('permission.check:membership_plans,read');
+
+        Route::post('plans', [AdminMembershipCatalogController::class, 'storePlan'])
+            ->middleware('permission.check:membership_plans,create');
+
+        Route::get('plans/{plan}', [AdminMembershipCatalogController::class, 'showPlan'])
+            ->middleware('permission.check:membership_plans,read');
+
+        Route::put('plans/{plan}', [AdminMembershipCatalogController::class, 'updatePlan'])
+            ->middleware('permission.check:membership_plans,edit');
+
+        Route::delete('plans/{plan}', [AdminMembershipCatalogController::class, 'deletePlan'])
+            ->middleware('permission.check:membership_plans,delete');
+
+        Route::post('plans/{plan}/features', [AdminMembershipCatalogController::class, 'syncPlanFeatures'])
+            ->middleware('permission.check:membership_plan_rules,edit');
+
+        Route::post('plans/{plan}/roles', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
+            ->middleware('permission.check:membership_plan_rules,edit');
+
+        Route::get('orders', [AdminMembershipUserController::class, 'orders'])
+            ->middleware('permission.check:membership_orders,read');
+
+        Route::get('orders/{order}', [AdminMembershipUserController::class, 'showOrder'])
+            ->middleware('permission.check:membership_orders,read');
+
+        Route::get('payments', [AdminMembershipUserController::class, 'payments'])
+            ->middleware('permission.check:membership_payments,read');
+
+        Route::get('users', [AdminMembershipUserController::class, 'memberships'])
+            ->middleware('permission.check:membership_users,read');
+
+        Route::get('users/{membership}', [AdminMembershipUserController::class, 'showMembership'])
+            ->middleware('permission.check:membership_users,read');
+
+        Route::post('users/manual-activate', [AdminMembershipUserController::class, 'manualActivate'])
+            ->middleware('permission.check:membership_users,manual_activate');
+
+        Route::post('users/{membership}/cancel', [AdminMembershipUserController::class, 'cancelMembership'])
+            ->middleware('permission.check:membership_users,cancel');
+
+        Route::post('users/{membership}/expire', [AdminMembershipUserController::class, 'expireMembership'])
+            ->middleware('permission.check:membership_users,edit');
+
+        Route::get('credits', [AdminMembershipUserController::class, 'userCredits'])
+            ->middleware('permission.check:membership_credits,read');
+
+        Route::post('credits/adjust', [AdminMembershipUserController::class, 'adjustCredit'])
+            ->middleware('permission.check:membership_credits,adjust');
+
+        Route::get('credits/transactions', [AdminMembershipUserController::class, 'creditTransactions'])
+            ->middleware('permission.check:membership_credits,read');
+        Route::get('coupons', [AdminMembershipCouponController::class, 'index'])
+            ->middleware('permission.check:membership_coupons,read');
+
+        Route::post('coupons', [AdminMembershipCouponController::class, 'store'])
+            ->middleware('permission.check:membership_coupons,create');
+
+        Route::get('coupons/{coupon}', [AdminMembershipCouponController::class, 'show'])
+            ->middleware('permission.check:membership_coupons,read');
+
+        Route::put('coupons/{coupon}', [AdminMembershipCouponController::class, 'update'])
+            ->middleware('permission.check:membership_coupons,edit');
+
+        Route::delete('coupons/{coupon}', [AdminMembershipCouponController::class, 'destroy'])
+            ->middleware('permission.check:membership_coupons,delete');
+        Route::get('addons', [AdminMembershipAddonController::class, 'index'])
+            ->middleware('permission.check:membership_addons,read');
+
+        Route::post('addons', [AdminMembershipAddonController::class, 'store'])
+            ->middleware('permission.check:membership_addons,create');
+
+        Route::get('addons/{addon}', [AdminMembershipAddonController::class, 'show'])
+            ->middleware('permission.check:membership_addons,read');
+
+        Route::put('addons/{addon}', [AdminMembershipAddonController::class, 'update'])
+            ->middleware('permission.check:membership_addons,edit');
+
+        Route::delete('addons/{addon}', [AdminMembershipAddonController::class, 'destroy'])
+            ->middleware('permission.check:membership_addons,delete');
+
+
+        Route::get('invoices', [AdminMembershipInvoiceController::class, 'index'])
+            ->middleware('permission.check:membership_invoices,read');
+
+        Route::get('invoices/{invoice}', [AdminMembershipInvoiceController::class, 'show'])
+            ->middleware('permission.check:membership_invoices,read');
+
+        Route::get('invoices/{invoice}/download', [AdminMembershipInvoiceController::class, 'download'])
+            ->middleware('permission.check:membership_invoices,download');
+        Route::get('settings', [AdminMembershipSettingController::class, 'index'])
+            ->middleware('permission.check:membership_settings,read');
+
+        Route::post('settings', [AdminMembershipSettingController::class, 'store'])
+            ->middleware('permission.check:membership_settings,create');
+
+        Route::get('settings/{setting}', [AdminMembershipSettingController::class, 'show'])
+            ->middleware('permission.check:membership_settings,read');
+
+        Route::put('settings/{setting}', [AdminMembershipSettingController::class, 'update'])
+            ->middleware('permission.check:membership_settings,edit');
+
+        Route::delete('settings/{setting}', [AdminMembershipSettingController::class, 'destroy'])
+            ->middleware('permission.check:membership_settings,delete');
+
+        Route::get('reports/dashboard', [AdminMembershipReportController::class, 'dashboard'])
+            ->middleware('permission.check:membership_reports,read');
+
+        Route::get('reports/revenue', [AdminMembershipReportController::class, 'revenue'])
+            ->middleware('permission.check:membership_reports,read');
+
+        Route::get('reports/credits', [AdminMembershipReportController::class, 'credits'])
+            ->middleware('permission.check:membership_reports,read');
+
+        Route::get('reports/top-plans', [AdminMembershipReportController::class, 'topPlans'])
+            ->middleware('permission.check:membership_reports,read');
+
+        Route::get('reports/top-addons', [AdminMembershipReportController::class, 'topAddons'])
+            ->middleware('permission.check:membership_reports,read');
+
+        Route::get('addon-orders', [AdminMembershipAddonOrderController::class, 'index'])
+            ->middleware('permission.check:membership_addons,read');
+
+        Route::get('addon-orders/{addonOrder}', [AdminMembershipAddonOrderController::class, 'show'])
+            ->middleware('permission.check:membership_addons,read');
+
+        Route::post('addon-orders/{addonOrder}/mark-failed', [AdminMembershipAddonOrderController::class, 'markFailed'])
+            ->middleware('permission.check:membership_addons,edit');
+
+        Route::post('addon-orders/{addonOrder}/apply-benefits', [AdminMembershipAddonOrderController::class, 'applyBenefits'])
+            ->middleware('permission.check:membership_addons,edit');
+
+        Route::get('addon-usages', [AdminMembershipAddonOrderController::class, 'usages'])
+            ->middleware('permission.check:membership_addons,read');
+
+        Route::get('refunds', [AdminMembershipRefundController::class, 'index'])
+            ->middleware('permission.check:membership_payments,read');
+
+        Route::post('refunds', [AdminMembershipRefundController::class, 'store'])
+            ->middleware('permission.check:membership_payments,refund');
+
+        Route::get('refunds/{refund}', [AdminMembershipRefundController::class, 'show'])
+            ->middleware('permission.check:membership_payments,read');
+
+        Route::post('refunds/{refund}/mark-processed', [AdminMembershipRefundController::class, 'markProcessed'])
+            ->middleware('permission.check:membership_payments,refund');
+
+        Route::post('refunds/{refund}/mark-failed', [AdminMembershipRefundController::class, 'markFailed'])
+            ->middleware('permission.check:membership_payments,refund');
+
+        Route::get('audit-logs', [AdminMembershipAuditLogController::class, 'index'])
+            ->middleware('permission.check:membership_reports,read');
+
+        Route::get('audit-logs/{auditLog}', [AdminMembershipAuditLogController::class, 'show'])
+            ->middleware('permission.check:membership_reports,read');
+    });
 });
 // ================= VK Admin CRM Builder APIs =================
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
@@ -1104,16 +1304,17 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     // Dynamic post CRUD
     Route::post('dynamic-posts', [DynamicPostController::class, 'store'])
-        ->middleware('kyc.publish');
+        ->middleware(['kyc.publish', 'membership.listing']);
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
         ->whereNumber('dynamicPost');
+
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
-        ->middleware('kyc.publish')
+        ->middleware(['kyc.publish:published_only', 'membership.listing:published_only'])
         ->whereNumber('dynamicPost');
 
     Route::post('dynamic-posts/{dynamicPost}/update', [DynamicPostController::class, 'update'])
-        ->middleware('kyc.publish')
+        ->middleware(['kyc.publish:published_only', 'membership.listing:published_only'])
         ->whereNumber('dynamicPost');
 
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
@@ -1359,10 +1560,11 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
 
     Route::get('user-listing-analytics', [UserListingController::class, 'analytics']);
     Route::get('frontend/listings', [UserListingController::class, 'index']);
-    Route::post('frontend/listings', [UserListingController::class, 'store']);
+    Route::post('frontend/listings', [UserListingController::class, 'store'])
+        ->middleware(['kyc.publish', 'membership.listing']);
     Route::middleware(['throttle:30,1', 'kyc.publish'])->get('frontend/listings/{listing}', [UserListingController::class, 'show']);
     Route::post('frontend/listings/{listing}/update', [UserListingController::class, 'update'])
-        ->middleware('kyc.publish')
+        ->middleware(['kyc.publish:published_only', 'membership.listing:published_only'])
         ->whereNumber('listing');
 
     Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy'])
@@ -1388,4 +1590,68 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         Route::get('documents/{documentId}/view', [UserKycController::class, 'viewDocument'])
             ->whereNumber('documentId');
     });
+    Route::prefix('membership')->group(function () {
+        /*
+    |--------------------------------------------------------------------------
+    | Public membership APIs
+    |--------------------------------------------------------------------------
+    */
+        Route::middleware('throttle:membership-public')->group(function () {
+            Route::get('plans', [UserMembershipController::class, 'plans']);
+            Route::get('plans/{plan}', [UserMembershipController::class, 'showPlan']);
+
+            Route::get('addons', [UserMembershipAddonController::class, 'addons']);
+            Route::get('addons/{addon}', [UserMembershipAddonController::class, 'showAddon']);
+        });
+
+        /*
+    |--------------------------------------------------------------------------
+    | Authenticated user membership APIs
+    |--------------------------------------------------------------------------
+    */
+        Route::middleware('throttle:membership-user')->group(function () {
+            Route::get('my-status', [UserMembershipController::class, 'myStatus']);
+            Route::get('my-credits', [UserMembershipController::class, 'myCredits']);
+
+            Route::get('orders', [UserMembershipController::class, 'orders']);
+            Route::get('orders/{order}', [UserMembershipController::class, 'showOrder']);
+
+            Route::get('addon-orders', [UserMembershipAddonController::class, 'addonOrders']);
+            Route::get('addon-orders/{order}', [UserMembershipAddonController::class, 'showAddonOrder']);
+
+            Route::get('invoices', [UserMembershipInvoiceController::class, 'index']);
+            Route::get('invoices/{invoice}', [UserMembershipInvoiceController::class, 'show']);
+            Route::get('invoices/{invoice}/download', [UserMembershipInvoiceController::class, 'download']);
+
+            Route::get('notifications', [UserMembershipNotificationController::class, 'index']);
+            Route::post('notifications/{notification}/read', [UserMembershipNotificationController::class, 'markAsRead']);
+            Route::post('notifications/read-all', [UserMembershipNotificationController::class, 'markAllAsRead']);
+        });
+
+        /*
+    |--------------------------------------------------------------------------
+    | Payment/order APIs
+    |--------------------------------------------------------------------------
+    */
+        Route::middleware('throttle:membership-payment')->group(function () {
+            Route::post('orders', [UserMembershipController::class, 'createOrder']);
+            Route::post('orders/{order}/razorpay', [UserMembershipController::class, 'createRazorpayOrder']);
+            Route::post('payments/verify', [UserMembershipController::class, 'verifyPayment']);
+
+            Route::post('addon-orders', [UserMembershipAddonController::class, 'createAddonOrder']);
+            Route::post('addon-orders/{order}/razorpay', [UserMembershipAddonController::class, 'createRazorpayAddonOrder']);
+            Route::post('addon-payments/verify', [UserMembershipAddonController::class, 'verifyAddonPayment']);
+        });
+
+        /*
+    |--------------------------------------------------------------------------
+    | Feature usage APIs
+    |--------------------------------------------------------------------------
+    */
+        Route::middleware('throttle:membership-feature-usage')->group(function () {
+            Route::post('leads/unlock', [UserMembershipFeatureUsageController::class, 'unlockLead']);
+            Route::post('features/consume', [UserMembershipFeatureUsageController::class, 'consumeFeature']);
+        });
+    });
 });
+Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);

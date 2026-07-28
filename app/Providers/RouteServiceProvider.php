@@ -24,8 +24,34 @@ class RouteServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+        $this->configureRateLimiting();
+
+        RateLimiter::for('membership-public', function (Request $request) {
+            return Limit::perMinute(120)->by($request->ip());
+        });
+
+        RateLimiter::for('membership-user', function (Request $request) {
+            $userId = optional($request->user())->id;
+
+            return Limit::perMinute(90)->by($userId ?: $request->ip());
+        });
+
+        RateLimiter::for('membership-payment', function (Request $request) {
+            $userId = optional($request->user())->id;
+
+            return Limit::perMinute(20)->by($userId ?: $request->ip());
+        });
+
+        RateLimiter::for('membership-feature-usage', function (Request $request) {
+            $userId = optional($request->user())->id;
+
+            return Limit::perMinute(30)->by($userId ?: $request->ip());
+        });
+
+        RateLimiter::for('membership-admin', function (Request $request) {
+            $userId = optional($request->user())->id;
+
+            return Limit::perMinute(180)->by($userId ?: $request->ip());
         });
 
         $this->routes(function () {

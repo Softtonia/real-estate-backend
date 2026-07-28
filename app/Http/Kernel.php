@@ -112,6 +112,6 @@ class Kernel extends HttpKernel
         'client.permission' => \App\Http\Middleware\CheckClientPermission::class,
         'permission.check' => \App\Http\Middleware\CheckPermission::class,
         'kyc.publish' => \App\Http\Middleware\EnsureKycApprovedForListingPublish::class,
-
+        'membership.listing' => \App\Http\Middleware\EnsureMembershipCanPublishListing::class,
     ];
 }

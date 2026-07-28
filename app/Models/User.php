@@ -355,4 +355,54 @@ class User extends Authenticatable implements CanResetPassword
     {
         return $this->hasOne(\App\Models\KycUserExemption::class);
     }
+    public function memberships()
+    {
+        return $this->hasMany(\App\Models\Membership\UserMembership::class);
+    }
+
+    public function activeMembership()
+    {
+        return $this->hasOne(\App\Models\Membership\UserMembership::class)
+            ->where('status', \App\Models\Membership\UserMembership::STATUS_ACTIVE)
+            ->where(function ($query) {
+                $query->whereNull('expiry_date')
+                    ->orWhere('expiry_date', '>', now());
+            })
+            ->latestOfMany();
+    }
+
+    public function membershipOrders()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipOrder::class);
+    }
+
+    public function membershipPayments()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipPayment::class);
+    }
+
+    public function membershipCreditBalances()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipCreditBalance::class);
+    }
+
+    public function membershipCreditTransactions()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipCreditTransaction::class);
+    }
+
+    public function membershipNotifications()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipNotification::class);
+    }
+
+    public function ownedMembershipTeams()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipTeam::class, 'owner_user_id');
+    }
+
+    public function membershipTeamMembers()
+    {
+        return $this->hasMany(\App\Models\Membership\MembershipTeamMember::class);
+    }
 }

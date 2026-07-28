@@ -271,6 +271,70 @@ return [
             'label' => 'KYC Settings',
             'actions' => ['read', 'edit'],
         ],
+        'membership_categories' => [
+            'label' => 'Membership Categories',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'membership_plans' => [
+            'label' => 'Membership Plans',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'membership_features' => [
+            'label' => 'Membership Features',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'membership_plan_rules' => [
+            'label' => 'Membership Plan Rules',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'membership_orders' => [
+            'label' => 'Membership Orders',
+            'actions' => ['read', 'edit'],
+        ],
+
+        'membership_payments' => [
+            'label' => 'Membership Payments',
+            'actions' => ['read', 'refund'],
+        ],
+
+        'membership_coupons' => [
+            'label' => 'Membership Coupons',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'membership_users' => [
+            'label' => 'User Memberships',
+            'actions' => ['read', 'create', 'edit', 'cancel', 'manual_activate'],
+        ],
+
+        'membership_credits' => [
+            'label' => 'Membership Credits',
+            'actions' => ['read', 'adjust'],
+        ],
+
+        'membership_addons' => [
+            'label' => 'Membership Add-ons',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'membership_invoices' => [
+            'label' => 'Membership Invoices',
+            'actions' => ['read', 'download'],
+        ],
+
+        'membership_reports' => [
+            'label' => 'Membership Reports',
+            'actions' => ['read', 'export'],
+        ],
+
+        'membership_settings' => [
+            'label' => 'Membership Settings',
+            'actions' => ['read', 'edit'],
+        ],
 
     ],
 

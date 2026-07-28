@@ -21,6 +21,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
+use App\Services\Membership\MembershipCreditService;
 
 class UserListingController extends Controller
 {
@@ -429,6 +430,8 @@ class UserListingController extends Controller
                 $this->syncUserListingTaxonomyTerms($listing, $termIds);
 
                 $this->storeCustomFieldsForListing($listing, $request->input('custom_fields', []));
+
+                $this->consumeMembershipListingCredit($request, $listing, 'frontend_listing');
             });
 
             $freshListing = DynamicPost::query()
@@ -2782,5 +2785,33 @@ class UserListingController extends Controller
         $listingId = (int) $listing;
 
         return $listingId > 0 ? $listingId : null;
+    }
+    private function consumeMembershipListingCredit(Request $request, object|int $listing, string $referenceType): void
+    {
+        if (!$request->attributes->get('membership_should_consume_listing_credit')) {
+            return;
+        }
+
+        $subjectUser = $request->attributes->get('membership_subject_user');
+
+        if (!$subjectUser instanceof User) {
+            return;
+        }
+
+        $listingId = is_object($listing) ? (int) ($listing->id ?? 0) : (int) $listing;
+
+        if ($listingId <= 0) {
+            return;
+        }
+
+        app(MembershipCreditService::class)->consumeListingCreditOnce(
+            user: $subjectUser,
+            referenceType: $referenceType,
+            referenceId: $listingId,
+            performedBy: $subjectUser,
+            metadata: [
+                'source' => 'user_listing_controller',
+            ]
+        );
     }
 }
