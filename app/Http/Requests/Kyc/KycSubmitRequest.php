@@ -32,7 +32,7 @@ class KycSubmitRequest extends FormRequest
 
         return [
             'aadhaar_number' => [
-                'required',
+                'nullable',
                 'digits:12',
                 Rule::unique('user_details', 'aadhaar_number')->ignore($userId, 'user_id'),
             ],
