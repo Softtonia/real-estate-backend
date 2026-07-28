@@ -38,8 +38,8 @@ class KycDocumentResource extends JsonResource
 
         /*
          * USER RESPONSE
-         * Only user protected endpoint.
-         * Do not expose admin URL, user_id, metadata, uploader, reviewer.
+         * Only this endpoint should show for user.
+         * Do not expose user_id, metadata, uploader, reviewer, admin URL.
          */
         if (!$isAdminResponse) {
             $data['private_file_endpoint'] = '/api/kyc/documents/' . $this->id . '/view';
@@ -49,7 +49,7 @@ class KycDocumentResource extends JsonResource
 
         /*
          * ADMIN RESPONSE
-         * Show admin details and complete admin file URL.
+         * Admin can see uploader/reviewer/metadata and full file URL.
          */
         $data['user_id'] = (int) $this->user_id;
         $data['metadata'] = $this->metadata;
