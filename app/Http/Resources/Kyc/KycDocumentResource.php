@@ -9,10 +9,11 @@ class KycDocumentResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        return [
+        $isAdminResponse = $this->isAdminResponse($request);
+
+        $data = [
             'id' => (int) $this->id,
             'kyc_request_id' => (int) $this->kyc_request_id,
-            'user_id' => (int) $this->user_id,
 
             'document_type' => $this->document_type,
             'document_number' => $this->maskDocumentNumber($this->document_number, $this->document_type),
@@ -26,31 +27,69 @@ class KycDocumentResource extends JsonResource
             'rejection_reason' => $this->rejection_reason,
 
             'version' => (int) $this->version,
-            'metadata' => $this->metadata,
 
-            // 'uploaded_by' => $this->uploaded_by ? (int) $this->uploaded_by : null,
-            // 'reviewed_by' => $this->reviewed_by ? (int) $this->reviewed_by : null,
-
-            // 'uploader' => $this->whenLoaded('uploader', function () {
-            //     return $this->userMini($this->uploader);
-            // }),
-
-            // 'reviewer' => $this->whenLoaded('reviewer', function () {
-            //     return $this->userMini($this->reviewer);
-            // }),
-
-            /*
-             * Private file endpoint will be added in routes later.
-             * Frontend should use this document id to call protected view/download API.
-             */
             'private_file_available' => !empty($this->file_path),
-            'private_file_endpoint' => '/api/kyc/documents/' . $this->id . '/view',
 
             'uploaded_at' => optional($this->uploaded_at)->toDateTimeString(),
             'reviewed_at' => optional($this->reviewed_at)->toDateTimeString(),
             'created_at' => optional($this->created_at)->toDateTimeString(),
             'updated_at' => optional($this->updated_at)->toDateTimeString(),
         ];
+
+        /*
+         * USER RESPONSE
+         * Only user protected endpoint.
+         * Do not expose admin URL, user_id, metadata, uploader, reviewer.
+         */
+        if (!$isAdminResponse) {
+            $data['private_file_endpoint'] = '/api/kyc/documents/' . $this->id . '/view';
+
+            return $data;
+        }
+
+        /*
+         * ADMIN RESPONSE
+         * Show admin details and complete admin file URL.
+         */
+        $data['user_id'] = (int) $this->user_id;
+        $data['metadata'] = $this->metadata;
+
+        $data['uploaded_by'] = $this->uploaded_by ? (int) $this->uploaded_by : null;
+        $data['reviewed_by'] = $this->reviewed_by ? (int) $this->reviewed_by : null;
+
+        $data['uploader'] = $this->whenLoaded('uploader', function () {
+            return $this->userMini($this->uploader);
+        });
+
+        $data['reviewer'] = $this->whenLoaded('reviewer', function () {
+            return $this->userMini($this->reviewer);
+        });
+
+        $data['private_file_url'] = $this->adminFileUrl();
+
+        return $data;
+    }
+
+    private function isAdminResponse(Request $request): bool
+    {
+        $path = trim($request->path(), '/');
+
+        return str_starts_with($path, 'api/admin/kyc')
+            || str_starts_with($path, 'admin/kyc');
+    }
+
+    private function adminFileUrl(): ?string
+    {
+        if (empty($this->file_path)) {
+            return null;
+        }
+
+        return url(
+            '/api/admin/kyc/' .
+            $this->user_id .
+            '/' .
+            basename((string) $this->file_path)
+        );
     }
 
     private function userMini($user): ?array
