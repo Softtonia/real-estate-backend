@@ -24,8 +24,6 @@ class RouteServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->configureRateLimiting();
-
         RateLimiter::for('membership-public', function (Request $request) {
             return Limit::perMinute(120)->by($request->ip());
         });

@@ -57,7 +57,7 @@ class MembershipHealthCheckCommand extends Command
         }
 
         if ($this->warnings > 0) {
-            $this->warn('Membership health check completed with warnings.');
+            $this->markWarning('Membership health check completed with warnings.');
 
             return self::SUCCESS;
         }
@@ -103,9 +103,9 @@ class MembershipHealthCheckCommand extends Command
 
         foreach ($tables as $table) {
             if (Schema::hasTable($table)) {
-                $this->pass("Table exists: {$table}");
+                $this->markPass("Table exists: {$table}");
             } else {
-                $this->fail("Missing table: {$table}");
+                $this->markFail("Missing table: {$table}");
             }
         }
     }
@@ -124,13 +124,13 @@ class MembershipHealthCheckCommand extends Command
             Cache::store('redis')->forget($key);
 
             if ($value === 'ok') {
-                $this->pass('Redis cache read/write working.');
+                $this->markPass('Redis cache read/write working.');
                 return;
             }
 
-            $this->fail('Redis cache write/read mismatch.');
+            $this->markFail('Redis cache write/read mismatch.');
         } catch (Throwable $e) {
-            $this->fail('Redis cache failed: ' . $e->getMessage());
+            $this->markFail('Redis cache failed: ' . $e->getMessage());
         }
     }
 
@@ -141,15 +141,15 @@ class MembershipHealthCheckCommand extends Command
         $defaultQueue = config('queue.default');
 
         if ($defaultQueue === 'redis') {
-            $this->pass('Default queue driver is redis.');
+            $this->markPass('Default queue driver is redis.');
         } else {
-            $this->warn("Default queue driver is {$defaultQueue}. Expected redis.");
+            $this->markWarning("Default queue driver is {$defaultQueue}. Expected redis.");
         }
 
         if (config('queue.connections.redis')) {
-            $this->pass('Redis queue connection is configured.');
+            $this->markPass('Redis queue connection is configured.');
         } else {
-            $this->fail('Redis queue connection is missing.');
+            $this->markFail('Redis queue connection is missing.');
         }
     }
 
@@ -161,9 +161,9 @@ class MembershipHealthCheckCommand extends Command
         $keySecret = config('services.razorpay.key_secret');
         $webhookSecret = config('services.razorpay.webhook_secret');
 
-        $keyId ? $this->pass('Razorpay key_id configured.') : $this->fail('Missing Razorpay key_id.');
-        $keySecret ? $this->pass('Razorpay key_secret configured.') : $this->fail('Missing Razorpay key_secret.');
-        $webhookSecret ? $this->pass('Razorpay webhook_secret configured.') : $this->warn('Missing Razorpay webhook_secret.');
+        $keyId ? $this->markPass('Razorpay key_id configured.') : $this->markFail('Missing Razorpay key_id.');
+        $keySecret ? $this->markPass('Razorpay key_secret configured.') : $this->markFail('Missing Razorpay key_secret.');
+        $webhookSecret ? $this->markPass('Razorpay webhook_secret configured.') : $this->markWarning('Missing Razorpay webhook_secret.');
     }
 
     private function checkSettings(): void
@@ -171,7 +171,7 @@ class MembershipHealthCheckCommand extends Command
         $this->section('Membership settings');
 
         if (!Schema::hasTable('membership_settings')) {
-            $this->fail('membership_settings table missing.');
+            $this->markFail('membership_settings table missing.');
 
             return;
         }
@@ -191,9 +191,9 @@ class MembershipHealthCheckCommand extends Command
                 ->exists();
 
             if ($exists) {
-                $this->pass("Setting exists: {$key}");
+                $this->markPass("Setting exists: {$key}");
             } else {
-                $this->warn("Missing setting: {$key}");
+                $this->markWarning("Missing setting: {$key}");
             }
         }
     }
@@ -238,9 +238,9 @@ class MembershipHealthCheckCommand extends Command
 
         foreach ($requiredUris as $uri) {
             if ($routes->contains(trim($uri, '/'))) {
-                $this->pass("Route exists: {$uri}");
+                $this->markPass("Route exists: {$uri}");
             } else {
-                $this->warn("Route not found exactly: {$uri}");
+                $this->markWarning("Route not found exactly: {$uri}");
             }
         }
     }
@@ -250,15 +250,15 @@ class MembershipHealthCheckCommand extends Command
         $this->section('Invoice PDF');
 
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
-            $this->pass('Dompdf package is installed.');
+            $this->markPass('Dompdf package is installed.');
         } else {
-            $this->warn('Dompdf package not found. Invoice rows will work, but PDF generation may be skipped.');
+            $this->markWarning('Dompdf package not found. Invoice rows will work, but PDF generation may be skipped.');
         }
 
         if (view()->exists('membership.invoices.invoice')) {
-            $this->pass('Invoice Blade view exists.');
+            $this->markPass('Invoice Blade view exists.');
         } else {
-            $this->warn('Invoice Blade view missing: membership.invoices.invoice');
+            $this->markWarning('Invoice Blade view missing: membership.invoices.invoice');
         }
     }
 
@@ -268,15 +268,17 @@ class MembershipHealthCheckCommand extends Command
 
         $commands = Artisan::all();
 
-        foreach ([
-            'membership:process-expirations',
-            'membership:process-reminders',
-            'membership:health-check',
-        ] as $command) {
+        foreach (
+            [
+                'membership:process-expirations',
+                'membership:process-reminders',
+                'membership:health-check',
+            ] as $command
+        ) {
             if (array_key_exists($command, $commands)) {
-                $this->pass("Command registered: {$command}");
+                $this->markPass("Command registered: {$command}");
             } else {
-                $this->fail("Command missing: {$command}");
+                $this->markFail("Command missing: {$command}");
             }
         }
     }
@@ -310,16 +312,16 @@ class MembershipHealthCheckCommand extends Command
     private function countCheck(string $label, int $count, bool $warningOnly = false): void
     {
         if ($count > 0) {
-            $this->pass("{$label}: {$count}");
+            $this->markPass("{$label}: {$count}");
             return;
         }
 
         if ($warningOnly) {
-            $this->warn("{$label}: {$count}");
+            $this->markWarning("{$label}: {$count}");
             return;
         }
 
-        $this->fail("{$label}: {$count}");
+        $this->markFail("{$label}: {$count}");
     }
 
     private function section(string $title): void
@@ -328,19 +330,19 @@ class MembershipHealthCheckCommand extends Command
         $this->line("<comment>{$title}</comment>");
     }
 
-    private function pass(string $message): void
+    private function markPass(string $message): void
     {
         $this->passed++;
         $this->line("<info>✓</info> {$message}");
     }
 
-    private function warn(string $message): void
+    private function markWarning(string $message): void
     {
         $this->warnings++;
         $this->line("<comment>!</comment> {$message}");
     }
 
-    private function fail(string $message): void
+    private function markFail(string $message): void
     {
         $this->failed++;
         $this->line("<error>✗</error> {$message}");
