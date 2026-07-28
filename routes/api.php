@@ -992,7 +992,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
         'auth/google/complete-registration',
         [GoogleAuthController::class, 'completeGoogleRegistration']
     );
-    Route::prefix('membership')->group(function () {
+    Route::prefix('admin/membership')->group(function () {
         Route::get('categories', [AdminMembershipCatalogController::class, 'categories'])
             ->middleware('permission.check:membership_categories,read');
 
