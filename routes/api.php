@@ -906,7 +906,7 @@ Route::middleware(['throttle:60,1', 'admin.token'])->delete('/business-enquiries
 Route::middleware(['throttle:60,1', 'admin.token'])->post('/business-enquiries/bulk-delete', [BusinessEnquiryController::class, 'bulkDelete']);
 
 Route::middleware(['admin.token'])
-    ->prefix('kyc')
+    ->prefix('admin/kyc')
     ->group(function () {
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('stats', [AdminKycController::class, 'stats']);
