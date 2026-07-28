@@ -28,16 +28,16 @@ class KycDocumentResource extends JsonResource
             'version' => (int) $this->version,
             'metadata' => $this->metadata,
 
-            'uploaded_by' => $this->uploaded_by ? (int) $this->uploaded_by : null,
-            'reviewed_by' => $this->reviewed_by ? (int) $this->reviewed_by : null,
+            // 'uploaded_by' => $this->uploaded_by ? (int) $this->uploaded_by : null,
+            // 'reviewed_by' => $this->reviewed_by ? (int) $this->reviewed_by : null,
 
-            'uploader' => $this->whenLoaded('uploader', function () {
-                return $this->userMini($this->uploader);
-            }),
+            // 'uploader' => $this->whenLoaded('uploader', function () {
+            //     return $this->userMini($this->uploader);
+            // }),
 
-            'reviewer' => $this->whenLoaded('reviewer', function () {
-                return $this->userMini($this->reviewer);
-            }),
+            // 'reviewer' => $this->whenLoaded('reviewer', function () {
+            //     return $this->userMini($this->reviewer);
+            // }),
 
             /*
              * Private file endpoint will be added in routes later.
