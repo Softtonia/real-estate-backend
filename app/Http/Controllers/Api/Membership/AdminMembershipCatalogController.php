@@ -93,13 +93,33 @@ class AdminMembershipCatalogController extends Controller
         try {
             $data = $request->validated();
 
-            $category->update([
-                'name' => $data['name'],
-                'slug' => Str::slug($data['slug'] ?? $data['name']),
-                'description' => $data['description'] ?? null,
-                'status' => $data['status'] ?? true,
-                'sort_order' => $data['sort_order'] ?? 0,
-            ]);
+            $payload = [];
+
+            if (array_key_exists('name', $data)) {
+                $payload['name'] = $data['name'];
+            }
+
+            if (array_key_exists('slug', $data)) {
+                $payload['slug'] = \Illuminate\Support\Str::slug(
+                    $data['slug'] ?: ($data['name'] ?? $category->name)
+                );
+            }
+
+            if (array_key_exists('description', $data)) {
+                $payload['description'] = $data['description'];
+            }
+
+            if (array_key_exists('status', $data)) {
+                $payload['status'] = (bool) $data['status'];
+            }
+
+            if (array_key_exists('sort_order', $data)) {
+                $payload['sort_order'] = (int) $data['sort_order'];
+            }
+
+            if (! empty($payload)) {
+                $category->update($payload);
+            }
 
             $this->clearCatalogCaches();
 
@@ -108,9 +128,9 @@ class AdminMembershipCatalogController extends Controller
                 'message' => 'Membership category updated successfully.',
                 'data' => $category->fresh(),
             ]);
-        } catch (ValidationException $e) {
+        } catch (\Illuminate\Validation\ValidationException $e) {
             return $this->validationError($e);
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             return $this->serverError('Unable to update membership category.', $e);
         }
     }

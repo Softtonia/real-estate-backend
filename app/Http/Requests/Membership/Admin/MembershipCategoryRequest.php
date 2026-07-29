@@ -24,7 +24,7 @@ class MembershipCategoryRequest extends FormRequest
                 'max:255',
             ],
             'slug' => [
-                'sometimes',
+                $this->isMethod('post') ? 'nullable' : 'sometimes',
                 'nullable',
                 'string',
                 'max:255',
@@ -36,25 +36,36 @@ class MembershipCategoryRequest extends FormRequest
         ];
     }
 
-    private function resolveCategoryId(): mixed
+    private function resolveCategoryId(): ?int
     {
-        $category = $this->route('category')
-            ?? $this->route('membershipCategory')
-            ?? $this->route('membership_category')
-            ?? $this->route('id');
+        $parameters = $this->route()?->parameters() ?? [];
 
-        if ($category instanceof MembershipCategory) {
-            return $category->id;
+        foreach (['category', 'membershipCategory', 'membership_category', 'id'] as $key) {
+            if (! array_key_exists($key, $parameters)) {
+                continue;
+            }
+
+            $value = $parameters[$key];
+
+            if ($value instanceof MembershipCategory) {
+                return (int) $value->getKey();
+            }
+
+            if (is_object($value) && method_exists($value, 'getKey')) {
+                return (int) $value->getKey();
+            }
+
+            if (is_object($value) && isset($value->id)) {
+                return (int) $value->id;
+            }
+
+            if (is_numeric($value)) {
+                return (int) $value;
+            }
         }
 
-        if (is_object($category) && method_exists($category, 'getKey')) {
-            return $category->getKey();
-        }
+        $lastSegment = last($this->segments());
 
-        if (is_object($category) && isset($category->id)) {
-            return $category->id;
-        }
-
-        return $category;
+        return is_numeric($lastSegment) ? (int) $lastSegment : null;
     }
 }

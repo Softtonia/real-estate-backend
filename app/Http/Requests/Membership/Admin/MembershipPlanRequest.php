@@ -5,11 +5,9 @@ namespace App\Http\Requests\Membership\Admin;
 use App\Models\Membership\MembershipPlan;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
-use App\Http\Requests\Concerns\ResolvesRouteModelId;
 
 class MembershipPlanRequest extends FormRequest
 {
-    use ResolvesRouteModelId;
     public function authorize(): bool
     {
         return true;
@@ -17,12 +15,7 @@ class MembershipPlanRequest extends FormRequest
 
     public function rules(): array
     {
-        $planId = $this->routeModelId([
-            'plan',
-            'membershipPlan',
-            'membership_plan',
-            'id',
-        ]);
+        $planId = $this->route('plan')?->id ?? $this->route('plan');
 
         return [
             'category_id' => ['required', 'integer', 'exists:membership_categories,id'],
