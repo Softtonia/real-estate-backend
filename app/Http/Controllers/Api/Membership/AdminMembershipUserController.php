@@ -452,23 +452,48 @@ class AdminMembershipUserController extends Controller
         ], 500);
     }
     public function cancelOrder(
+        Request $request,
         MembershipOrder $order,
         MembershipOrderService $orderService
     ): JsonResponse {
         try {
-            $order = $orderService->cancel($order);
+            $request->validate([
+                'reason' => ['nullable', 'string', 'max:1000'],
+            ]);
+
+            $order = $orderService->cancelOrder(
+                order: $order,
+                performedBy: $this->resolveCurrentUser($request)
+            );
 
             return response()->json([
                 'status' => true,
                 'message' => 'Membership order cancelled successfully.',
-                'data' => $order->fresh(),
+                'data' => new MembershipOrderResource($order),
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to cancel membership order.', $e);
+        }
+    }
+
+    public function showPayment(MembershipPayment $payment): JsonResponse
+    {
+        try {
+            $payment->loadMissing([
+                'user:id,user_name,first_name,last_name,email,phone',
+                'membershipOrder:id,order_number,user_id,plan_id,total_amount,payment_status,order_status',
+                'membershipOrder.plan:id,name,slug',
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership payment fetched successfully.',
+                'data' => $payment,
             ]);
         } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to cancel membership order.',
-                'error' => 'Server error',
-            ], 500);
+            return $this->serverError('Unable to fetch membership payment.', $e);
         }
     }
 
