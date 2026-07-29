@@ -360,4 +360,50 @@ class AdminKycController extends Controller
             'error' => $e->getMessage(),
         ], 500);
     }
+    public function viewDocumentByFileName(Request $request, int $userId, string $fileName)
+    {
+        $fileName = basename(urldecode($fileName));
+
+        $document = KycDocument::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('file_path')
+            ->where(function ($query) use ($fileName) {
+                $query->where('file_path', 'like', '%/' . $fileName)
+                    ->orWhere('file_path', $fileName);
+            })
+            ->latest('id')
+            ->first();
+
+        if (!$document) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Document not found.',
+            ], 404);
+        }
+
+        $disk = 'private';
+
+        if (Schema::hasColumn('kyc_documents', 'file_disk') && !empty($document->file_disk)) {
+            $disk = $document->file_disk;
+        }
+
+        if (Schema::hasColumn('kyc_documents', 'disk') && !empty($document->disk)) {
+            $disk = $document->disk;
+        }
+
+        if (!Storage::disk($disk)->exists($document->file_path)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Document file not found.',
+            ], 404);
+        }
+
+        return Storage::disk($disk)->response(
+            $document->file_path,
+            $document->file_original_name ?: $fileName,
+            [
+                'Content-Type' => $document->mime_type ?: 'application/octet-stream',
+            ]
+        );
+    }
 }
