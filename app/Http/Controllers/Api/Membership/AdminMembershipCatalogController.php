@@ -201,26 +201,43 @@ class AdminMembershipCatalogController extends Controller
         }
     }
 
+    public function showFeature(MembershipFeature $feature): JsonResponse
+    {
+        try {
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership feature fetched successfully.',
+                'data' => $feature->loadCount('planFeatures'),
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to fetch membership feature.', $e);
+        }
+    }
+
     public function storeFeature(MembershipFeatureRequest $request): JsonResponse
     {
         try {
             $data = $request->validated();
 
-            $feature = MembershipFeature::query()->create([
+            $feature = new MembershipFeature();
+
+            $feature->forceFill([
                 'name' => $data['name'],
                 'slug' => Str::slug($data['slug'] ?? $data['name']),
                 'description' => $data['description'] ?? null,
                 'feature_type' => $data['feature_type'],
-                'status' => $data['status'] ?? true,
-                'sort_order' => $data['sort_order'] ?? 0,
+                'status' => array_key_exists('status', $data) ? (bool) $data['status'] : true,
+                'sort_order' => array_key_exists('sort_order', $data) ? (int) $data['sort_order'] : 0,
             ]);
+
+            $feature->save();
 
             $this->clearCatalogCaches();
 
             return response()->json([
                 'status' => true,
                 'message' => 'Membership feature created successfully.',
-                'data' => $feature,
+                'data' => $feature->fresh(),
             ], 201);
         } catch (ValidationException $e) {
             return $this->validationError($e);
@@ -234,21 +251,45 @@ class AdminMembershipCatalogController extends Controller
         try {
             $data = $request->validated();
 
-            $feature->update([
-                'name' => $data['name'],
-                'slug' => Str::slug($data['slug'] ?? $data['name']),
-                'description' => $data['description'] ?? null,
-                'feature_type' => $data['feature_type'],
-                'status' => $data['status'] ?? true,
-                'sort_order' => $data['sort_order'] ?? 0,
-            ]);
+            $payload = [];
+
+            if (array_key_exists('name', $data)) {
+                $payload['name'] = $data['name'];
+            }
+
+            if (array_key_exists('slug', $data)) {
+                $payload['slug'] = Str::slug(
+                    $data['slug'] ?: ($data['name'] ?? $feature->name)
+                );
+            }
+
+            if (array_key_exists('description', $data)) {
+                $payload['description'] = $data['description'];
+            }
+
+            if (array_key_exists('feature_type', $data)) {
+                $payload['feature_type'] = $data['feature_type'];
+            }
+
+            if (array_key_exists('status', $data)) {
+                $payload['status'] = (bool) $data['status'];
+            }
+
+            if (array_key_exists('sort_order', $data)) {
+                $payload['sort_order'] = (int) $data['sort_order'];
+            }
+
+            if (! empty($payload)) {
+                $feature->forceFill($payload);
+                $feature->save();
+            }
 
             $this->clearCatalogCaches();
 
             return response()->json([
                 'status' => true,
                 'message' => 'Membership feature updated successfully.',
-                'data' => $feature->fresh(),
+                'data' => $feature->fresh()->loadCount('planFeatures'),
             ]);
         } catch (ValidationException $e) {
             return $this->validationError($e);
