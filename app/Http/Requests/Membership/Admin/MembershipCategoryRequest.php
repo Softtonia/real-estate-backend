@@ -1,9 +1,8 @@
 <?php
 
-namespace App\Http\Requests\Membership;
+namespace App\Http\Requests\Membership\Admin;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class MembershipCategoryRequest extends FormRequest
@@ -13,59 +12,39 @@ class MembershipCategoryRequest extends FormRequest
         return true;
     }
 
-    protected function prepareForValidation(): void
-    {
-        if ($this->filled('slug')) {
-            $this->merge([
-                'slug' => Str::slug($this->input('slug')),
-            ]);
-        }
-
-        if ($this->isMethod('post') && !$this->filled('slug') && $this->filled('name')) {
-            $this->merge([
-                'slug' => Str::slug($this->input('name')),
-            ]);
-        }
-    }
-
     public function rules(): array
     {
-        $categoryId = $this->route('category') ?? $this->route('id');
-
-        if (is_object($categoryId)) {
-            $categoryId = $categoryId->id;
-        }
+        $categoryId = $this->resolveCategoryId();
 
         return [
-            'name' => [
-                $this->isMethod('post') ? 'required' : 'sometimes',
-                'string',
-                'max:150',
-            ],
-
+            'name' => ['required', 'string', 'max:255'],
             'slug' => [
-                $this->isMethod('post') ? 'required' : 'sometimes',
-                'string',
-                'max:180',
-                Rule::unique('membership_categories', 'slug')->ignore($categoryId),
-            ],
-
-            'description' => [
                 'nullable',
                 'string',
-                'max:1000',
+                'max:255',
+                Rule::unique('membership_categories', 'slug')->ignore($categoryId),
             ],
-
-            'status' => [
-                'sometimes',
-                Rule::in(['active', 'inactive']),
-            ],
-
-            'sort_order' => [
-                'sometimes',
-                'integer',
-                'min:0',
-            ],
+            'description' => ['nullable', 'string'],
+            'status' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
         ];
+    }
+
+    private function resolveCategoryId(): mixed
+    {
+        $category = $this->route('category')
+            ?? $this->route('membershipCategory')
+            ?? $this->route('membership_category')
+            ?? $this->route('id');
+
+        if (is_object($category) && method_exists($category, 'getKey')) {
+            return $category->getKey();
+        }
+
+        if (is_object($category) && isset($category->id)) {
+            return $category->id;
+        }
+
+        return $category;
     }
 }
