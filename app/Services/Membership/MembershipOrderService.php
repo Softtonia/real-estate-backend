@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Models\Membership\MembershipPayment;
+use Throwable;
 
 class MembershipOrderService
 {
@@ -519,5 +521,47 @@ class MembershipOrderService
             'user_agent' => request()?->userAgent(),
             'created_at' => now(),
         ]);
+    }
+    public function cancelOrder(
+        MembershipOrder $order,
+        MembershipOrderService $orderService
+    ): JsonResponse {
+        try {
+            $order = $orderService->cancel($order);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership order cancelled successfully.',
+                'data' => $order->fresh(),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to cancel membership order.',
+                'error' => 'Server error',
+            ], 500);
+        }
+    }
+
+    public function showPayment(MembershipPayment $payment): JsonResponse
+    {
+        try {
+            $payment->load([
+                'user:id,user_name,first_name,last_name,email,phone',
+                'order:id,order_number,user_id,plan_id,total_amount,payment_status,order_status',
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership payment fetched successfully.',
+                'data' => $payment,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch membership payment.',
+                'error' => 'Server error',
+            ], 500);
+        }
     }
 }
