@@ -996,217 +996,303 @@ Route::middleware(['throttle:60,1'])->group(function () {
         'auth/google/complete-registration',
         [GoogleAuthController::class, 'completeGoogleRegistration']
     );
-    Route::prefix('admin/membership')->group(function () {
-        Route::get('categories', [AdminMembershipCatalogController::class, 'categories'])
-            ->middleware('permission.check:membership_categories,read');
+    Route::prefix('admin/membership')
+        ->middleware('throttle:membership-admin')
+        ->group(function () {
 
-        Route::post('categories', [AdminMembershipCatalogController::class, 'storeCategory'])
-            ->middleware('permission.check:membership_categories,create');
+            /*
+        |--------------------------------------------------------------------------
+        | Categories
+        |--------------------------------------------------------------------------
+        */
+            Route::get('categories/export', [AdminMembershipCatalogController::class, 'exportCategories'])
+                ->middleware('permission.check:membership_categories,read');
 
-        Route::put('categories/{category}', [AdminMembershipCatalogController::class, 'updateCategory'])
-            ->middleware('permission.check:membership_categories,edit');
-        Route::patch('categories/{category}', [AdminMembershipCatalogController::class, 'updateCategory'])
-            ->middleware('permission.check:membership_categories,edit');
+            Route::post('categories/import', [AdminMembershipCatalogController::class, 'importCategories'])
+                ->middleware('permission.check:membership_categories,create');
 
-        Route::delete('categories/{category}', [AdminMembershipCatalogController::class, 'deleteCategory'])
-            ->middleware('permission.check:membership_categories,delete');
+            Route::post('categories/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeleteCategories'])
+                ->middleware('permission.check:membership_categories,delete');
 
-        Route::get('categories/export', [AdminMembershipCatalogController::class, 'exportCategories'])
-            ->middleware('permission.check:membership_categories,read');
+            Route::get('categories', [AdminMembershipCatalogController::class, 'categories'])
+                ->middleware('permission.check:membership_categories,read');
 
-        Route::post('categories/import', [AdminMembershipCatalogController::class, 'importCategories'])
-            ->middleware('permission.check:membership_categories,create');
+            Route::post('categories', [AdminMembershipCatalogController::class, 'storeCategory'])
+                ->middleware('permission.check:membership_categories,create');
 
-        Route::post('categories/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeleteCategories'])
-            ->middleware('permission.check:membership_categories,delete');
+            Route::put('categories/{category}', [AdminMembershipCatalogController::class, 'updateCategory'])
+                ->middleware('permission.check:membership_categories,edit');
 
+            Route::patch('categories/{category}', [AdminMembershipCatalogController::class, 'updateCategory'])
+                ->middleware('permission.check:membership_categories,edit');
 
-        Route::get('features', [AdminMembershipCatalogController::class, 'features'])
-            ->middleware('permission.check:membership_features,read');
+            Route::delete('categories/{category}', [AdminMembershipCatalogController::class, 'deleteCategory'])
+                ->middleware('permission.check:membership_categories,delete');
 
-        Route::post('features', [AdminMembershipCatalogController::class, 'storeFeature'])
-            ->middleware('permission.check:membership_features,create');
 
-        Route::put('features/{feature}', [AdminMembershipCatalogController::class, 'updateFeature'])
-            ->middleware('permission.check:membership_features,edit');
+            /*
+        |--------------------------------------------------------------------------
+        | Features
+        |--------------------------------------------------------------------------
+        */
+            Route::get('features/export', [AdminMembershipCatalogController::class, 'exportFeatures'])
+                ->middleware('permission.check:membership_features,read');
 
-        Route::delete('features/{feature}', [AdminMembershipCatalogController::class, 'deleteFeature'])
-            ->middleware('permission.check:membership_features,delete');
+            Route::post('features/import', [AdminMembershipCatalogController::class, 'importFeatures'])
+                ->middleware('permission.check:membership_features,create');
 
-        Route::get('features/export', [AdminMembershipCatalogController::class, 'exportFeatures'])
-            ->middleware('permission.check:membership_features,read');
+            Route::post('features/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeleteFeatures'])
+                ->middleware('permission.check:membership_features,delete');
 
-        Route::post('features/import', [AdminMembershipCatalogController::class, 'importFeatures'])
-            ->middleware('permission.check:membership_features,create');
+            Route::get('features', [AdminMembershipCatalogController::class, 'features'])
+                ->middleware('permission.check:membership_features,read');
 
-        Route::post('features/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeleteFeatures'])
-            ->middleware('permission.check:membership_features,delete');
+            Route::post('features', [AdminMembershipCatalogController::class, 'storeFeature'])
+                ->middleware('permission.check:membership_features,create');
 
-        Route::get('plans', [AdminMembershipCatalogController::class, 'plans'])
-            ->middleware('permission.check:membership_plans,read');
+            Route::put('features/{feature}', [AdminMembershipCatalogController::class, 'updateFeature'])
+                ->middleware('permission.check:membership_features,edit');
 
-        Route::post('plans', [AdminMembershipCatalogController::class, 'storePlan'])
-            ->middleware('permission.check:membership_plans,create');
+            Route::patch('features/{feature}', [AdminMembershipCatalogController::class, 'updateFeature'])
+                ->middleware('permission.check:membership_features,edit');
 
-        Route::get('plans/{plan}', [AdminMembershipCatalogController::class, 'showPlan'])
-            ->middleware('permission.check:membership_plans,read');
+            Route::delete('features/{feature}', [AdminMembershipCatalogController::class, 'deleteFeature'])
+                ->middleware('permission.check:membership_features,delete');
 
-        Route::put('plans/{plan}', [AdminMembershipCatalogController::class, 'updatePlan'])
-            ->middleware('permission.check:membership_plans,edit');
 
-        Route::delete('plans/{plan}', [AdminMembershipCatalogController::class, 'deletePlan'])
-            ->middleware('permission.check:membership_plans,delete');
+            /*
+        |--------------------------------------------------------------------------
+        | Plans
+        |--------------------------------------------------------------------------
+        */
+            Route::get('plans/export', [AdminMembershipCatalogController::class, 'exportPlans'])
+                ->middleware('permission.check:membership_plans,read');
 
-        Route::post('plans/{plan}/features', [AdminMembershipCatalogController::class, 'syncPlanFeatures'])
-            ->middleware('permission.check:membership_plan_rules,edit');
+            Route::post('plans/import', [AdminMembershipCatalogController::class, 'importPlans'])
+                ->middleware('permission.check:membership_plans,create');
 
-        Route::post('plans/{plan}/roles', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
-            ->middleware('permission.check:membership_plan_rules,edit');
-        Route::get('plans/export', [AdminMembershipCatalogController::class, 'exportPlans'])
-            ->middleware('permission.check:membership_plans,read');
+            Route::post('plans/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeletePlans'])
+                ->middleware('permission.check:membership_plans,delete');
 
-        Route::post('plans/import', [AdminMembershipCatalogController::class, 'importPlans'])
-            ->middleware('permission.check:membership_plans,create');
+            Route::get('plans', [AdminMembershipCatalogController::class, 'plans'])
+                ->middleware('permission.check:membership_plans,read');
 
-        Route::post('plans/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeletePlans'])
-            ->middleware('permission.check:membership_plans,delete');
+            Route::post('plans', [AdminMembershipCatalogController::class, 'storePlan'])
+                ->middleware('permission.check:membership_plans,create');
 
-        Route::get('orders', [AdminMembershipUserController::class, 'orders'])
-            ->middleware('permission.check:membership_orders,read');
+            Route::get('plans/{plan}', [AdminMembershipCatalogController::class, 'showPlan'])
+                ->middleware('permission.check:membership_plans,read');
 
-        Route::get('orders/{order}', [AdminMembershipUserController::class, 'showOrder'])
-            ->middleware('permission.check:membership_orders,read');
+            Route::put('plans/{plan}', [AdminMembershipCatalogController::class, 'updatePlan'])
+                ->middleware('permission.check:membership_plans,edit');
 
-        Route::get('payments', [AdminMembershipUserController::class, 'payments'])
-            ->middleware('permission.check:membership_payments,read');
+            Route::patch('plans/{plan}', [AdminMembershipCatalogController::class, 'updatePlan'])
+                ->middleware('permission.check:membership_plans,edit');
 
-        Route::get('users', [AdminMembershipUserController::class, 'memberships'])
-            ->middleware('permission.check:membership_users,read');
+            Route::delete('plans/{plan}', [AdminMembershipCatalogController::class, 'deletePlan'])
+                ->middleware('permission.check:membership_plans,delete');
 
-        Route::get('users/{membership}', [AdminMembershipUserController::class, 'showMembership'])
-            ->middleware('permission.check:membership_users,read');
+            Route::post('plans/{plan}/features', [AdminMembershipCatalogController::class, 'syncPlanFeatures'])
+                ->middleware('permission.check:membership_plan_rules,edit');
 
-        Route::post('users/manual-activate', [AdminMembershipUserController::class, 'manualActivate'])
-            ->middleware('permission.check:membership_users,manual_activate');
+            Route::post('plans/{plan}/roles', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
+                ->middleware('permission.check:membership_plan_rules,edit');
 
-        Route::post('users/{membership}/cancel', [AdminMembershipUserController::class, 'cancelMembership'])
-            ->middleware('permission.check:membership_users,cancel');
 
-        Route::post('users/{membership}/expire', [AdminMembershipUserController::class, 'expireMembership'])
-            ->middleware('permission.check:membership_users,edit');
+            /*
+        |--------------------------------------------------------------------------
+        | Orders / Payments / Users / Credits
+        |--------------------------------------------------------------------------
+        */
+            Route::get('orders', [AdminMembershipUserController::class, 'orders'])
+                ->middleware('permission.check:membership_orders,read');
 
-        Route::get('credits', [AdminMembershipUserController::class, 'userCredits'])
-            ->middleware('permission.check:membership_credits,read');
+            Route::get('orders/{order}', [AdminMembershipUserController::class, 'showOrder'])
+                ->middleware('permission.check:membership_orders,read');
 
-        Route::post('credits/adjust', [AdminMembershipUserController::class, 'adjustCredit'])
-            ->middleware('permission.check:membership_credits,adjust');
+            Route::get('payments', [AdminMembershipUserController::class, 'payments'])
+                ->middleware('permission.check:membership_payments,read');
 
-        Route::get('credits/transactions', [AdminMembershipUserController::class, 'creditTransactions'])
-            ->middleware('permission.check:membership_credits,read');
-        Route::get('coupons', [AdminMembershipCouponController::class, 'index'])
-            ->middleware('permission.check:membership_coupons,read');
+            Route::get('users', [AdminMembershipUserController::class, 'memberships'])
+                ->middleware('permission.check:membership_users,read');
 
-        Route::post('coupons', [AdminMembershipCouponController::class, 'store'])
-            ->middleware('permission.check:membership_coupons,create');
+            Route::post('users/manual-activate', [AdminMembershipUserController::class, 'manualActivate'])
+                ->middleware('permission.check:membership_users,manual_activate');
 
-        Route::get('coupons/{coupon}', [AdminMembershipCouponController::class, 'show'])
-            ->middleware('permission.check:membership_coupons,read');
+            Route::get('users/{membership}', [AdminMembershipUserController::class, 'showMembership'])
+                ->middleware('permission.check:membership_users,read');
 
-        Route::put('coupons/{coupon}', [AdminMembershipCouponController::class, 'update'])
-            ->middleware('permission.check:membership_coupons,edit');
+            Route::post('users/{membership}/cancel', [AdminMembershipUserController::class, 'cancelMembership'])
+                ->middleware('permission.check:membership_users,cancel');
 
-        Route::delete('coupons/{coupon}', [AdminMembershipCouponController::class, 'destroy'])
-            ->middleware('permission.check:membership_coupons,delete');
-        Route::get('addons', [AdminMembershipAddonController::class, 'index'])
-            ->middleware('permission.check:membership_addons,read');
+            Route::post('users/{membership}/expire', [AdminMembershipUserController::class, 'expireMembership'])
+                ->middleware('permission.check:membership_users,edit');
 
-        Route::post('addons', [AdminMembershipAddonController::class, 'store'])
-            ->middleware('permission.check:membership_addons,create');
+            Route::get('credits/transactions', [AdminMembershipUserController::class, 'creditTransactions'])
+                ->middleware('permission.check:membership_credits,read');
 
-        Route::get('addons/{addon}', [AdminMembershipAddonController::class, 'show'])
-            ->middleware('permission.check:membership_addons,read');
+            Route::get('credits', [AdminMembershipUserController::class, 'userCredits'])
+                ->middleware('permission.check:membership_credits,read');
 
-        Route::put('addons/{addon}', [AdminMembershipAddonController::class, 'update'])
-            ->middleware('permission.check:membership_addons,edit');
+            Route::post('credits/adjust', [AdminMembershipUserController::class, 'adjustCredit'])
+                ->middleware('permission.check:membership_credits,adjust');
 
-        Route::delete('addons/{addon}', [AdminMembershipAddonController::class, 'destroy'])
-            ->middleware('permission.check:membership_addons,delete');
 
+            /*
+        |--------------------------------------------------------------------------
+        | Coupons
+        |--------------------------------------------------------------------------
+        */
+            Route::get('coupons', [AdminMembershipCouponController::class, 'index'])
+                ->middleware('permission.check:membership_coupons,read');
 
-        Route::get('invoices', [AdminMembershipInvoiceController::class, 'index'])
-            ->middleware('permission.check:membership_invoices,read');
+            Route::post('coupons', [AdminMembershipCouponController::class, 'store'])
+                ->middleware('permission.check:membership_coupons,create');
 
-        Route::get('invoices/{invoice}', [AdminMembershipInvoiceController::class, 'show'])
-            ->middleware('permission.check:membership_invoices,read');
+            Route::get('coupons/{coupon}', [AdminMembershipCouponController::class, 'show'])
+                ->middleware('permission.check:membership_coupons,read');
 
-        Route::get('invoices/{invoice}/download', [AdminMembershipInvoiceController::class, 'download'])
-            ->middleware('permission.check:membership_invoices,download');
-        Route::get('settings', [AdminMembershipSettingController::class, 'index'])
-            ->middleware('permission.check:membership_settings,read');
+            Route::put('coupons/{coupon}', [AdminMembershipCouponController::class, 'update'])
+                ->middleware('permission.check:membership_coupons,edit');
 
-        Route::post('settings', [AdminMembershipSettingController::class, 'store'])
-            ->middleware('permission.check:membership_settings,create');
+            Route::patch('coupons/{coupon}', [AdminMembershipCouponController::class, 'update'])
+                ->middleware('permission.check:membership_coupons,edit');
 
-        Route::get('settings/{setting}', [AdminMembershipSettingController::class, 'show'])
-            ->middleware('permission.check:membership_settings,read');
+            Route::delete('coupons/{coupon}', [AdminMembershipCouponController::class, 'destroy'])
+                ->middleware('permission.check:membership_coupons,delete');
 
-        Route::put('settings/{setting}', [AdminMembershipSettingController::class, 'update'])
-            ->middleware('permission.check:membership_settings,edit');
 
-        Route::delete('settings/{setting}', [AdminMembershipSettingController::class, 'destroy'])
-            ->middleware('permission.check:membership_settings,delete');
+            /*
+        |--------------------------------------------------------------------------
+        | Add-ons / Add-on Orders
+        |--------------------------------------------------------------------------
+        */
+            Route::get('addon-orders', [AdminMembershipAddonOrderController::class, 'index'])
+                ->middleware('permission.check:membership_addons,read');
 
-        Route::get('reports/dashboard', [AdminMembershipReportController::class, 'dashboard'])
-            ->middleware('permission.check:membership_reports,read');
+            Route::get('addon-orders/{addonOrder}', [AdminMembershipAddonOrderController::class, 'show'])
+                ->middleware('permission.check:membership_addons,read');
 
-        Route::get('reports/revenue', [AdminMembershipReportController::class, 'revenue'])
-            ->middleware('permission.check:membership_reports,read');
+            Route::post('addon-orders/{addonOrder}/mark-failed', [AdminMembershipAddonOrderController::class, 'markFailed'])
+                ->middleware('permission.check:membership_addons,edit');
 
-        Route::get('reports/credits', [AdminMembershipReportController::class, 'credits'])
-            ->middleware('permission.check:membership_reports,read');
+            Route::post('addon-orders/{addonOrder}/apply-benefits', [AdminMembershipAddonOrderController::class, 'applyBenefits'])
+                ->middleware('permission.check:membership_addons,edit');
 
-        Route::get('reports/top-plans', [AdminMembershipReportController::class, 'topPlans'])
-            ->middleware('permission.check:membership_reports,read');
+            Route::get('addon-usages', [AdminMembershipAddonOrderController::class, 'usages'])
+                ->middleware('permission.check:membership_addons,read');
 
-        Route::get('reports/top-addons', [AdminMembershipReportController::class, 'topAddons'])
-            ->middleware('permission.check:membership_reports,read');
+            Route::get('addons', [AdminMembershipAddonController::class, 'index'])
+                ->middleware('permission.check:membership_addons,read');
 
-        Route::get('addon-orders', [AdminMembershipAddonOrderController::class, 'index'])
-            ->middleware('permission.check:membership_addons,read');
+            Route::post('addons', [AdminMembershipAddonController::class, 'store'])
+                ->middleware('permission.check:membership_addons,create');
 
-        Route::get('addon-orders/{addonOrder}', [AdminMembershipAddonOrderController::class, 'show'])
-            ->middleware('permission.check:membership_addons,read');
+            Route::get('addons/{addon}', [AdminMembershipAddonController::class, 'show'])
+                ->middleware('permission.check:membership_addons,read');
 
-        Route::post('addon-orders/{addonOrder}/mark-failed', [AdminMembershipAddonOrderController::class, 'markFailed'])
-            ->middleware('permission.check:membership_addons,edit');
+            Route::put('addons/{addon}', [AdminMembershipAddonController::class, 'update'])
+                ->middleware('permission.check:membership_addons,edit');
 
-        Route::post('addon-orders/{addonOrder}/apply-benefits', [AdminMembershipAddonOrderController::class, 'applyBenefits'])
-            ->middleware('permission.check:membership_addons,edit');
+            Route::patch('addons/{addon}', [AdminMembershipAddonController::class, 'update'])
+                ->middleware('permission.check:membership_addons,edit');
 
-        Route::get('addon-usages', [AdminMembershipAddonOrderController::class, 'usages'])
-            ->middleware('permission.check:membership_addons,read');
+            Route::delete('addons/{addon}', [AdminMembershipAddonController::class, 'destroy'])
+                ->middleware('permission.check:membership_addons,delete');
 
-        Route::get('refunds', [AdminMembershipRefundController::class, 'index'])
-            ->middleware('permission.check:membership_payments,read');
 
-        Route::post('refunds', [AdminMembershipRefundController::class, 'store'])
-            ->middleware('permission.check:membership_payments,refund');
+            /*
+        |--------------------------------------------------------------------------
+        | Invoices
+        |--------------------------------------------------------------------------
+        */
+            Route::get('invoices', [AdminMembershipInvoiceController::class, 'index'])
+                ->middleware('permission.check:membership_invoices,read');
 
-        Route::get('refunds/{refund}', [AdminMembershipRefundController::class, 'show'])
-            ->middleware('permission.check:membership_payments,read');
+            Route::get('invoices/{invoice}/download', [AdminMembershipInvoiceController::class, 'download'])
+                ->middleware('permission.check:membership_invoices,download');
 
-        Route::post('refunds/{refund}/mark-processed', [AdminMembershipRefundController::class, 'markProcessed'])
-            ->middleware('permission.check:membership_payments,refund');
+            Route::get('invoices/{invoice}', [AdminMembershipInvoiceController::class, 'show'])
+                ->middleware('permission.check:membership_invoices,read');
 
-        Route::post('refunds/{refund}/mark-failed', [AdminMembershipRefundController::class, 'markFailed'])
-            ->middleware('permission.check:membership_payments,refund');
 
-        Route::get('audit-logs', [AdminMembershipAuditLogController::class, 'index'])
-            ->middleware('permission.check:membership_reports,read');
+            /*
+        |--------------------------------------------------------------------------
+        | Settings
+        |--------------------------------------------------------------------------
+        */
+            Route::get('settings', [AdminMembershipSettingController::class, 'index'])
+                ->middleware('permission.check:membership_settings,read');
 
-        Route::get('audit-logs/{auditLog}', [AdminMembershipAuditLogController::class, 'show'])
-            ->middleware('permission.check:membership_reports,read');
-    });
+            Route::post('settings', [AdminMembershipSettingController::class, 'store'])
+                ->middleware('permission.check:membership_settings,create');
+
+            Route::get('settings/{setting}', [AdminMembershipSettingController::class, 'show'])
+                ->middleware('permission.check:membership_settings,read');
+
+            Route::put('settings/{setting}', [AdminMembershipSettingController::class, 'update'])
+                ->middleware('permission.check:membership_settings,edit');
+
+            Route::patch('settings/{setting}', [AdminMembershipSettingController::class, 'update'])
+                ->middleware('permission.check:membership_settings,edit');
+
+            Route::delete('settings/{setting}', [AdminMembershipSettingController::class, 'destroy'])
+                ->middleware('permission.check:membership_settings,delete');
+
+
+            /*
+        |--------------------------------------------------------------------------
+        | Reports
+        |--------------------------------------------------------------------------
+        */
+            Route::get('reports/dashboard', [AdminMembershipReportController::class, 'dashboard'])
+                ->middleware('permission.check:membership_reports,read');
+
+            Route::get('reports/revenue', [AdminMembershipReportController::class, 'revenue'])
+                ->middleware('permission.check:membership_reports,read');
+
+            Route::get('reports/credits', [AdminMembershipReportController::class, 'credits'])
+                ->middleware('permission.check:membership_reports,read');
+
+            Route::get('reports/top-plans', [AdminMembershipReportController::class, 'topPlans'])
+                ->middleware('permission.check:membership_reports,read');
+
+            Route::get('reports/top-addons', [AdminMembershipReportController::class, 'topAddons'])
+                ->middleware('permission.check:membership_reports,read');
+
+
+            /*
+        |--------------------------------------------------------------------------
+        | Refunds
+        |--------------------------------------------------------------------------
+        */
+            Route::get('refunds', [AdminMembershipRefundController::class, 'index'])
+                ->middleware('permission.check:membership_payments,read');
+
+            Route::post('refunds', [AdminMembershipRefundController::class, 'store'])
+                ->middleware('permission.check:membership_payments,refund');
+
+            Route::post('refunds/{refund}/mark-processed', [AdminMembershipRefundController::class, 'markProcessed'])
+                ->middleware('permission.check:membership_payments,refund');
+
+            Route::post('refunds/{refund}/mark-failed', [AdminMembershipRefundController::class, 'markFailed'])
+                ->middleware('permission.check:membership_payments,refund');
+
+            Route::get('refunds/{refund}', [AdminMembershipRefundController::class, 'show'])
+                ->middleware('permission.check:membership_payments,read');
+
+
+            /*
+        |--------------------------------------------------------------------------
+        | Audit Logs
+        |--------------------------------------------------------------------------
+        */
+            Route::get('audit-logs', [AdminMembershipAuditLogController::class, 'index'])
+                ->middleware('permission.check:membership_reports,read');
+
+            Route::get('audit-logs/{auditLog}', [AdminMembershipAuditLogController::class, 'show'])
+                ->middleware('permission.check:membership_reports,read');
+        });
 });
 // ================= VK Admin CRM Builder APIs =================
 Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->group(function () {
