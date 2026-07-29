@@ -2,11 +2,14 @@
 
 namespace App\Http\Requests\Membership\Admin;
 
+use App\Http\Requests\Concerns\ResolvesRouteModelId;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class MembershipCategoryRequest extends FormRequest
 {
+    use ResolvesRouteModelId;
+
     public function authorize(): bool
     {
         return true;
@@ -14,7 +17,12 @@ class MembershipCategoryRequest extends FormRequest
 
     public function rules(): array
     {
-        $categoryId = $this->resolveCategoryId();
+        $categoryId = $this->routeModelId([
+            'category',
+            'membershipCategory',
+            'membership_category',
+            'id',
+        ]);
 
         return [
             'name' => ['required', 'string', 'max:255'],
@@ -28,23 +36,5 @@ class MembershipCategoryRequest extends FormRequest
             'status' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ];
-    }
-
-    private function resolveCategoryId(): mixed
-    {
-        $category = $this->route('category')
-            ?? $this->route('membershipCategory')
-            ?? $this->route('membership_category')
-            ?? $this->route('id');
-
-        if (is_object($category) && method_exists($category, 'getKey')) {
-            return $category->getKey();
-        }
-
-        if (is_object($category) && isset($category->id)) {
-            return $category->id;
-        }
-
-        return $category;
     }
 }

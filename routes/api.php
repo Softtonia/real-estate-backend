@@ -1005,6 +1005,15 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::delete('categories/{category}', [AdminMembershipCatalogController::class, 'deleteCategory'])
             ->middleware('permission.check:membership_categories,delete');
 
+        Route::get('categories/export', [AdminMembershipCatalogController::class, 'exportCategories'])
+            ->middleware('permission.check:membership_categories,read');
+
+        Route::post('categories/import', [AdminMembershipCatalogController::class, 'importCategories'])
+            ->middleware('permission.check:membership_categories,create');
+
+        Route::post('categories/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeleteCategories'])
+            ->middleware('permission.check:membership_categories,delete');
+
 
         Route::get('features', [AdminMembershipCatalogController::class, 'features'])
             ->middleware('permission.check:membership_features,read');
@@ -1018,6 +1027,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::delete('features/{feature}', [AdminMembershipCatalogController::class, 'deleteFeature'])
             ->middleware('permission.check:membership_features,delete');
 
+        Route::get('features/export', [AdminMembershipCatalogController::class, 'exportFeatures'])
+            ->middleware('permission.check:membership_features,read');
+
+        Route::post('features/import', [AdminMembershipCatalogController::class, 'importFeatures'])
+            ->middleware('permission.check:membership_features,create');
+
+        Route::post('features/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeleteFeatures'])
+            ->middleware('permission.check:membership_features,delete');
 
         Route::get('plans', [AdminMembershipCatalogController::class, 'plans'])
             ->middleware('permission.check:membership_plans,read');
@@ -1039,6 +1056,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         Route::post('plans/{plan}/roles', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
             ->middleware('permission.check:membership_plan_rules,edit');
+        Route::get('plans/export', [AdminMembershipCatalogController::class, 'exportPlans'])
+            ->middleware('permission.check:membership_plans,read');
+
+        Route::post('plans/import', [AdminMembershipCatalogController::class, 'importPlans'])
+            ->middleware('permission.check:membership_plans,create');
+
+        Route::post('plans/bulk-delete', [AdminMembershipCatalogController::class, 'bulkDeletePlans'])
+            ->middleware('permission.check:membership_plans,delete');
 
         Route::get('orders', [AdminMembershipUserController::class, 'orders'])
             ->middleware('permission.check:membership_orders,read');

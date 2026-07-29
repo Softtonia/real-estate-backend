@@ -3,6 +3,10 @@
 namespace App\Http\Controllers\Api\Membership;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Membership\Admin\MembershipBulkDeleteRequest;
+use App\Http\Requests\Membership\Admin\MembershipImportRequest;
+use App\Services\Membership\MembershipCatalogImportExportService;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Http\Requests\Membership\Admin\MembershipCategoryRequest;
 use App\Http\Requests\Membership\Admin\MembershipFeatureRequest;
 use App\Http\Requests\Membership\Admin\MembershipPlanRequest;
@@ -92,7 +96,9 @@ class AdminMembershipCatalogController extends Controller
 
             $category->update([
                 'name' => $data['name'],
-                'slug' => Str::slug($data['slug'] ?? $data['name']),
+                'slug' => !empty($data['slug'])
+                    ? Str::slug($data['slug'])
+                    : $category->slug,
                 'description' => $data['description'] ?? null,
                 'status' => $data['status'] ?? true,
                 'sort_order' => $data['sort_order'] ?? 0,
@@ -211,7 +217,9 @@ class AdminMembershipCatalogController extends Controller
 
             $feature->update([
                 'name' => $data['name'],
-                'slug' => Str::slug($data['slug'] ?? $data['name']),
+                'slug' => !empty($data['slug'])
+                    ? Str::slug($data['slug'])
+                    : $feature->slug,
                 'description' => $data['description'] ?? null,
                 'feature_type' => $data['feature_type'],
                 'status' => $data['status'] ?? true,
@@ -457,5 +465,151 @@ class AdminMembershipCatalogController extends Controller
             'message' => $message,
             'error' => config('app.debug') ? $e->getMessage() : 'Server error',
         ], 500);
+    }
+    public function exportCategories(
+        Request $request,
+        MembershipCatalogImportExportService $service
+    ): StreamedResponse {
+        return $service->export('categories', $request->all());
+    }
+
+    public function importCategories(
+        MembershipImportRequest $request,
+        MembershipCatalogImportExportService $service
+    ): JsonResponse {
+        try {
+            $result = $service->import(
+                type: 'categories',
+                file: $request->file('file'),
+                mode: $request->input('mode', 'upsert')
+            );
+
+            $this->clearCatalogCaches();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership categories imported successfully.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to import membership categories.', $e);
+        }
+    }
+
+    public function bulkDeleteCategories(
+        MembershipBulkDeleteRequest $request,
+        MembershipCatalogImportExportService $service
+    ): JsonResponse {
+        try {
+            $result = $service->bulkDelete('categories', $request->validated()['ids']);
+
+            $this->clearCatalogCaches();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership categories bulk delete completed.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to bulk delete membership categories.', $e);
+        }
+    }
+
+    public function exportFeatures(
+        Request $request,
+        MembershipCatalogImportExportService $service
+    ): StreamedResponse {
+        return $service->export('features', $request->all());
+    }
+
+    public function importFeatures(
+        MembershipImportRequest $request,
+        MembershipCatalogImportExportService $service
+    ): JsonResponse {
+        try {
+            $result = $service->import(
+                type: 'features',
+                file: $request->file('file'),
+                mode: $request->input('mode', 'upsert')
+            );
+
+            $this->clearCatalogCaches();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership features imported successfully.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to import membership features.', $e);
+        }
+    }
+
+    public function bulkDeleteFeatures(
+        MembershipBulkDeleteRequest $request,
+        MembershipCatalogImportExportService $service
+    ): JsonResponse {
+        try {
+            $result = $service->bulkDelete('features', $request->validated()['ids']);
+
+            $this->clearCatalogCaches();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership features bulk delete completed.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to bulk delete membership features.', $e);
+        }
+    }
+
+    public function exportPlans(
+        Request $request,
+        MembershipCatalogImportExportService $service
+    ): StreamedResponse {
+        return $service->export('plans', $request->all());
+    }
+
+    public function importPlans(
+        MembershipImportRequest $request,
+        MembershipCatalogImportExportService $service
+    ): JsonResponse {
+        try {
+            $result = $service->import(
+                type: 'plans',
+                file: $request->file('file'),
+                mode: $request->input('mode', 'upsert')
+            );
+
+            $this->clearCatalogCaches();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership plans imported successfully.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to import membership plans.', $e);
+        }
+    }
+
+    public function bulkDeletePlans(
+        MembershipBulkDeleteRequest $request,
+        MembershipCatalogImportExportService $service
+    ): JsonResponse {
+        try {
+            $result = $service->bulkDelete('plans', $request->validated()['ids']);
+
+            $this->clearCatalogCaches();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership plans bulk delete completed.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to bulk delete membership plans.', $e);
+        }
     }
 }
