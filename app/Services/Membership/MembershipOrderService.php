@@ -522,26 +522,7 @@ class MembershipOrderService
             'created_at' => now(),
         ]);
     }
-    public function cancelOrder(
-        MembershipOrder $order,
-        MembershipOrderService $orderService
-    ): JsonResponse {
-        try {
-            $order = $orderService->cancel($order);
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Membership order cancelled successfully.',
-                'data' => $order->fresh(),
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to cancel membership order.',
-                'error' => 'Server error',
-            ], 500);
-        }
-    }
 
     public function showPayment(MembershipPayment $payment): JsonResponse
     {
