@@ -1122,21 +1122,30 @@ Route::middleware(['throttle:60,1'])->group(function () {
             Route::get('users', [AdminMembershipUserController::class, 'memberships'])
                 ->middleware('permission.check:membership_users,read');
 
-            Route::post('users/manual-activate', [AdminMembershipUserController::class, 'manualActivate'])
+            Route::post('orders/{order}/cancel', [AdminMembershipUserController::class, 'cancelOrder'])
+                ->middleware('permission.check:membership_orders,edit');
+
+            Route::get('payments/{payment}', [AdminMembershipUserController::class, 'showPayment'])
+                ->middleware('permission.check:membership_payments,read');
+
+            Route::post('users/{user}/manual-activate', [AdminMembershipUserController::class, 'manualActivate'])
                 ->middleware('permission.check:membership_users,manual_activate');
 
-            Route::get('users/{membership}', [AdminMembershipUserController::class, 'showMembership'])
+            Route::get('memberships', [AdminMembershipUserController::class, 'memberships'])
                 ->middleware('permission.check:membership_users,read');
 
-            Route::post('users/{membership}/cancel', [AdminMembershipUserController::class, 'cancelMembership'])
+            Route::get('memberships/{membership}', [AdminMembershipUserController::class, 'showMembership'])
+                ->middleware('permission.check:membership_users,read');
+
+            Route::post('memberships/{membership}/cancel', [AdminMembershipUserController::class, 'cancelMembership'])
                 ->middleware('permission.check:membership_users,cancel');
 
-            Route::post('users/{membership}/expire', [AdminMembershipUserController::class, 'expireMembership'])
+            Route::post('memberships/{membership}/expire', [AdminMembershipUserController::class, 'expireMembership'])
                 ->middleware('permission.check:membership_users,edit');
 
-            Route::get('credits/transactions', [AdminMembershipUserController::class, 'creditTransactions'])
+            Route::get('credit-transactions', [AdminMembershipUserController::class, 'creditTransactions'])
                 ->middleware('permission.check:membership_credits,read');
-
+                
             Route::get('credits', [AdminMembershipUserController::class, 'userCredits'])
                 ->middleware('permission.check:membership_credits,read');
 
