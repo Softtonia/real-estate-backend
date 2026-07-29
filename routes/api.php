@@ -1049,8 +1049,10 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
             Route::post('features', [AdminMembershipCatalogController::class, 'storeFeature'])
                 ->middleware('permission.check:membership_features,create');
+
             Route::get('features/{feature}', [AdminMembershipCatalogController::class, 'showFeature'])
                 ->middleware('permission.check:membership_features,read');
+
             Route::put('features/{feature}', [AdminMembershipCatalogController::class, 'updateFeature'])
                 ->middleware('permission.check:membership_features,edit');
 
@@ -1097,6 +1099,9 @@ Route::middleware(['throttle:60,1'])->group(function () {
                 ->middleware('permission.check:membership_plan_rules,edit');
 
             Route::post('plans/{plan}/roles', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
+                ->middleware('permission.check:membership_plan_rules,edit');
+
+            Route::post('plans/{plan}/role-rules', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
                 ->middleware('permission.check:membership_plan_rules,edit');
 
 
