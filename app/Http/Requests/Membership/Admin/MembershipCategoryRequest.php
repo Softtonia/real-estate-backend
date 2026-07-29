@@ -2,14 +2,12 @@
 
 namespace App\Http\Requests\Membership\Admin;
 
-use App\Http\Requests\Concerns\ResolvesRouteModelId;
+use App\Models\Membership\MembershipCategory;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class MembershipCategoryRequest extends FormRequest
 {
-    use ResolvesRouteModelId;
-
     public function authorize(): bool
     {
         return true;
@@ -17,24 +15,46 @@ class MembershipCategoryRequest extends FormRequest
 
     public function rules(): array
     {
-        $categoryId = $this->routeModelId([
-            'category',
-            'membershipCategory',
-            'membership_category',
-            'id',
-        ]);
+        $categoryId = $this->resolveCategoryId();
 
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'name' => [
+                $this->isMethod('post') ? 'required' : 'sometimes',
+                'string',
+                'max:255',
+            ],
             'slug' => [
+                'sometimes',
                 'nullable',
                 'string',
                 'max:255',
-                Rule::unique('membership_categories', 'slug')->ignore($categoryId),
+                Rule::unique('membership_categories', 'slug')->ignore($categoryId, 'id'),
             ],
-            'description' => ['nullable', 'string'],
-            'status' => ['nullable', 'boolean'],
-            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'description' => ['sometimes', 'nullable', 'string'],
+            'status' => ['sometimes', 'nullable', 'boolean'],
+            'sort_order' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ];
+    }
+
+    private function resolveCategoryId(): mixed
+    {
+        $category = $this->route('category')
+            ?? $this->route('membershipCategory')
+            ?? $this->route('membership_category')
+            ?? $this->route('id');
+
+        if ($category instanceof MembershipCategory) {
+            return $category->id;
+        }
+
+        if (is_object($category) && method_exists($category, 'getKey')) {
+            return $category->getKey();
+        }
+
+        if (is_object($category) && isset($category->id)) {
+            return $category->id;
+        }
+
+        return $category;
     }
 }

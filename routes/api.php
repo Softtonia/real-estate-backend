@@ -1001,6 +1001,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
         Route::put('categories/{category}', [AdminMembershipCatalogController::class, 'updateCategory'])
             ->middleware('permission.check:membership_categories,edit');
+        Route::patch('categories/{category}', [AdminMembershipCatalogController::class, 'updateCategory'])
+            ->middleware('permission.check:membership_categories,edit');
 
         Route::delete('categories/{category}', [AdminMembershipCatalogController::class, 'deleteCategory'])
             ->middleware('permission.check:membership_categories,delete');

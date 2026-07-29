@@ -4,11 +4,9 @@ namespace App\Http\Controllers\Api\Membership;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Membership\Admin\MembershipBulkDeleteRequest;
-use App\Http\Requests\Membership\Admin\MembershipImportRequest;
-use App\Services\Membership\MembershipCatalogImportExportService;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Http\Requests\Membership\Admin\MembershipCategoryRequest;
 use App\Http\Requests\Membership\Admin\MembershipFeatureRequest;
+use App\Http\Requests\Membership\Admin\MembershipImportRequest;
 use App\Http\Requests\Membership\Admin\MembershipPlanRequest;
 use App\Http\Requests\Membership\Admin\SyncPlanFeaturesRequest;
 use App\Http\Requests\Membership\Admin\SyncPlanRolesRequest;
@@ -18,6 +16,7 @@ use App\Models\Membership\MembershipFeature;
 use App\Models\Membership\MembershipPlan;
 use App\Models\User;
 use App\Services\Membership\MembershipAccessService;
+use App\Services\Membership\MembershipCatalogImportExportService;
 use App\Services\Membership\MembershipPlanService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -96,9 +95,7 @@ class AdminMembershipCatalogController extends Controller
 
             $category->update([
                 'name' => $data['name'],
-                'slug' => !empty($data['slug'])
-                    ? Str::slug($data['slug'])
-                    : $category->slug,
+                'slug' => Str::slug($data['slug'] ?? $data['name']),
                 'description' => $data['description'] ?? null,
                 'status' => $data['status'] ?? true,
                 'sort_order' => $data['sort_order'] ?? 0,
@@ -217,9 +214,7 @@ class AdminMembershipCatalogController extends Controller
 
             $feature->update([
                 'name' => $data['name'],
-                'slug' => !empty($data['slug'])
-                    ? Str::slug($data['slug'])
-                    : $feature->slug,
+                'slug' => Str::slug($data['slug'] ?? $data['name']),
                 'description' => $data['description'] ?? null,
                 'feature_type' => $data['feature_type'],
                 'status' => $data['status'] ?? true,
