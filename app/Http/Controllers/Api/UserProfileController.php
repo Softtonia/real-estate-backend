@@ -894,6 +894,7 @@ class UserProfileController extends Controller
 
         $dashboardCounts = $this->profileDashboardCounts($user);
         $isOwnerRole = $this->isOwnerUser($user);
+        $kycSummary = $this->kycModuleSummary($user);
 
         $streetAddress = $this->detailValue($detail, 'street_address');
         $areaLocality = $this->detailValue($detail, 'area_locality');
@@ -1276,10 +1277,6 @@ class UserProfileController extends Controller
                     'section' => 'business_address',
                 ],
 
-                'license_number' => [
-                    'label' => 'License Number',
-                    'section' => 'documents',
-                ],
             ]);
         }
 
