@@ -19,6 +19,8 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Throwable;
 use App\Models\DynamicPost;
+use App\Models\KycRequest;
+use App\Models\KycDocument;
 
 class UserProfileController extends Controller
 {
@@ -890,9 +892,6 @@ class UserProfileController extends Controller
         $cityName = $this->locationName('cities', $cityId);
 
         $profilePhoto = $this->fileUrl($detail?->profile_photo);
-        $aadhaarFront = $this->fileUrl($detail?->aadhaar_front);
-        $aadhaarBack = $this->fileUrl($detail?->aadhaar_back);
-        $businessProof = $this->fileUrl($detail?->business_proof);
 
         $firstName = $user->first_name ?? null;
         $lastName = $user->last_name ?? null;
@@ -932,7 +931,9 @@ class UserProfileController extends Controller
             'isapproved' => $user->isapproved ?? null,
             'account_status' => $this->accountStatusLabel($user->isapproved ?? null),
             'kyc' => $user->kyc ?? 0,
-            'kyc_status' => $this->kycStatusLabel($user->kyc ?? 0),
+            'kyc_status' => $kycSummary['status_label'],
+            'admin_kyc_status' => $kycSummary['admin_status'],
+            'kyc_module' => $kycSummary,
             'is_otp_verified' => $user->is_otp_verified ?? false,
 
             'country_id' => $countryId,
@@ -961,12 +962,7 @@ class UserProfileController extends Controller
             ],
 
             'profile_photo' => $profilePhoto,
-            'aadhaar_number' => $detail?->aadhaar_number ?? null,
-            'aadhaar_front' => $aadhaarFront,
-            'aadhaar_back' => $aadhaarBack,
-            'business_proof' => $isOwnerRole ? null : $businessProof,
-            'license_number' => $isOwnerRole ? null : ($detail?->license_number ?? null),
-            'rera_number' => $isOwnerRole ? null : ($detail?->rera_number ?? null),
+
             'alternate_number' => $detail?->alternate_number ?? null,
             'no_of_employees' => $detail?->no_of_employees ?? null,
             'about_us' => $detail?->about_us ?? null,
@@ -1247,19 +1243,6 @@ class UserProfileController extends Controller
                 'section' => 'profile_photo',
             ],
 
-            // KYC and documents
-            'aadhaar_number' => [
-                'label' => 'Aadhaar Number',
-                'section' => 'documents',
-            ],
-            'aadhaar_front' => [
-                'label' => 'Aadhaar Front',
-                'section' => 'documents',
-            ],
-            'aadhaar_back' => [
-                'label' => 'Aadhaar Back',
-                'section' => 'documents',
-            ],
         ];
 
         /* Business fields are applicable only when they are visible for the role. */
@@ -1297,16 +1280,9 @@ class UserProfileController extends Controller
                     'label' => 'Business PIN Code',
                     'section' => 'business_address',
                 ],
-                'business_proof' => [
-                    'label' => 'Business Proof',
-                    'section' => 'documents',
-                ],
+
                 'license_number' => [
                     'label' => 'License Number',
-                    'section' => 'documents',
-                ],
-                'rera_number' => [
-                    'label' => 'RERA Number',
                     'section' => 'documents',
                 ],
             ]);
@@ -2129,5 +2105,98 @@ class UserProfileController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+    private function kycModuleSummary(User $user): array
+    {
+        $default = [
+            'request_id' => null,
+            'status' => 'not_started',
+            'status_label' => 'Not Started',
+            'admin_status' => 'Not Submitted',
+            'documents_count' => 0,
+            'pending_documents_count' => 0,
+            'approved_documents_count' => 0,
+            'rejected_documents_count' => 0,
+            'submitted_at' => null,
+            'approved_at' => null,
+            'rejected_at' => null,
+            'rejection_reason' => null,
+            'can_submit' => true,
+            'can_resubmit' => false,
+        ];
+
+        if (!Schema::hasTable('kyc_requests')) {
+            return $default;
+        }
+
+        $kycRequest = KycRequest::query()
+            ->where('user_id', (int) $user->id)
+            ->latest('id')
+            ->first();
+
+        if (!$kycRequest) {
+            return $default;
+        }
+
+        $status = strtolower((string) ($kycRequest->status ?? 'pending'));
+
+        $summary = [
+            'request_id' => (int) $kycRequest->id,
+            'status' => $status,
+            'status_label' => $this->kycModuleStatusLabel($status),
+            'admin_status' => $this->adminKycStatusLabel($status),
+
+            'documents_count' => 0,
+            'pending_documents_count' => 0,
+            'approved_documents_count' => 0,
+            'rejected_documents_count' => 0,
+
+            'submitted_at' => optional($kycRequest->submitted_at ?? null)->toDateTimeString(),
+            'approved_at' => optional($kycRequest->approved_at ?? null)->toDateTimeString(),
+            'rejected_at' => optional($kycRequest->rejected_at ?? null)->toDateTimeString(),
+
+            'rejection_reason' => $kycRequest->rejection_reason
+                ?? $kycRequest->reject_reason
+                ?? null,
+
+            'can_submit' => in_array($status, ['draft', 'pending', 'not_started'], true),
+            'can_resubmit' => in_array($status, ['rejected'], true),
+        ];
+
+        if (Schema::hasTable('kyc_documents')) {
+            $documentQuery = KycDocument::query()
+                ->where('kyc_request_id', (int) $kycRequest->id);
+
+            $summary['documents_count'] = (clone $documentQuery)->count();
+            $summary['pending_documents_count'] = (clone $documentQuery)->where('status', 'pending')->count();
+            $summary['approved_documents_count'] = (clone $documentQuery)->where('status', 'approved')->count();
+            $summary['rejected_documents_count'] = (clone $documentQuery)->where('status', 'rejected')->count();
+        }
+
+        return array_merge($default, $summary);
+    }
+    private function kycModuleStatusLabel(?string $status): string
+    {
+        return match (strtolower((string) $status)) {
+            'draft' => 'Draft',
+            'pending' => 'Pending',
+            'submitted' => 'Submitted',
+            'under_review', 'in_review' => 'Under Review',
+            'approved' => 'Approved',
+            'rejected' => 'Rejected',
+            'expired' => 'Expired',
+            default => 'Not Started',
+        };
+    }
+    private function adminKycStatusLabel(?string $status): string
+    {
+        return match (strtolower((string) $status)) {
+            'submitted' => 'Submitted',
+            'under_review', 'in_review' => 'Reviewing',
+            'approved' => 'Approved',
+            'rejected' => 'Rejected',
+            'draft', 'pending' => 'Not Submitted',
+            default => 'Not Submitted',
+        };
     }
 }
