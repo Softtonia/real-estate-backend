@@ -159,19 +159,29 @@ class MembershipAddonAdminService
     {
         $payload = [];
 
-        foreach ([
-            'name',
-            'description',
-            'addon_type',
-            'currency',
-            'credit_type',
-            'metadata',
-        ] as $field) {
+        /*
+    |--------------------------------------------------------------------------
+    | Basic text fields
+    |--------------------------------------------------------------------------
+    */
+        foreach (
+            [
+                'name',
+                'description',
+                'addon_type',
+                'credit_type',
+            ] as $field
+        ) {
             if (!$isUpdate || array_key_exists($field, $data)) {
                 $payload[$field] = $data[$field] ?? null;
             }
         }
 
+        /*
+    |--------------------------------------------------------------------------
+    | Slug
+    |--------------------------------------------------------------------------
+    */
         if (!$isUpdate || array_key_exists('slug', $data) || array_key_exists('name', $data)) {
             $slugSource = $data['slug'] ?? $data['name'] ?? null;
 
@@ -184,36 +194,91 @@ class MembershipAddonAdminService
             $payload['slug'] = Str::slug($slugSource);
         }
 
+        /*
+    |--------------------------------------------------------------------------
+    | Currency
+    |--------------------------------------------------------------------------
+    */
         if (!$isUpdate || array_key_exists('currency', $data)) {
             $payload['currency'] = strtoupper($data['currency'] ?? 'INR');
         }
 
-        foreach (['price', 'sale_price'] as $moneyField) {
-            if (!$isUpdate || array_key_exists($moneyField, $data)) {
-                $payload[$moneyField] = $data[$moneyField] !== null && array_key_exists($moneyField, $data)
-                    ? round((float) $data[$moneyField], 2)
-                    : null;
-            }
+        /*
+    |--------------------------------------------------------------------------
+    | Price fields
+    |--------------------------------------------------------------------------
+    */
+        if (!$isUpdate || array_key_exists('price', $data)) {
+            $payload['price'] = isset($data['price'])
+                ? round((float) $data['price'], 2)
+                : 0;
         }
 
-        foreach (['credit_quantity', 'duration_days', 'sort_order'] as $intField) {
-            if (!$isUpdate || array_key_exists($intField, $data)) {
-                $payload[$intField] = isset($data[$intField])
-                    ? (int) $data[$intField]
-                    : null;
-            }
+        if (!$isUpdate || array_key_exists('sale_price', $data)) {
+            $payload['sale_price'] = isset($data['sale_price']) && $data['sale_price'] !== ''
+                ? round((float) $data['sale_price'], 2)
+                : null;
         }
 
+        /*
+    |--------------------------------------------------------------------------
+    | Credit quantity
+    |--------------------------------------------------------------------------
+    */
+        if (!$isUpdate || array_key_exists('credit_quantity', $data)) {
+            $payload['credit_quantity'] = isset($data['credit_quantity']) && $data['credit_quantity'] !== ''
+                ? (int) $data['credit_quantity']
+                : null;
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | Support both duration_days and validity_days
+    |--------------------------------------------------------------------------
+    */
+        if (
+            !$isUpdate
+            || array_key_exists('duration_days', $data)
+            || array_key_exists('validity_days', $data)
+        ) {
+            $durationDays = $data['duration_days']
+                ?? $data['validity_days']
+                ?? null;
+
+            $payload['duration_days'] = $durationDays !== null && $durationDays !== ''
+                ? (int) $durationDays
+                : null;
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | Sort order
+    |--------------------------------------------------------------------------
+    */
+        if (!$isUpdate || array_key_exists('sort_order', $data)) {
+            $payload['sort_order'] = isset($data['sort_order']) && $data['sort_order'] !== ''
+                ? (int) $data['sort_order']
+                : 0;
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | Status
+    |--------------------------------------------------------------------------
+    */
         if (!$isUpdate || array_key_exists('status', $data)) {
-            $payload['status'] = (bool) ($data['status'] ?? true);
+            $payload['status'] = array_key_exists('status', $data)
+                ? (bool) $data['status']
+                : true;
         }
 
-        if (!$isUpdate && !array_key_exists('sort_order', $payload)) {
-            $payload['sort_order'] = 0;
-        }
-
-        if (!$isUpdate && !array_key_exists('metadata', $payload)) {
-            $payload['metadata'] = [];
+        /*
+    |--------------------------------------------------------------------------
+    | Metadata
+    |--------------------------------------------------------------------------
+    */
+        if (!$isUpdate || array_key_exists('metadata', $data)) {
+            $payload['metadata'] = $data['metadata'] ?? [];
         }
 
         return $payload;
