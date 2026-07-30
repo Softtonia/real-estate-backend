@@ -3,13 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessUserDocumentUploadJob;
 use App\Models\User;
 use App\Models\UserDetail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -18,7 +16,6 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Throwable;
-use App\Models\DynamicPost;
 use App\Models\KycRequest;
 use App\Models\KycDocument;
 
@@ -64,7 +61,7 @@ class UserProfileController extends Controller
 
         // Accept Aadhaar number from personal-profile forms as well as KYC forms.
         // This is important when the frontend sends Aadhaar with "Save Changes".
-        $this->normalizeKycRequest($request);
+        // $this->normalizeKycRequest($request);
 
         $isOwnerRole = $this->isOwnerUser($user);
 
@@ -88,14 +85,7 @@ class UserProfileController extends Controller
             'no_of_employees' => ['nullable', 'integer'],
             'about_us' => ['nullable', 'string'],
 
-            // "sometimes" means it is validated only when any supported Aadhaar
-            // field/alias was actually included in the request.
-            'aadhaar_number' => [
-                'sometimes',
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
-            ],
+
         ];
 
         if (!$isOwnerRole) {
@@ -117,8 +107,6 @@ class UserProfileController extends Controller
 
         $validator = Validator::make($request->all(), $rules, [
             'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
-            'aadhaar_number.digits' => 'Aadhaar number must contain exactly 12 digits.',
-            'aadhaar_number.unique' => 'This Aadhaar number is already linked with another user.',
         ]);
 
         if ($validator->fails()) {
@@ -147,7 +135,6 @@ class UserProfileController extends Controller
                     'alternate_number',
                     'no_of_employees',
                     'about_us',
-                    'aadhaar_number',
                 ];
 
                 if (!$isOwnerRole) {
@@ -224,11 +211,10 @@ class UserProfileController extends Controller
             $rules['business_pin_code'] = ['nullable', 'string', 'max:20'];
         }
 
-        $validator = Validator::make($request->all(), $rules, [
-            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
-            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
-            'business_proof.max' => 'Business proof must not be greater than 2MB.',
-        ]);
+        $validator = Validator::make(
+            $request->all(),
+            $rules
+        );
 
         if ($validator->fails()) {
             return $this->validationResponse($validator);
@@ -404,445 +390,6 @@ class UserProfileController extends Controller
         }
     }
 
-    public function updateDocuments(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-        $this->normalizeKycRequest($request);
-        $allowedFields = $this->documentUploadFieldsForUser($user);
-
-        $rules = [
-            'aadhaar_number' => [
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
-            ],
-        ];
-
-        if (!$this->isOwnerUser($user)) {
-            $rules['license_number'] = ['nullable', 'string', 'max:200'];
-            $rules['rera_number'] = ['nullable', 'string', 'max:50'];
-        }
-
-        foreach ($allowedFields as $field => $label) {
-            $rules[$field] = [
-                'nullable',
-                'file',
-                'mimes:jpg,jpeg,png,pdf',
-                'max:' . self::MAX_UPLOAD_KB,
-            ];
-        }
-
-        $validator = Validator::make($request->all(), $rules, [
-            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
-            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
-            'business_proof.max' => 'Business proof must not be greater than 2MB.',
-        ]);
-
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        $folders = [
-            'aadhaar_front' => 'kyc/aadhaarFront',
-            'aadhaar_back' => 'kyc/aadhaarBack',
-            'business_proof' => 'kyc/businessProof',
-        ];
-
-        $newFilePaths = [];
-        $oldFilePaths = [];
-
-        try {
-            foreach ($allowedFields as $field => $label) {
-                if ($request->hasFile($field) && Schema::hasColumn('user_details', $field)) {
-                    $newFilePaths[$field] = $this->storePublicUpload(
-                        file: $request->file($field),
-                        folder: $folders[$field],
-                        prefix: 'u' . $user->id . '_' . $field
-                    );
-                }
-            }
-
-            DB::transaction(function () use ($request, $user, $newFilePaths, &$oldFilePaths) {
-                $detail = UserDetail::query()
-                    ->where('user_id', $user->id)
-                    ->first();
-
-                $detailPayload = $this->kycMetaPayload($request, $user);
-
-                foreach ($newFilePaths as $field => $path) {
-                    $oldFilePaths[$field] = $detail?->{$field};
-                    $detailPayload[$field] = $path;
-                }
-
-                if (count($detailPayload) > 1) {
-                    $this->persistUserDetailPayload($user, $detailPayload);
-                }
-
-                if (Schema::hasColumn('users', 'kyc')) {
-                    $user->update([
-                        'kyc' => 1,
-                    ]);
-                }
-            });
-
-            foreach ($oldFilePaths as $oldPath) {
-                $this->deletePublicUpload($oldPath);
-            }
-
-            $freshUser = User::find($user->id);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Documents updated successfully.',
-                'data' => $this->formatUserProfile($freshUser),
-            ]);
-        } catch (Throwable $e) {
-            foreach ($newFilePaths as $newPath) {
-                $this->deletePublicUpload($newPath);
-            }
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to update documents.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    public function startDocumentUpload(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-        $this->normalizeKycRequest($request);
-        $allowedFields = $this->documentUploadFieldsForUser($user);
-
-        $rules = [
-            'aadhaar_number' => [
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
-            ],
-            'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
-        ];
-
-        if (!$this->isOwnerUser($user)) {
-            $rules['license_number'] = ['nullable', 'string', 'max:200'];
-            $rules['rera_number'] = ['nullable', 'string', 'max:50'];
-        }
-
-        $validator = Validator::make($request->all(), $rules);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        try {
-            $uploadId = 'doc_' . $user->id . '_' . Str::uuid()->toString();
-
-            DB::transaction(function () use ($request, $user) {
-                $detailPayload = $this->kycMetaPayload($request, $user);
-                if (count($detailPayload) > 1) {
-                    $this->persistUserDetailPayload($user, $detailPayload);
-                }
-
-                if (Schema::hasColumn('users', 'kyc')) {
-                    $user->update([
-                        'kyc' => 1,
-                    ]);
-                }
-            });
-
-            $progress = $this->initialDocumentUploadProgress(
-                uploadId: $uploadId,
-                user: $user,
-                totalFiles: (int) $request->input('total_files', count($allowedFields)),
-                allowedFields: $allowedFields
-            );
-
-            $this->cacheStore()->put(
-                $this->documentProgressKey($uploadId),
-                $progress,
-                now()->addHours(2)
-            );
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Document upload session started successfully.',
-                'upload_id' => $uploadId,
-                'progress' => $progress,
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to start document upload.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    public function uploadDocumentFile(Request $request): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-        $this->normalizeKycRequest($request);
-        $allowedFields = $this->documentUploadFieldsForUser($user);
-
-        $rules = [
-            'upload_id' => ['nullable', 'string'],
-            'field' => ['required', Rule::in(array_keys($allowedFields))],
-            'file' => [
-                'required',
-                'file',
-                'mimes:jpg,jpeg,png,pdf',
-                'max:' . self::MAX_UPLOAD_KB,
-            ],
-
-            'aadhaar_number' => [
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id'),
-            ],
-            'total_files' => ['nullable', 'integer', 'min:1', 'max:' . count($allowedFields)],
-        ];
-
-        if (!$this->isOwnerUser($user)) {
-            $rules['license_number'] = ['nullable', 'string', 'max:200'];
-            $rules['rera_number'] = ['nullable', 'string', 'max:50'];
-        }
-
-        $validator = Validator::make($request->all(), $rules);
-
-        if ($validator->fails()) {
-            return $this->validationResponse($validator);
-        }
-
-        $field = (string) $request->input('field');
-
-        $folders = [
-            'aadhaar_front' => 'kyc/aadhaarFront',
-            'aadhaar_back' => 'kyc/aadhaarBack',
-            'business_proof' => 'kyc/businessProof',
-        ];
-
-        $uploadId = $request->filled('upload_id')
-            ? (string) $request->input('upload_id')
-            : 'doc_' . $user->id . '_' . Str::uuid()->toString();
-
-        $progressKey = $this->documentProgressKey($uploadId);
-        $progress = $this->cacheStore()->get($progressKey);
-
-        if ($request->filled('upload_id') && !$progress) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Upload session not found or expired.',
-            ], 404);
-        }
-
-        if ($progress && (int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
-            return response()->json([
-                'status' => false,
-                'message' => 'This upload session does not belong to current user.',
-            ], 403);
-        }
-
-        if (!$progress) {
-            $progress = $this->initialDocumentUploadProgress(
-                uploadId: $uploadId,
-                user: $user,
-                totalFiles: (int) $request->input('total_files', count($allowedFields)),
-                allowedFields: $allowedFields
-            );
-
-            $this->cacheStore()->put(
-                $progressKey,
-                $progress,
-                now()->addHours(2)
-            );
-        }
-
-        $newPath = null;
-        $oldPath = null;
-
-        try {
-            $this->updateDocumentProgress($uploadId, function (array $progress) use ($uploadId, $user, $allowedFields, $field) {
-                $progress = $this->ensureDocumentProgressStructure($progress, $uploadId, $user, $allowedFields);
-
-                $progress['files'][$field] = [
-                    'status' => 'processing',
-                    'percent' => 50,
-                    'url' => null,
-                    'error' => null,
-                ];
-
-                $progress['updated_at'] = now()->toDateTimeString();
-
-                return $this->syncDocumentProgressCounters($progress);
-            });
-
-            $file = $request->file('file');
-
-            if (!$file || !$file->isValid()) {
-                throw new \Exception('Invalid uploaded file.');
-            }
-
-            $extension = strtolower(
-                $file->getClientOriginalExtension()
-                    ?: $file->extension()
-                    ?: 'bin'
-            );
-
-            $fileName = 'u'
-                . $user->id
-                . '_'
-                . now()->format('YmdHis')
-                . '_'
-                . $field
-                . '_'
-                . Str::random(8)
-                . '.'
-                . $extension;
-
-            $storedPath = Storage::disk('public_uploads')->putFileAs(
-                $folders[$field],
-                $file,
-                $fileName
-            );
-
-            if (!$storedPath || !Storage::disk('public_uploads')->exists($storedPath)) {
-                throw new \Exception('Document file could not be saved.');
-            }
-
-            $newPath = 'uploads/' . $storedPath;
-
-            DB::transaction(function () use ($request, $user, $field, $newPath, &$oldPath) {
-                $detail = UserDetail::query()
-                    ->where('user_id', $user->id)
-                    ->first();
-
-                $oldPath = $detail?->{$field};
-
-                $detailPayload = $this->kycMetaPayload($request, $user);
-
-                if (Schema::hasColumn('user_details', $field)) {
-                    $detailPayload[$field] = $newPath;
-                }
-
-                $this->persistUserDetailPayload($user, $detailPayload);
-
-                if (Schema::hasColumn('users', 'kyc')) {
-                    $user->update([
-                        'kyc' => 1,
-                    ]);
-                }
-            });
-
-            $this->deletePublicUpload($oldPath);
-
-            $this->updateDocumentProgress($uploadId, function (array $progress) use ($uploadId, $user, $allowedFields, $field, $newPath) {
-                $progress = $this->ensureDocumentProgressStructure($progress, $uploadId, $user, $allowedFields);
-
-                $progress['files'][$field] = [
-                    'status' => 'completed',
-                    'percent' => 100,
-                    'url' => $this->fileUrl($newPath),
-                    'error' => null,
-                ];
-
-                $progress['updated_at'] = now()->toDateTimeString();
-
-                return $this->syncDocumentProgressCounters($progress);
-            });
-
-            return response()->json([
-                'status' => true,
-                'message' => $field . ' uploaded successfully.',
-                'upload_id' => $uploadId,
-                'field' => $field,
-                'allowed_fields' => array_keys($allowedFields),
-                'file_url' => $this->fileUrl($newPath),
-                'progress' => $this->cacheStore()->get($progressKey),
-                'data' => $this->formatUserProfile(User::find($user->id)),
-            ]);
-        } catch (Throwable $e) {
-            $this->deletePublicUpload($newPath);
-
-            $this->updateDocumentProgress($uploadId, function (array $progress) use ($uploadId, $user, $allowedFields, $field, $e) {
-                $progress = $this->ensureDocumentProgressStructure($progress, $uploadId, $user, $allowedFields);
-
-                $progress['files'][$field] = [
-                    'status' => 'failed',
-                    'percent' => 0,
-                    'url' => null,
-                    'error' => $e->getMessage(),
-                ];
-
-                $progress['updated_at'] = now()->toDateTimeString();
-
-                return $this->syncDocumentProgressCounters($progress);
-            });
-
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to upload document file.',
-                'error' => $e->getMessage(),
-                'progress' => $this->cacheStore()->get($progressKey),
-            ], 500);
-        }
-    }
-
-    public function documentUploadProgress(Request $request, string $uploadId): JsonResponse
-    {
-        $user = $this->resolveCurrentUser($request);
-
-        if (!$user) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Invalid or expired token.',
-            ], 401);
-        }
-
-        $progress = $this->cacheStore()->get($this->documentProgressKey($uploadId));
-
-        if (!$progress) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Upload progress not found or expired.',
-            ], 404);
-        }
-
-        if ((int) ($progress['user_id'] ?? 0) !== (int) $user->id) {
-            return response()->json([
-                'status' => false,
-                'message' => 'This upload session does not belong to current user.',
-            ], 403);
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Document upload progress fetched successfully.',
-            'data' => $progress,
-        ]);
-    }
 
     private function resolveCurrentUser(Request $request): ?User
     {
@@ -1401,17 +948,6 @@ class UserProfileController extends Controller
         };
     }
 
-    private function kycStatusLabel(mixed $status): string
-    {
-        return match ((int) $status) {
-            0 => 'Pending',
-            1 => 'In Progress',
-            2 => 'Approved',
-            3 => 'Rejected',
-            default => 'Pending',
-        };
-    }
-
     private function isOwnerUser(User $user): bool
     {
         $directRole = strtolower(trim((string) ($user->role_id ?? '')));
@@ -1660,94 +1196,6 @@ class UserProfileController extends Controller
         return $total;
     }
 
-    private function documentUploadFieldsForUser(User $user): array
-    {
-        $fields = [
-            'aadhaar_front' => 'Aadhaar Front',
-            'aadhaar_back' => 'Aadhaar Back',
-            'business_proof' => 'Business Proof',
-        ];
-
-        if ($this->isOwnerUser($user)) {
-            unset($fields['business_proof']);
-        }
-
-        return $fields;
-    }
-
-    private function initialDocumentUploadProgress(
-        string $uploadId,
-        User $user,
-        int $totalFiles,
-        array $allowedFields
-    ): array {
-        $totalFiles = max(1, min($totalFiles, count($allowedFields)));
-
-        $files = [];
-
-        foreach ($allowedFields as $field => $label) {
-            $files[$field] = [
-                'status' => 'pending',
-                'percent' => 0,
-                'url' => null,
-                'error' => null,
-            ];
-        }
-
-        return [
-            'upload_id' => $uploadId,
-            'user_id' => (int) $user->id,
-            'status' => 'started',
-            'total_files' => $totalFiles,
-            'queued_files' => 0,
-            'processed_files' => 0,
-            'failed_files' => 0,
-            'percent' => 0,
-            'files' => $files,
-            'created_at' => now()->toDateTimeString(),
-            'updated_at' => now()->toDateTimeString(),
-        ];
-    }
-
-    private function documentProgressKey(string $uploadId): string
-    {
-        return 'user_document_upload:' . $uploadId;
-    }
-
-    private function cacheStore()
-    {
-        try {
-            return Cache::store(env('DOCUMENT_UPLOAD_CACHE_STORE', 'redis'));
-        } catch (Throwable $e) {
-            return Cache::store(config('cache.default'));
-        }
-    }
-
-    private function updateDocumentProgress(string $uploadId, callable $callback): array
-    {
-        $key = $this->documentProgressKey($uploadId);
-        $store = $this->cacheStore();
-
-        try {
-            if (method_exists($store, 'lock')) {
-                return $store->lock($key . ':lock', 10)->block(5, function () use ($store, $key, $callback) {
-                    $progress = $store->get($key, []);
-                    $progress = $callback(is_array($progress) ? $progress : []);
-                    $store->put($key, $progress, now()->addHours(2));
-
-                    return $progress;
-                });
-            }
-        } catch (Throwable $e) {
-            // fallback below
-        }
-
-        $progress = $store->get($key, []);
-        $progress = $callback(is_array($progress) ? $progress : []);
-        $store->put($key, $progress, now()->addHours(2));
-
-        return $progress;
-    }
 
     private function validationResponse($validator): JsonResponse
     {
@@ -1757,220 +1205,8 @@ class UserProfileController extends Controller
             'errors' => $validator->errors(),
         ], 422);
     }
-    private function ensureDocumentProgressStructure(
-        array $progress,
-        string $uploadId,
-        User $user,
-        array $allowedFields
-    ): array {
-        $progress['upload_id'] = $progress['upload_id'] ?? $uploadId;
-        $progress['user_id'] = (int) ($progress['user_id'] ?? $user->id);
-        $progress['status'] = $progress['status'] ?? 'started';
-        $progress['total_files'] = max(
-            1,
-            min((int) ($progress['total_files'] ?? count($allowedFields)), count($allowedFields))
-        );
 
-        $progress['queued_files'] = (int) ($progress['queued_files'] ?? 0);
-        $progress['processed_files'] = (int) ($progress['processed_files'] ?? 0);
-        $progress['failed_files'] = (int) ($progress['failed_files'] ?? 0);
-        $progress['percent'] = (int) ($progress['percent'] ?? 0);
-        $progress['files'] = is_array($progress['files'] ?? null) ? $progress['files'] : [];
-
-        foreach ($allowedFields as $field => $label) {
-            $progress['files'][$field] = $progress['files'][$field] ?? [
-                'status' => 'pending',
-                'percent' => 0,
-                'url' => null,
-                'error' => null,
-            ];
-        }
-
-        $progress['files'] = array_intersect_key($progress['files'], $allowedFields);
-
-        $progress['created_at'] = $progress['created_at'] ?? now()->toDateTimeString();
-        $progress['updated_at'] = $progress['updated_at'] ?? now()->toDateTimeString();
-
-        return $progress;
-    }
-
-    private function syncDocumentProgressCounters(array $progress): array
-    {
-        $files = $progress['files'] ?? [];
-
-        $queued = 0;
-        $processed = 0;
-        $failed = 0;
-
-        foreach ($files as $file) {
-            $status = $file['status'] ?? 'pending';
-
-            if (in_array($status, ['queued', 'uploading', 'processing'], true)) {
-                $queued++;
-            }
-
-            if ($status === 'completed') {
-                $processed++;
-            }
-
-            if ($status === 'failed') {
-                $failed++;
-            }
-        }
-
-        $total = max(1, (int) ($progress['total_files'] ?? count($files) ?: 1));
-        $done = min($total, $processed + $failed);
-
-        $progress['queued_files'] = $queued;
-        $progress['processed_files'] = $processed;
-        $progress['failed_files'] = $failed;
-        $progress['percent'] = min(100, (int) round(($done / $total) * 100));
-
-        if ($done >= $total) {
-            $progress['status'] = $failed > 0 ? 'completed_with_errors' : 'completed';
-        } elseif ($queued > 0) {
-            $progress['status'] = 'processing';
-        } else {
-            $progress['status'] = 'started';
-        }
-
-        return $progress;
-    }
-    /**
-     * Normalize Aadhaar input from JSON, form-data, URL-encoded forms,
-     * nested payloads, spelling variations, spaces and hyphens.
-     *
-     * The normalized value is always merged as "aadhaar_number", so all
-     * validation and persistence code works with one canonical field name.
-     */
-    private function normalizeKycRequest(Request $request): void
-    {
-        $acceptedKeys = [
-            // Correct spellings
-            'aadhaar_number',
-            'aadhaar_no',
-            'aadhaar',
-            'aadhaar_card_number',
-            'aadhaar_card_no',
-            'aadhaarNumber',
-            'aadhaarNo',
-            'aadhaarCardNumber',
-            'aadhaarCardNo',
-
-            // Common spellings used by frontends/forms
-            'aadhar_number',
-            'aadhar_no',
-            'aadhar',
-            'aadhar_card_number',
-            'aadhar_card_no',
-            'aadharNumber',
-            'aadharNo',
-            'aadharCardNumber',
-            'aadharCardNo',
-
-            'adhaar_number',
-            'adhaar_no',
-            'adhaar',
-            'adhaar_card_number',
-            'adhaar_card_no',
-            'adhaarNumber',
-            'adhaarNo',
-            'adhaarCardNumber',
-
-            'adhar_number',
-            'adhar_no',
-            'adhar',
-            'adhar_card_number',
-            'adhar_card_no',
-            'adharNumber',
-            'adharNo',
-            'adharCardNumber',
-
-            'addhar_number',
-            'addhar_no',
-            'addhar',
-            'addhar_card_number',
-            'addhar_card_no',
-            'addharNumber',
-            'addharNo',
-            'addharCardNumber',
-        ];
-
-        // Compare keys case-insensitively and ignore spaces, underscores and hyphens.
-        // For example: "Aadhaar Number", "aadhaar-number" and "aadhaar_number"
-        // are treated as the same key.
-        $normalizedAcceptedKeys = collect($acceptedKeys)
-            ->mapWithKeys(function (string $key): array {
-                return [$this->normalizeAadhaarInputKey($key) => true];
-            })
-            ->all();
-
-        $foundAnyAlias = false;
-        $resolvedValue = null;
-
-        foreach ($this->flattenRequestInput($request->all()) as $key => $value) {
-            $leafKey = str_contains($key, '.')
-                ? (string) Str::afterLast($key, '.')
-                : $key;
-
-            if (!isset($normalizedAcceptedKeys[$this->normalizeAadhaarInputKey($leafKey)])) {
-                continue;
-            }
-
-            $foundAnyAlias = true;
-
-            // Do not stop at an empty canonical field. Some frontend payloads
-            // accidentally send aadhaar_number="" plus a populated alias.
-            if ($value === null || is_array($value) || $value instanceof UploadedFile) {
-                continue;
-            }
-
-            $digits = preg_replace('/\D+/', '', trim((string) $value));
-
-            if ($digits !== '') {
-                $resolvedValue = $digits;
-                break;
-            }
-        }
-
-        if ($foundAnyAlias) {
-            $request->merge([
-                'aadhaar_number' => $resolvedValue,
-            ]);
-        }
-    }
-
-    /**
-     * Flatten nested request data while retaining the full dotted key path.
-     */
-    private function flattenRequestInput(array $input, string $prefix = ''): array
-    {
-        $flattened = [];
-
-        foreach ($input as $key => $value) {
-            $fullKey = $prefix === ''
-                ? (string) $key
-                : $prefix . '.' . $key;
-
-            if (is_array($value)) {
-                $flattened += $this->flattenRequestInput($value, $fullKey);
-                continue;
-            }
-
-            $flattened[$fullKey] = $value;
-        }
-
-        return $flattened;
-    }
-
-    /**
-     * Convert an input key into a comparable form.
-     */
-    private function normalizeAadhaarInputKey(string $key): string
-    {
-        return strtolower((string) preg_replace('/[^a-z0-9]+/i', '', trim($key)));
-    }
-
+ 
     /**
      * Persist user_details without depending on UserDetail::$fillable.
      * This prevents aadhaar_number and other KYC fields from being silently
@@ -2026,27 +1262,7 @@ class UserProfileController extends Controller
         DB::table('user_details')->insert($allowedPayload);
     }
 
-    private function kycMetaPayload(Request $request, User $user): array
-    {
-        $payload = [
-            'user_id' => $user->id,
-        ];
 
-        $columns = ['aadhaar_number'];
-
-        if (!$this->isOwnerUser($user)) {
-            $columns[] = 'license_number';
-            $columns[] = 'rera_number';
-        }
-
-        foreach ($columns as $column) {
-            if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                $payload[$column] = $request->input($column);
-            }
-        }
-
-        return $payload;
-    }
     public function updatePassword(Request $request): JsonResponse
     {
         $user = $this->resolveCurrentUser($request);
