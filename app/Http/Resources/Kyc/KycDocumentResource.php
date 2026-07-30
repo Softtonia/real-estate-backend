@@ -4,6 +4,7 @@ namespace App\Http\Resources\Kyc;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\URL;
 
 class KycDocumentResource extends JsonResource
 {
@@ -65,14 +66,46 @@ class KycDocumentResource extends JsonResource
             return $this->userMini($this->reviewer);
         });
 
-        if ($isAdminResponse) {
-            $data['private_file_endpoint'] = url(
-                '/api/admin/kyc/documents/' . $this->id . '/view'
-            );
-        } else {
+        if (!$isAdminResponse) {
             $data['private_file_endpoint'] =
                 '/api/kyc/documents/' . $this->id . '/view';
+
+            return $data;
         }
+
+        /*
+ * Admin receives a temporary signed URL.
+ * Existing React <img src={doc.url}> will work without changes.
+ */
+        $data['user_id'] = (int) $this->user_id;
+        $data['metadata'] = $this->metadata;
+
+        $data['uploaded_by'] = $this->uploaded_by
+            ? (int) $this->uploaded_by
+            : null;
+
+        $data['reviewed_by'] = $this->reviewed_by
+            ? (int) $this->reviewed_by
+            : null;
+
+        $data['uploader'] = $this->whenLoaded(
+            'uploader',
+            fn() => $this->userMini($this->uploader)
+        );
+
+        $data['reviewer'] = $this->whenLoaded(
+            'reviewer',
+            fn() => $this->userMini($this->reviewer)
+        );
+
+        $data['private_file_url'] = URL::temporarySignedRoute(
+            'admin.kyc.documents.preview',
+            now()->addMinutes(30),
+            [
+                'document' => (int) $this->id,
+            ]
+        );
+
 
         return $data;
     }

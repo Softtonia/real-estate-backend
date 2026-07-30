@@ -434,4 +434,44 @@ class AdminKycController extends Controller
             ],
         ], 404);
     }
+    public function viewSignedDocument(
+        KycDocument $document
+    ): StreamedResponse|Response {
+        $path = ltrim((string) $document->file_path, '/');
+
+        /*
+     * Use the same disk that your KYC upload job uses.
+     * Change "private" to "local" if files are stored on local disk.
+     */
+        $disk = $document->disk ?? 'private';
+
+        if (
+            $path === ''
+            || !Storage::disk($disk)->exists($path)
+        ) {
+            abort(404, 'KYC document file not found.');
+        }
+
+        $fileName = basename(
+            (string) (
+                $document->file_original_name
+                ?: $path
+            )
+        );
+
+        $mimeType = $document->mime_type
+            ?: Storage::disk($disk)->mimeType($path)
+            ?: 'application/octet-stream';
+
+        return Storage::disk($disk)->response(
+            $path,
+            $fileName,
+            [
+                'Content-Type' => $mimeType,
+                'Cache-Control' => 'private, max-age=300',
+                'X-Content-Type-Options' => 'nosniff',
+            ],
+            'inline'
+        );
+    }
 }
