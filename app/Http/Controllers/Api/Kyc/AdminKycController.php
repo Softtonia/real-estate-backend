@@ -474,4 +474,34 @@ class AdminKycController extends Controller
             'inline'
         );
     }
+    public function previewDocument(KycDocument $document): StreamedResponse|JsonResponse
+    {
+        if (empty($document->file_disk) || empty($document->file_path)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Document file not available.',
+            ], 404);
+        }
+
+        if (!Storage::disk($document->file_disk)->exists($document->file_path)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Document file not found.',
+                'debug' => [
+                    'document_id' => (int) $document->id,
+                    'file_disk' => $document->file_disk,
+                    'file_path' => $document->file_path,
+                ],
+            ], 404);
+        }
+
+        return Storage::disk($document->file_disk)->response(
+            $document->file_path,
+            $document->file_original_name ?: basename($document->file_path),
+            [
+                'Content-Type' => $document->mime_type ?: 'application/octet-stream',
+                'Content-Disposition' => 'inline; filename="' . ($document->file_original_name ?: basename($document->file_path)) . '"',
+            ]
+        );
+    }
 }

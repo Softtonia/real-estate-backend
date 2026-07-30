@@ -944,10 +944,6 @@ Route::middleware(['admin.token'])
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
             ->whereNumber('document');
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
-            ->get('{userId}/{fileName}', [AdminKycController::class, 'viewDocumentByFileName'])
-            ->whereNumber('userId')
-            ->where('fileName', '[^/]+');
     });
 Route::get(
     'admin/kyc/document-preview/{document}',
