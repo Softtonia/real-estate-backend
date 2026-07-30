@@ -944,17 +944,11 @@ Route::middleware(['admin.token'])
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
             ->whereNumber('document');
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
+            ->whereNumber('document');
     });
-Route::get(
-    'admin/kyc/document-preview/{document}',
-    [AdminKycController::class, 'viewSignedDocument']
-)
-    ->middleware([
-        'signed',
-        'throttle:60,1',
-    ])
-    ->name('admin.kyc.documents.preview')
-    ->whereNumber('document');
+
 Route::middleware(['admin.token'])
     ->prefix('kyc/settings')
     ->group(function () {
@@ -1150,7 +1144,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
             Route::get('credit-transactions', [AdminMembershipUserController::class, 'creditTransactions'])
                 ->middleware('permission.check:membership_credits,read');
-
+                
             Route::get('credits', [AdminMembershipUserController::class, 'userCredits'])
                 ->middleware('permission.check:membership_credits,read');
 

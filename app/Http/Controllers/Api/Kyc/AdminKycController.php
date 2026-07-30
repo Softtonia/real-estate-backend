@@ -24,7 +24,6 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
-use Illuminate\Support\Facades\URL;
 
 class AdminKycController extends Controller
 {
@@ -61,7 +60,7 @@ class AdminKycController extends Controller
 
             $query = KycRequest::query()
                 ->with([
-                    'user:id,first_name,last_name,email,phone,role_id,kyc,reject_reason',
+                    'user:id,first_name,last_name,email,phone,role_id,reject_reason',
                     'role:id,name',
                     'reviewer:id,first_name,last_name,email',
                 ])
@@ -134,7 +133,7 @@ class AdminKycController extends Controller
 
         try {
             $kycRequest->load([
-                'user:id,first_name,last_name,email,phone,role_id,kyc,reject_reason',
+                'user:id,first_name,last_name,email,phone,role_id,reject_reason',
                 'role:id,name',
                 'reviewer:id,first_name,last_name,email',
                 'documents.uploader:id,first_name,last_name,email',
@@ -154,17 +153,29 @@ class AdminKycController extends Controller
 
     public function startReview(KycReviewRequest $request, KycRequest $kycRequest): JsonResponse
     {
-        return $this->handleReviewAction($request, $kycRequest, 'KYC review started successfully.');
+        return $this->handleReviewAction(
+            $request,
+            $kycRequest,
+            'KYC review started successfully.'
+        );
     }
 
     public function approve(KycReviewRequest $request, KycRequest $kycRequest): JsonResponse
     {
-        return $this->handleReviewAction($request, $kycRequest, 'KYC approved successfully.');
+        return $this->handleReviewAction(
+            $request,
+            $kycRequest,
+            'KYC approved successfully.'
+        );
     }
 
     public function reject(KycReviewRequest $request, KycRequest $kycRequest): JsonResponse
     {
-        return $this->handleReviewAction($request, $kycRequest, 'KYC rejected successfully.');
+        return $this->handleReviewAction(
+            $request,
+            $kycRequest,
+            'KYC rejected successfully.'
+        );
     }
 
     public function documents(Request $request, KycRequest $kycRequest): JsonResponse
@@ -176,14 +187,16 @@ class AdminKycController extends Controller
         }
 
         try {
+            $perPage = max(1, min((int) $request->input('per_page', 20), 100));
+
             $documents = KycDocument::query()
                 ->with([
                     'uploader:id,first_name,last_name,email',
                     'reviewer:id,first_name,last_name,email',
                 ])
-                ->where('kyc_request_id', $kycRequest->id)
+                ->where('kyc_request_id', (int) $kycRequest->id)
                 ->latest('id')
-                ->paginate((int) $request->input('per_page', 20));
+                ->paginate($perPage);
 
             return response()->json([
                 'status' => true,
@@ -204,11 +217,14 @@ class AdminKycController extends Controller
         }
 
         try {
+            $perPage = max(1, min((int) $request->input('per_page', 20), 100));
+
             $activities = KycActivity::query()
                 ->with('performer:id,first_name,last_name,email')
-                ->where('kyc_request_id', $kycRequest->id)
+                ->where('kyc_request_id', (int) $kycRequest->id)
                 ->latest('created_at')
-                ->paginate((int) $request->input('per_page', 20));
+                ->latest('id')
+                ->paginate($perPage);
 
             return response()->json([
                 'status' => true,
@@ -229,10 +245,22 @@ class AdminKycController extends Controller
         }
 
         try {
+            if (empty($document->file_disk) || empty($document->file_path)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'KYC document file not available.',
+                ], 404);
+            }
+
             if (!$this->documentService->fileExists($document)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'KYC document file not found.',
+                    'debug' => [
+                        'document_id' => (int) $document->id,
+                        'file_disk' => $document->file_disk,
+                        'file_path' => $document->file_path,
+                    ],
                 ], 404);
             }
 
@@ -241,6 +269,7 @@ class AdminKycController extends Controller
                 $document->file_original_name ?: basename($document->file_path),
                 [
                     'Content-Type' => $document->mime_type ?: 'application/octet-stream',
+                    'Content-Disposition' => 'inline; filename="' . ($document->file_original_name ?: basename($document->file_path)) . '"',
                     'X-Content-Type-Options' => 'nosniff',
                 ]
             );
@@ -248,7 +277,6 @@ class AdminKycController extends Controller
             return $this->serverErrorResponse('Unable to view KYC document.', $e);
         }
     }
-
 
     public function stats(Request $request): JsonResponse
     {
@@ -259,17 +287,21 @@ class AdminKycController extends Controller
         }
 
         try {
-            $stats = Cache::store('redis')->remember('kyc:admin:stats', now()->addMinutes(5), function () {
-                return [
-                    'total' => KycRequest::query()->count(),
-                    'draft' => KycRequest::query()->where('status', KycRequest::STATUS_DRAFT)->count(),
-                    'submitted' => KycRequest::query()->where('status', KycRequest::STATUS_SUBMITTED)->count(),
-                    'under_review' => KycRequest::query()->where('status', KycRequest::STATUS_UNDER_REVIEW)->count(),
-                    'approved' => KycRequest::query()->where('status', KycRequest::STATUS_APPROVED)->count(),
-                    'rejected' => KycRequest::query()->where('status', KycRequest::STATUS_REJECTED)->count(),
-                    'resubmitted' => KycRequest::query()->where('status', KycRequest::STATUS_RESUBMITTED)->count(),
-                ];
-            });
+            $stats = Cache::store('redis')->remember(
+                'kyc:admin:stats',
+                now()->addMinutes(5),
+                function () {
+                    return [
+                        'total' => KycRequest::query()->count(),
+                        'draft' => KycRequest::query()->where('status', KycRequest::STATUS_DRAFT)->count(),
+                        'submitted' => KycRequest::query()->where('status', KycRequest::STATUS_SUBMITTED)->count(),
+                        'under_review' => KycRequest::query()->where('status', KycRequest::STATUS_UNDER_REVIEW)->count(),
+                        'approved' => KycRequest::query()->where('status', KycRequest::STATUS_APPROVED)->count(),
+                        'rejected' => KycRequest::query()->where('status', KycRequest::STATUS_REJECTED)->count(),
+                        'resubmitted' => KycRequest::query()->where('status', KycRequest::STATUS_RESUBMITTED)->count(),
+                    ];
+                }
+            );
 
             return response()->json([
                 'status' => true,
@@ -298,6 +330,17 @@ class AdminKycController extends Controller
                 reviewer: $reviewer,
                 request: $request
             );
+
+            $updatedRequest->load([
+                'user:id,first_name,last_name,email,phone,role_id,reject_reason',
+                'role:id,name',
+                'reviewer:id,first_name,last_name,email',
+                'documents.uploader:id,first_name,last_name,email',
+                'documents.reviewer:id,first_name,last_name,email',
+                'activities.performer:id,first_name,last_name,email',
+            ]);
+
+            Cache::store('redis')->forget('kyc:admin:stats');
 
             return response()->json([
                 'status' => true,
@@ -361,147 +404,5 @@ class AdminKycController extends Controller
             'message' => $message,
             'error' => $e->getMessage(),
         ], 500);
-    }
-    public function viewDocumentByFileName(Request $request, int $userId, string $fileName): StreamedResponse|JsonResponse
-    {
-        $reviewer = $this->resolveCurrentAdmin($request);
-
-        if (!$reviewer) {
-            return $this->unauthenticatedResponse();
-        }
-
-        $fileName = basename(rawurldecode($fileName));
-
-        $document = KycDocument::query()
-            ->where('user_id', $userId)
-            ->whereNotNull('file_path')
-            ->where(function ($query) use ($fileName) {
-                $query->where('file_path', 'like', '%/' . $fileName)
-                    ->orWhere('file_path', 'like', '%\\' . $fileName)
-                    ->orWhere('file_path', $fileName);
-            })
-            ->latest('id')
-            ->first();
-
-        if (!$document) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Document not found.',
-            ], 404);
-        }
-
-        $disks = array_values(array_unique(array_filter([
-            $document->file_disk ?? null,
-            $document->disk ?? null,
-            'private',
-            'local',
-            'public',
-            'public_uploads',
-        ])));
-
-        $paths = array_values(array_unique(array_filter([
-            $document->file_path,
-            ltrim((string) $document->file_path, '/'),
-            'kyc/' . $userId . '/' . $fileName,
-            $userId . '/' . $fileName,
-            'uploads/kyc/' . $userId . '/' . $fileName,
-        ])));
-
-        foreach ($disks as $disk) {
-            foreach ($paths as $path) {
-                if (Storage::disk($disk)->exists($path)) {
-                    return Storage::disk($disk)->response(
-                        $path,
-                        $document->file_original_name ?: $fileName,
-                        [
-                            'Content-Type' => $document->mime_type ?: 'application/octet-stream',
-                            'X-Content-Type-Options' => 'nosniff',
-                        ],
-                        'inline'
-                    );
-                }
-            }
-        }
-
-        return response()->json([
-            'status' => false,
-            'message' => 'Document file not found.',
-            'debug' => [
-                'document_id' => (int) $document->id,
-                'file_disk' => $document->file_disk ?? null,
-                'file_path' => $document->file_path,
-                'file_name' => $fileName,
-            ],
-        ], 404);
-    }
-    public function viewSignedDocument(
-        KycDocument $document
-    ): StreamedResponse|Response {
-        $path = ltrim((string) $document->file_path, '/');
-
-        /*
-     * Use the same disk that your KYC upload job uses.
-     * Change "private" to "local" if files are stored on local disk.
-     */
-        $disk = $document->disk ?? 'private';
-
-        if (
-            $path === ''
-            || !Storage::disk($disk)->exists($path)
-        ) {
-            abort(404, 'KYC document file not found.');
-        }
-
-        $fileName = basename(
-            (string) (
-                $document->file_original_name
-                ?: $path
-            )
-        );
-
-        $mimeType = $document->mime_type
-            ?: Storage::disk($disk)->mimeType($path)
-            ?: 'application/octet-stream';
-
-        return Storage::disk($disk)->response(
-            $path,
-            $fileName,
-            [
-                'Content-Type' => $mimeType,
-                'Cache-Control' => 'private, max-age=300',
-                'X-Content-Type-Options' => 'nosniff',
-            ],
-            'inline'
-        );
-    }
-    public function previewDocument(KycDocument $document): StreamedResponse|JsonResponse
-    {
-        if (empty($document->file_disk) || empty($document->file_path)) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Document file not available.',
-            ], 404);
-        }
-
-        if (!Storage::disk($document->file_disk)->exists($document->file_path)) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Document file not found.',
-                'debug' => [
-                    'document_id' => (int) $document->id,
-                    'file_disk' => $document->file_disk,
-                    'file_path' => $document->file_path,
-                ],
-            ], 404);
-        }
-
-        return Storage::disk($document->file_disk)->response(
-            $document->file_path,
-            $document->file_original_name ?: basename($document->file_path),
-            [
-                'Content-Type' => $document->mime_type ?: 'application/octet-stream',
-                'Content-Disposition' => 'inline; filename="' . ($document->file_original_name ?: basename($document->file_path)) . '"',
-            ]
-        );
     }
 }
