@@ -2,58 +2,88 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Response;
 
 class AdminTokenMiddleware
 {
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next): Response
     {
-        // Check Authorization header
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
+        /*
+         * Authorization: Bearer TOKEN
+         */
+        $token = $request->bearerToken();
+
+        if (!$token) {
+            return response()->json([
+                'status' => false,
+                'error' => 'Please provide an API token.',
+            ], 401);
         }
 
-        $authorizationHeader = $request->header('Authorization');
-
-        // Check Bearer format
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        // Extract token
-        $requestToken = substr($authorizationHeader, 7);
-
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        // Fetch user and role in one query
-        $user = DB::table('users')
-            ->join('roles', 'roles.id', '=', 'users.role_id')
-            ->where('users.api_token', $requestToken)
-            ->select(
-                'users.id',
-                'users.role_id',
-                'users.isapproved',
-                'roles.name as role_name'
-            )
+        /*
+         * Token ke saath user aur role fetch karein.
+         */
+        $user = User::query()
+            ->with([
+                'role:id,name,is_admin_login_permission',
+            ])
+            ->where('api_token', $token)
             ->first();
 
         if (!$user) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+            return response()->json([
+                'status' => false,
+                'error' => 'Unauthorized. Invalid or expired API token.',
+            ], 401);
         }
 
-        if ($user->role_name !== 'admin') {
+        if (!$user->role) {
             return response()->json([
-                'error' => 'Access denied: Only Admins are allowed.'
+                'status' => false,
+                'error' => 'User role is not configured.',
             ], 403);
         }
 
-        // Set authenticated user
-        Auth::loginUsingId($user->id);
+        $roleName = strtolower(trim((string) $user->role->name));
+
+        /*
+         * Main admin hamesha allowed.
+         * Custom role tab allowed jab is_admin_login_permission = 1 ho.
+         */
+        $isMainAdmin = $roleName === 'admin';
+
+        $hasAdminPanelPermission =
+            (int) $user->role->is_admin_login_permission === 1;
+
+        if (!$isMainAdmin && !$hasAdminPanelPermission) {
+            return response()->json([
+                'status' => false,
+                'error' => 'Access denied: Admin panel permission is required.',
+            ], 403);
+        }
+
+        /*
+         * Main admin ke alawa custom admin user active hona chahiye.
+         */
+        if (!$isMainAdmin && (int) $user->isapproved !== 1) {
+            return response()->json([
+                'status' => false,
+                'error' => 'Access denied: Your account is not approved.',
+            ], 403);
+        }
+
+        /*
+         * Current request ke liye authenticated user set karein.
+         */
+        Auth::setUser($user);
+
+        $request->setUserResolver(
+            static fn () => $user
+        );
 
         return $next($request);
     }
