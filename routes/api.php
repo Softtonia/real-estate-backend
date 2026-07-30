@@ -390,47 +390,52 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('/profile/update', [Ad
 
 Route::middleware(['validate.api.client'])->group(function () {
 
-    Route::middleware(['admin'])->prefix('admin')->group(function () {
-        Route::middleware(['throttle:60,1', 'token.expiration'])->group(function () {
+    Route::prefix('admin')
+        ->middleware(['admin.token'])
+        ->group(function () {
+            Route::get(
+                '/get-admin-profile',
+                [Admincontroller::class, 'getAdminProfile']
+            )->middleware([
+                'throttle:60,1',
+                'token.expiration',
+            ]);
 
-            Route::middleware('admin.token')->get('/get-admin-profile', [Admincontroller::class, 'getAdminProfile']);
+            Route::middleware(['throttle:60,1', 'admin.token'])->post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
+            Route::post('/user-bulk-delete', [Admincontroller::class, 'userAllRecordBulksDelete'])->middleware(['throttle:60,1']);
+
+            Route::middleware(['throttle:60,1', 'admin.token'])->post('/mail-config', [MailConfigController::class, 'store']);
+            Route::middleware(['throttle:60,1', 'admin.token'])->post('/mail-config/{id}', [MailConfigController::class, 'update']);
+            Route::middleware(['throttle:60,1', 'admin.token'])->post('/get-mail-config', [MailConfigController::class, 'getMailConfig']);
+            Route::middleware(['throttle:60,1', 'admin.token'])->post('/active-mail-config', [MailConfigController::class, 'ActiveMailConfig']);
+            Route::middleware(['throttle:60,1', 'admin.token'])->post('/mail-config-delete/{id}', [MailConfigController::class, 'deleteMailConfig']);
+            Route::middleware(['throttle:60,1', 'admin.token'])->post('/bulk-mail-configs-delete', [MailConfigController::class, 'bulkDeleteMailConfigs']);
+            Route::middleware(['throttle:60,1', 'admin.token'])->get('/search-mail-configs', [MailConfigController::class, 'searchMailConfigs']);
+
+
+            Route::post('/create-role-prefix-repeater', [SystemController::class, 'CreateRolePrefixRepeater'])->middleware(['throttle:60,1']);
+            Route::post('/get-role-prefix-repeater', [SystemController::class, 'GetRolePrefixRepeater'])->middleware(['throttle:60,1']);
+            Route::post('/delete-role-prefix-repeater/{ic}', [SystemController::class, 'DeleteRolePrefixRepeater'])->middleware(['throttle:60,1']);
+            Route::post('/update-role-prefix-repeater-by-id/{id}', [SystemController::class, 'UpdateRolePrefixRepeater'])->middleware(['throttle:60,1']);
+
+            Route::middleware(['throttle:60,1', 'permission.check:roles,create'])
+                ->post('role-create', [RoleController::class, 'createRole']);
+
+            Route::middleware(['throttle:60,1', 'permission.check:roles,edit'])
+                ->post('role-edit', [RoleController::class, 'editRole']);
+
+            Route::middleware(['throttle:60,1', 'permission.check:roles,delete'])
+                ->post('role-delete', [RoleController::class, 'deleteRole']);
+
+            Route::middleware(['throttle:60,1', 'permission.check:roles,read'])
+                ->get('role-listing/{id?}', [RoleController::class, 'index']);
+
+            Route::middleware(['throttle:60,1', 'permission.check:roles,delete'])
+                ->post('roles/bulk-delete', [RoleController::class, 'bulkDeleteRoles']);
+
+            Route::middleware(['throttle:60,1', 'permission.check:roles,read'])
+                ->post('roles/search', [RoleController::class, 'searchRole']);
         });
-
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
-        Route::post('/user-bulk-delete', [Admincontroller::class, 'userAllRecordBulksDelete'])->middleware(['throttle:60,1']);
-
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/mail-config', [MailConfigController::class, 'store']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/mail-config/{id}', [MailConfigController::class, 'update']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/get-mail-config', [MailConfigController::class, 'getMailConfig']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/active-mail-config', [MailConfigController::class, 'ActiveMailConfig']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/mail-config-delete/{id}', [MailConfigController::class, 'deleteMailConfig']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/bulk-mail-configs-delete', [MailConfigController::class, 'bulkDeleteMailConfigs']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->get('/search-mail-configs', [MailConfigController::class, 'searchMailConfigs']);
-
-
-        Route::post('/create-role-prefix-repeater', [SystemController::class, 'CreateRolePrefixRepeater'])->middleware(['throttle:60,1']);
-        Route::post('/get-role-prefix-repeater', [SystemController::class, 'GetRolePrefixRepeater'])->middleware(['throttle:60,1']);
-        Route::post('/delete-role-prefix-repeater/{ic}', [SystemController::class, 'DeleteRolePrefixRepeater'])->middleware(['throttle:60,1']);
-        Route::post('/update-role-prefix-repeater-by-id/{id}', [SystemController::class, 'UpdateRolePrefixRepeater'])->middleware(['throttle:60,1']);
-
-        Route::middleware(['throttle:60,1', 'permission.check:roles,create'])
-            ->post('role-create', [RoleController::class, 'createRole']);
-
-        Route::middleware(['throttle:60,1', 'permission.check:roles,edit'])
-            ->post('role-edit', [RoleController::class, 'editRole']);
-
-        Route::middleware(['throttle:60,1', 'permission.check:roles,delete'])
-            ->post('role-delete', [RoleController::class, 'deleteRole']);
-
-        Route::middleware(['throttle:60,1', 'permission.check:roles,read'])
-            ->get('role-listing/{id?}', [RoleController::class, 'index']);
-
-        Route::middleware(['throttle:60,1', 'permission.check:roles,delete'])
-            ->post('roles/bulk-delete', [RoleController::class, 'bulkDeleteRoles']);
-
-        Route::middleware(['throttle:60,1', 'permission.check:roles,read'])
-            ->post('roles/search', [RoleController::class, 'searchRole']);
-    });
 
     // ======= Analytics =========
     Route::middleware(['throttle:60,1', 'admin.token', 'permission.check:dashboard,read'])->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
@@ -1144,7 +1149,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
             Route::get('credit-transactions', [AdminMembershipUserController::class, 'creditTransactions'])
                 ->middleware('permission.check:membership_credits,read');
-                
+
             Route::get('credits', [AdminMembershipUserController::class, 'userCredits'])
                 ->middleware('permission.check:membership_credits,read');
 
