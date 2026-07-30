@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
+use Illuminate\Support\Facades\URL;
 
 class AdminKycController extends Controller
 {
@@ -247,6 +248,7 @@ class AdminKycController extends Controller
             return $this->serverErrorResponse('Unable to view KYC document.', $e);
         }
     }
+
 
     public function stats(Request $request): JsonResponse
     {

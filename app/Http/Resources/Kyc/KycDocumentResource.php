@@ -65,7 +65,14 @@ class KycDocumentResource extends JsonResource
             return $this->userMini($this->reviewer);
         });
 
-        $data['private_file_url'] = $this->adminFileUrl();
+        if ($isAdminResponse) {
+            $data['private_file_endpoint'] = url(
+                '/api/admin/kyc/documents/' . $this->id . '/view'
+            );
+        } else {
+            $data['private_file_endpoint'] =
+                '/api/kyc/documents/' . $this->id . '/view';
+        }
 
         return $data;
     }
@@ -86,9 +93,9 @@ class KycDocumentResource extends JsonResource
 
         return url(
             '/api/admin/kyc/' .
-            $this->user_id .
-            '/' .
-            basename((string) $this->file_path)
+                $this->user_id .
+                '/' .
+                basename((string) $this->file_path)
         );
     }
 
