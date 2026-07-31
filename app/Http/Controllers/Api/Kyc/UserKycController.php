@@ -7,6 +7,7 @@ use App\Http\Requests\Kyc\KycSubmitRequest;
 use App\Http\Resources\Kyc\KycActivityResource;
 use App\Http\Resources\Kyc\KycDocumentResource;
 use App\Http\Resources\Kyc\KycRequestResource;
+use App\Http\Requests\Kyc\KycBatchUploadRequest;
 use App\Models\KycDocument;
 use App\Models\KycRequest;
 use App\Models\User;
@@ -299,8 +300,9 @@ class UserKycController extends Controller
             'error' => $e->getMessage(),
         ], 500);
     }
-    public function startBatchUpload(KycSubmitRequest $request): JsonResponse
-    {
+    public function startBatchUpload(
+        KycBatchUploadRequest $request
+    ): JsonResponse {
         $user = $this->resolveCurrentUser($request);
 
         if (!$user) {
@@ -308,11 +310,24 @@ class UserKycController extends Controller
         }
 
         try {
-            $batch = $this->batchUploadService->start($user, $request);
+            $files = $request->kycDocumentFiles();
+
+            if (empty($files)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'At least one KYC document is required.',
+                ], 422);
+            }
+
+            $batch = $this->batchUploadService->start(
+                $user,
+                $request
+            );
 
             return response()->json([
                 'status' => true,
-                'message' => 'KYC document batch upload started successfully.',
+                'message' =>
+                'KYC document batch upload started successfully.',
                 'data' => $batch,
             ], 202);
         } catch (ValidationException $e) {
@@ -322,7 +337,18 @@ class UserKycController extends Controller
                 'errors' => $e->errors(),
             ], 422);
         } catch (Throwable $e) {
-            return $this->serverErrorResponse('Unable to start KYC batch upload.', $e);
+            \Log::error('KYC batch upload start failed.', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return $this->serverErrorResponse(
+                'Unable to start KYC batch upload.',
+                $e
+            );
         }
     }
 
