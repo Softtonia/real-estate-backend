@@ -66,9 +66,6 @@ class UserController extends Controller
     {
         $fileFields = [
             'profile_photo',
-            'aadhaar_front',
-            'aadhaar_back',
-            'business_proof',
         ];
 
         foreach ($request->all() as $key => $value) {
@@ -141,9 +138,6 @@ class UserController extends Controller
     {
         return [
             'profile_photo',
-            'aadhaar_front',
-            'aadhaar_back',
-            'business_proof',
         ];
     }
 
@@ -329,35 +323,6 @@ class UserController extends Controller
             );
         }
 
-        if ($request->hasFile('aadhaar_front')) {
-            $oldFiles[] = $oldDetail?->aadhaar_front;
-
-            $newFiles['aadhaar_front'] = $this->storePublicUpload(
-                $request->file('aadhaar_front'),
-                'kyc/aadhaarFront',
-                $prefix . '_aadhaar_front'
-            );
-        }
-
-        if ($request->hasFile('aadhaar_back')) {
-            $oldFiles[] = $oldDetail?->aadhaar_back;
-
-            $newFiles['aadhaar_back'] = $this->storePublicUpload(
-                $request->file('aadhaar_back'),
-                'kyc/aadhaarBack',
-                $prefix . '_aadhaar_back'
-            );
-        }
-
-        if (!$this->isOwnerRole($role) && $request->hasFile('business_proof')) {
-            $oldFiles[] = $oldDetail?->business_proof;
-
-            $newFiles['business_proof'] = $this->storePublicUpload(
-                $request->file('business_proof'),
-                'kyc/businessProof',
-                $prefix . '_business_proof'
-            );
-        }
 
         return $newFiles;
     }
@@ -828,10 +793,6 @@ class UserController extends Controller
                         'user_details.address',
                         'user_details.profile_photo',
 
-                        'user_details.aadhaar_number',
-                        'user_details.aadhaar_front',
-                        'user_details.aadhaar_back',
-                        'user_details.business_proof',
 
                         'user_details.license_number',
                         'user_details.rera_number',
@@ -905,10 +866,6 @@ class UserController extends Controller
 
                     'profile_photo' => $this->fileUrl($userData->profile_photo),
 
-                    'aadhaar_number' => $this->cleanNullableValue($userData->aadhaar_number),
-                    'aadhaar_front' => $this->fileUrl($userData->aadhaar_front),
-                    'aadhaar_back' => $this->fileUrl($userData->aadhaar_back),
-                    'business_proof' => $isOwnerRole ? null : $this->fileUrl($userData->business_proof),
 
                     'license_number' => $this->cleanNullableValue($userData->license_number),
                     'rera_number' => $this->cleanNullableValue($userData->rera_number),
@@ -1002,10 +959,6 @@ class UserController extends Controller
                         'user_details.no_of_employees',
                         'user_details.about_us',
 
-                        'user_details.aadhaar_number',
-                        'user_details.aadhaar_front',
-                        'user_details.aadhaar_back',
-                        'user_details.business_proof',
 
                         'users.created_at',
                         'users.updated_at'
@@ -1061,10 +1014,6 @@ class UserController extends Controller
                     'no_of_employees' => $this->cleanNullableValue($userData->no_of_employees),
                     'about_us' => $this->cleanNullableValue($userData->about_us),
 
-                    'aadhaar_number' => $this->cleanNullableValue($userData->aadhaar_number),
-                    'aadhaar_front' => $this->fileUrl($userData->aadhaar_front),
-                    'aadhaar_back' => $this->fileUrl($userData->aadhaar_back),
-                    'business_proof' => $isOwnerRole ? null : $this->fileUrl($userData->business_proof),
 
                     'created_at' => $userData->created_at,
                     'updated_at' => $userData->updated_at,
@@ -1390,7 +1339,6 @@ class UserController extends Controller
     public function createUser(Request $request)
     {
         $this->normalizeUserRequestBeforeValidation($request);
-        $this->normalizeKycRequest($request);
 
         $role = Role::find($request->input('role_id'));
 
@@ -1414,11 +1362,6 @@ class UserController extends Controller
             [
                 'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
                 'profile_photo.max' => 'Profile photo must not be greater than 2MB.',
-                'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
-                'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
-                'business_proof.max' => 'Business proof must not be greater than 2MB.',
-                'aadhaar_number.digits' => 'Aadhaar number must contain exactly 12 digits.',
-                'aadhaar_number.unique' => 'This Aadhaar number is already linked with another user.',
             ]
         );
 
@@ -1662,9 +1605,6 @@ class UserController extends Controller
                 'license_number' => isset($request->license_number) ? $request->license_number : $userDetailData->license_number,
                 'alternate_number' => isset($request->alternate_number) ? $request->alternate_number : $userDetailData->alternate_number,
                 'no_of_employees' => isset($request->no_of_employees) ? $request->no_of_employees : $userDetailData->no_of_employees,
-                'purpose_id' => isset($request->purpose_id) ? $request->purpose_id : $userDetailData->purpose_id,
-                'property_id' => isset($request->property_id) ? $request->property_id : $userDetailData->property_id,
-                'property_type_id' => isset($request->property_type_id) ? $request->property_type_id : $userDetailData->property_type_id,
             );
 
             if ($userDetailData->profile_photo) {
@@ -1742,9 +1682,6 @@ class UserController extends Controller
                     'license_number' => $userDetails ? $userDetails->license_number : null,
                     'alternate_number' => $userDetails ? $userDetails->alternate_number : null,
                     'no_of_employees' => $userDetails ? $userDetails->no_of_employees : null,
-                    'purpose_id' => $userDetails ? explode(',', $userDetails->purpose_id) : null,
-                    'property_id' => $userDetails ? explode(',', $userDetails->property_id) : null,
-                    'property_type_id' => $userDetails ? explode(',', $userDetails->property_type_id) : null,
                 ];
             });
 
@@ -3366,9 +3303,6 @@ class UserController extends Controller
                 ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
                 ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
                 ->leftJoin('cities as user_cities', 'users.city_id', '=', 'user_cities.id')
-                ->leftJoin('purposes', 'user_details.purpose_id', '=', 'purposes.id')
-                ->leftJoin('properties', 'user_details.property_id', '=', 'properties.id')
-                ->leftJoin('property_types', 'user_details.property_type_id', '=', 'property_types.id')
                 ->select(
                     'users.id',
                     'users.first_name',
@@ -3412,12 +3346,6 @@ class UserController extends Controller
                     'user_details.no_of_employees',
                     'user_details.about_us',
                     'user_details.rera_number',
-                    'user_details.purpose_id',
-                    'purposes.name as purpose_name',
-                    'user_details.property_id',
-                    'properties.name as property_name',
-                    'user_details.property_type_id',
-                    'property_types.name as property_type_name',
 
                     'users.created_at',
                     'users.updated_at'
@@ -3499,12 +3427,6 @@ class UserController extends Controller
                 'rera_number' => $user->rera_number,
                 'no_of_employees' => $user->no_of_employees,
                 'about_us' => $user->about_us,
-                'purpose_id' => $user->purpose_id,
-                'purpose_name' => $user->purpose_name,
-                'property_id' => $user->property_id,
-                'property_name' => $user->property_name,
-                'property_type_id' => $user->property_type_id,
-                'property_type_name' => $user->property_type_name,
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at
             ];
@@ -3542,7 +3464,6 @@ class UserController extends Controller
         bool $currentUserMode = false
     ) {
         $this->normalizeUserRequestBeforeValidation($request);
-        $this->normalizeKycRequest($request);
 
         if (!$userId) {
             return response()->json([
@@ -3590,11 +3511,6 @@ class UserController extends Controller
         $validator = Validator::make($request->all(), $rules, [
             'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
             'profile_photo.max' => 'Profile photo must not be greater than 2MB.',
-            'aadhaar_front.max' => 'Aadhaar front must not be greater than 2MB.',
-            'aadhaar_back.max' => 'Aadhaar back must not be greater than 2MB.',
-            'business_proof.max' => 'Business proof must not be greater than 2MB.',
-            'aadhaar_number.digits' => 'Aadhaar number must contain exactly 12 digits.',
-            'aadhaar_number.unique' => 'This Aadhaar number is already linked with another user.',
         ]);
 
         if ($validator->fails()) {
@@ -3792,35 +3708,6 @@ class UserController extends Controller
         ], true);
     }
 
-    private function normalizeKycRequest(Request $request): void
-    {
-        foreach (
-            [
-                'aadhaar_number',
-                'aadhar_number',
-                'adhar_number',
-                'addhar_number',
-                'aadhaar_no',
-                'aadhaarNumber',
-                'aadhaar',
-            ] as $key
-        ) {
-            if ($request->has($key)) {
-                $value = $request->input($key);
-
-                if ($value !== null && $value !== '') {
-                    $value = preg_replace('/\D+/', '', (string) $value);
-                }
-
-                $request->merge([
-                    'aadhaar_number' => $value ?: null,
-                ]);
-
-                break;
-            }
-        }
-    }
-
     private function requestHasAny(Request $request, array $keys): bool
     {
         foreach ($keys as $key) {
@@ -3956,11 +3843,6 @@ class UserController extends Controller
             'reject_reason' => ['nullable', 'string', 'max:1000'],
             'kyc' => ['nullable', 'in:0,1,2,3'],
 
-            'aadhaar_number' => [
-                'nullable',
-                'digits:12',
-                Rule::unique('user_details', 'aadhaar_number')->ignore($userId, 'user_id'),
-            ],
 
             'license_number' => ['nullable', 'string', 'max:200'],
             'rera_number' => ['nullable', 'string', 'max:50'],
@@ -3989,26 +3871,6 @@ class UserController extends Controller
                 'max:' . self::MAX_UPLOAD_KB,
             ],
 
-            'aadhaar_front' => [
-                'nullable',
-                'file',
-                'mimes:jpg,jpeg,png,pdf',
-                'max:' . self::MAX_UPLOAD_KB,
-            ],
-
-            'aadhaar_back' => [
-                'nullable',
-                'file',
-                'mimes:jpg,jpeg,png,pdf',
-                'max:' . self::MAX_UPLOAD_KB,
-            ],
-
-            'business_proof' => [
-                'nullable',
-                'file',
-                'mimes:pdf,jpg,jpeg,png',
-                'max:' . self::MAX_UPLOAD_KB,
-            ],
         ];
 
         if (Schema::hasColumn('users', 'user_name')) {
@@ -4091,7 +3953,6 @@ class UserController extends Controller
 
         foreach (
             [
-                'aadhaar_number',
                 'license_number',
                 'rera_number',
                 'alternate_number',

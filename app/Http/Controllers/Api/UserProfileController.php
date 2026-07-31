@@ -1206,12 +1206,6 @@ class UserProfileController extends Controller
         ], 422);
     }
 
- 
-    /**
-     * Persist user_details without depending on UserDetail::$fillable.
-     * This prevents aadhaar_number and other KYC fields from being silently
-     * skipped when they are not listed as mass-assignable on the model.
-     */
     private function persistUserDetailPayload(User $user, array $payload): void
     {
         if (!Schema::hasTable('user_details') || !Schema::hasColumn('user_details', 'user_id')) {
