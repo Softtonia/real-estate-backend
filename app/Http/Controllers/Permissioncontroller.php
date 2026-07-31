@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role as SpatieRole;
 use Spatie\Permission\PermissionRegistrar;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 
 class PermissionController extends Controller
 {
@@ -39,7 +41,7 @@ class PermissionController extends Controller
         );
 
         // Find the role by ID
-        $role = Role::findById($request->role_id);
+        $role = SpatieRole::findById($request->role_id);
 
         // Check if role exists
         if (!$role) {
