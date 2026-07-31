@@ -351,4 +351,28 @@ class DynamicPost extends Model
     {
         return $this->live_status === 'under_review';
     }
+
+    public function propertyRevisions()
+    {
+        return $this->hasMany(
+            \App\Models\PropertyListingRevision::class,
+            'dynamic_post_id'
+        );
+    }
+
+    public function latestPropertyRevision()
+    {
+        return $this->hasOne(
+            \App\Models\PropertyListingRevision::class,
+            'dynamic_post_id'
+        )->latestOfMany('version');
+    }
+
+    public function verificationTimeline()
+    {
+        return $this->hasMany(
+            \App\Models\PropertyVerificationEvent::class,
+            'dynamic_post_id'
+        )->orderBy('created_at');
+    }
 }

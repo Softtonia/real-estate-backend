@@ -675,6 +675,32 @@ class DynamicPostController extends Controller
                 ]);
             }
 
+            /*
+             * Property publication decisions must pass through the dedicated
+             * verification APIs so assignment, notifications and timeline
+             * entries cannot be bypassed.
+             */
+            $postTypeSlug = DB::table('post_types')
+                ->where('id', $post->post_type_id)
+                ->value('slug');
+
+            if (
+                Str::slug((string) $postTypeSlug) === 'property-listing'
+                && $request->hasAny([
+                    'status',
+                    'live_status',
+                    'rejection_reason',
+                    'rejected_by',
+                    'rejected_at',
+                ])
+            ) {
+                throw ValidationException::withMessages([
+                    'verification' => [
+                        'Use the property verification APIs to approve, reject or publish a property.',
+                    ],
+                ]);
+            }
+
             $validated = $this->validatePost($request, true);
 
             /*

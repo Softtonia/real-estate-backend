@@ -109,8 +109,10 @@ use App\Http\Controllers\Api\Membership\UserMembershipInvoiceController;
 use App\Http\Controllers\Api\Membership\UserMembershipNotificationController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
+use App\Http\Controllers\Api\PropertyVerificationController;
 use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\UserListingController;
+use App\Http\Controllers\Api\UserPropertyVerificationController;
 use App\Http\Controllers\Frontend\FrontendListingController;
 use App\Http\Controllers\Frontend\FrontendListingTaxonomyController;
 use App\Http\Controllers\Template\PageBuilderContextController;
@@ -980,6 +982,110 @@ Route::middleware(['admin.token'])
             ->get('users/{userId}/access-status', [KycSettingsController::class, 'userAccessStatus'])
             ->whereNumber('userId');
     });
+Route::middleware([
+    'validate.api.client',
+    'admin.token',
+    'throttle:60,1',
+])
+    ->prefix('admin/property-verifications')
+    ->group(function () {
+        Route::get(
+            '/',
+            [PropertyVerificationController::class, 'index']
+        )->middleware(
+            'permission.check:property_verifications,read'
+        );
+
+        // Static route must be declared before /{property}.
+        Route::get(
+            '/verifiers',
+            [PropertyVerificationController::class, 'verifiers']
+        )->middleware(
+            'permission.check:property_verifications,assign'
+        );
+
+        Route::get(
+            '/verifier-roles',
+            [PropertyVerificationController::class, 'verifierRoles']
+        )->middleware(
+            'permission.check:property_verifications,assign'
+        );
+
+        Route::get(
+            '/my-assigned',
+            [PropertyVerificationController::class, 'myAssigned']
+        )->middleware(
+            'permission.check:property_verifications,read'
+        );
+
+        Route::post(
+            '/bulk-assign',
+            [PropertyVerificationController::class, 'bulkAssign']
+        )->middleware(
+            'permission.check:property_verifications,assign'
+        );
+
+        Route::post(
+            '/assign-all-open',
+            [PropertyVerificationController::class, 'assignAllOpen']
+        )->middleware(
+            'permission.check:property_verifications,assign'
+        );
+
+        Route::get(
+            '/{property}',
+            [PropertyVerificationController::class, 'show']
+        )
+            ->middleware(
+                'permission.check:property_verifications,read'
+            )
+            ->whereNumber('property');
+
+        Route::post(
+            '/{property}/assign',
+            [PropertyVerificationController::class, 'assign']
+        )
+            ->middleware(
+                'permission.check:property_verifications,assign'
+            )
+            ->whereNumber('property');
+
+        Route::post(
+            '/{property}/start',
+            [PropertyVerificationController::class, 'startVerification']
+        )
+            ->middleware(
+                'permission.check:property_verifications,review'
+            )
+            ->whereNumber('property');
+
+        Route::post(
+            '/{property}/approve',
+            [PropertyVerificationController::class, 'approve']
+        )
+            ->middleware(
+                'permission.check:property_verifications,approve'
+            )
+            ->whereNumber('property');
+
+        Route::post(
+            '/{property}/reject',
+            [PropertyVerificationController::class, 'reject']
+        )
+            ->middleware(
+                'permission.check:property_verifications,reject'
+            )
+            ->whereNumber('property');
+
+        Route::get(
+            '/{property}/timeline',
+            [PropertyVerificationController::class, 'timeline']
+        )
+            ->middleware(
+                'permission.check:property_verifications,read'
+            )
+            ->whereNumber('property');
+    });
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get(
         'auth/google',
@@ -1702,6 +1808,22 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy'])
         ->middleware('kyc.publish')
         ->whereNumber('listing');
+
+    Route::get(
+        'frontend/listings/{property}/verification-status',
+        [UserPropertyVerificationController::class, 'status']
+    )->whereNumber('property');
+
+    Route::get(
+        'frontend/listings/{property}/timeline',
+        [UserPropertyVerificationController::class, 'timeline']
+    )->whereNumber('property');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Related Posts Widget
+    |--------------------------------------------------------------------------
+    */
 
     Route::get('template-builder/related-posts-widget/schema', [RelatedPostsWidgetPreviewController::class, 'schema']);
     Route::post('template-builder/related-posts-widget/preview', [RelatedPostsWidgetPreviewController::class, 'preview']);

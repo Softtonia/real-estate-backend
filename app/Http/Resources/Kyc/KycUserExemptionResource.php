@@ -51,7 +51,11 @@ class KycUserExemptionResource extends JsonResource
             'last_name' => $user->last_name,
             'full_name' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) ?: null,
             'email' => $user->email,
-            'role_id' => $user->role_id ?? null,
+            'phone' => $user->phone ?? null,
+            'role_id' => $user->role_id ? (int) $user->role_id : null,
+            'role_name' => $user->relationLoaded('role') && $user->role
+                ? $user->role->name
+                : null,
         ];
     }
 }

@@ -193,9 +193,14 @@ class KycSettingsController extends Controller
 
             $query = KycUserExemption::query()
                 ->with([
-                    'user:id,first_name,last_name,email,phone,role_id,kyc',
-                    'creator:id,first_name,last_name,email',
-                    'revoker:id,first_name,last_name,email',
+                    'user:id,first_name,last_name,email,phone,role_id,unique_id',
+                    'user.role:id,name',
+
+                    'creator:id,first_name,last_name,email,phone,role_id',
+                    'creator.role:id,name',
+
+                    'revoker:id,first_name,last_name,email,phone,role_id',
+                    'revoker.role:id,name',
                 ])
                 ->latest('id');
 
@@ -242,7 +247,6 @@ class KycSettingsController extends Controller
             return $this->serverErrorResponse('Unable to fetch KYC user exemptions.', $e);
         }
     }
-
     public function createUserExemption(KycUserExemptionRequest $request): JsonResponse
     {
         $admin = $this->resolveCurrentAdmin($request);

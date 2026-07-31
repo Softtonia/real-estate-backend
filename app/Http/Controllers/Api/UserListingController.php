@@ -22,6 +22,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 use App\Services\Membership\MembershipCreditService;
+use App\Services\PropertyVerification\PropertyWorkflowService;
 
 class UserListingController extends Controller
 {
@@ -222,6 +223,12 @@ class UserListingController extends Controller
                 ], 403);
             }
 
+            $this->propertyWorkflow()->assertCanSubmitProperty($user);
+
+            // Frontend users cannot choose approval/publication status.
+            $request->request->remove('status');
+            $request->request->remove('live_status');
+
             $request->validate([
                 'title' => ['nullable', 'string', 'max:255'],
                 'slug' => ['nullable', 'string', 'max:255'],
@@ -335,7 +342,7 @@ class UserListingController extends Controller
                     (int) $postType->id
                 ));
 
-                $this->putIfColumnExists($payload, 'status', $request->input('status', 'draft'));
+                $this->putIfColumnExists($payload, 'status', 'draft');
 
                 // User-side requests can never directly approve a listing.
                 $this->putIfColumnExists($payload, 'live_status', 'under_review');
@@ -432,6 +439,11 @@ class UserListingController extends Controller
                 $this->storeCustomFieldsForListing($listing, $request->input('custom_fields', []));
 
                 $this->consumeMembershipListingCredit($request, $listing, 'frontend_listing');
+
+                $this->propertyWorkflow()->registerInitialSubmission(
+                    $listing->fresh(),
+                    $user
+                );
             });
 
             $freshListing = DynamicPost::query()
@@ -542,6 +554,15 @@ class UserListingController extends Controller
                     'message' => 'Listing not found.',
                 ], 404);
             }
+
+            $this->propertyWorkflow()->assertCanSubmitProperty($user);
+
+            $workflowContext = $this->propertyWorkflow()
+                ->prepareUserUpdate($ownedListing, $user);
+
+            // Frontend users cannot choose approval/publication status.
+            $request->request->remove('status');
+            $request->request->remove('live_status');
 
             $request->validate([
                 'title' => [
@@ -970,6 +991,12 @@ class UserListingController extends Controller
                         $request->input('custom_fields', []) ?: []
                     );
                 }
+
+                $this->propertyWorkflow()->registerUserUpdate(
+                    $ownedListing->fresh(),
+                    $user,
+                    $workflowContext
+                );
             });
 
             $freshListing = DynamicPost::query()
@@ -1181,8 +1208,8 @@ class UserListingController extends Controller
             'developer' => 'developer-listing',
             'developers' => 'developer-listing',
 
-            'company' => 'project-listing',
-            'companies' => 'project-listing',
+            'company' => 'property-listing',
+            'companies' => 'property-listing',
         ];
 
         $postTypeSlug = null;
@@ -2814,4 +2841,10 @@ class UserListingController extends Controller
             ]
         );
     }
+
+    private function propertyWorkflow(): PropertyWorkflowService
+    {
+        return app(PropertyWorkflowService::class);
+    }
+
 }

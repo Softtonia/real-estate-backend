@@ -22,7 +22,6 @@ class DatabaseSeeder extends Seeder
         $this->call(AdminSeeder::class);
         $this->call(MailConfigSeeder::class);
         $this->call(MediaSeeder::class);
-        // $this->call(ImportKeywordsSeeder::class);
         $this->call(TicketDepartmentsSeeder::class);
         $this->call(TicketTypesTableSeeder::class);
         $this->call(TicketPrioritiesTableSeeder::class);
@@ -41,11 +40,8 @@ class DatabaseSeeder extends Seeder
         $this->call(PostTypeTaxonomySeeder::class);
         $this->call(TaxonomyTermSeeder::class);
         $this->call(MembershipSeeder::class);
-        $this->call([
-            TicketModuleSeeder::class,
-        ]);
-        $this->call([
-            KycRoleRuleSeeder::class,
-        ]);
+        $this->call([TicketModuleSeeder::class,]);
+        $this->call([KycRoleRuleSeeder::class,]);
+        $this->call(PropertyVerificationPermissionSeeder::class);
     }
 }
