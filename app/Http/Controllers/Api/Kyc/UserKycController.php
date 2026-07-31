@@ -63,6 +63,10 @@ class UserKycController extends Controller
         }
 
         try {
+            $kycRequestId = $request->integer(
+                'kyc_request_id'
+            );
+
             $kycRequest = KycRequest::query()
                 ->with([
                     'user:id,first_name,last_name,email,phone,role_id,kyc,reject_reason',
@@ -73,6 +77,15 @@ class UserKycController extends Controller
                     'activities.performer:id,first_name,last_name,email',
                 ])
                 ->where('user_id', $user->id)
+                ->when(
+                    $kycRequestId > 0,
+                    function ($query) use ($kycRequestId) {
+                        $query->where(
+                            'id',
+                            $kycRequestId
+                        );
+                    }
+                )
                 ->latest('id')
                 ->first();
 
