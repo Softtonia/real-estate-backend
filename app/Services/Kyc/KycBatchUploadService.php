@@ -20,7 +20,8 @@ class KycBatchUploadService
 {
     public function __construct(
         private readonly KycUploadProgressService $progressService
-    ) {}
+    ) {
+    }
 
     public function start(
         User $user,
@@ -155,7 +156,7 @@ class KycBatchUploadService
             $batch = Bus::batch($jobs)
                 ->name(
                     'KYC document upload #'
-                        . $uploadId
+                    . $uploadId
                 )
                 ->onConnection('redis')
                 ->onQueue('kyc')
@@ -184,7 +185,7 @@ class KycBatchUploadService
                 if (
                     $tempPath
                     && Storage::disk('kyc_temp')
-                    ->exists($tempPath)
+                        ->exists($tempPath)
                 ) {
                     Storage::disk('kyc_temp')
                         ->delete($tempPath);
@@ -234,7 +235,9 @@ class KycBatchUploadService
             if (is_array($filePayload)) {
                 $uploadedFile = $filePayload['file'] ?? null;
 
-                $documentType = $filePayload['document_type'] ?? $fileKey;
+                $documentType = $filePayload[
+                    'document_type'
+                ] ?? $fileKey;
             }
 
             if (!$uploadedFile instanceof UploadedFile) {
@@ -335,92 +338,42 @@ class KycBatchUploadService
             $role?->name
         );
 
+        /*
+         * Ye fields kyc_requests table me save ho rahe hain,
+         * user_details table me nahi.
+         */
         $payload = [
-            'user_id' => (int) $user->id,
-
+            'user_id' => $user->id,
             'role_id' => $role?->id
-                ? (int) $role->id
-                : (
-                    $user->role_id
-                    ? (int) $user->role_id
-                    : null
-                ),
-
+                ?? $user->role_id,
             'status' => KycRequest::STATUS_DRAFT,
+
+            'aadhaar_number' => $request->input(
+                'aadhaar_number'
+            ),
+
+            'gst_number' => $isOwner
+                ? null
+                : $request->input('gst_number'),
+
+            'rera_number' => $isOwner
+                ? null
+                : $request->input('rera_number'),
+
+            'business_name' => $isOwner
+                ? null
+                : $request->input('business_name'),
         ];
 
-        /*
-     * Aadhaar:
-     * New value sent ho to update karo.
-     * Field omitted ho to existing value preserve karo.
-     */
-        if ($request->exists('aadhaar_number')) {
-            $payload['aadhaar_number'] =
-                $request->input('aadhaar_number');
-        } elseif ($latestRequest) {
-            $payload['aadhaar_number'] =
-                $latestRequest->aadhaar_number;
-        }
-
-        /*
-     * Owner ke liye business metadata allowed nahi hai.
-     */
-        if ($isOwner) {
-            $payload['gst_number'] = null;
-            $payload['rera_number'] = null;
-            $payload['business_name'] = null;
-        } else {
-            /*
-         * Business metadata:
-         *
-         * Request me field present:
-         *     submitted value update karo.
-         *
-         * Request me field absent:
-         *     existing draft/rejected value preserve karo.
-         */
-            foreach (
-                [
-                    'gst_number',
-                    'rera_number',
-                    'business_name',
-                ] as $field
-            ) {
-                if ($request->exists($field)) {
-                    $payload[$field] =
-                        $request->input($field);
-
-                    continue;
-                }
-
-                if ($latestRequest) {
-                    $payload[$field] =
-                        $latestRequest->{$field};
-                }
-            }
-        }
-
-        /*
-     * Existing draft ko update karo.
-     */
         if (
             $latestRequest
             && $latestRequest->isDraft()
         ) {
-            $latestRequest->fill($payload);
-            $latestRequest->save();
+            $latestRequest->update($payload);
 
-            return $latestRequest->fresh([
-                'user',
-                'role',
-                'documents',
-                'activities',
-            ]);
+            return $latestRequest->fresh();
         }
 
-        /*
-     * Rejected KYC ke baad new resubmission draft.
-     */
         if (
             $latestRequest
             && $latestRequest->isRejected()
@@ -445,41 +398,36 @@ class KycBatchUploadService
                 })
                 ->max('version');
 
-            $payload['parent_kyc_request_id'] =
-                $parentRequestId;
+            $nextVersion = ((int) $maxVersion) + 1;
 
-            $payload['version'] =
-                ((int) $maxVersion) + 1;
+            return KycRequest::query()->create(
+                array_merge(
+                    $payload,
+                    [
+                        'parent_kyc_request_id' =>
+                            $parentRequestId,
 
-            $payload['resubmission_count'] =
-                ((int) $latestRequest->resubmission_count)
-                + 1;
+                        'version' => $nextVersion,
 
-            return KycRequest::query()
-                ->create($payload)
-                ->fresh([
-                    'user',
-                    'role',
-                    'documents',
-                    'activities',
-                ]);
+                        'resubmission_count' =>
+                            (int) $latestRequest
+                                ->resubmission_count + 1,
+                    ]
+                )
+            );
         }
 
-        /*
-     * First KYC draft.
-     */
-        $payload['version'] = 1;
-        $payload['resubmission_count'] = 0;
-
-        return KycRequest::query()
-            ->create($payload)
-            ->fresh([
-                'user',
-                'role',
-                'documents',
-                'activities',
-            ]);
+        return KycRequest::query()->create(
+            array_merge(
+                $payload,
+                [
+                    'version' => 1,
+                    'resubmission_count' => 0,
+                ]
+            )
+        );
     }
+
     private function documentNumberForType(
         string $documentType,
         KycBatchUploadRequest $request
@@ -487,13 +435,13 @@ class KycBatchUploadService
         return match ($documentType) {
             KycDocument::TYPE_AADHAAR_FRONT,
             KycDocument::TYPE_AADHAAR_BACK =>
-            $request->input('aadhaar_number'),
+                $request->input('aadhaar_number'),
 
             KycDocument::TYPE_GST_CERTIFICATE =>
-            $request->input('gst_number'),
+                $request->input('gst_number'),
 
             KycDocument::TYPE_RERA_CERTIFICATE =>
-            $request->input('rera_number'),
+                $request->input('rera_number'),
 
             default => null,
         };
