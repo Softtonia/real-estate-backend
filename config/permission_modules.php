@@ -271,6 +271,10 @@ return [
             'label' => 'KYC Settings',
             'actions' => ['read', 'edit'],
         ],
+        'property_verifications' => [
+            'label' => 'Property Verifications',
+            'actions' => ['read', 'assign', 'review', 'approve', 'reject'],
+        ],
         'membership_categories' => [
             'label' => 'Membership Categories',
             'actions' => ['read', 'create', 'edit', 'delete'],
