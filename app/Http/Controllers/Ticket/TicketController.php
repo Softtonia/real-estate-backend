@@ -919,12 +919,6 @@ class TicketController extends Controller
 
     private function formatTicket(Ticket $ticket): array
     {
-        $legacyAttachmentUrl = null;
-
-        if ($ticket->media_attachment) {
-            $legacyAttachmentUrl = Storage::disk('public')->url($ticket->media_attachment);
-        }
-
         return [
             'id' => $ticket->id,
             'ticket_number' => $ticket->ticket_number,
@@ -948,14 +942,38 @@ class TicketController extends Controller
             'property_id' => $ticket->property_id,
             'property' => $ticket->property,
             'cc_users' => $ticket->ccUsers,
-            'attachments' => $ticket->attachments,
+            'attachments' => $ticket->attachments
+                ->map(fn($attachment) => $this->formatAttachment($attachment))
+                ->values(),
             'media_attachment' => $ticket->media_attachment,
-            'media_attachment_url' => $legacyAttachmentUrl,
+            'media_attachment_url' => $this->attachmentPublicUrl($ticket->media_attachment),
             'created_at' => $ticket->created_at,
             'updated_at' => $ticket->updated_at,
         ];
     }
+private function formatAttachment(TicketAttachment $attachment): array
+{
+    return [
+        'id' => (int) $attachment->id,
+        'ticket_id' => (int) $attachment->ticket_id,
+        'original_name' => $attachment->original_name,
+        'file_path' => $attachment->file_path,
+        'mime_type' => $attachment->mime_type,
+        'file_size' => (int) $attachment->file_size,
+        'created_at' => $attachment->created_at,
+        'updated_at' => $attachment->updated_at,
+        'file_url' => $this->attachmentPublicUrl($attachment->file_path),
+    ];
+}
 
+private function attachmentPublicUrl(?string $path): ?string
+{
+    if (empty($path)) {
+        return null;
+    }
+
+    return url(ltrim($path, '/'));
+}
     private function applyFilters(Builder $query, Request $request): void
     {
         $search = trim((string) $request->input('search', ''));
