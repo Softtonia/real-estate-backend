@@ -343,7 +343,10 @@ return [
             'label' => 'Membership Settings',
             'actions' => ['read', 'edit'],
         ],
-
+        'payment_gateways' => [
+            'label' => 'Payment Gateways',
+            'actions' => ['read', 'edit'],
+        ],
     ],
 
 ];

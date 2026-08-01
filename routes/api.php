@@ -57,6 +57,7 @@ use App\Http\Controllers\Help\HelpChildcategoryController;
 use App\Http\Controllers\Help\HelpArticleController;
 use App\Http\Controllers\Admin\MailConfigController;
 use App\Http\Controllers\Admin\SystemController;
+use App\Http\Controllers\Api\Admin\Payment\PaymentGatewayController;
 use App\Http\Controllers\Api\CustomFieldGroupController;
 use App\Http\Controllers\OtpController;
 use App\Http\Controllers\EmailOtpController;
@@ -1085,6 +1086,18 @@ Route::middleware([
                 'permission.check:property_verifications,read'
             )
             ->whereNumber('property');
+    });
+Route::prefix('admin/payment-gateways')
+    ->middleware('throttle:membership-admin')
+    ->group(function () {
+        Route::get('razorpay', [PaymentGatewayController::class, 'razorpay'])
+            ->middleware('permission.check:payment_gateways,read');
+
+        Route::put('razorpay', [PaymentGatewayController::class, 'updateRazorpay'])
+            ->middleware('permission.check:payment_gateways,edit');
+
+        Route::patch('razorpay', [PaymentGatewayController::class, 'updateRazorpay'])
+            ->middleware('permission.check:payment_gateways,edit');
     });
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get(

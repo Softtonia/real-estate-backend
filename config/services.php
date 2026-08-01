@@ -36,9 +36,19 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI'),
     ],
     'razorpay' => [
+        'mode' => env('RAZORPAY_MODE', 'test'),
+        'currency' => env('RAZORPAY_CURRENCY', 'INR'),
+
+        'test_key_id' => env('RAZORPAY_TEST_KEY_ID'),
+        'test_key_secret' => env('RAZORPAY_TEST_KEY_SECRET'),
+        'test_webhook_secret' => env('RAZORPAY_TEST_WEBHOOK_SECRET'),
+
+        'live_key_id' => env('RAZORPAY_LIVE_KEY_ID'),
+        'live_key_secret' => env('RAZORPAY_LIVE_KEY_SECRET'),
+        'live_webhook_secret' => env('RAZORPAY_LIVE_WEBHOOK_SECRET'),
+
         'key_id' => env('RAZORPAY_KEY_ID'),
         'key_secret' => env('RAZORPAY_KEY_SECRET'),
         'webhook_secret' => env('RAZORPAY_WEBHOOK_SECRET'),
-        'currency' => env('RAZORPAY_CURRENCY', 'INR'),
     ],
 ];
