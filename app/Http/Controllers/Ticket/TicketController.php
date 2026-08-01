@@ -13,12 +13,11 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
-use Illuminate\Support\Facades\Log;
 use Throwable;
-use App\Models\DynamicPost;
 
 class TicketController extends Controller
 {
@@ -30,7 +29,6 @@ class TicketController extends Controller
             return $this->unauthenticatedResponse();
         }
 
-        $perPage = $this->perPage($request);
         $query = Ticket::query()->with($this->relations());
 
         $this->applyAccessScope($query, $user);
@@ -38,7 +36,7 @@ class TicketController extends Controller
 
         $tickets = $query
             ->latest('id')
-            ->paginate($perPage);
+            ->paginate($this->perPage($request));
 
         return $this->paginatedTicketsResponse($tickets);
     }
@@ -49,25 +47,15 @@ class TicketController extends Controller
             $user = $request->user();
 
             if (!$user) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Unauthenticated.',
-                ], 401);
+                return $this->unauthenticatedResponse();
             }
 
             $this->normalizeTicketRequest($request);
 
-            $validator = Validator::make(
-                $request->all(),
-                $this->storeRules()
-            );
+            $validator = Validator::make($request->all(), $this->storeRules());
 
             if ($validator->fails()) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'Validation failed.',
-                    'errors' => $validator->errors(),
-                ], 422);
+                return $this->validationResponse($validator->errors());
             }
 
             $validated = $validator->validated();
@@ -77,9 +65,7 @@ class TicketController extends Controller
                     'status' => false,
                     'message' => 'Validation failed.',
                     'errors' => [
-                        'attachments' => [
-                            'A maximum of 5 files is allowed.',
-                        ],
+                        'attachments' => ['A maximum of 5 files is allowed.'],
                     ],
                 ], 422);
             }
@@ -111,19 +97,12 @@ class TicketController extends Controller
                     'status' => false,
                     'message' => 'No ticket status is configured.',
                     'errors' => [
-                        'status_id' => [
-                            'Create a ticket status before creating tickets.',
-                        ],
+                        'status_id' => ['Create a ticket status before creating tickets.'],
                     ],
                 ], 422);
             }
 
-            $ticket = DB::transaction(function () use (
-                $request,
-                $validated,
-                $raisedBy,
-                $statusId
-            ) {
+            $ticket = DB::transaction(function () use ($request, $validated, $raisedBy, $statusId) {
                 $prefix = optional(SiteSetting::first())->ticket_prefix ?: 'TCKT';
 
                 $ticket = Ticket::create([
@@ -140,9 +119,7 @@ class TicketController extends Controller
                     'property_id' => $validated['property_id'] ?? null,
                 ]);
 
-                $ticket->ccUsers()->sync(
-                    $validated['cc_user_ids'] ?? []
-                );
+                $ticket->ccUsers()->sync($validated['cc_user_ids'] ?? []);
 
                 $this->storeAttachments($ticket, $request);
                 $this->syncLegacyAttachmentColumn($ticket);
@@ -153,27 +130,20 @@ class TicketController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'Ticket created successfully.',
-                'data' => $this->formatTicket(
-                    $ticket->fresh($this->relations())
-                ),
+                'data' => $this->formatTicket($ticket->fresh($this->relations())),
             ], 201);
         } catch (Throwable $exception) {
             Log::error('Ticket creation failed', [
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
-                'request' => $request->except([
-                    'attachments',
-                    'media_attachment',
-                ]),
+                'request' => $request->except(['attachments', 'media_attachment']),
             ]);
 
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to create ticket.',
-                'error' => config('app.debug')
-                    ? $exception->getMessage()
-                    : null,
+                'error' => config('app.debug') ? $exception->getMessage() : null,
             ], 500);
         }
     }
@@ -206,6 +176,7 @@ class TicketController extends Controller
 
         return response()->json([
             'status' => true,
+            'message' => 'Ticket fetched successfully.',
             'data' => $this->formatTicket($ticket),
         ]);
     }
@@ -227,6 +198,7 @@ class TicketController extends Controller
         }
 
         $validated = $validator->validated();
+
         $ticket = Ticket::with(['attachments', 'ccUsers'])->find((int) $validated['id']);
 
         if (!$ticket) {
@@ -238,8 +210,9 @@ class TicketController extends Controller
         }
 
         $removeIds = array_map('intval', $validated['remove_attachment_ids'] ?? []);
+
         $remainingAttachments = $ticket->attachments
-            ->reject(fn(TicketAttachment $attachment) => in_array((int) $attachment->id, $removeIds, true))
+            ->reject(fn (TicketAttachment $attachment) => in_array((int) $attachment->id, $removeIds, true))
             ->count();
 
         if ($remainingAttachments + $this->incomingFilesCount($request) > 5) {
@@ -306,11 +279,7 @@ class TicketController extends Controller
                     $ticket->ccUsers()->sync($validated['cc_user_ids'] ?? []);
                 }
 
-                $this->removeAttachments(
-                    $ticket,
-                    $validated['remove_attachment_ids'] ?? []
-                );
-
+                $this->removeAttachments($ticket, $validated['remove_attachment_ids'] ?? []);
                 $this->storeAttachments($ticket, $request);
                 $this->syncLegacyAttachmentColumn($ticket);
             });
@@ -320,12 +289,18 @@ class TicketController extends Controller
                 'message' => 'Ticket updated successfully.',
                 'data' => $this->formatTicket($ticket->fresh($this->relations())),
             ]);
-        } catch (\Throwable $exception) {
-            report($exception);
+        } catch (Throwable $exception) {
+            Log::error('Ticket update failed', [
+                'message' => $exception->getMessage(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'ticket_id' => $ticket->id,
+            ]);
 
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to update ticket.',
+                'error' => config('app.debug') ? $exception->getMessage() : null,
             ], 500);
         }
     }
@@ -367,12 +342,16 @@ class TicketController extends Controller
                 'status' => true,
                 'message' => 'Ticket deleted successfully.',
             ]);
-        } catch (\Throwable $exception) {
-            report($exception);
+        } catch (Throwable $exception) {
+            Log::error('Ticket delete failed', [
+                'message' => $exception->getMessage(),
+                'ticket_id' => $ticket->id,
+            ]);
 
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to delete ticket.',
+                'error' => config('app.debug') ? $exception->getMessage() : null,
             ], 500);
         }
     }
@@ -394,16 +373,13 @@ class TicketController extends Controller
             return $this->validationResponse($validator->errors());
         }
 
-        $requestedIds = array_values(array_unique(array_map(
-            'intval',
-            $request->input('ids')
-        )));
+        $requestedIds = array_values(array_unique(array_map('intval', $request->input('ids'))));
 
         $tickets = Ticket::with('attachments')
             ->whereIn('id', $requestedIds)
             ->get();
 
-        $existingIds = $tickets->pluck('id')->map(fn($id) => (int) $id)->all();
+        $existingIds = $tickets->pluck('id')->map(fn ($id) => (int) $id)->all();
         $notFoundIds = array_values(array_diff($requestedIds, $existingIds));
         $deniedIds = [];
         $deletedIds = [];
@@ -441,6 +417,7 @@ class TicketController extends Controller
         }
 
         $search = trim((string) $request->input('search', ''));
+
         $query = Ticket::query()->with($this->relations());
 
         $this->applyAccessScope($query, $user);
@@ -475,11 +452,9 @@ class TicketController extends Controller
                 $query
                     ->where('raised_by', $user->id)
                     ->orWhere('user_id', $user->id)
-                    ->orWhereHas(
-                        'ccUsers',
-                        fn(Builder $ccQuery) =>
-                        $ccQuery->where('users.id', $user->id)
-                    );
+                    ->orWhereHas('ccUsers', function (Builder $ccQuery) use ($user) {
+                        $ccQuery->where('users.id', $user->id);
+                    });
             })
             ->latest('id')
             ->paginate($this->perPage($request));
@@ -605,6 +580,7 @@ class TicketController extends Controller
 
         return response()->json([
             'status' => true,
+            'message' => 'Ticket responses fetched successfully.',
             'data' => $responses,
         ]);
     }
@@ -635,7 +611,9 @@ class TicketController extends Controller
             'message_by' => 'raised_by',
             'user_id' => $ticket->raised_by,
             'user_name' => $this->userName($ticket->raisedBy),
-            'attachments' => $ticket->attachments,
+            'attachments' => $ticket->attachments
+                ->map(fn ($attachment) => $this->formatAttachment($attachment))
+                ->values(),
             'created_at' => $ticket->created_at,
         ]];
 
@@ -718,6 +696,7 @@ class TicketController extends Controller
             'max:10240',
         ];
     }
+
     private function propertyListingExistsRule()
     {
         $propertyPostTypeId = DB::table('post_types')
@@ -729,6 +708,7 @@ class TicketController extends Controller
                 $query->where('post_type_id', $propertyPostTypeId ?: 0);
             });
     }
+
     private function normalizeTicketRequest(Request $request): void
     {
         $updates = [];
@@ -756,7 +736,10 @@ class TicketController extends Controller
         }
 
         if (!$request->has('cc_user_ids')) {
-            $ccValue = $request->input('cc_user_ids', $request->input('cc_users', $request->input('cc')));
+            $ccValue = $request->input(
+                'cc_user_ids',
+                $request->input('cc_users', $request->input('cc'))
+            );
 
             if ($ccValue !== null) {
                 $updates['cc_user_ids'] = $this->normalizeIdArray($ccValue);
@@ -819,8 +802,8 @@ class TicketController extends Controller
         foreach (['Y-m-d', 'd-m-Y', 'd/m/Y'] as $format) {
             try {
                 return Carbon::createFromFormat($format, $value)->format('Y-m-d');
-            } catch (\Throwable) {
-                // Try the next accepted format.
+            } catch (Throwable) {
+                //
             }
         }
 
@@ -858,7 +841,7 @@ class TicketController extends Controller
                 'original_name' => $file->getClientOriginalName(),
                 'file_path' => $path,
                 'mime_type' => $file->getMimeType(),
-                'file_size' => $file->getSize(),
+                'file_size' => (int) $file->getSize(),
             ]);
         }
     }
@@ -869,8 +852,9 @@ class TicketController extends Controller
             return;
         }
 
-        $attachments = TicketAttachment::where('ticket_id', $ticket->id)
-            ->whereIn('id', $ids)
+        $attachments = TicketAttachment::query()
+            ->where('ticket_id', $ticket->id)
+            ->whereIn('id', array_map('intval', $ids))
             ->get();
 
         foreach ($attachments as $attachment) {
@@ -882,6 +866,7 @@ class TicketController extends Controller
     private function syncLegacyAttachmentColumn(Ticket $ticket): void
     {
         $firstAttachment = $ticket->attachments()->oldest('id')->first();
+
         $ticket->media_attachment = $firstAttachment?->file_path;
         $ticket->save();
     }
@@ -911,7 +896,7 @@ class TicketController extends Controller
             'priority.media',
             'type.media',
             'department.media',
-            'property',
+            'property:id,title,slug,status,live_status,author_id,post_type_id',
             'attachments',
             'ccUsers:id,first_name,last_name,email',
         ];
@@ -920,60 +905,111 @@ class TicketController extends Controller
     private function formatTicket(Ticket $ticket): array
     {
         return [
-            'id' => $ticket->id,
+            'id' => (int) $ticket->id,
             'ticket_number' => $ticket->ticket_number,
             'subject' => $ticket->subject,
             'message' => $ticket->message,
-            'raised_by' => $ticket->raised_by,
+
+            'raised_by' => $ticket->raised_by ? (int) $ticket->raised_by : null,
             'raised_by_name' => $this->userName($ticket->raisedBy),
-            'user_id' => $ticket->user_id,
+
+            'user_id' => $ticket->user_id ? (int) $ticket->user_id : null,
             'user_name' => $this->userName($ticket->assignedTo),
-            'status_id' => $ticket->status_id,
+
+            'status_id' => $ticket->status_id ? (int) $ticket->status_id : null,
             'status_name' => $ticket->status?->ticket_status_name,
-            'priority_id' => $ticket->priority_id,
+
+            'priority_id' => $ticket->priority_id ? (int) $ticket->priority_id : null,
             'priority_name' => $ticket->priority?->ticket_priority,
-            'ticket_type_id' => $ticket->ticket_type_id,
+
+            'ticket_type_id' => $ticket->ticket_type_id ? (int) $ticket->ticket_type_id : null,
             'ticket_type_name' => $ticket->type?->ticket_type_name,
-            'ticket_department_id' => $ticket->ticket_department_id,
+
+            'ticket_department_id' => $ticket->ticket_department_id ? (int) $ticket->ticket_department_id : null,
             'ticket_department_name' => $ticket->department?->ticket_department_name,
+
             'due_date' => $ticket->due_date
                 ? Carbon::parse($ticket->due_date)->format('Y-m-d')
                 : null,
-            'property_id' => $ticket->property_id,
-            'property' => $ticket->property,
-            'cc_users' => $ticket->ccUsers,
-            'attachments' => $ticket->attachments
-                ->map(fn($attachment) => $this->formatAttachment($attachment))
+
+            'property_id' => $ticket->property_id ? (int) $ticket->property_id : null,
+            'property' => $this->formatProperty($ticket->property),
+
+            'cc_users' => $ticket->ccUsers
+                ->map(fn ($user) => [
+                    'id' => (int) $user->id,
+                    'first_name' => $user->first_name,
+                    'last_name' => $user->last_name,
+                    'full_name' => $this->userName($user),
+                    'email' => $user->email,
+                ])
                 ->values(),
+
+            'attachments' => $ticket->attachments
+                ->map(fn ($attachment) => $this->formatAttachment($attachment))
+                ->values(),
+
             'media_attachment' => $ticket->media_attachment,
             'media_attachment_url' => $this->attachmentPublicUrl($ticket->media_attachment),
-            'created_at' => $ticket->created_at,
-            'updated_at' => $ticket->updated_at,
+
+            'created_at' => optional($ticket->created_at)->toDateTimeString(),
+            'updated_at' => optional($ticket->updated_at)->toDateTimeString(),
         ];
     }
-private function formatAttachment(TicketAttachment $attachment): array
-{
-    return [
-        'id' => (int) $attachment->id,
-        'ticket_id' => (int) $attachment->ticket_id,
-        'original_name' => $attachment->original_name,
-        'file_path' => $attachment->file_path,
-        'mime_type' => $attachment->mime_type,
-        'file_size' => (int) $attachment->file_size,
-        'created_at' => $attachment->created_at,
-        'updated_at' => $attachment->updated_at,
-        'file_url' => $this->attachmentPublicUrl($attachment->file_path),
-    ];
-}
 
-private function attachmentPublicUrl(?string $path): ?string
-{
-    if (empty($path)) {
-        return null;
+    private function formatProperty($property): ?array
+    {
+        if (!$property) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $property->id,
+            'title' => $property->title,
+            'slug' => $property->slug,
+            'status' => $property->status,
+            'live_status' => $property->live_status,
+            'author_id' => $property->author_id ? (int) $property->author_id : null,
+            'post_type_id' => $property->post_type_id ? (int) $property->post_type_id : null,
+        ];
     }
 
-    return url(ltrim($path, '/'));
-}
+    private function formatAttachment(TicketAttachment $attachment): array
+    {
+        return [
+            'id' => (int) $attachment->id,
+            'ticket_id' => (int) $attachment->ticket_id,
+            'original_name' => $attachment->original_name,
+            'file_path' => $attachment->file_path,
+            'mime_type' => $attachment->mime_type,
+            'file_size' => $attachment->file_size ? (int) $attachment->file_size : null,
+            'file_size_human' => $this->humanFileSize((int) ($attachment->file_size ?? 0)),
+            'url' => $this->attachmentPublicUrl($attachment->file_path),
+            'created_at' => optional($attachment->created_at)->toDateTimeString(),
+        ];
+    }
+
+    private function attachmentPublicUrl(?string $path): ?string
+    {
+        if (!$path) {
+            return null;
+        }
+
+        return Storage::disk('public')->url($path);
+    }
+
+    private function humanFileSize(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return '0 B';
+        }
+
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $power = min((int) floor(log($bytes, 1024)), count($units) - 1);
+
+        return round($bytes / (1024 ** $power), 2) . ' ' . $units[$power];
+    }
+
     private function applyFilters(Builder $query, Request $request): void
     {
         $search = trim((string) $request->input('search', ''));
@@ -987,7 +1023,7 @@ private function attachmentPublicUrl(?string $path): ?string
             });
         }
 
-        $filters = [
+        foreach ([
             'status_id',
             'priority_id',
             'ticket_type_id',
@@ -995,9 +1031,7 @@ private function attachmentPublicUrl(?string $path): ?string
             'user_id',
             'raised_by',
             'property_id',
-        ];
-
-        foreach ($filters as $filter) {
+        ] as $filter) {
             if ($request->filled($filter)) {
                 $query->where($filter, $request->input($filter));
             }
@@ -1022,11 +1056,9 @@ private function attachmentPublicUrl(?string $path): ?string
             $builder
                 ->where('raised_by', $user->id)
                 ->orWhere('user_id', $user->id)
-                ->orWhereHas(
-                    'ccUsers',
-                    fn(Builder $ccQuery) =>
-                    $ccQuery->where('users.id', $user->id)
-                );
+                ->orWhereHas('ccUsers', function (Builder $ccQuery) use ($user) {
+                    $ccQuery->where('users.id', $user->id);
+                });
         });
     }
 
@@ -1058,8 +1090,7 @@ private function attachmentPublicUrl(?string $path): ?string
 
         $roleName = optional($user->role)->name;
 
-        return is_string($roleName)
-            && strcasecmp($roleName, 'admin') === 0;
+        return is_string($roleName) && strcasecmp($roleName, 'admin') === 0;
     }
 
     private function userName($user): ?string
@@ -1082,8 +1113,9 @@ private function attachmentPublicUrl(?string $path): ?string
     {
         return response()->json([
             'status' => true,
+            'message' => 'Tickets fetched successfully.',
             'data' => collect($tickets->items())
-                ->map(fn(Ticket $ticket) => $this->formatTicket($ticket))
+                ->map(fn (Ticket $ticket) => $this->formatTicket($ticket))
                 ->values(),
             'meta' => [
                 'current_page' => $tickets->currentPage(),
