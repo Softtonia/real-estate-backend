@@ -9,6 +9,10 @@ return [
         'create',
         'edit',
         'delete',
+        'assign',
+        'review',
+        'approve',
+        'reject',
     ],
 
     'modules' => [

@@ -29,11 +29,6 @@ class PropertyVerificationPermissionSeeder extends Seeder
             ]);
         }
 
-        /*
-         * IMPORTANT:
-         * Yaha apne verifier roles ke names daalo.
-         * Jo role property verify karega, usko admin login permission bhi chahiye.
-         */
         $verifierRoleNames = [
             'admin',
             'manager',
