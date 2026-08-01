@@ -871,7 +871,7 @@ class PropertyWorkflowService
         }
 
         if (Schema::hasColumn('dynamic_posts', 'live_status')) {
-            $payload['live_status'] = $liveStatus;
+            $payload['live_status'] = $this->legacyLiveStatus($liveStatus);
         }
 
         if (Schema::hasColumn('dynamic_posts', 'published_at')) {
@@ -884,7 +884,33 @@ class PropertyWorkflowService
 
         $property->forceFill($payload)->save();
     }
+    private function legacyLiveStatus(string $workflowStatus): string
+    {
+        return match ($workflowStatus) {
+            PropertyWorkflowStatus::LIVE,
+            PropertyWorkflowStatus::APPROVED,
+            'live',
+            'approved',
+            'approve' => 'approve',
 
+            PropertyWorkflowStatus::REJECTED,
+            'rejected',
+            'reject' => 'reject',
+
+            PropertyWorkflowStatus::UNDER_REVIEW,
+            PropertyWorkflowStatus::RESUBMISSION,
+            PropertyWorkflowStatus::ASSIGNED,
+            PropertyWorkflowStatus::IN_VERIFICATION,
+            'under_review',
+            'resubmission',
+            'assigned',
+            'in_verification',
+            'submit',
+            'modify_review' => 'under_review',
+
+            default => 'under_review',
+        };
+    }
     private function setRejectionMetadata(
         DynamicPost $property,
         User $actor,
