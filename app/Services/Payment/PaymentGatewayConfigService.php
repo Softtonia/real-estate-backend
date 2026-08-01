@@ -35,7 +35,7 @@ class PaymentGatewayConfigService
     {
         $mode = $this->setting(
             key: 'payment.razorpay.mode',
-            default: config('services.razorpay.mode', 'test')
+            default: 'test'
         );
 
         $mode = $mode === 'live' ? 'live' : 'test';
@@ -45,31 +45,13 @@ class PaymentGatewayConfigService
             'mode' => $mode,
             'currency' => strtoupper((string) $this->setting('payment.razorpay.currency', 'INR')),
 
-            'test_key_id' => $this->setting(
-                'payment.razorpay.test.key_id',
-                config('services.razorpay.test_key_id') ?: config('services.razorpay.key_id')
-            ),
-            'test_key_secret' => $this->setting(
-                'payment.razorpay.test.key_secret',
-                config('services.razorpay.test_key_secret') ?: config('services.razorpay.key_secret')
-            ),
-            'test_webhook_secret' => $this->setting(
-                'payment.razorpay.test.webhook_secret',
-                config('services.razorpay.test_webhook_secret') ?: config('services.razorpay.webhook_secret')
-            ),
+            'test_key_id' => $this->setting('payment.razorpay.test.key_id'),
+            'test_key_secret' => $this->setting('payment.razorpay.test.key_secret'),
+            'test_webhook_secret' => $this->setting('payment.razorpay.test.webhook_secret'),
 
-            'live_key_id' => $this->setting(
-                'payment.razorpay.live.key_id',
-                config('services.razorpay.live_key_id') ?: config('services.razorpay.key_id')
-            ),
-            'live_key_secret' => $this->setting(
-                'payment.razorpay.live.key_secret',
-                config('services.razorpay.live_key_secret') ?: config('services.razorpay.key_secret')
-            ),
-            'live_webhook_secret' => $this->setting(
-                'payment.razorpay.live.webhook_secret',
-                config('services.razorpay.live_webhook_secret') ?: config('services.razorpay.webhook_secret')
-            ),
+            'live_key_id' => $this->setting('payment.razorpay.live.key_id'),
+            'live_key_secret' => $this->setting('payment.razorpay.live.key_secret'),
+            'live_webhook_secret' => $this->setting('payment.razorpay.live.webhook_secret'),
         ];
 
         $config['enabled'] = filter_var($config['enabled'], FILTER_VALIDATE_BOOLEAN);
