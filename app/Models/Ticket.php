@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\DynamicPost;
 
 class Ticket extends Model
 {
@@ -94,11 +95,7 @@ class Ticket extends Model
 
     public function property(): BelongsTo
     {
-        return $this->belongsTo(
-            Property::class,
-            'property_id',
-            'id'
-        );
+        return $this->belongsTo(DynamicPost::class, 'property_id');
     }
 
     public function attachments(): HasMany

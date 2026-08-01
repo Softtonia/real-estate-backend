@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use App\Models\DynamicPost;
 
 class TicketController extends Controller
 {
@@ -672,7 +673,7 @@ class TicketController extends Controller
             'status_id' => ['nullable', 'integer', Rule::exists('ticket_status', 'id')],
             'ticket_department_id' => ['required', 'integer', Rule::exists('ticket_departments', 'id')],
             'due_date' => ['nullable', 'date_format:Y-m-d'],
-            'property_id' => ['nullable', 'integer', Rule::exists('properties', 'id')],
+            'property_id' => ['nullable', 'integer', $this->propertyListingExistsRule()],
             'cc_user_ids' => ['nullable', 'array'],
             'cc_user_ids.*' => ['integer', 'distinct', Rule::exists('users', 'id')],
             'attachments' => ['nullable', 'array', 'max:5'],
@@ -694,7 +695,7 @@ class TicketController extends Controller
             'status_id' => ['sometimes', 'integer', Rule::exists('ticket_status', 'id')],
             'ticket_department_id' => ['sometimes', 'integer', Rule::exists('ticket_departments', 'id')],
             'due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
-            'property_id' => ['sometimes', 'nullable', 'integer', Rule::exists('properties', 'id')],
+            'property_id' => ['sometimes', 'nullable', 'integer', $this->propertyListingExistsRule()],
             'cc_user_ids' => ['sometimes', 'nullable', 'array'],
             'cc_user_ids.*' => ['integer', 'distinct', Rule::exists('users', 'id')],
             'attachments' => ['nullable', 'array', 'max:5'],
@@ -717,7 +718,17 @@ class TicketController extends Controller
             'max:10240',
         ];
     }
+    private function propertyListingExistsRule()
+    {
+        $propertyPostTypeId = DB::table('post_types')
+            ->where('slug', 'property-listing')
+            ->value('id');
 
+        return Rule::exists('dynamic_posts', 'id')
+            ->where(function ($query) use ($propertyPostTypeId) {
+                $query->where('post_type_id', $propertyPostTypeId ?: 0);
+            });
+    }
     private function normalizeTicketRequest(Request $request): void
     {
         $updates = [];

@@ -38,7 +38,7 @@ class PropertyVerificationPermissionSeeder extends Seeder
         ];
 
         foreach ($verifierRoleNames as $roleName) {
-            $role = Role::where('name', $roleName)
+            $role = Role::whereRaw('LOWER(name) = ?', [strtolower($roleName)])
                 ->where('guard_name', $guardName)
                 ->first();
 
@@ -53,7 +53,15 @@ class PropertyVerificationPermissionSeeder extends Seeder
                     'guard_name' => $guardName,
                 ]);
 
-            $role->givePermissionTo($permissions);
+            foreach ($permissions as $permissionName) {
+                $permission = Permission::where('name', $permissionName)
+                    ->where('guard_name', $guardName)
+                    ->first();
+
+                if ($permission && !$role->hasPermissionTo($permissionName, $guardName)) {
+                    $role->givePermissionTo($permission);
+                }
+            }
         }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
