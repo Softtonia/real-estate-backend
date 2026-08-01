@@ -8,24 +8,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PropertyListingRevision extends Model
 {
-    protected $fillable = [
-        'dynamic_post_id',
-        'version',
-        'source',
-        'status',
-        'baseline_payload',
-        'submitted_payload',
-        'submitted_by',
-        'submitted_at',
-        'assigned_to',
-        'assigned_by',
-        'assigned_at',
-        'verification_started_at',
-        'decided_by',
-        'decided_at',
-        'rejection_reason',
-    ];
+    protected $table = 'property_listing_revisions';
 
+    protected $guarded = [];
     protected $casts = [
         'version' => 'integer',
         'baseline_payload' => 'array',

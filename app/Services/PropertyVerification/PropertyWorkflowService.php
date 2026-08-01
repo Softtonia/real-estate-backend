@@ -32,8 +32,7 @@ class PropertyWorkflowService
 
     public function __construct(
         private readonly PropertySnapshotService $snapshots
-    ) {
-    }
+    ) {}
 
     public function assertCanSubmitProperty(User $user): void
     {
@@ -43,7 +42,7 @@ class PropertyWorkflowService
             'property_verification.submission_roles',
             self::ALLOWED_OWNER_ROLES
         ))
-            ->map(fn ($role) => Str::slug((string) $role))
+            ->map(fn($role) => Str::slug((string) $role))
             ->filter()
             ->unique()
             ->values()
@@ -74,8 +73,8 @@ class PropertyWorkflowService
 
             if (
                 PropertyListingRevision::query()
-                    ->where('dynamic_post_id', $lockedProperty->id)
-                    ->exists()
+                ->where('dynamic_post_id', $lockedProperty->id)
+                ->exists()
             ) {
                 throw ValidationException::withMessages([
                     'property' => [
@@ -252,13 +251,11 @@ class PropertyWorkflowService
                 ->lockForUpdate()
                 ->findOrFail($property->id);
 
-            $revision = $this->latestActionableRevision(
-                $lockedProperty,
-                [
-                    PropertyWorkflowStatus::UNDER_REVIEW,
-                    PropertyWorkflowStatus::RESUBMISSION,
-                    PropertyWorkflowStatus::ASSIGNED,
-                ]
+            $this->assertPropertyListing($lockedProperty);
+
+            $revision = $this->latestOrCreateAssignmentRevision(
+                property: $lockedProperty,
+                actor: $actor
             );
 
             $fromStatus = $revision->status;
@@ -317,7 +314,65 @@ class PropertyWorkflowService
             'assigner',
         ]);
     }
+    private function latestOrCreateAssignmentRevision(
+        DynamicPost $property,
+        User $actor
+    ): PropertyListingRevision {
+        $revision = PropertyListingRevision::query()
+            ->where('dynamic_post_id', $property->id)
+            ->latest('version')
+            ->lockForUpdate()
+            ->first();
 
+        if (!$revision) {
+            $fromStatus = $property->live_status ?? null;
+
+            $revision = PropertyListingRevision::create([
+                'dynamic_post_id' => $property->id,
+                'version' => 1,
+                'source' => 'admin_assignment',
+                'status' => PropertyWorkflowStatus::UNDER_REVIEW,
+                'baseline_payload' => null,
+                'submitted_payload' => $this->snapshots->capture($property),
+                'submitted_by' => $property->author_id ?: $actor->id,
+                'submitted_at' => now(),
+            ]);
+
+            $this->setPropertyWorkflowState(
+                $property,
+                status: $property->status ?: 'draft',
+                liveStatus: PropertyWorkflowStatus::UNDER_REVIEW
+            );
+
+            $this->recordEvent(
+                property: $property,
+                revision: $revision,
+                actor: $actor,
+                event: 'property_verification_revision_created',
+                fromStatus: $fromStatus,
+                toStatus: PropertyWorkflowStatus::UNDER_REVIEW,
+                message: 'Property verification revision created by admin assignment.'
+            );
+        }
+
+        $allowedStatuses = [
+            PropertyWorkflowStatus::UNDER_REVIEW,
+            PropertyWorkflowStatus::RESUBMISSION,
+            PropertyWorkflowStatus::ASSIGNED,
+        ];
+
+        if (!in_array($revision->status, $allowedStatuses, true)) {
+            throw ValidationException::withMessages([
+                'status' => [
+                    'This action is not allowed while the property verification status is '
+                        . $revision->status
+                        . '.',
+                ],
+            ]);
+        }
+
+        return $revision;
+    }
     public function startVerification(
         DynamicPost $property,
         User $actor
@@ -623,8 +678,8 @@ class PropertyWorkflowService
             throw ValidationException::withMessages([
                 'status' => [
                     'This action is not allowed while the property verification status is '
-                    . $revision->status
-                    . '.',
+                        . $revision->status
+                        . '.',
                 ],
             ]);
         }
@@ -713,7 +768,7 @@ class PropertyWorkflowService
                 'property_verifications.reject',
             ]
         ))
-            ->map(fn ($permission) => strtolower(trim((string) $permission)))
+            ->map(fn($permission) => strtolower(trim((string) $permission)))
             ->filter()
             ->unique()
             ->values()
@@ -725,7 +780,7 @@ class PropertyWorkflowService
             ->where('p.guard_name', $guardName)
             ->whereIn('p.name', $requiredPermissions)
             ->pluck('p.name')
-            ->map(fn ($permission) => strtolower((string) $permission))
+            ->map(fn($permission) => strtolower((string) $permission))
             ->unique()
             ->values()
             ->all();
@@ -740,7 +795,7 @@ class PropertyWorkflowService
                 ->where('p.guard_name', $guardName)
                 ->whereIn('p.name', $requiredPermissions)
                 ->pluck('p.name')
-                ->map(fn ($permission) => strtolower((string) $permission))
+                ->map(fn($permission) => strtolower((string) $permission))
                 ->unique()
                 ->values()
                 ->all();
@@ -1012,8 +1067,8 @@ class PropertyWorkflowService
     {
         return trim(
             ($user->first_name ?? '')
-            . ' '
-            . ($user->last_name ?? '')
+                . ' '
+                . ($user->last_name ?? '')
         ) ?: ($user->email ?? ('User #' . $user->id));
     }
 }
