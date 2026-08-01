@@ -310,8 +310,9 @@ class PropertyWorkflowService
         });
 
         return $revision->fresh([
-            'assignedVerifier',
-            'assigner',
+            'property:id,title,slug,status,live_status,author_id,post_type_id',
+            'assignedVerifier:id,first_name,last_name,email',
+            'assigner:id,first_name,last_name,email',
         ]);
     }
     private function latestOrCreateAssignmentRevision(
@@ -632,6 +633,7 @@ class PropertyWorkflowService
     ): ?PropertyListingRevision {
         return PropertyListingRevision::query()
             ->with([
+                'property:id,title,slug,status,live_status,author_id,post_type_id',
                 'submitter:id,first_name,last_name,email',
                 'assignedVerifier:id,first_name,last_name,email',
                 'assigner:id,first_name,last_name,email',

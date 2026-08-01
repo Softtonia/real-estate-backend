@@ -51,4 +51,8 @@ class PropertyListingRevision extends Model
         return $this->hasMany(PropertyVerificationEvent::class, 'revision_id')
             ->orderBy('created_at');
     }
+    public function dynamicPost(): BelongsTo
+    {
+        return $this->belongsTo(DynamicPost::class, 'dynamic_post_id');
+    }
 }
