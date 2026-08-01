@@ -2,24 +2,25 @@
 
 namespace App\Services\Membership;
 
+use App\Models\Membership\MembershipAddonOrder;
 use App\Models\Membership\MembershipOrder;
 use App\Models\Membership\MembershipPayment;
 use App\Models\User;
+use App\Services\Payment\PaymentGatewayConfigService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Razorpay\Api\Api;
 use Throwable;
-use App\Models\Membership\MembershipAddonOrder;
-use App\Services\Membership\MembershipAddonOrderService;
 
 class RazorpayPaymentService
 {
     public function __construct(
         private readonly MembershipOrderService $orderService,
         private readonly MembershipAccessService $accessService,
-        private readonly MembershipAddonOrderService $addonOrderService
+        private readonly MembershipAddonOrderService $addonOrderService,
+        private readonly PaymentGatewayConfigService $gatewayConfigService
     ) {}
 
     public function createRazorpayOrder(MembershipOrder $order, User $user): array
@@ -64,20 +65,21 @@ class RazorpayPaymentService
         }
 
         $api = $this->api();
-
-        $receipt = $order->order_number;
+        $credentials = $this->activeCredentials();
 
         try {
             $razorpayOrder = $api->order->create([
-                'receipt' => $receipt,
+                'receipt' => $order->order_number,
                 'amount' => $order->amountInPaise(),
-                'currency' => $order->currency ?: config('services.razorpay.currency', 'INR'),
+                'currency' => $order->currency ?: ($credentials['currency'] ?? 'INR'),
                 'payment_capture' => 1,
                 'notes' => [
                     'local_order_id' => (string) $order->id,
                     'order_number' => $order->order_number,
                     'user_id' => (string) $order->user_id,
                     'plan_id' => (string) $order->plan_id,
+                    'order_type' => 'membership_plan',
+                    'gateway_mode' => $credentials['mode'] ?? 'test',
                 ],
             ]);
         } catch (Throwable $e) {
@@ -86,12 +88,16 @@ class RazorpayPaymentService
             ]);
         }
 
-        DB::transaction(function () use ($order, $razorpayOrder) {
+        $razorpayOrderPayload = method_exists($razorpayOrder, 'toArray')
+            ? $razorpayOrder->toArray()
+            : (array) $razorpayOrder;
+
+        DB::transaction(function () use ($order, $razorpayOrder, $razorpayOrderPayload) {
             $order->update([
                 'razorpay_order_id' => $razorpayOrder['id'] ?? null,
                 'order_status' => MembershipOrder::STATUS_PROCESSING,
                 'metadata' => array_merge($order->metadata ?? [], [
-                    'razorpay_order_response' => $razorpayOrder->toArray(),
+                    'razorpay_order_response' => $razorpayOrderPayload,
                 ]),
             ]);
         });
@@ -105,7 +111,7 @@ class RazorpayPaymentService
         $razorpayPaymentId = (string) ($data['razorpay_payment_id'] ?? '');
         $razorpaySignature = (string) ($data['razorpay_signature'] ?? '');
 
-        if (!$razorpayOrderId || !$razorpayPaymentId || !$razorpaySignature) {
+        if (! $razorpayOrderId || ! $razorpayPaymentId || ! $razorpaySignature) {
             throw ValidationException::withMessages([
                 'payment' => ['Razorpay order id, payment id, and signature are required.'],
             ]);
@@ -116,7 +122,7 @@ class RazorpayPaymentService
             ->where('razorpay_order_id', $razorpayOrderId)
             ->first();
 
-        if (!$order || (int) $order->user_id !== (int) $user->id) {
+        if (! $order || (int) $order->user_id !== (int) $user->id) {
             throw ValidationException::withMessages([
                 'razorpay_order_id' => ['Order not found.'],
             ]);
@@ -180,8 +186,7 @@ class RazorpayPaymentService
                     'verified_from' => 'frontend_verify_api',
                 ], $user);
 
-                app(\App\Services\Membership\MembershipActivationService::class)
-                    ->activateFromOrder($paidOrder);
+                app(MembershipActivationService::class)->activateFromOrder($paidOrder);
             } else {
                 $this->orderService->markOrderAsFailed(
                     order: $order,
@@ -201,9 +206,11 @@ class RazorpayPaymentService
         string $razorpayPaymentId,
         string $razorpaySignature
     ): bool {
-        $secret = (string) config('services.razorpay.key_secret');
+        $credentials = $this->activeCredentials();
 
-        if (!$secret) {
+        $secret = (string) ($credentials['key_secret'] ?? '');
+
+        if (! $secret) {
             throw ValidationException::withMessages([
                 'razorpay' => ['Razorpay key secret is not configured.'],
             ]);
@@ -212,7 +219,7 @@ class RazorpayPaymentService
         $payload = $razorpayOrderId . '|' . $razorpayPaymentId;
         $expectedSignature = hash_hmac('sha256', $payload, $secret);
 
-        if (!hash_equals($expectedSignature, $razorpaySignature)) {
+        if (! hash_equals($expectedSignature, $razorpaySignature)) {
             throw ValidationException::withMessages([
                 'razorpay_signature' => ['Invalid Razorpay payment signature.'],
             ]);
@@ -223,29 +230,21 @@ class RazorpayPaymentService
 
     public function verifyWebhookSignature(string $payload, ?string $signature): bool
     {
-        $secret = (string) config('services.razorpay.webhook_secret');
-
-        if (!$secret) {
-            throw ValidationException::withMessages([
-                'razorpay' => ['Razorpay webhook secret is not configured.'],
-            ]);
+        if (! $signature) {
+            return false;
         }
 
-        if (!$signature) {
-            throw ValidationException::withMessages([
-                'razorpay_signature' => ['Missing Razorpay webhook signature.'],
-            ]);
+        $credentials = $this->activeCredentials();
+
+        $secret = (string) ($credentials['webhook_secret'] ?? '');
+
+        if (! $secret) {
+            return false;
         }
 
         $expectedSignature = hash_hmac('sha256', $payload, $secret);
 
-        if (!hash_equals($expectedSignature, $signature)) {
-            throw ValidationException::withMessages([
-                'razorpay_signature' => ['Invalid Razorpay webhook signature.'],
-            ]);
-        }
-
-        return true;
+        return hash_equals($expectedSignature, $signature);
     }
 
     public function fetchPayment(string $razorpayPaymentId): array
@@ -266,14 +265,17 @@ class RazorpayPaymentService
     {
         $order->loadMissing(['user', 'plan']);
 
+        $credentials = $this->activeCredentials();
+
         return [
-            'key' => config('services.razorpay.key_id'),
+            'key' => $credentials['key_id'],
+            'mode' => $credentials['mode'],
             'razorpay_order_id' => $order->razorpay_order_id,
             'order_id' => (int) $order->id,
             'order_number' => $order->order_number,
             'amount' => $order->amountInPaise(),
             'display_amount' => (float) $order->total_amount,
-            'currency' => $order->currency ?: 'INR',
+            'currency' => $order->currency ?: ($credentials['currency'] ?? 'INR'),
             'name' => config('app.name', 'Holiplaces'),
             'description' => 'Membership Plan - ' . ($order->plan?->name ?? 'Plan'),
             'prefill' => [
@@ -286,43 +288,11 @@ class RazorpayPaymentService
                 'order_number' => $order->order_number,
                 'user_id' => (string) $order->user_id,
                 'plan_id' => (string) $order->plan_id,
+                'order_type' => 'membership_plan',
             ],
         ];
     }
 
-    private function api(): Api
-    {
-        $keyId = (string) config('services.razorpay.key_id');
-        $keySecret = (string) config('services.razorpay.key_secret');
-
-        if (!$keyId || !$keySecret) {
-            throw ValidationException::withMessages([
-                'razorpay' => ['Razorpay key id or key secret is not configured.'],
-            ]);
-        }
-
-        return new Api($keyId, $keySecret);
-    }
-
-    private function normalizeRazorpayPaymentStatus(string $status): string
-    {
-        return match ($status) {
-            'authorized' => MembershipPayment::STATUS_AUTHORIZED,
-            'captured' => MembershipPayment::STATUS_CAPTURED,
-            'failed' => MembershipPayment::STATUS_FAILED,
-            'refunded' => MembershipPayment::STATUS_REFUNDED,
-            default => MembershipPayment::STATUS_CREATED,
-        };
-    }
-
-    private function clearCaches(User $user): void
-    {
-        $this->accessService->forgetUserCache($user);
-
-        if (Schema::hasTable('membership_settings')) {
-            Cache::store('redis')->forget('membership:admin:stats');
-        }
-    }
     public function createRazorpayAddonOrder(MembershipAddonOrder $order, User $user): array
     {
         if ((int) $order->user_id !== (int) $user->id) {
@@ -337,7 +307,7 @@ class RazorpayPaymentService
             ]);
         }
 
-        if (!in_array($order->order_status, [
+        if (! in_array($order->order_status, [
             MembershipAddonOrder::STATUS_PENDING,
             MembershipAddonOrder::STATUS_PROCESSING,
         ], true)) {
@@ -356,11 +326,13 @@ class RazorpayPaymentService
             return $this->addonCheckoutPayload($order->fresh(['user', 'addon']));
         }
 
+        $credentials = $this->activeCredentials();
+
         try {
             $razorpayOrder = $this->api()->order->create([
                 'receipt' => $order->order_number,
                 'amount' => $order->amountInPaise(),
-                'currency' => $order->currency ?: config('services.razorpay.currency', 'INR'),
+                'currency' => $order->currency ?: ($credentials['currency'] ?? 'INR'),
                 'payment_capture' => 1,
                 'notes' => [
                     'local_addon_order_id' => (string) $order->id,
@@ -368,6 +340,7 @@ class RazorpayPaymentService
                     'user_id' => (string) $order->user_id,
                     'addon_id' => (string) $order->addon_id,
                     'order_type' => 'membership_addon',
+                    'gateway_mode' => $credentials['mode'] ?? 'test',
                 ],
             ]);
         } catch (Throwable $e) {
@@ -376,12 +349,16 @@ class RazorpayPaymentService
             ]);
         }
 
-        DB::transaction(function () use ($order, $razorpayOrder) {
+        $razorpayOrderPayload = method_exists($razorpayOrder, 'toArray')
+            ? $razorpayOrder->toArray()
+            : (array) $razorpayOrder;
+
+        DB::transaction(function () use ($order, $razorpayOrder, $razorpayOrderPayload) {
             $order->update([
                 'razorpay_order_id' => $razorpayOrder['id'] ?? null,
                 'order_status' => MembershipAddonOrder::STATUS_PROCESSING,
                 'metadata' => array_merge($order->metadata ?? [], [
-                    'razorpay_order_response' => $razorpayOrder->toArray(),
+                    'razorpay_order_response' => $razorpayOrderPayload,
                 ]),
             ]);
         });
@@ -395,7 +372,7 @@ class RazorpayPaymentService
         $razorpayPaymentId = (string) ($data['razorpay_payment_id'] ?? '');
         $razorpaySignature = (string) ($data['razorpay_signature'] ?? '');
 
-        if (!$razorpayOrderId || !$razorpayPaymentId || !$razorpaySignature) {
+        if (! $razorpayOrderId || ! $razorpayPaymentId || ! $razorpaySignature) {
             throw ValidationException::withMessages([
                 'payment' => ['Razorpay order id, payment id, and signature are required.'],
             ]);
@@ -406,10 +383,20 @@ class RazorpayPaymentService
             ->where('razorpay_order_id', $razorpayOrderId)
             ->first();
 
-        if (!$order || (int) $order->user_id !== (int) $user->id) {
+        if (! $order || (int) $order->user_id !== (int) $user->id) {
             throw ValidationException::withMessages([
                 'razorpay_order_id' => ['Add-on order not found.'],
             ]);
+        }
+
+        if ($order->payment_status === MembershipAddonOrder::PAYMENT_PAID) {
+            $existingPayment = MembershipPayment::query()
+                ->where('razorpay_payment_id', $razorpayPaymentId)
+                ->first();
+
+            if ($existingPayment) {
+                return $existingPayment->load(['addonOrder.addon', 'user']);
+            }
         }
 
         $this->verifyPaymentSignature(
@@ -477,14 +464,17 @@ class RazorpayPaymentService
     {
         $order->loadMissing(['user', 'addon']);
 
+        $credentials = $this->activeCredentials();
+
         return [
-            'key' => config('services.razorpay.key_id'),
+            'key' => $credentials['key_id'],
+            'mode' => $credentials['mode'],
             'razorpay_order_id' => $order->razorpay_order_id,
             'addon_order_id' => (int) $order->id,
             'order_number' => $order->order_number,
             'amount' => $order->amountInPaise(),
             'display_amount' => (float) $order->total_amount,
-            'currency' => $order->currency ?: 'INR',
+            'currency' => $order->currency ?: ($credentials['currency'] ?? 'INR'),
             'name' => config('app.name', 'Holiplaces'),
             'description' => 'Membership Add-on - ' . ($order->addon?->name ?? 'Add-on'),
             'prefill' => [
@@ -500,5 +490,49 @@ class RazorpayPaymentService
                 'order_type' => 'membership_addon',
             ],
         ];
+    }
+
+    private function api(): Api
+    {
+        $credentials = $this->activeCredentials();
+
+        if (! $credentials['enabled']) {
+            throw ValidationException::withMessages([
+                'payment_gateway' => ['Razorpay payment gateway is disabled.'],
+            ]);
+        }
+
+        if (empty($credentials['key_id']) || empty($credentials['key_secret'])) {
+            throw ValidationException::withMessages([
+                'payment_gateway' => ['Razorpay key id or key secret is not configured.'],
+            ]);
+        }
+
+        return new Api($credentials['key_id'], $credentials['key_secret']);
+    }
+
+    private function activeCredentials(): array
+    {
+        return $this->gatewayConfigService->activeRazorpayCredentials();
+    }
+
+    private function normalizeRazorpayPaymentStatus(string $status): string
+    {
+        return match ($status) {
+            'authorized' => MembershipPayment::STATUS_AUTHORIZED,
+            'captured' => MembershipPayment::STATUS_CAPTURED,
+            'failed' => MembershipPayment::STATUS_FAILED,
+            'refunded' => MembershipPayment::STATUS_REFUNDED,
+            default => MembershipPayment::STATUS_CREATED,
+        };
+    }
+
+    private function clearCaches(User $user): void
+    {
+        $this->accessService->forgetUserCache($user);
+
+        if (Schema::hasTable('membership_settings')) {
+            Cache::store('redis')->forget('membership:admin:stats');
+        }
     }
 }

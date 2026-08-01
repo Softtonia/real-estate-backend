@@ -28,8 +28,8 @@ class PaymentGatewayController extends Controller
     ): JsonResponse {
         try {
             $config = $service->updateRazorpayConfig(
-                $request->validated(),
-                $this->currentUser($request)
+                data: $request->validated(),
+                admin: $this->currentUser($request)
             );
 
             return response()->json([
@@ -43,7 +43,7 @@ class PaymentGatewayController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to update Razorpay config.',
-                'error' => 'Server error',
+                'error' => config('app.debug') ? $e->getMessage() : 'Server error',
             ], 500);
         }
     }
