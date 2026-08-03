@@ -1088,7 +1088,11 @@ Route::middleware([
             ->whereNumber('property');
     });
 Route::prefix('admin/payment-gateways')
-    ->middleware('throttle:membership-admin')
+    ->middleware([
+        'validate.api.client',
+        'admin.token',
+        'throttle:membership-admin',
+    ])
     ->group(function () {
         Route::get('razorpay', [PaymentGatewayController::class, 'razorpay'])
             ->middleware('permission.check:payment_gateways,read');

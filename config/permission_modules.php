@@ -13,6 +13,8 @@ return [
         'review',
         'approve',
         'reject',
+        'revoke',
+        'manage_builder',
     ],
 
     'modules' => [
@@ -209,7 +211,7 @@ return [
 
         'template_builder' => [
             'label' => 'Template Builder',
-            'actions' => ['read', 'edit'],
+            'actions' => ['read', 'create', 'edit', 'delete', 'manage_builder'],
         ],
 
         'template_conditions' => [
@@ -252,10 +254,6 @@ return [
             'actions' => ['read', 'create', 'edit', 'delete'],
         ],
 
-        'page_builder' => [
-            'label' => 'Page Builder',
-            'actions' => ['read'],
-        ],
 
         'keywords' => [
             'label' => 'Keywords',
@@ -274,6 +272,11 @@ return [
         'kyc_settings' => [
             'label' => 'KYC Settings',
             'actions' => ['read', 'edit'],
+        ],
+
+        'kyc_exemptions' => [
+            'label' => 'KYC Exemptions',
+            'actions' => ['read', 'create', 'edit', 'delete', 'revoke'],
         ],
         'property_verifications' => [
             'label' => 'Property Verifications',
