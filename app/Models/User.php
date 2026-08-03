@@ -14,6 +14,10 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
+use App\Models\Notification\NotificationDevice;
+use App\Models\Notification\NotificationLog;
+use App\Models\Notification\NotificationTopicSubscriber;
+use App\Models\Notification\UserNotification;
 
 class User extends Authenticatable implements CanResetPassword
 {
@@ -171,42 +175,6 @@ class User extends Authenticatable implements CanResetPassword
     }
 
     /**
-     * Consultancy projects assigned to company.
-     */
-    public function consultancyProjects(): HasMany
-    {
-        return $this->hasMany(
-            CompanyConsultancyProject::class,
-            'company_id',
-            'id'
-        );
-    }
-
-    /**
-     * Projects assigned to developer.
-     */
-    public function assignedProjects(): HasMany
-    {
-        return $this->hasMany(
-            ProjectList::class,
-            'developer_id',
-            'id'
-        );
-    }
-
-    /**
-     * Developer listings.
-     */
-    public function developerListings(): HasMany
-    {
-        return $this->hasMany(
-            Developerlist::class,
-            'user_id',
-            'id'
-        );
-    }
-
-    /**
      * User country.
      *
      * This requires country_id in the users table.
@@ -248,29 +216,6 @@ class User extends Authenticatable implements CanResetPassword
         );
     }
 
-    /**
-     * User properties.
-     */
-    public function properties(): HasMany
-    {
-        return $this->hasMany(
-            PropertyList::class,
-            'user_id',
-            'id'
-        );
-    }
-
-    /**
-     * User projects.
-     */
-    public function projects(): HasMany
-    {
-        return $this->hasMany(
-            Project::class,
-            'user_id',
-            'id'
-        );
-    }
 
     /**
      * Dynamic posts assigned to user.
@@ -404,5 +349,37 @@ class User extends Authenticatable implements CanResetPassword
     public function membershipTeamMembers()
     {
         return $this->hasMany(\App\Models\Membership\MembershipTeamMember::class);
+    }
+    public function notificationDevices(): HasMany
+    {
+        return $this->hasMany(NotificationDevice::class);
+    }
+
+    public function activeNotificationDevices(): HasMany
+    {
+        return $this->hasMany(NotificationDevice::class)
+            ->where('status', true)
+            ->whereNull('revoked_at');
+    }
+
+    public function notificationLogs(): HasMany
+    {
+        return $this->hasMany(NotificationLog::class);
+    }
+
+    public function inAppNotifications(): HasMany
+    {
+        return $this->hasMany(UserNotification::class);
+    }
+
+    public function unreadInAppNotifications(): HasMany
+    {
+        return $this->hasMany(UserNotification::class)
+            ->whereNull('read_at');
+    }
+
+    public function notificationTopicSubscriptions(): HasMany
+    {
+        return $this->hasMany(NotificationTopicSubscriber::class);
     }
 }

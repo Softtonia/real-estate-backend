@@ -15,6 +15,9 @@ return [
         'reject',
         'revoke',
         'manage_builder',
+        'send',
+        'retry',
+        'export',
     ],
 
     'modules' => [
@@ -349,6 +352,35 @@ return [
         'payment_gateways' => [
             'label' => 'Payment Gateways',
             'actions' => ['read', 'edit'],
+        ],
+        'notification_config' => [
+            'label' => 'Notification Config',
+            'actions' => ['read', 'edit'],
+        ],
+
+        'notification_devices' => [
+            'label' => 'Notification Devices',
+            'actions' => ['read', 'delete'],
+        ],
+
+        'notification_templates' => [
+            'label' => 'Notification Templates',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'notifications' => [
+            'label' => 'Notifications',
+            'actions' => ['read', 'create', 'send', 'delete', 'retry'],
+        ],
+
+        'notification_topics' => [
+            'label' => 'Notification Topics',
+            'actions' => ['read', 'create', 'edit', 'delete'],
+        ],
+
+        'notification_reports' => [
+            'label' => 'Notification Reports',
+            'actions' => ['read', 'export'],
         ],
     ],
 

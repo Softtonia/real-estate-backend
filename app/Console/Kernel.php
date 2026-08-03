@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use App\Console\Commands\Notification\ProcessScheduledNotificationsCommand;
 
 class Kernel extends ConsoleKernel
 {
@@ -11,7 +12,8 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         \App\Console\Commands\ProcessMembershipExpirationsCommand::class,
         \App\Console\Commands\ProcessMembershipReminderNotificationsCommand::class,
-         \App\Console\Commands\MembershipHealthCheckCommand::class,
+        \App\Console\Commands\MembershipHealthCheckCommand::class,
+        ProcessScheduledNotificationsCommand::class,
     ];
     /**
      * Define the application's command schedule.
@@ -48,6 +50,12 @@ class Kernel extends ConsoleKernel
             ->dailyAt('10:00')
             ->withoutOverlapping()
             ->onOneServer();
+
+        $schedule->command('notifications:process-scheduled --limit=100')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/notification-scheduler.log'));
     }
 
     /**
