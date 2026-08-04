@@ -14,12 +14,42 @@ class SyncPlanFeaturesRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'features' => ['required', 'array'],
-            'features.*.feature_id' => ['required', 'integer', 'exists:membership_features,id'],
-            'features.*.feature_value' => ['nullable', 'string', 'max:255'],
-            'features.*.value' => ['nullable', 'string', 'max:255'],
-            'features.*.is_unlimited' => ['nullable', 'boolean'],
-            'features.*.metadata' => ['nullable', 'array'],
+            'features' => ['required', 'array', 'min:1'],
+
+            'features.*.feature_id' => [
+                'nullable',
+                'integer',
+                'exists:membership_features,id',
+            ],
+
+            'features.*.slug' => [
+                'nullable',
+                'string',
+                'exists:membership_features,slug',
+            ],
+
+            'features.*.feature_value' => ['nullable'],
+            'features.*.value' => ['nullable'],
+
+            'features.*.is_unlimited' => ['sometimes', 'nullable', 'boolean'],
+            'features.*.status' => ['sometimes', 'nullable', 'boolean'],
+            'features.*.sort_order' => ['sometimes', 'nullable', 'integer', 'min:0'],
+
+            'detach_missing' => ['sometimes', 'nullable', 'boolean'],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            foreach ((array) $this->input('features', []) as $index => $feature) {
+                if (empty($feature['feature_id']) && empty($feature['slug'])) {
+                    $validator->errors()->add(
+                        "features.{$index}.feature_id",
+                        'Feature id or slug is required.'
+                    );
+                }
+            }
+        });
     }
 }

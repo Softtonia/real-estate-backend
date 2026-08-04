@@ -35,7 +35,7 @@ class MembershipPlanService
         return Cache::store('redis')->remember(
             'membership:plans:active',
             self::CACHE_TTL_SECONDS,
-            fn () => MembershipPlan::query()
+            fn() => MembershipPlan::query()
                 ->select([
                     'id',
                     'category_id',
@@ -213,15 +213,17 @@ class MembershipPlanService
 
             $payload = [];
 
-            foreach ([
-                'category_id',
-                'name',
-                'short_description',
-                'description',
-                'currency',
-                'duration_type',
-                'metadata',
-            ] as $field) {
+            foreach (
+                [
+                    'category_id',
+                    'name',
+                    'short_description',
+                    'description',
+                    'currency',
+                    'duration_type',
+                    'metadata',
+                ] as $field
+            ) {
                 if (array_key_exists($field, $data)) {
                     $payload[$field] = $data[$field];
                 }
@@ -331,62 +333,72 @@ class MembershipPlanService
         MembershipPlan $plan,
         array $features,
         ?User $admin = null,
-        bool $withTransaction = true
+        bool $withTransaction = true,
+        bool $detachMissing = false
     ): MembershipPlan {
-        $callback = function () use ($plan, $features, $admin) {
-            $oldValues = $plan->planFeatures()->with('feature')->get()->toArray();
+        $callback = function () use ($plan, $features, $admin, $detachMissing) {
+            $oldValues = $plan->planFeatures()
+                ->with('feature')
+                ->get()
+                ->toArray();
 
-            $normalizedFeatureIds = [];
+            $syncedFeatureIds = [];
 
-            foreach ($features as $item) {
-                $featureId = (int) ($item['feature_id'] ?? 0);
+            foreach ($features as $featureInput) {
+                $feature = $this->resolveMembershipFeature($featureInput);
 
-                if ($featureId <= 0) {
-                    continue;
-                }
-
-                $feature = MembershipFeature::query()->findOrFail($featureId);
-
-                $value = $item['feature_value'] ?? $item['value'] ?? null;
-
-                if ($value === null || $value === '') {
+                if (! $feature) {
                     throw ValidationException::withMessages([
-                        'features' => ["Feature value is required for {$feature->name}."],
+                        'features' => ['Invalid membership feature selected.'],
                     ]);
                 }
 
-                $isUnlimited = (bool) ($item['is_unlimited'] ?? false);
+                $featureValue = $featureInput['feature_value']
+                    ?? $featureInput['value']
+                    ?? null;
 
-                if (Str::lower((string) $value) === 'unlimited') {
-                    $isUnlimited = true;
-                }
+                $isUnlimited = array_key_exists('is_unlimited', $featureInput)
+                    ? (bool) $featureInput['is_unlimited']
+                    : false;
 
-                MembershipPlanFeature::query()->updateOrCreate(
-                    [
-                        'plan_id' => $plan->id,
-                        'feature_id' => $feature->id,
-                    ],
-                    [
-                        'feature_value' => (string) $value,
-                        'is_unlimited' => $isUnlimited,
-                        'metadata' => $item['metadata'] ?? [],
-                    ]
+                $status = array_key_exists('status', $featureInput)
+                    ? (bool) $featureInput['status']
+                    : true;
+
+                $sortOrder = array_key_exists('sort_order', $featureInput)
+                    ? (int) $featureInput['sort_order']
+                    : 0;
+
+                $syncedFeatureIds[] = (int) $feature->id;
+
+                $this->upsertMembershipPlanFeature(
+                    planId: (int) $plan->id,
+                    featureId: (int) $feature->id,
+                    featureValue: $featureValue,
+                    isUnlimited: $isUnlimited,
+                    status: $status,
+                    sortOrder: $sortOrder
                 );
-
-                $normalizedFeatureIds[] = $feature->id;
             }
 
-            MembershipPlanFeature::query()
-                ->where('plan_id', $plan->id)
-                ->when(!empty($normalizedFeatureIds), function ($query) use ($normalizedFeatureIds) {
-                    $query->whereNotIn('feature_id', $normalizedFeatureIds);
-                })
-                ->when(empty($normalizedFeatureIds), function ($query) {
-                    $query->whereRaw('1 = 1');
-                })
-                ->delete();
+            if ($detachMissing && ! empty($syncedFeatureIds)) {
+                DB::table('membership_plan_features')
+                    ->where('plan_id', $plan->id)
+                    ->whereNotIn('feature_id', $syncedFeatureIds)
+                    ->delete();
+            }
 
-            $freshPlan = $plan->fresh(['planFeatures.feature']);
+            if ($detachMissing && empty($syncedFeatureIds)) {
+                DB::table('membership_plan_features')
+                    ->where('plan_id', $plan->id)
+                    ->delete();
+            }
+
+            $freshPlan = $plan->fresh([
+                'category',
+                'planFeatures.feature',
+                'roleRules.role',
+            ]);
 
             $this->audit(
                 action: 'plan_features_synced',
@@ -404,6 +416,76 @@ class MembershipPlanService
         return $withTransaction ? DB::transaction($callback) : $callback();
     }
 
+    private function resolveMembershipFeature(array $featureInput): ?MembershipFeature
+    {
+        if (! empty($featureInput['feature_id'])) {
+            return MembershipFeature::query()
+                ->where('id', (int) $featureInput['feature_id'])
+                ->first();
+        }
+
+        if (! empty($featureInput['slug'])) {
+            return MembershipFeature::query()
+                ->where('slug', $featureInput['slug'])
+                ->first();
+        }
+
+        return null;
+    }
+
+    private function upsertMembershipPlanFeature(
+        int $planId,
+        int $featureId,
+        mixed $featureValue,
+        bool $isUnlimited,
+        bool $status,
+        int $sortOrder
+    ): void {
+        $table = 'membership_plan_features';
+
+        $payload = [];
+
+        if (Schema::hasColumn($table, 'feature_value')) {
+            $payload['feature_value'] = is_bool($featureValue)
+                ? ($featureValue ? '1' : '0')
+                : ($featureValue !== null ? (string) $featureValue : null);
+        }
+
+        if (Schema::hasColumn($table, 'value')) {
+            $payload['value'] = is_bool($featureValue)
+                ? ($featureValue ? '1' : '0')
+                : ($featureValue !== null ? (string) $featureValue : null);
+        }
+
+        if (Schema::hasColumn($table, 'is_unlimited')) {
+            $payload['is_unlimited'] = $isUnlimited;
+        }
+
+        if (Schema::hasColumn($table, 'status')) {
+            $payload['status'] = $status;
+        }
+
+        if (Schema::hasColumn($table, 'sort_order')) {
+            $payload['sort_order'] = $sortOrder;
+        }
+
+        if (Schema::hasColumn($table, 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        if (Schema::hasColumn($table, 'created_at')) {
+            $payload['created_at'] = now();
+        }
+
+        DB::table($table)->updateOrInsert(
+            [
+                'plan_id' => $planId,
+                'feature_id' => $featureId,
+            ],
+            $payload
+        );
+    }
+
     public function syncRoleRules(
         MembershipPlan $plan,
         array $roleIds,
@@ -414,8 +496,8 @@ class MembershipPlanService
             $oldValues = $plan->roleRules()->with('role')->get()->toArray();
 
             $roleIds = collect($roleIds)
-                ->map(fn ($roleId) => (int) $roleId)
-                ->filter(fn ($roleId) => $roleId > 0)
+                ->map(fn($roleId) => (int) $roleId)
+                ->filter(fn($roleId) => $roleId > 0)
                 ->unique()
                 ->values()
                 ->all();
@@ -424,7 +506,7 @@ class MembershipPlanService
                 $validRoleIds = Role::query()
                     ->whereIn('id', $roleIds)
                     ->pluck('id')
-                    ->map(fn ($id) => (int) $id)
+                    ->map(fn($id) => (int) $id)
                     ->values()
                     ->all();
 
