@@ -1313,7 +1313,7 @@ class UserProfileController extends Controller
         $default = [
             'request_id' => null,
             'status' => 'not_started',
-            'status_label' => 'Not Started',
+            'status_label' => 'Incomplete',
             'admin_status' => 'Not Submitted',
             'documents_count' => 0,
             'pending_documents_count' => 0,
@@ -1387,9 +1387,10 @@ class UserProfileController extends Controller
             'approved' => 'Approved',
             'rejected' => 'Rejected',
             'expired' => 'Expired',
-            default => 'Not Started',
+            default => 'Incomplete',
         };
     }
+
     private function adminKycStatusLabel(?string $status): string
     {
         return match (strtolower((string) $status)) {
