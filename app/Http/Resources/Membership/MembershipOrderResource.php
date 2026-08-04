@@ -11,16 +11,48 @@ class MembershipOrderResource extends JsonResource
     {
         return [
             'id' => (int) $this->id,
+            'user_id' => (int) $this->user_id,
+            'created_by' => $this->created_by ? (int) $this->created_by : null,
+
+            'user' => $this->whenLoaded('user', function () {
+                return $this->user ? [
+                    'id' => (int) $this->user->id,
+                    'name' => trim(($this->user->first_name ?? '') . ' ' . ($this->user->last_name ?? '')),
+                    'first_name' => $this->user->first_name ?? null,
+                    'last_name' => $this->user->last_name ?? null,
+                    'email' => $this->user->email ?? null,
+                    'phone' => $this->user->phone ?? null,
+                    'role_id' => $this->user->role_id ?? null,
+                ] : null;
+            }),
+
+            'created_by_user' => $this->whenLoaded('createdBy', function () {
+                return $this->createdBy ? [
+                    'id' => (int) $this->createdBy->id,
+                    'name' => trim(($this->createdBy->first_name ?? '') . ' ' . ($this->createdBy->last_name ?? '')),
+                    'first_name' => $this->createdBy->first_name ?? null,
+                    'last_name' => $this->createdBy->last_name ?? null,
+                    'email' => $this->createdBy->email ?? null,
+                    'phone' => $this->createdBy->phone ?? null,
+                    'role_id' => $this->createdBy->role_id ?? null,
+                ] : null;
+            }),
+
             'order_number' => $this->order_number,
 
             'plan' => $this->whenLoaded('plan', function () {
-                return [
+                return $this->plan ? [
                     'id' => (int) $this->plan->id,
                     'name' => $this->plan->name,
                     'slug' => $this->plan->slug,
                     'duration' => (int) $this->plan->duration,
                     'duration_type' => $this->plan->duration_type,
-                ];
+                    'category' => $this->plan->relationLoaded('category') && $this->plan->category ? [
+                        'id' => (int) $this->plan->category->id,
+                        'name' => $this->plan->category->name,
+                        'slug' => $this->plan->category->slug,
+                    ] : null,
+                ] : null;
             }),
 
             'coupon' => $this->whenLoaded('coupon', function () {

@@ -13,8 +13,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use App\Models\Membership\MembershipPayment;
-use Throwable;
 
 class MembershipOrderService
 {
@@ -31,7 +29,7 @@ class MembershipOrderService
             ->active()
             ->findOrFail((int) $data['plan_id']);
 
-        if (!$this->planService->isPlanAllowedForUser($plan, $user)) {
+        if (! $this->planService->isPlanAllowedForUser($plan, $user)) {
             throw ValidationException::withMessages([
                 'plan_id' => ['This membership plan is not available for your role.'],
             ]);
@@ -133,6 +131,8 @@ class MembershipOrderService
                 'currency',
                 'subtotal',
                 'discount_amount',
+                'taxable_amount',
+                'gst_percentage',
                 'gst_amount',
                 'total_amount',
                 'payment_status',
@@ -141,18 +141,21 @@ class MembershipOrderService
                 'expires_at',
                 'paid_at',
                 'cancelled_at',
+                'created_by',
                 'created_at',
             ])
             ->with([
+                'user:id,first_name,last_name,email,phone,role_id',
+                'createdBy:id,first_name,last_name,email,phone,role_id',
                 'plan:id,category_id,name,slug,currency,price,sale_price,duration,duration_type',
                 'plan.category:id,name,slug',
                 'coupon:id,code,title',
             ])
             ->where('user_id', $user->id)
-            ->when(!empty($filters['payment_status']), function ($query) use ($filters) {
+            ->when(! empty($filters['payment_status']), function ($query) use ($filters) {
                 $query->where('payment_status', $filters['payment_status']);
             })
-            ->when(!empty($filters['order_status']), function ($query) use ($filters) {
+            ->when(! empty($filters['order_status']), function ($query) use ($filters) {
                 $query->where('order_status', $filters['order_status']);
             })
             ->latest('id')
@@ -175,6 +178,8 @@ class MembershipOrderService
                 'currency',
                 'subtotal',
                 'discount_amount',
+                'taxable_amount',
+                'gst_percentage',
                 'gst_amount',
                 'total_amount',
                 'payment_status',
@@ -183,33 +188,44 @@ class MembershipOrderService
                 'expires_at',
                 'paid_at',
                 'cancelled_at',
+                'created_by',
                 'created_at',
             ])
             ->with([
                 'user:id,first_name,last_name,email,phone,role_id',
+                'createdBy:id,first_name,last_name,email,phone,role_id',
                 'plan:id,category_id,name,slug,currency,price,sale_price,duration,duration_type',
                 'plan.category:id,name,slug',
                 'coupon:id,code,title',
             ])
-            ->when(!empty($filters['user_id']), function ($query) use ($filters) {
+            ->when(! empty($filters['user_id']), function ($query) use ($filters) {
                 $query->where('user_id', (int) $filters['user_id']);
             })
-            ->when(!empty($filters['plan_id']), function ($query) use ($filters) {
+            ->when(! empty($filters['created_by']), function ($query) use ($filters) {
+                $query->where('created_by', (int) $filters['created_by']);
+            })
+            ->when(! empty($filters['plan_id']), function ($query) use ($filters) {
                 $query->where('plan_id', (int) $filters['plan_id']);
             })
-            ->when(!empty($filters['payment_status']), function ($query) use ($filters) {
+            ->when(! empty($filters['payment_status']), function ($query) use ($filters) {
                 $query->where('payment_status', $filters['payment_status']);
             })
-            ->when(!empty($filters['order_status']), function ($query) use ($filters) {
+            ->when(! empty($filters['order_status']), function ($query) use ($filters) {
                 $query->where('order_status', $filters['order_status']);
             })
-            ->when(!empty($filters['search']), function ($query) use ($filters) {
+            ->when(! empty($filters['search']), function ($query) use ($filters) {
                 $search = trim((string) $filters['search']);
 
                 $query->where(function ($q) use ($search) {
                     $q->where('order_number', 'like', "%{$search}%")
                         ->orWhere('razorpay_order_id', 'like', "%{$search}%")
                         ->orWhereHas('user', function ($userQuery) use ($search) {
+                            $userQuery->where('first_name', 'like', "%{$search}%")
+                                ->orWhere('last_name', 'like', "%{$search}%")
+                                ->orWhere('email', 'like', "%{$search}%")
+                                ->orWhere('phone', 'like', "%{$search}%");
+                        })
+                        ->orWhereHas('createdBy', function ($userQuery) use ($search) {
                             $userQuery->where('first_name', 'like', "%{$search}%")
                                 ->orWhere('last_name', 'like', "%{$search}%")
                                 ->orWhere('email', 'like', "%{$search}%")
@@ -240,7 +256,25 @@ class MembershipOrderService
             ]);
         }
 
+        if ($order->order_status === MembershipOrder::STATUS_CANCELLED) {
+            return $this->freshOrder($order);
+        }
+
         return DB::transaction(function () use ($order, $performedBy) {
+            $order = MembershipOrder::query()
+                ->lockForUpdate()
+                ->findOrFail($order->id);
+
+            if ($order->payment_status === MembershipOrder::PAYMENT_PAID) {
+                throw ValidationException::withMessages([
+                    'order_id' => ['Paid order cannot be cancelled from this action.'],
+                ]);
+            }
+
+            if ($order->order_status === MembershipOrder::STATUS_CANCELLED) {
+                return $this->freshOrder($order);
+            }
+
             $oldValues = $order->toArray();
 
             $order->update([
@@ -273,6 +307,14 @@ class MembershipOrderService
         }
 
         return DB::transaction(function () use ($order, $paymentData, $performedBy) {
+            $order = MembershipOrder::query()
+                ->lockForUpdate()
+                ->findOrFail($order->id);
+
+            if ($order->payment_status === MembershipOrder::PAYMENT_PAID) {
+                return $this->freshOrder($order);
+            }
+
             $oldValues = $order->toArray();
 
             $order->update([
@@ -314,6 +356,14 @@ class MembershipOrderService
         }
 
         return DB::transaction(function () use ($order, $reason, $metadata) {
+            $order = MembershipOrder::query()
+                ->lockForUpdate()
+                ->findOrFail($order->id);
+
+            if ($order->payment_status === MembershipOrder::PAYMENT_PAID) {
+                return $this->freshOrder($order);
+            }
+
             $oldValues = $order->toArray();
 
             $order->update([
@@ -354,10 +404,21 @@ class MembershipOrderService
                 ->get();
 
             foreach ($orders as $order) {
+                $oldValues = $order->toArray();
+
                 $order->update([
                     'order_status' => MembershipOrder::STATUS_EXPIRED,
                     'cancelled_at' => now(),
                 ]);
+
+                $this->audit(
+                    action: 'order_expired',
+                    user: $order->user,
+                    auditable: $order,
+                    performedBy: null,
+                    oldValues: $oldValues,
+                    newValues: $order->fresh()->toArray()
+                );
 
                 $this->clearOrderCaches($order->user);
             }
@@ -406,6 +467,7 @@ class MembershipOrderService
     {
         return $order->fresh([
             'user:id,first_name,last_name,email,phone,role_id',
+            'createdBy:id,first_name,last_name,email,phone,role_id',
             'plan.category',
             'plan.planFeatures.feature',
             'coupon:id,code,title,discount_type,discount_value',
@@ -440,7 +502,7 @@ class MembershipOrderService
 
     private function settingValue(string $key, mixed $default = null): mixed
     {
-        if (!Schema::hasTable('membership_settings')) {
+        if (! Schema::hasTable('membership_settings')) {
             return $default;
         }
 
@@ -505,7 +567,7 @@ class MembershipOrderService
         ?array $oldValues,
         ?array $newValues
     ): void {
-        if (!Schema::hasTable('membership_audit_logs')) {
+        if (! Schema::hasTable('membership_audit_logs')) {
             return;
         }
 
@@ -521,28 +583,5 @@ class MembershipOrderService
             'user_agent' => request()?->userAgent(),
             'created_at' => now(),
         ]);
-    }
-
-
-    public function showPayment(MembershipPayment $payment): JsonResponse
-    {
-        try {
-            $payment->load([
-                'user:id,user_name,first_name,last_name,email,phone',
-                'order:id,order_number,user_id,plan_id,total_amount,payment_status,order_status',
-            ]);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Membership payment fetched successfully.',
-                'data' => $payment,
-            ]);
-        } catch (Throwable $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Unable to fetch membership payment.',
-                'error' => 'Server error',
-            ], 500);
-        }
     }
 }
