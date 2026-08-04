@@ -35,6 +35,7 @@ class UserKycController extends Controller
         private readonly KycUploadProgressService $uploadProgressService
     ) {}
 
+
     public function status(Request $request): JsonResponse
     {
         $user = $this->resolveCurrentUser($request);

@@ -89,7 +89,11 @@ class PropertyWorkflowService
                 liveStatus: PropertyWorkflowStatus::UNDER_REVIEW,
                 clearPublishedAt: true
             );
-
+            $this->storeDynamicPostAssignment(
+                property: $lockedProperty,
+                actor: $actor,
+                verifier: $verifier
+            );
             $revision = PropertyListingRevision::create([
                 'dynamic_post_id' => $lockedProperty->id,
                 'version' => 1,
@@ -262,8 +266,8 @@ class PropertyWorkflowService
 
             $revision->forceFill([
                 'status' => PropertyWorkflowStatus::ASSIGNED,
-                'assigned_to' => $verifier->id,
-                'assigned_by' => $actor->id,
+                'assigned_to' => (int) $verifier->id,
+                'assigned_by' => (int) $actor->id,
                 'assigned_at' => now(),
                 'verification_started_at' => null,
             ])->save();
@@ -272,6 +276,15 @@ class PropertyWorkflowService
                 $lockedProperty,
                 status: $lockedProperty->status ?: 'draft',
                 liveStatus: PropertyWorkflowStatus::ASSIGNED
+            );
+
+            /*
+         * Also store assignment on dynamic_posts table.
+         */
+            $this->storeDynamicPostAssignment(
+                property: $lockedProperty,
+                actor: $actor,
+                verifier: $verifier
             );
 
             $this->recordEvent(
@@ -314,6 +327,55 @@ class PropertyWorkflowService
             'assignedVerifier:id,first_name,last_name,email',
             'assigner:id,first_name,last_name,email',
         ]);
+    }
+    private function storeDynamicPostAssignment(
+        DynamicPost $property,
+        User $actor,
+        User $verifier
+    ): void {
+        $payload = [];
+
+        /*
+     * Preferred columns.
+     */
+        if (Schema::hasColumn('dynamic_posts', 'assigned_to')) {
+            $payload['assigned_to'] = (int) $verifier->id;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'assigned_by')) {
+            $payload['assigned_by'] = (int) $actor->id;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'assigned_at')) {
+            $payload['assigned_at'] = now();
+        }
+
+        /*
+     * Extra supported names, only used if columns exist.
+     */
+        if (Schema::hasColumn('dynamic_posts', 'verifier_id')) {
+            $payload['verifier_id'] = (int) $verifier->id;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'verified_by')) {
+            $payload['verified_by'] = (int) $verifier->id;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'verification_assigned_to')) {
+            $payload['verification_assigned_to'] = (int) $verifier->id;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'verification_assigned_by')) {
+            $payload['verification_assigned_by'] = (int) $actor->id;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'verification_assigned_at')) {
+            $payload['verification_assigned_at'] = now();
+        }
+
+        if (!empty($payload)) {
+            $property->forceFill($payload)->save();
+        }
     }
     private function latestOrCreateAssignmentRevision(
         DynamicPost $property,
