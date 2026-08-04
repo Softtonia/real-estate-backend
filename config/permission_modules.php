@@ -256,7 +256,15 @@ return [
             'label' => 'Custom Fields',
             'actions' => ['read', 'create', 'edit', 'delete'],
         ],
+        'listing_steps' => [
+            'label' => 'Listing Form Steps',
+            'actions' => ['read', 'edit'],
+        ],
 
+        'mapping' => [
+            'label' => 'Listing Field Mapping',
+            'actions' => ['read', 'edit'],
+        ],
 
         'keywords' => [
             'label' => 'Keywords',

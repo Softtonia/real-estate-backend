@@ -68,6 +68,7 @@ class UserNotificationTopicController extends Controller
         }
     }
 
+
     public function unsubscribe(
         SubscribeNotificationTopicRequest $request,
         NotificationTopic $topic,
