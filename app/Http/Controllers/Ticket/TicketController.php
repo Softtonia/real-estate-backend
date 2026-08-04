@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Throwable;
+use Illuminate\Support\Str;
 
 class TicketController extends Controller
 {
@@ -29,6 +30,17 @@ class TicketController extends Controller
             return $this->unauthenticatedResponse();
         }
 
+        /*
+     * Stats query: only access scope apply.
+     * Search/filter/pagination apply nahi hoga, so top cards always full count show karenge.
+     */
+        $statsQuery = Ticket::query();
+        $this->applyAccessScope($statsQuery, $user);
+        $stats = $this->ticketStats($statsQuery);
+
+        /*
+     * Listing query: access + filters + pagination.
+     */
         $query = Ticket::query()->with($this->relations());
 
         $this->applyAccessScope($query, $user);
@@ -38,9 +50,8 @@ class TicketController extends Controller
             ->latest('id')
             ->paginate($this->perPage($request));
 
-        return $this->paginatedTicketsResponse($tickets);
+        return $this->paginatedTicketsResponse($tickets, $stats);
     }
-
     public function store(Request $request): JsonResponse
     {
         try {
@@ -212,7 +223,7 @@ class TicketController extends Controller
         $removeIds = array_map('intval', $validated['remove_attachment_ids'] ?? []);
 
         $remainingAttachments = $ticket->attachments
-            ->reject(fn (TicketAttachment $attachment) => in_array((int) $attachment->id, $removeIds, true))
+            ->reject(fn(TicketAttachment $attachment) => in_array((int) $attachment->id, $removeIds, true))
             ->count();
 
         if ($remainingAttachments + $this->incomingFilesCount($request) > 5) {
@@ -379,7 +390,7 @@ class TicketController extends Controller
             ->whereIn('id', $requestedIds)
             ->get();
 
-        $existingIds = $tickets->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $existingIds = $tickets->pluck('id')->map(fn($id) => (int) $id)->all();
         $notFoundIds = array_values(array_diff($requestedIds, $existingIds));
         $deniedIds = [];
         $deletedIds = [];
@@ -612,7 +623,7 @@ class TicketController extends Controller
             'user_id' => $ticket->raised_by,
             'user_name' => $this->userName($ticket->raisedBy),
             'attachments' => $ticket->attachments
-                ->map(fn ($attachment) => $this->formatAttachment($attachment))
+                ->map(fn($attachment) => $this->formatAttachment($attachment))
                 ->values(),
             'created_at' => $ticket->created_at,
         ]];
@@ -936,7 +947,7 @@ class TicketController extends Controller
             'property' => $this->formatProperty($ticket->property),
 
             'cc_users' => $ticket->ccUsers
-                ->map(fn ($user) => [
+                ->map(fn($user) => [
                     'id' => (int) $user->id,
                     'first_name' => $user->first_name,
                     'last_name' => $user->last_name,
@@ -946,7 +957,7 @@ class TicketController extends Controller
                 ->values(),
 
             'attachments' => $ticket->attachments
-                ->map(fn ($attachment) => $this->formatAttachment($attachment))
+                ->map(fn($attachment) => $this->formatAttachment($attachment))
                 ->values(),
 
             'media_attachment' => $ticket->media_attachment,
@@ -1023,15 +1034,17 @@ class TicketController extends Controller
             });
         }
 
-        foreach ([
-            'status_id',
-            'priority_id',
-            'ticket_type_id',
-            'ticket_department_id',
-            'user_id',
-            'raised_by',
-            'property_id',
-        ] as $filter) {
+        foreach (
+            [
+                'status_id',
+                'priority_id',
+                'ticket_type_id',
+                'ticket_department_id',
+                'user_id',
+                'raised_by',
+                'property_id',
+            ] as $filter
+        ) {
             if ($request->filled($filter)) {
                 $query->where($filter, $request->input($filter));
             }
@@ -1109,13 +1122,14 @@ class TicketController extends Controller
         return min(max((int) $request->input('per_page', 10), 1), 100);
     }
 
-    private function paginatedTicketsResponse($tickets): JsonResponse
+    private function paginatedTicketsResponse($tickets, array $stats = []): JsonResponse
     {
         return response()->json([
             'status' => true,
             'message' => 'Tickets fetched successfully.',
+            'stats' => $stats,
             'data' => collect($tickets->items())
-                ->map(fn (Ticket $ticket) => $this->formatTicket($ticket))
+                ->map(fn(Ticket $ticket) => $this->formatTicket($ticket))
                 ->values(),
             'meta' => [
                 'current_page' => $tickets->currentPage(),
@@ -1130,6 +1144,50 @@ class TicketController extends Controller
                 'next' => $tickets->nextPageUrl(),
             ],
         ]);
+    }
+    private function ticketStats(Builder $baseQuery): array
+    {
+        $totalTickets = (clone $baseQuery)->count();
+
+        $statusRows = (clone $baseQuery)
+            ->leftJoin('ticket_status as ts', 'ts.id', '=', 'tickets.status_id')
+            ->select([
+                'tickets.status_id',
+                'ts.ticket_status_name',
+                DB::raw('COUNT(tickets.id) as total'),
+            ])
+            ->groupBy('tickets.status_id', 'ts.ticket_status_name')
+            ->get();
+
+        $statuses = TicketStatus::query()
+            ->select(['id', 'ticket_status_name'])
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get();
+
+        $statusCounts = [];
+
+        foreach ($statuses as $status) {
+            $countRow = $statusRows->firstWhere('status_id', $status->id);
+
+            $key = Str::slug((string) $status->ticket_status_name, '_');
+
+            $statusCounts[$key] = [
+                'id' => (int) $status->id,
+                'name' => $status->ticket_status_name,
+                'count' => (int) ($countRow->total ?? 0),
+            ];
+        }
+
+        $withoutStatusCount = $statusRows
+            ->whereNull('status_id')
+            ->sum('total');
+
+        return [
+            'total_tickets' => (int) $totalTickets,
+            'status_counts' => $statusCounts,
+            'without_status' => (int) $withoutStatusCount,
+        ];
     }
 
     private function validationResponse($errors): JsonResponse
