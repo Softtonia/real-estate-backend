@@ -5791,15 +5791,25 @@ class DynamicPostController extends Controller
         }
 
         $assignment = DB::table('dynamic_post_user')
-            ->where('dynamic_post_id', $post->id)
+            ->where('dynamic_post_id', (int) $post->id)
             ->first();
 
         if (!$assignment) {
             return null;
         }
 
+        $userSelect = ['id', 'first_name', 'last_name', 'email', 'role_id'];
+
+        if (Schema::hasColumn('users', 'phone')) {
+            $userSelect[] = 'phone';
+        }
+
+        if (Schema::hasColumn('users', 'name')) {
+            $userSelect[] = 'name';
+        }
+
         $user = User::query()
-            ->select(['id', 'first_name', 'last_name', 'name', 'email', 'phone', 'role_id'])
+            ->select($userSelect)
             ->find((int) $assignment->user_id);
 
         if (!$user) {
@@ -5810,7 +5820,7 @@ class DynamicPostController extends Controller
 
         if (!empty($assignment->assigned_by)) {
             $assignedByUser = User::query()
-                ->select(['id', 'first_name', 'last_name', 'name', 'email', 'phone', 'role_id'])
+                ->select($userSelect)
                 ->find((int) $assignment->assigned_by);
         }
 
@@ -5821,16 +5831,20 @@ class DynamicPostController extends Controller
 
             $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
 
-            return $fullName
-                ?: ($user->name ?? null)
-                ?: ($user->email ?? null)
-                ?: ('User #' . $user->id);
+            if ($fullName !== '') {
+                return $fullName;
+            }
+
+            if (Schema::hasColumn('users', 'name') && !empty($user->name)) {
+                return $user->name;
+            }
+
+            return $user->email ?? ('User #' . $user->id);
         };
 
         $makeRoleData = function (?User $user): ?array {
             if (
                 !$user
-                || !Schema::hasColumn('users', 'role_id')
                 || empty($user->role_id)
                 || !Schema::hasTable('roles')
             ) {
@@ -5838,7 +5852,7 @@ class DynamicPostController extends Controller
             }
 
             $role = DB::table('roles')
-                ->where('id', $user->role_id)
+                ->where('id', (int) $user->role_id)
                 ->first();
 
             if (!$role) {
@@ -5881,7 +5895,7 @@ class DynamicPostController extends Controller
             'assigned_at' => $assignment->updated_at ?? $assignment->created_at ?? null,
 
             'is_anonymous_user' => ($user->email ?? null) === 'anonymous@system.local'
-                || ($user->name ?? null) === 'Anonymous User'
+                || (Schema::hasColumn('users', 'name') && (($user->name ?? null) === 'Anonymous User'))
                 || ($user->first_name ?? null) === 'Anonymous',
         ];
     }
