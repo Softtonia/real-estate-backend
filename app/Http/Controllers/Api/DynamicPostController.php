@@ -5798,36 +5798,62 @@ class DynamicPostController extends Controller
             return null;
         }
 
-        $user = User::find((int) $assignment->user_id);
+        $user = User::query()
+            ->select(['id', 'first_name', 'last_name', 'name', 'email', 'phone', 'role_id'])
+            ->find((int) $assignment->user_id);
 
         if (!$user) {
             return null;
         }
 
-        $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+        $assignedByUser = null;
 
-        $label = $fullName
-            ?: ($user->name ?? null)
-            ?: ($user->email ?? null)
-            ?: ('User #' . $user->id);
-
-        $roleData = null;
-
-        if (
-            Schema::hasColumn('users', 'role_id')
-            && !empty($user->role_id)
-            && Schema::hasTable('roles')
-        ) {
-            $role = DB::table('roles')->where('id', $user->role_id)->first();
-
-            if ($role) {
-                $roleData = [
-                    'id' => (int) $role->id,
-                    'name' => $role->name ?? $role->role_name ?? null,
-                    'slug' => $role->slug ?? null,
-                ];
-            }
+        if (!empty($assignment->assigned_by)) {
+            $assignedByUser = User::query()
+                ->select(['id', 'first_name', 'last_name', 'name', 'email', 'phone', 'role_id'])
+                ->find((int) $assignment->assigned_by);
         }
+
+        $makeLabel = function (?User $user): ?string {
+            if (!$user) {
+                return null;
+            }
+
+            $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+
+            return $fullName
+                ?: ($user->name ?? null)
+                ?: ($user->email ?? null)
+                ?: ('User #' . $user->id);
+        };
+
+        $makeRoleData = function (?User $user): ?array {
+            if (
+                !$user
+                || !Schema::hasColumn('users', 'role_id')
+                || empty($user->role_id)
+                || !Schema::hasTable('roles')
+            ) {
+                return null;
+            }
+
+            $role = DB::table('roles')
+                ->where('id', $user->role_id)
+                ->first();
+
+            if (!$role) {
+                return null;
+            }
+
+            return [
+                'id' => (int) $role->id,
+                'name' => $role->name ?? $role->role_name ?? null,
+                'slug' => $role->slug ?? null,
+            ];
+        };
+
+        $label = $makeLabel($user);
+        $assignedByLabel = $makeLabel($assignedByUser);
 
         return [
             'id' => (int) $user->id,
@@ -5835,10 +5861,25 @@ class DynamicPostController extends Controller
             'label' => $label,
             'name' => $label,
             'email' => $user->email ?? null,
-            'role_id' => $user->role_id ?? null,
-            'role' => $roleData,
+            'phone' => $user->phone ?? null,
+            'role_id' => $user->role_id ? (int) $user->role_id : null,
+            'role' => $makeRoleData($user),
+
             'assigned_by' => $assignment->assigned_by ? (int) $assignment->assigned_by : null,
-            'assigned_at' => $assignment->created_at ?? null,
+            'assigned_by_name' => $assignedByLabel,
+            'assigned_by_user' => $assignedByUser ? [
+                'id' => (int) $assignedByUser->id,
+                'value' => (int) $assignedByUser->id,
+                'label' => $assignedByLabel,
+                'name' => $assignedByLabel,
+                'email' => $assignedByUser->email ?? null,
+                'phone' => $assignedByUser->phone ?? null,
+                'role_id' => $assignedByUser->role_id ? (int) $assignedByUser->role_id : null,
+                'role' => $makeRoleData($assignedByUser),
+            ] : null,
+
+            'assigned_at' => $assignment->updated_at ?? $assignment->created_at ?? null,
+
             'is_anonymous_user' => ($user->email ?? null) === 'anonymous@system.local'
                 || ($user->name ?? null) === 'Anonymous User'
                 || ($user->first_name ?? null) === 'Anonymous',
