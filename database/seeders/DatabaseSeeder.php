@@ -39,7 +39,7 @@ class DatabaseSeeder extends Seeder
         $this->call(TaxonomySeeder::class);
         $this->call(PostTypeTaxonomySeeder::class);
         $this->call(TaxonomyTermSeeder::class);
-        $this->call(MembershipSeeder::class);
+        $this->call(MembershipExactPlansSeeder::class);
         $this->call([TicketModuleSeeder::class,]);
         $this->call([KycRoleRuleSeeder::class,]);
         $this->call(PropertyVerificationPermissionSeeder::class);
