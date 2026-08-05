@@ -1751,18 +1751,15 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::post('dynamic-posts/import-csv', [DynamicPostCsvController::class, 'import']);
 
     // Dynamic post CRUD
-    Route::post('dynamic-posts', [DynamicPostController::class, 'store'])
-        ->middleware(['kyc.publish', 'membership.listing']);
+    Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
     Route::get('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'show'])
         ->whereNumber('dynamicPost');
 
     Route::put('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'update'])
-        ->middleware(['kyc.publish:published_only', 'membership.listing:published_only'])
         ->whereNumber('dynamicPost');
 
     Route::post('dynamic-posts/{dynamicPost}/update', [DynamicPostController::class, 'update'])
-        ->middleware(['kyc.publish:published_only', 'membership.listing:published_only'])
         ->whereNumber('dynamicPost');
 
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
