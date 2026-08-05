@@ -108,6 +108,7 @@ use App\Http\Controllers\Api\Membership\AdminMembershipRefundController;
 use App\Http\Controllers\Api\Membership\AdminMembershipReportController;
 use App\Http\Controllers\Api\Membership\AdminMembershipSettingController;
 use App\Http\Controllers\Api\Membership\AdminMembershipUserController;
+use App\Http\Controllers\Api\Membership\MembershipAccessController;
 use App\Http\Controllers\Api\Membership\RazorpayWebhookController;
 use App\Http\Controllers\Api\Membership\UserMembershipAddonController;
 use App\Http\Controllers\Api\Membership\UserMembershipController;
@@ -2176,5 +2177,7 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
             Route::delete('{notification}', [UserNotificationController::class, 'destroy'])
                 ->whereNumber('notification');
         });
+    Route::get('membership/me/access', [MembershipAccessController::class, 'me'])
+        ->middleware('throttle:membership-user');
 });
 Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);

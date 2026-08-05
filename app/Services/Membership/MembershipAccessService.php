@@ -9,8 +9,10 @@ use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class MembershipAccessService
 {
@@ -29,6 +31,9 @@ class MembershipAccessService
     {
         return UserMembership::query()
             ->with([
+                'user:id,first_name,last_name,email,phone,role_id',
+                'creator:id,first_name,last_name,email,phone,role_id',
+                'order',
                 'plan:id,category_id,name,slug,currency,price,sale_price,duration,duration_type,is_popular,status',
                 'plan.category:id,name,slug',
                 'plan.planFeatures.feature:id,name,slug,feature_type,status,sort_order',
@@ -113,7 +118,7 @@ class MembershipAccessService
         $status = $this->userMembershipStatus($user);
         $feature = $status['features'][$featureSlug] ?? null;
 
-        if (!$feature) {
+        if (! $feature) {
             return false;
         }
 
@@ -121,7 +126,7 @@ class MembershipAccessService
             return true;
         }
 
-        $value = $feature['value'] ?? null;
+        $value = $feature['value'] ?? $feature['raw_value'] ?? null;
 
         return $this->truthyFeatureValue($value);
     }
@@ -133,12 +138,45 @@ class MembershipAccessService
         return $status['features'][$featureSlug]['value'] ?? $default;
     }
 
+    public function featureLimit(User $user, string $featureSlug): ?int
+    {
+        $status = $this->userMembershipStatus($user);
+
+        $feature = $status['features'][$featureSlug] ?? null;
+
+        if (! $feature) {
+            return 0;
+        }
+
+        if (($feature['is_unlimited'] ?? false) === true) {
+            return null;
+        }
+
+        $value = $feature['raw_value'] ?? $feature['value'] ?? null;
+
+        if ($value === null) {
+            return 0;
+        }
+
+        $normalized = strtolower(trim((string) $value));
+
+        if (in_array($normalized, ['unlimited', '∞'], true)) {
+            return null;
+        }
+
+        if (in_array($normalized, ['', '0', 'false', 'no', 'none', '—', '-', 'null'], true)) {
+            return 0;
+        }
+
+        return is_numeric($normalized) ? max(0, (int) $normalized) : 0;
+    }
+
     public function hasCredit(User $user, string $creditType, int $quantity = 1): bool
     {
         $status = $this->userMembershipStatus($user);
         $credit = $status['credits'][$creditType] ?? null;
 
-        if (!$credit) {
+        if (! $credit) {
             return false;
         }
 
@@ -158,36 +196,180 @@ class MembershipAccessService
 
     public function canPublishListing(User $user): array
     {
+        return $this->canCreatePropertyListing($user);
+    }
+
+    public function canCreatePropertyListing(User $user): array
+    {
         $status = $this->userMembershipStatus($user);
 
-        if (!$status['has_active_membership']) {
+        if (! ($status['has_active_membership'] ?? false)) {
             return [
                 'allowed' => false,
-                'message' => 'Active membership is required to publish listing.',
+                'message' => 'Active membership is required to create property listing.',
                 'status' => $status,
             ];
         }
 
-        if ($this->hasCredit($user, MembershipCreditBalance::TYPE_LISTING)) {
+        $limit = $this->featureLimit($user, 'active_property_listings');
+
+        if ($limit === null) {
             return [
                 'allowed' => true,
-                'message' => 'Listing credit available.',
+                'message' => 'Unlimited property listings allowed.',
+                'status' => array_merge($status, [
+                    'usage' => [
+                        'active_property_listings' => [
+                            'used' => $this->activePropertyListingCount($user),
+                            'limit' => null,
+                            'remaining' => null,
+                        ],
+                    ],
+                ]),
+            ];
+        }
+
+        $used = $this->activePropertyListingCount($user);
+
+        if ($used >= $limit) {
+            return [
+                'allowed' => false,
+                'message' => "Your plan allows only {$limit} active property listing(s).",
+                'status' => array_merge($status, [
+                    'usage' => [
+                        'active_property_listings' => [
+                            'used' => $used,
+                            'limit' => $limit,
+                            'remaining' => 0,
+                        ],
+                    ],
+                ]),
+            ];
+        }
+
+        return [
+            'allowed' => true,
+            'message' => 'Property listing creation allowed.',
+            'status' => array_merge($status, [
+                'usage' => [
+                    'active_property_listings' => [
+                        'used' => $used,
+                        'limit' => $limit,
+                        'remaining' => max(0, $limit - $used),
+                    ],
+                ],
+            ]),
+        ];
+    }
+
+    public function assertCanCreatePropertyListing(User $user): void
+    {
+        $result = $this->canCreatePropertyListing($user);
+
+        if (! $result['allowed']) {
+            throw ValidationException::withMessages([
+                'membership' => [$result['message']],
+            ]);
+        }
+    }
+
+    public function canUploadPropertyPhotos(
+        User $user,
+        int $currentPhotoCount,
+        int $newPhotoCount = 1
+    ): array {
+        $status = $this->userMembershipStatus($user);
+
+        if (! ($status['has_active_membership'] ?? false)) {
+            return [
+                'allowed' => false,
+                'message' => 'Active membership is required to upload property photos.',
+                'status' => $status,
+            ];
+        }
+
+        $limit = $this->featureLimit($user, 'property_photos');
+
+        if ($limit === null) {
+            return [
+                'allowed' => true,
+                'message' => 'Unlimited property photos allowed.',
+                'status' => $status,
+            ];
+        }
+
+        if (($currentPhotoCount + $newPhotoCount) > $limit) {
+            return [
+                'allowed' => false,
+                'message' => "Your plan allows maximum {$limit} photos per property.",
                 'status' => $status,
             ];
         }
 
         return [
-            'allowed' => false,
-            'message' => 'Listing credit is not available.',
+            'allowed' => true,
+            'message' => 'Property photo upload allowed.',
             'status' => $status,
         ];
+    }
+
+    public function assertCanUploadPropertyPhotos(
+        User $user,
+        int $currentPhotoCount,
+        int $newPhotoCount = 1
+    ): void {
+        $result = $this->canUploadPropertyPhotos($user, $currentPhotoCount, $newPhotoCount);
+
+        if (! $result['allowed']) {
+            throw ValidationException::withMessages([
+                'photos' => [$result['message']],
+            ]);
+        }
+    }
+
+    public function canUploadPropertyVideo(User $user): array
+    {
+        $status = $this->userMembershipStatus($user);
+
+        if (! ($status['has_active_membership'] ?? false)) {
+            return [
+                'allowed' => false,
+                'message' => 'Active membership is required to upload property video.',
+                'status' => $status,
+            ];
+        }
+
+        if (! $this->hasFeature($user, 'property_videos')) {
+            return [
+                'allowed' => false,
+                'message' => 'Property video upload is not available in your current plan.',
+                'status' => $status,
+            ];
+        }
+
+        return [
+            'allowed' => true,
+            'message' => 'Property video upload allowed.',
+            'status' => $status,
+        ];
+    }
+
+    public function assertCanUploadPropertyVideo(User $user): void
+    {
+        $result = $this->canUploadPropertyVideo($user);
+
+        if (! $result['allowed']) {
+            throw ValidationException::withMessages([
+                'video' => [$result['message']],
+            ]);
+        }
     }
 
     public function canUseFeature(User $user, string $featureSlug): array
     {
         $status = $this->userMembershipStatus($user);
 
-        if (!$status['has_active_membership']) {
+        if (! ($status['has_active_membership'] ?? false)) {
             return [
                 'allowed' => false,
                 'message' => 'Active membership is required.',
@@ -195,7 +377,7 @@ class MembershipAccessService
             ];
         }
 
-        if (!$this->hasFeature($user, $featureSlug)) {
+        if (! $this->hasFeature($user, $featureSlug)) {
             return [
                 'allowed' => false,
                 'message' => 'This feature is not available in your membership plan.',
@@ -214,7 +396,7 @@ class MembershipAccessService
     {
         $status = $this->userMembershipStatus($user);
 
-        if (!$status['has_active_membership']) {
+        if (! ($status['has_active_membership'] ?? false)) {
             return [
                 'allowed' => false,
                 'message' => 'Active membership is required.',
@@ -222,7 +404,7 @@ class MembershipAccessService
             ];
         }
 
-        if (!$this->hasCredit($user, $creditType, $quantity)) {
+        if (! $this->hasCredit($user, $creditType, $quantity)) {
             return [
                 'allowed' => false,
                 'message' => 'Insufficient membership credits.',
@@ -237,6 +419,76 @@ class MembershipAccessService
         ];
     }
 
+    public function canUseFeaturedListing(User $user): array
+    {
+        return $this->canUseCredit(
+            user: $user,
+            creditType: MembershipCreditBalance::TYPE_FEATURED_LISTING,
+            quantity: 1
+        );
+    }
+
+    public function assertCanUseFeaturedListing(User $user): void
+    {
+        $result = $this->canUseFeaturedListing($user);
+
+        if (! $result['allowed']) {
+            throw ValidationException::withMessages([
+                'featured_listing' => ['No featured listing credits available in your current plan.'],
+            ]);
+        }
+    }
+
+    public function canBoostListing(User $user): array
+    {
+        return $this->canUseCredit(
+            user: $user,
+            creditType: MembershipCreditBalance::TYPE_BOOST,
+            quantity: 1
+        );
+    }
+
+    public function assertCanBoostListing(User $user): void
+    {
+        $result = $this->canBoostListing($user);
+
+        if (! $result['allowed']) {
+            throw ValidationException::withMessages([
+                'boost' => ['No listing boost credits available in your current plan.'],
+            ]);
+        }
+    }
+
+    public function frontendAccess(User $user): array
+    {
+        $status = $this->userMembershipStatus($user);
+
+        $activeListingLimit = $this->featureLimit($user, 'active_property_listings');
+        $activeListingUsed = $this->activePropertyListingCount($user);
+
+        return array_merge($status, [
+            'usage' => [
+                'active_property_listings' => [
+                    'used' => $activeListingUsed,
+                    'limit' => $activeListingLimit,
+                    'remaining' => $activeListingLimit === null
+                        ? null
+                        : max(0, $activeListingLimit - $activeListingUsed),
+                ],
+                'featured_listing' => $this->creditBalance($user, MembershipCreditBalance::TYPE_FEATURED_LISTING) ?? $this->emptyCredit(MembershipCreditBalance::TYPE_FEATURED_LISTING),
+                'boost' => $this->creditBalance($user, MembershipCreditBalance::TYPE_BOOST) ?? $this->emptyCredit(MembershipCreditBalance::TYPE_BOOST),
+                'lead_view' => $this->creditBalance($user, MembershipCreditBalance::TYPE_LEAD_VIEW) ?? $this->emptyCredit(MembershipCreditBalance::TYPE_LEAD_VIEW),
+            ],
+
+            'permissions' => [
+                'can_create_property_listing' => $this->canCreatePropertyListing($user)['allowed'],
+                'can_upload_property_video' => $this->canUploadPropertyVideo($user)['allowed'],
+                'can_use_featured_listing' => $this->canUseFeaturedListing($user)['allowed'],
+                'can_boost_listing' => $this->canBoostListing($user)['allowed'],
+            ],
+        ]);
+    }
+
     public function forgetUserCache(User|int $user): void
     {
         $userId = $user instanceof User ? (int) $user->id : (int) $user;
@@ -248,7 +500,7 @@ class MembershipAccessService
 
     public function forgetRolePlansCache(Role|int|null $role): void
     {
-        if (!$role) {
+        if (! $role) {
             Cache::store('redis')->forget('membership:plans:eligible:no-role');
             return;
         }
@@ -342,7 +594,7 @@ class MembershipAccessService
         foreach ($membership->plan?->planFeatures ?? [] as $planFeature) {
             $feature = $planFeature->feature;
 
-            if (!$feature || !$feature->status) {
+            if (! $feature || ! $feature->status) {
                 continue;
             }
 
@@ -365,7 +617,7 @@ class MembershipAccessService
         $credits = [];
 
         foreach ($membership->creditBalances ?? [] as $balance) {
-            if (!$balance->status) {
+            if (! $balance->status) {
                 continue;
             }
 
@@ -387,19 +639,56 @@ class MembershipAccessService
         return $credits;
     }
 
+    private function emptyCredit(string $creditType): array
+    {
+        return [
+            'id' => null,
+            'credit_type' => $creditType,
+            'is_unlimited' => false,
+            'total_credits' => 0,
+            'used_credits' => 0,
+            'remaining_credits' => 0,
+            'expires_at' => null,
+        ];
+    }
+
+    private function activePropertyListingCount(User $user): int
+    {
+        if (! Schema::hasTable('dynamic_posts')) {
+            return 0;
+        }
+
+        $query = DB::table('dynamic_posts')
+            ->where('user_id', $user->id);
+
+        if (Schema::hasColumn('dynamic_posts', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'status')) {
+            $query->whereIn('status', ['active', 'published', '1', 1]);
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'post_type')) {
+            $query->where('post_type', 'property-listing');
+        }
+
+        return (int) $query->count();
+    }
+
     private function resolveUserRole(User $user): ?Role
     {
         if ($user->relationLoaded('role') && $user->role instanceof Role) {
             return $user->role;
         }
 
-        if (!Schema::hasTable('roles')) {
+        if (! Schema::hasTable('roles')) {
             return null;
         }
 
         $roleId = $user->role_id ?? null;
 
-        if (!$roleId || !is_numeric($roleId)) {
+        if (! $roleId || ! is_numeric($roleId)) {
             return null;
         }
 
@@ -408,7 +697,7 @@ class MembershipAccessService
 
     private function roleName(?Role $role): ?string
     {
-        if (!$role) {
+        if (! $role) {
             return null;
         }
 
@@ -421,9 +710,15 @@ class MembershipAccessService
         return null;
     }
 
-    private function castFeatureValue(string $featureType, string $value): mixed
+    private function castFeatureValue(string $featureType, mixed $value): mixed
     {
-        if ($value === 'unlimited') {
+        if ($value === null) {
+            return null;
+        }
+
+        $normalized = strtolower(trim((string) $value));
+
+        if (in_array($normalized, ['unlimited', '∞'], true)) {
             return 'unlimited';
         }
 

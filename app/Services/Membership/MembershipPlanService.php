@@ -6,7 +6,6 @@ use App\Models\Membership\MembershipAuditLog;
 use App\Models\Membership\MembershipCategory;
 use App\Models\Membership\MembershipFeature;
 use App\Models\Membership\MembershipPlan;
-use App\Models\Membership\MembershipPlanFeature;
 use App\Models\Membership\MembershipPlanRoleRule;
 use App\Models\Role;
 use App\Models\User;
@@ -35,13 +34,14 @@ class MembershipPlanService
         return Cache::store('redis')->remember(
             'membership:plans:active',
             self::CACHE_TTL_SECONDS,
-            fn() => MembershipPlan::query()
+            fn () => MembershipPlan::query()
                 ->select([
                     'id',
                     'category_id',
                     'name',
                     'slug',
                     'short_description',
+                    'description',
                     'currency',
                     'price',
                     'sale_price',
@@ -83,7 +83,7 @@ class MembershipPlanService
             'roleRules.role',
         ]);
 
-        if ($user && !$this->isPlanAllowedForUser($plan, $user)) {
+        if ($user && ! $this->isPlanAllowedForUser($plan, $user)) {
             throw ValidationException::withMessages([
                 'plan_id' => ['This membership plan is not available for your role.'],
             ]);
@@ -103,6 +103,7 @@ class MembershipPlanService
                 'name',
                 'slug',
                 'short_description',
+                'description',
                 'currency',
                 'price',
                 'sale_price',
@@ -133,13 +134,14 @@ class MembershipPlanService
             ->when(isset($filters['is_popular']), function ($query) use ($filters) {
                 $query->where('is_popular', filter_var($filters['is_popular'], FILTER_VALIDATE_BOOLEAN));
             })
-            ->when(!empty($filters['search']), function ($query) use ($filters) {
+            ->when(! empty($filters['search']), function ($query) use ($filters) {
                 $search = trim((string) $filters['search']);
 
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
                         ->orWhere('slug', 'like', "%{$search}%")
-                        ->orWhere('short_description', 'like', "%{$search}%");
+                        ->orWhere('short_description', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%");
                 });
             })
             ->ordered()
@@ -149,10 +151,12 @@ class MembershipPlanService
     public function createPlan(array $data, ?User $admin = null): MembershipPlan
     {
         return DB::transaction(function () use ($data, $admin) {
-            $category = MembershipCategory::query()->findOrFail((int) $data['category_id']);
+            $categoryId = $data['category_id'] ?? $data['membership_category_id'] ?? null;
+
+            $category = MembershipCategory::query()->findOrFail((int) $categoryId);
 
             $slug = $this->prepareSlug(
-                value: $data['slug'] ?? $data['name'],
+                value: (string) ($data['slug'] ?? $data['name']),
                 modelClass: MembershipPlan::class
             );
 
@@ -162,43 +166,45 @@ class MembershipPlanService
                 'slug' => $slug,
                 'short_description' => $data['short_description'] ?? null,
                 'description' => $data['description'] ?? null,
-                'currency' => $data['currency'] ?? 'INR',
+                'currency' => strtoupper((string) ($data['currency'] ?? 'INR')),
                 'price' => $this->money($data['price'] ?? 0),
                 'sale_price' => array_key_exists('sale_price', $data) && $data['sale_price'] !== null
                     ? $this->money($data['sale_price'])
                     : null,
-                'duration' => (int) ($data['duration'] ?? 1),
-                'duration_type' => $data['duration_type'] ?? MembershipPlan::DURATION_MONTHS,
+                'duration' => (int) ($data['duration'] ?? $data['duration_days'] ?? 1),
+                'duration_type' => $data['duration_type'] ?? $this->defaultDurationType(),
                 'trial_days' => (int) ($data['trial_days'] ?? 0),
-                'is_popular' => (bool) ($data['is_popular'] ?? false),
+                'is_popular' => (bool) ($data['is_popular'] ?? $data['is_featured'] ?? false),
                 'status' => (bool) ($data['status'] ?? true),
                 'sort_order' => (int) ($data['sort_order'] ?? 0),
                 'metadata' => $data['metadata'] ?? [],
             ]);
 
-            if (!empty($data['features'])) {
+            if (! empty($data['features'])) {
                 $this->syncFeatures($plan, $data['features'], $admin, false);
             }
 
-            if (!empty($data['role_ids'])) {
+            if (! empty($data['role_ids'])) {
                 $this->syncRoleRules($plan, $data['role_ids'], $admin, false);
             }
 
-            $this->audit(
-                action: 'plan_created',
-                auditable: $plan,
-                performedBy: $admin,
-                oldValues: null,
-                newValues: $plan->fresh()->toArray()
-            );
-
-            $this->clearPlanCaches($plan);
-
-            return $plan->fresh([
+            $freshPlan = $plan->fresh([
                 'category',
                 'planFeatures.feature',
                 'roleRules.role',
             ]);
+
+            $this->audit(
+                action: 'plan_created',
+                auditable: $freshPlan,
+                performedBy: $admin,
+                oldValues: null,
+                newValues: $freshPlan->toArray()
+            );
+
+            $this->clearPlanCaches($freshPlan);
+
+            return $freshPlan;
         });
     }
 
@@ -207,31 +213,39 @@ class MembershipPlanService
         return DB::transaction(function () use ($plan, $data, $admin) {
             $oldValues = $plan->loadMissing(['planFeatures', 'roleRules'])->toArray();
 
-            if (isset($data['category_id'])) {
-                MembershipCategory::query()->findOrFail((int) $data['category_id']);
+            $categoryId = $data['category_id'] ?? $data['membership_category_id'] ?? null;
+
+            if ($categoryId !== null) {
+                MembershipCategory::query()->findOrFail((int) $categoryId);
+                $data['category_id'] = (int) $categoryId;
             }
 
             $payload = [];
 
-            foreach (
-                [
-                    'category_id',
-                    'name',
-                    'short_description',
-                    'description',
-                    'currency',
-                    'duration_type',
-                    'metadata',
-                ] as $field
-            ) {
+            foreach ([
+                'category_id',
+                'name',
+                'short_description',
+                'description',
+                'duration_type',
+                'metadata',
+            ] as $field) {
                 if (array_key_exists($field, $data)) {
                     $payload[$field] = $data[$field];
                 }
             }
 
-            if (array_key_exists('slug', $data)) {
+            if (array_key_exists('currency', $data)) {
+                $payload['currency'] = strtoupper((string) $data['currency']);
+            }
+
+            if (
+                array_key_exists('slug', $data)
+                && $data['slug'] !== null
+                && trim((string) $data['slug']) !== ''
+            ) {
                 $payload['slug'] = $this->prepareSlug(
-                    value: $data['slug'],
+                    value: (string) $data['slug'],
                     modelClass: MembershipPlan::class,
                     ignoreId: (int) $plan->id
                 );
@@ -245,19 +259,27 @@ class MembershipPlanService
                 }
             }
 
+            if (array_key_exists('duration_days', $data) && ! array_key_exists('duration', $data)) {
+                $data['duration'] = $data['duration_days'];
+            }
+
             foreach (['duration', 'trial_days', 'sort_order'] as $intField) {
                 if (array_key_exists($intField, $data)) {
                     $payload[$intField] = (int) $data[$intField];
                 }
             }
 
-            foreach (['is_popular', 'status'] as $boolField) {
+            foreach (['is_popular', 'is_featured', 'status'] as $boolField) {
                 if (array_key_exists($boolField, $data)) {
-                    $payload[$boolField] = (bool) $data[$boolField];
+                    if ($boolField === 'is_featured') {
+                        $payload['is_popular'] = (bool) $data[$boolField];
+                    } else {
+                        $payload[$boolField] = (bool) $data[$boolField];
+                    }
                 }
             }
 
-            if (!empty($payload)) {
+            if (! empty($payload)) {
                 $plan->update($payload);
             }
 
@@ -473,10 +495,6 @@ class MembershipPlanService
             $payload['updated_at'] = now();
         }
 
-        if (Schema::hasColumn($table, 'created_at')) {
-            $payload['created_at'] = now();
-        }
-
         DB::table($table)->updateOrInsert(
             [
                 'plan_id' => $planId,
@@ -496,17 +514,17 @@ class MembershipPlanService
             $oldValues = $plan->roleRules()->with('role')->get()->toArray();
 
             $roleIds = collect($roleIds)
-                ->map(fn($roleId) => (int) $roleId)
-                ->filter(fn($roleId) => $roleId > 0)
+                ->map(fn ($roleId) => (int) $roleId)
+                ->filter(fn ($roleId) => $roleId > 0)
                 ->unique()
                 ->values()
                 ->all();
 
-            if (!empty($roleIds)) {
+            if (! empty($roleIds)) {
                 $validRoleIds = Role::query()
                     ->whereIn('id', $roleIds)
                     ->pluck('id')
-                    ->map(fn($id) => (int) $id)
+                    ->map(fn ($id) => (int) $id)
                     ->values()
                     ->all();
 
@@ -552,7 +570,7 @@ class MembershipPlanService
 
     public function isPlanAllowedForUser(MembershipPlan $plan, User $user): bool
     {
-        if (!$plan->status) {
+        if (! $plan->status) {
             return false;
         }
 
@@ -562,7 +580,7 @@ class MembershipPlanService
 
         $roleId = $this->resolveUserRoleId($user);
 
-        if (!$roleId) {
+        if (! $roleId) {
             return false;
         }
 
@@ -595,7 +613,7 @@ class MembershipPlanService
     {
         $slug = Str::slug($value);
 
-        if (!$slug) {
+        if (! $slug) {
             throw ValidationException::withMessages([
                 'slug' => ['Invalid slug value.'],
             ]);
@@ -621,13 +639,20 @@ class MembershipPlanService
         return round((float) $value, 2);
     }
 
+    private function defaultDurationType(): string
+    {
+        return defined(MembershipPlan::class . '::DURATION_MONTHS')
+            ? MembershipPlan::DURATION_MONTHS
+            : 'months';
+    }
+
     private function resolveUserRoleId(User $user): ?int
     {
-        if (!Schema::hasTable('roles')) {
+        if (! Schema::hasTable('roles')) {
             return null;
         }
 
-        if (!$user->role_id || !is_numeric($user->role_id)) {
+        if (! $user->role_id || ! is_numeric($user->role_id)) {
             return null;
         }
 
@@ -641,7 +666,7 @@ class MembershipPlanService
         ?array $oldValues,
         ?array $newValues
     ): void {
-        if (!Schema::hasTable('membership_audit_logs')) {
+        if (! Schema::hasTable('membership_audit_logs')) {
             return;
         }
 

@@ -7,13 +7,13 @@ use App\Models\Membership\MembershipCreditBalance;
 use App\Models\Membership\MembershipCreditTransaction;
 use App\Models\Membership\MembershipOrder;
 use App\Models\Membership\MembershipPlan;
-use App\Models\Membership\MembershipPlanFeature;
 use App\Models\Membership\UserMembership;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class MembershipActivationService
@@ -27,6 +27,7 @@ class MembershipActivationService
         $order = MembershipOrder::query()
             ->with([
                 'user',
+                'plan.category',
                 'plan.planFeatures.feature',
                 'membership',
             ])
@@ -40,7 +41,11 @@ class MembershipActivationService
 
         if ($order->membership) {
             return $order->membership->loadMissing([
+                'user:id,first_name,last_name,email,phone,role_id',
+                'creator:id,first_name,last_name,email,phone,role_id',
                 'plan.category',
+                'plan.planFeatures.feature',
+                'order',
                 'creditBalances',
             ]);
         }
@@ -49,6 +54,7 @@ class MembershipActivationService
             $order = MembershipOrder::query()
                 ->with([
                     'user',
+                    'plan.category',
                     'plan.planFeatures.feature',
                     'membership',
                 ])
@@ -58,7 +64,11 @@ class MembershipActivationService
 
             if ($order->membership) {
                 return $order->membership->loadMissing([
+                    'user:id,first_name,last_name,email,phone,role_id',
+                    'creator:id,first_name,last_name,email,phone,role_id',
                     'plan.category',
+                    'plan.planFeatures.feature',
+                    'order',
                     'creditBalances',
                 ]);
             }
@@ -66,7 +76,7 @@ class MembershipActivationService
             $user = $order->user;
             $plan = $order->plan;
 
-            if (!$user || !$plan) {
+            if (! $user || ! $plan) {
                 throw ValidationException::withMessages([
                     'order_id' => ['Order user or plan is missing.'],
                 ]);
@@ -115,10 +125,12 @@ class MembershipActivationService
             $this->dispatchInvoiceJobIfExists($order);
 
             return $membership->fresh([
+                'user:id,first_name,last_name,email,phone,role_id',
+                'creator:id,first_name,last_name,email,phone,role_id',
                 'plan.category',
                 'plan.planFeatures.feature',
-                'creditBalances',
                 'order',
+                'creditBalances',
             ]);
         });
     }
@@ -130,28 +142,87 @@ class MembershipActivationService
         array $options = []
     ): UserMembership {
         return DB::transaction(function () use ($user, $plan, $admin, $options) {
-            $plan->loadMissing(['planFeatures.feature']);
+            $plan->loadMissing(['category', 'planFeatures.feature']);
 
-            if (!$plan->status) {
+            if (! $plan->status) {
                 throw ValidationException::withMessages([
                     'plan_id' => ['Inactive plan cannot be activated.'],
                 ]);
             }
 
-            $this->expireExistingActiveMemberships($user);
-
-            $startDate = isset($options['start_date'])
-                ? Carbon::parse($options['start_date'])
+            $startDate = ! empty($options['start_date'])
+                ? Carbon::parse($options['start_date'])->startOfDay()
                 : now();
 
-            $expiryDate = isset($options['expiry_date'])
-                ? Carbon::parse($options['expiry_date'])
+            $expiryDate = ! empty($options['expiry_date'])
+                ? Carbon::parse($options['expiry_date'])->endOfDay()
                 : $this->calculateExpiryDate($plan, $startDate);
+
+            if ($expiryDate->lessThanOrEqualTo($startDate)) {
+                throw ValidationException::withMessages([
+                    'expiry_date' => ['Expiry date must be greater than start date.'],
+                ]);
+            }
+
+            $this->expireExistingActiveMemberships($user);
+
+            $subtotal = round((float) $plan->payableAmount(), 2);
+            $gstPercentage = 18.00;
+            $gstAmount = round(($subtotal * $gstPercentage) / 100, 2);
+            $totalAmount = round($subtotal + $gstAmount, 2);
+
+            $order = MembershipOrder::query()->create([
+                'user_id' => $user->id,
+                'plan_id' => $plan->id,
+                'coupon_id' => null,
+                'order_number' => $this->generateManualOrderNumber(),
+
+                'gateway_name' => 'manual',
+                'razorpay_order_id' => null,
+
+                'currency' => $plan->currency ?: 'INR',
+                'subtotal' => $subtotal,
+                'discount_amount' => 0,
+                'taxable_amount' => $subtotal,
+                'gst_percentage' => $gstPercentage,
+                'gst_amount' => $gstAmount,
+                'total_amount' => $totalAmount,
+
+                'payment_status' => MembershipOrder::PAYMENT_PAID,
+                'order_status' => MembershipOrder::STATUS_COMPLETED,
+                'payment_method' => 'manual',
+
+                'expires_at' => null,
+                'paid_at' => now(),
+                'cancelled_at' => null,
+
+                'created_by' => $admin?->id,
+                'notes' => $options['reason'] ?? $options['notes'] ?? 'Manual membership activation by admin.',
+                'metadata' => [
+                    'source' => 'manual',
+                    'manual_activation' => true,
+                    'activated_by_admin' => $admin?->id,
+                    'reason' => $options['reason'] ?? null,
+                    'notes' => $options['notes'] ?? null,
+                    'plan_snapshot' => [
+                        'id' => (int) $plan->id,
+                        'category_id' => (int) $plan->category_id,
+                        'name' => $plan->name,
+                        'slug' => $plan->slug,
+                        'currency' => $plan->currency,
+                        'price' => (float) $plan->price,
+                        'sale_price' => $plan->sale_price !== null ? (float) $plan->sale_price : null,
+                        'payable_amount' => $plan->payableAmount(),
+                        'duration' => (int) $plan->duration,
+                        'duration_type' => $plan->duration_type,
+                    ],
+                ],
+            ]);
 
             $membership = UserMembership::query()->create([
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
-                'order_id' => null,
+                'order_id' => $order->id,
                 'parent_membership_id' => null,
                 'start_date' => $startDate,
                 'expiry_date' => $expiryDate,
@@ -164,7 +235,10 @@ class MembershipActivationService
                 'created_by' => $admin?->id,
                 'metadata' => [
                     'manual_reason' => $options['reason'] ?? null,
+                    'manual_notes' => $options['notes'] ?? null,
                     'activated_by_admin' => $admin?->id,
+                    'manual_order_id' => $order->id,
+                    'manual_order_number' => $order->order_number,
                 ],
             ]);
 
@@ -176,14 +250,17 @@ class MembershipActivationService
                 auditable: $membership,
                 performedBy: $admin,
                 oldValues: null,
-                newValues: $membership->fresh(['plan', 'creditBalances'])->toArray()
+                newValues: $membership->fresh(['plan', 'order', 'creditBalances'])->toArray()
             );
 
             $this->clearCaches($user);
 
             return $membership->fresh([
+                'user:id,first_name,last_name,email,phone,role_id',
+                'creator:id,first_name,last_name,email,phone,role_id',
                 'plan.category',
                 'plan.planFeatures.feature',
+                'order',
                 'creditBalances',
             ]);
         });
@@ -198,7 +275,13 @@ class MembershipActivationService
                 ->firstOrFail();
 
             if ($membership->status === UserMembership::STATUS_EXPIRED) {
-                return $membership;
+                return $membership->fresh([
+                    'user:id,first_name,last_name,email,phone,role_id',
+                    'creator:id,first_name,last_name,email,phone,role_id',
+                    'plan.category',
+                    'order',
+                    'creditBalances',
+                ]);
             }
 
             $oldValues = $membership->toArray();
@@ -226,7 +309,13 @@ class MembershipActivationService
 
             $this->clearCaches($membership->user);
 
-            return $membership->fresh(['plan', 'creditBalances']);
+            return $membership->fresh([
+                'user:id,first_name,last_name,email,phone,role_id',
+                'creator:id,first_name,last_name,email,phone,role_id',
+                'plan.category',
+                'order',
+                'creditBalances',
+            ]);
         });
     }
 
@@ -242,7 +331,13 @@ class MembershipActivationService
                 ->firstOrFail();
 
             if ($membership->status === UserMembership::STATUS_CANCELLED) {
-                return $membership;
+                return $membership->fresh([
+                    'user:id,first_name,last_name,email,phone,role_id',
+                    'creator:id,first_name,last_name,email,phone,role_id',
+                    'plan.category',
+                    'order',
+                    'creditBalances',
+                ]);
             }
 
             $oldValues = $membership->toArray();
@@ -274,7 +369,13 @@ class MembershipActivationService
 
             $this->clearCaches($membership->user);
 
-            return $membership->fresh(['plan', 'creditBalances']);
+            return $membership->fresh([
+                'user:id,first_name,last_name,email,phone,role_id',
+                'creator:id,first_name,last_name,email,phone,role_id',
+                'plan.category',
+                'order',
+                'creditBalances',
+            ]);
         });
     }
 
@@ -303,10 +404,14 @@ class MembershipActivationService
 
     private function calculateExpiryDate(MembershipPlan $plan, Carbon $startDate): Carbon
     {
-        return match ($plan->duration_type) {
-            MembershipPlan::DURATION_DAYS => $startDate->copy()->addDays((int) $plan->duration),
-            MembershipPlan::DURATION_YEARS => $startDate->copy()->addYears((int) $plan->duration),
-            default => $startDate->copy()->addMonths((int) $plan->duration),
+        $duration = max((int) $plan->duration, 1);
+        $durationType = strtolower((string) $plan->duration_type);
+
+        return match ($durationType) {
+            'day', 'days' => $startDate->copy()->addDays($duration),
+            'month', 'months' => $startDate->copy()->addMonths($duration),
+            'year', 'years' => $startDate->copy()->addYears($duration),
+            default => $startDate->copy()->addDays($duration),
         };
     }
 
@@ -320,13 +425,13 @@ class MembershipActivationService
         foreach ($plan->planFeatures as $planFeature) {
             $feature = $planFeature->feature;
 
-            if (!$feature || !$feature->status) {
+            if (! $feature || ! $feature->status) {
                 continue;
             }
 
             $creditType = $this->creditTypeFromFeatureSlug($feature->slug);
 
-            if (!$creditType) {
+            if (! $creditType) {
                 continue;
             }
 
@@ -379,21 +484,50 @@ class MembershipActivationService
     private function creditTypeFromFeatureSlug(string $featureSlug): ?string
     {
         return match ($featureSlug) {
-            'listing_limit' => MembershipCreditBalance::TYPE_LISTING,
-            'featured_listing_limit' => MembershipCreditBalance::TYPE_FEATURED_LISTING,
-            'boost_limit' => MembershipCreditBalance::TYPE_BOOST,
-            'lead_view_limit' => MembershipCreditBalance::TYPE_LEAD_VIEW,
-            'video_upload_limit' => MembershipCreditBalance::TYPE_VIDEO_UPLOAD,
-            'virtual_tour_limit' => MembershipCreditBalance::TYPE_VIRTUAL_TOUR,
+            'listing_limit',
+            'active_property_listings' => MembershipCreditBalance::TYPE_LISTING,
+
+            'featured_listing_limit',
+            'featured_listing_credits' => MembershipCreditBalance::TYPE_FEATURED_LISTING,
+
+            'boost_limit',
+            'listing_boost_credits',
+            'project_boost_credits' => MembershipCreditBalance::TYPE_BOOST,
+
+            'lead_view_limit',
+            'buyer_contact_credits' => MembershipCreditBalance::TYPE_LEAD_VIEW,
+
+            'video_upload_limit',
+            'property_videos',
+            'project_videos',
+            'project_walkthrough_videos' => MembershipCreditBalance::TYPE_VIDEO_UPLOAD,
+
+            'virtual_tour_limit',
+            'virtual_tour_credits' => MembershipCreditBalance::TYPE_VIRTUAL_TOUR,
+
+            'ai_description_limit',
+            'ai_description_credits' => MembershipCreditBalance::TYPE_AI_DESCRIPTION,
+
             default => null,
         };
+    }
+
+    private function generateManualOrderNumber(): string
+    {
+        do {
+            $number = 'HPMMAN'
+                . now()->format('YmdHis')
+                . strtoupper(Str::random(6));
+        } while (MembershipOrder::query()->where('order_number', $number)->exists());
+
+        return $number;
     }
 
     private function dispatchInvoiceJobIfExists(MembershipOrder $order): void
     {
         $jobClass = \App\Jobs\Membership\GenerateMembershipInvoiceJob::class;
 
-        if (!class_exists($jobClass)) {
+        if (! class_exists($jobClass)) {
             return;
         }
 
@@ -417,7 +551,7 @@ class MembershipActivationService
         ?array $oldValues,
         ?array $newValues
     ): void {
-        if (!Schema::hasTable('membership_audit_logs')) {
+        if (! Schema::hasTable('membership_audit_logs')) {
             return;
         }
 
