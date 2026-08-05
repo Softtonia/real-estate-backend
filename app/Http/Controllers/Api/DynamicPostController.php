@@ -357,165 +357,6 @@ class DynamicPostController extends Controller
         }
     }
 
-    // public function storeFrontendListing(Request $request): JsonResponse
-    // {
-    //     try {
-    //         $validated = $this->validatePost($request);
-    //         $postType = PostType::with('taxonomies')->find($validated['post_type_id']);
-
-    //         if (!$postType) {
-    //             return $this->errorResponse('Post type not found.', 404);
-    //         }
-
-    //         $hasLocationPayload = $this->hasLocationPayload($validated);
-
-    //         if ($hasLocationPayload) {
-    //             $this->validatePostTypeLocationSupport($postType);
-    //             $validated = $this->prepareLocationForSave($validated);
-    //         }
-
-    //         if (!$postType) {
-    //             return $this->errorResponse('Post type not found.', 404);
-    //         }
-
-    //         $frontendUserResult = $this->resolveOrCreateFrontendUser($request);
-
-    //         $frontendUser = $frontendUserResult['user'];
-    //         $newToken = $frontendUserResult['token'];
-    //         $isNewUser = $frontendUserResult['is_new_user'];
-
-    //         $this->assertAssignableUser((int) $frontendUser->id, $postType);
-
-    //         // Important: frontend cannot decide user_id manually.
-    //         // Server will always assign logged-in or newly registered user.
-    //         $validated['user_id'] = (int) $frontendUser->id;
-    //         $validated['author_id'] = (int) $frontendUser->id;
-
-    //         // User submitted listing should go for review by default
-    //         $validated['live_status'] = $validated['live_status'] ?? 'submit';
-    //         $validated['status'] = $validated['status'] ?? 'draft';
-
-    //         $validated = $this->prepareBaseMediaForSave($request, $validated, $postType);
-
-    //         $submittedTaxonomies = $validated['taxonomies'] ?? [];
-    //         $taxonomyTermIds = $this->normalizeSubmittedTaxonomyTermIds($validated);
-    //         $customFields = $this->prepareCustomFieldsForSave($request, $validated, $postType);
-
-    //         $relationshipPayloadPresent = $this->hasRelationshipPayload($request->all());
-
-    //         $relationshipPostTypes = $relationshipPayloadPresent
-    //             ? $this->normalizeRelationshipPostTypeInputs($request->all())
-    //             : [];
-
-    //         $hasKeywordPayload = $this->hasKeywordPayload($validated);
-
-    //         $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
-    //         $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
-    //         $this->validateDependentTaxonomySelections($taxonomyTermIds);
-    //         $this->validateSubmittedCustomFieldsForPostType($postType, $taxonomyTermIds, $customFields);
-
-    //         if ($hasKeywordPayload) {
-    //             $this->validatePostTypeKeywordSupport($postType);
-    //         }
-
-    //         if ($relationshipPayloadPresent && empty($relationshipPostTypes)) {
-    //             throw ValidationException::withMessages([
-    //                 'relationship_post_types' => [
-    //                     'Relationship payload was received but no valid dynamic post IDs were found.',
-    //                 ],
-    //             ]);
-    //         }
-
-    //         $this->validateSubmittedRelationshipPostTypes($postType, $relationshipPostTypes);
-
-    //         $slug = !empty($validated['slug'])
-    //             ? Str::slug($validated['slug'])
-    //             : Str::slug($validated['title']);
-
-    //         $slugExists = DynamicPost::where('post_type_id', $validated['post_type_id'])
-    //             ->where('slug', $slug)
-    //             ->exists();
-
-    //         if ($slugExists) {
-    //             $slug = $slug . '-' . time();
-    //         }
-
-    //         $post = DB::transaction(function () use (
-    //             $request,
-    //             $validated,
-    //             $slug,
-    //             $taxonomyTermIds,
-    //             $customFields,
-    //             $postType,
-    //             $relationshipPostTypes,
-    //             $hasKeywordPayload,
-    //             $hasAssignedUserPayload
-    //         ) {
-    //             $postData = $this->dynamicPostPayloadForDatabase($validated);
-
-    //             $postData['slug'] = $slug;
-    //             $postData['listing_code'] = $this->generateDynamicPostListingCode($postType);
-    //             $postData['status'] = $postData['status'] ?? 'draft';
-    //             $postData['live_status'] = $postData['live_status'] ?? 'submit';
-
-    //             if ($postData['status'] === 'published' && empty($postData['published_at'])) {
-    //                 $postData['published_at'] = now();
-    //             }
-
-    //             $post = DynamicPost::create($postData);
-
-    //             $this->syncTaxonomyTerms($post, $taxonomyTermIds);
-
-    //             $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
-
-    //             if (!empty($customFields)) {
-    //                 $this->saveCustomFieldValues($post->id, 'post', $customFields);
-    //             }
-
-    //             if ($hasAssignedUserPayload) {
-    //                 $this->syncDynamicPostAssignedUser($post, $validated);
-    //             }
-
-    //             if ($hasKeywordPayload) {
-    //                 $this->syncKeywordsForDynamicPost(
-    //                     post: $post,
-    //                     postType: $postType,
-    //                     input: $this->getKeywordPayload($validated)
-    //                 );
-    //             }
-
-    //             $this->consumeMembershipListingCredit($request, $post, 'dynamic_post');
-
-    //             return $post;
-    //         });
-
-    //         return $this->successResponse(
-    //             $isNewUser
-    //                 ? 'User registered and listing created successfully.'
-    //                 : 'Listing created successfully.',
-    //             [
-    //                 'user' => [
-    //                     'id' => (int) $frontendUser->id,
-    //                     'first_name' => $frontendUser->first_name ?? null,
-    //                     'last_name' => $frontendUser->last_name ?? null,
-    //                     'email' => $frontendUser->email ?? null,
-    //                     'phone' => $frontendUser->phone ?? null,
-    //                     'role_id' => $frontendUser->role_id ?? null,
-    //                 ],
-    //                 'token' => $newToken,
-    //                 'is_new_user' => $isNewUser,
-    //                 'listing' => $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations)),
-    //             ],
-    //             201
-    //         );
-    //     } catch (ValidationException $e) {
-    //         return $this->validationErrorResponse($e);
-    //     } catch (QueryException $e) {
-    //         return $this->databaseErrorResponse($e, 'Database error while creating frontend listing.');
-    //     } catch (Throwable $e) {
-    //         return $this->errorResponse('Unable to create frontend listing.', 500, $e->getMessage());
-    //     }
-    // }
 
     public function keywordSuggestions(Request $request): JsonResponse
     {
@@ -4029,13 +3870,17 @@ class DynamicPostController extends Controller
                         input: $this->getKeywordPayload($validated)
                     );
                 }
-                $this->consumeMembershipListingCredit($request, $post, 'dynamic_post');
+
                 return $post;
             });
 
+            $freshPost = $post->fresh()->load($this->postRelations);
+
+            $this->clearDynamicPostCaches($freshPost);
+
             return $this->successResponse(
                 'Dynamic post created successfully.',
-                $this->formatDynamicPostResponse($post->fresh()->load($this->postRelations)),
+                $this->formatDynamicPostResponse($freshPost),
                 201
             );
         } catch (ValidationException $e) {
