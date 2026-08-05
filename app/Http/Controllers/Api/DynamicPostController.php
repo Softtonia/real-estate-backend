@@ -441,13 +441,15 @@ class DynamicPostController extends Controller
             }
 
             $post = DB::transaction(function () use (
+                $request,
                 $validated,
                 $slug,
                 $taxonomyTermIds,
                 $customFields,
                 $postType,
                 $relationshipPostTypes,
-                $hasKeywordPayload
+                $hasKeywordPayload,
+                $hasAssignedUserPayload
             ) {
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
@@ -470,8 +472,9 @@ class DynamicPostController extends Controller
                     $this->saveCustomFieldValues($post->id, 'post', $customFields);
                 }
 
-                // Assign listing to logged-in/new registered user
-                $this->syncDynamicPostAssignedUser($post, $validated);
+                if ($hasAssignedUserPayload) {
+                    $this->syncDynamicPostAssignedUser($post, $validated);
+                }
 
                 if ($hasKeywordPayload) {
                     $this->syncKeywordsForDynamicPost(
@@ -480,6 +483,8 @@ class DynamicPostController extends Controller
                         input: $this->getKeywordPayload($validated)
                     );
                 }
+
+                $this->consumeMembershipListingCredit($request, $post, 'dynamic_post');
 
                 return $post;
             });
@@ -5643,21 +5648,39 @@ class DynamicPostController extends Controller
             ? $post->postType
             : PostType::find($post->post_type_id);
 
+        /*
+     * Important:
+     * No KYC check here.
+     * Admin route can assign/create without selected user's KYC.
+     * Frontend/mobile KYC is handled by kyc.publish middleware.
+     */
         $this->assertAssignableUser($userId, $postType, $allowAnonymousUser);
 
         $now = now();
 
-        DB::table('dynamic_post_user')->updateOrInsert(
-            [
-                'dynamic_post_id' => (int) $post->id,
-            ],
-            [
-                'user_id' => $userId,
-                'assigned_by' => Auth::id(),
-                'updated_at' => $now,
-                'created_at' => $now,
-            ]
-        );
+        $existing = DB::table('dynamic_post_user')
+            ->where('dynamic_post_id', (int) $post->id)
+            ->first();
+
+        if ($existing) {
+            DB::table('dynamic_post_user')
+                ->where('dynamic_post_id', (int) $post->id)
+                ->update([
+                    'user_id' => (int) $userId,
+                    'assigned_by' => Auth::id(),
+                    'updated_at' => $now,
+                ]);
+
+            return;
+        }
+
+        DB::table('dynamic_post_user')->insert([
+            'dynamic_post_id' => (int) $post->id,
+            'user_id' => (int) $userId,
+            'assigned_by' => Auth::id(),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
     private function getAnonymousUser(): ?User
     {
@@ -5703,11 +5726,6 @@ class DynamicPostController extends Controller
             return;
         }
 
-        /*
-    |--------------------------------------------------------------------------
-    | If post type is not provided, only block admin/super admin.
-    |--------------------------------------------------------------------------
-    */
         if (!$postType) {
             return;
         }
