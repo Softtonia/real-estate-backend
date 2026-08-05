@@ -16,35 +16,38 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MembershipCatalogImportExportService
 {
+    private const EXCLUDED_CSV_COLUMNS = [
+        'id',
+        'slug',
+        'sort_order',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ];
+
     public function export(string $type, array $filters = []): StreamedResponse
     {
         $config = $this->config($type);
-        $columns = $this->availableColumns($config['table'], $config['export_columns']);
-        $model = $config['model'];
+        $columns = $config['export_columns'];
 
         $filename = 'membership-' . $type . '-' . now()->format('Y-m-d-His') . '.csv';
 
-        return response()->streamDownload(function () use ($model, $type, $filters, $columns) {
+        return response()->streamDownload(function () use ($type, $filters, $columns) {
             $handle = fopen('php://output', 'w');
 
             fputcsv($handle, $columns);
 
-            /** @var Builder $query */
-            $query = $model::query()->select($columns);
+            if ($type === 'categories') {
+                $this->exportCategories($handle, $filters, $columns);
+            }
 
-            $this->applyExportFilters($query, $type, $filters);
+            if ($type === 'features') {
+                $this->exportFeatures($handle, $filters, $columns);
+            }
 
-            $query->orderBy('id')
-                ->cursor()
-                ->each(function ($record) use ($handle, $columns) {
-                    $row = [];
-
-                    foreach ($columns as $column) {
-                        $row[] = $this->exportValue($record->{$column});
-                    }
-
-                    fputcsv($handle, $row);
-                });
+            if ($type === 'plans') {
+                $this->exportPlans($handle, $filters, $columns);
+            }
 
             fclose($handle);
         }, $filename, [
@@ -54,10 +57,7 @@ class MembershipCatalogImportExportService
 
     public function import(string $type, UploadedFile $file, string $mode = 'upsert'): array
     {
-        $config = $this->config($type);
         $rows = $this->readImportFile($file);
-        $columns = $this->availableColumns($config['table'], $config['import_columns']);
-        $model = $config['model'];
 
         $result = [
             'total_rows' => count($rows),
@@ -72,7 +72,14 @@ class MembershipCatalogImportExportService
             $rowNumber = $index + 2;
 
             try {
-                $data = $this->prepareImportData($type, $row, $columns);
+                $row = $this->cleanCsvRow($this->normalizeRow($row));
+
+                $data = match ($type) {
+                    'categories' => $this->prepareCategoryImportData($row),
+                    'features' => $this->prepareFeatureImportData($row),
+                    'plans' => $this->preparePlanImportData($row),
+                    default => throw new InvalidArgumentException('Invalid catalog type.'),
+                };
 
                 $validator = Validator::make($data, $this->rulesFor($type));
 
@@ -85,24 +92,15 @@ class MembershipCatalogImportExportService
                     continue;
                 }
 
-                $existing = $model::query()
-                    ->where('slug', $data['slug'])
-                    ->first();
+                $record = match ($type) {
+                    'categories' => $this->saveCategory($data, $mode, $result),
+                    'features' => $this->saveFeature($data, $mode, $result),
+                    'plans' => $this->savePlan($data, $mode, $result),
+                    default => throw new InvalidArgumentException('Invalid catalog type.'),
+                };
 
-                if ($mode === 'skip' && $existing) {
-                    $result['skipped']++;
+                if (! $record) {
                     continue;
-                }
-
-                $record = $model::query()->updateOrCreate(
-                    ['slug' => $data['slug']],
-                    $data
-                );
-
-                if ($record->wasRecentlyCreated) {
-                    $result['created']++;
-                } else {
-                    $result['updated']++;
                 }
             } catch (\Throwable $e) {
                 $result['failed']++;
@@ -129,6 +127,250 @@ class MembershipCatalogImportExportService
                 default => throw new InvalidArgumentException('Invalid catalog type.'),
             };
         });
+    }
+
+    private function exportCategories($handle, array $filters, array $columns): void
+    {
+        $query = MembershipCategory::query()
+            ->select($this->availableColumns('membership_categories', [
+                'name',
+                'description',
+                'status',
+            ]));
+
+        $this->applyExportFilters($query, 'categories', $filters);
+
+        $query->orderBy('name')
+            ->cursor()
+            ->each(function ($record) use ($handle, $columns) {
+                fputcsv($handle, [
+                    $record->name,
+                    $record->description,
+                    $this->exportValue($record->status),
+                ]);
+            });
+    }
+
+    private function exportFeatures($handle, array $filters, array $columns): void
+    {
+        $query = MembershipFeature::query()
+            ->select($this->availableColumns('membership_features', [
+                'name',
+                'description',
+                'feature_type',
+                'status',
+            ]));
+
+        $this->applyExportFilters($query, 'features', $filters);
+
+        $query->orderBy('name')
+            ->cursor()
+            ->each(function ($record) use ($handle, $columns) {
+                fputcsv($handle, [
+                    $record->name,
+                    $record->description,
+                    $record->feature_type,
+                    $this->exportValue($record->status),
+                ]);
+            });
+    }
+
+    private function exportPlans($handle, array $filters, array $columns): void
+    {
+        $categoryColumn = $this->planCategoryColumn();
+
+        $query = MembershipPlan::query()
+            ->select($this->availableColumns('membership_plans', [
+                $categoryColumn,
+                'name',
+                'short_description',
+                'description',
+                'currency',
+                'price',
+                'sale_price',
+                'duration',
+                'duration_days',
+                'duration_type',
+                'trial_days',
+                'is_popular',
+                'status',
+            ]))
+            ->with('category:id,name,slug');
+
+        $this->applyExportFilters($query, 'plans', $filters);
+
+        $query->orderBy('name')
+            ->cursor()
+            ->each(function ($record) use ($handle) {
+                fputcsv($handle, [
+                    $record->category?->name,
+                    $record->name,
+                    $record->short_description,
+                    $record->description,
+                    $record->currency,
+                    $record->price,
+                    $record->sale_price,
+                    $record->duration ?? $record->duration_days,
+                    $record->duration_type,
+                    $record->trial_days,
+                    $this->exportValue($record->is_popular),
+                    $this->exportValue($record->status),
+                ]);
+            });
+    }
+
+    private function saveCategory(array $data, string $mode, array &$result): ?MembershipCategory
+    {
+        $existing = MembershipCategory::query()
+            ->where('slug', Str::slug($data['name']))
+            ->orWhere('name', $data['name'])
+            ->first();
+
+        if ($mode === 'skip' && $existing) {
+            $result['skipped']++;
+            return null;
+        }
+
+        if ($existing) {
+            $existing->update($data);
+            $result['updated']++;
+            return $existing;
+        }
+
+        $data['slug'] = $this->uniqueSlug($data['name'], MembershipCategory::class);
+        $data['sort_order'] = $this->nextSortOrder('membership_categories');
+
+        $record = MembershipCategory::query()->create($data);
+        $result['created']++;
+
+        return $record;
+    }
+
+    private function saveFeature(array $data, string $mode, array &$result): ?MembershipFeature
+    {
+        $existing = MembershipFeature::query()
+            ->where('slug', Str::slug($data['name']))
+            ->orWhere('name', $data['name'])
+            ->first();
+
+        if ($mode === 'skip' && $existing) {
+            $result['skipped']++;
+            return null;
+        }
+
+        if ($existing) {
+            $existing->update($data);
+            $result['updated']++;
+            return $existing;
+        }
+
+        $data['slug'] = $this->uniqueSlug($data['name'], MembershipFeature::class);
+        $data['sort_order'] = $this->nextSortOrder('membership_features');
+
+        $record = MembershipFeature::query()->create($data);
+        $result['created']++;
+
+        return $record;
+    }
+
+    private function savePlan(array $data, string $mode, array &$result): ?MembershipPlan
+    {
+        $categoryColumn = $this->planCategoryColumn();
+        $categoryId = (int) $data[$categoryColumn];
+
+        $existing = MembershipPlan::query()
+            ->where($categoryColumn, $categoryId)
+            ->where('name', $data['name'])
+            ->first();
+
+        if (! $existing) {
+            $generatedSlug = Str::slug($data['name']);
+
+            $existing = MembershipPlan::query()
+                ->where('slug', $generatedSlug)
+                ->first();
+        }
+
+        if ($mode === 'skip' && $existing) {
+            $result['skipped']++;
+            return null;
+        }
+
+        if ($existing) {
+            $existing->update($data);
+            $result['updated']++;
+            return $existing;
+        }
+
+        $data['slug'] = $this->uniqueSlug($data['name'], MembershipPlan::class);
+        $data['sort_order'] = $this->nextSortOrder('membership_plans');
+
+        $record = MembershipPlan::query()->create($data);
+        $result['created']++;
+
+        return $record;
+    }
+
+    private function prepareCategoryImportData(array $row): array
+    {
+        return [
+            'name' => trim((string) ($row['name'] ?? '')),
+            'description' => $row['description'] ?? null,
+            'status' => $this->toBoolean($row['status'] ?? true),
+        ];
+    }
+
+    private function prepareFeatureImportData(array $row): array
+    {
+        return [
+            'name' => trim((string) ($row['name'] ?? '')),
+            'description' => $row['description'] ?? null,
+            'feature_type' => $row['feature_type'] ?? 'boolean',
+            'status' => $this->toBoolean($row['status'] ?? true),
+        ];
+    }
+
+    private function preparePlanImportData(array $row): array
+    {
+        $categoryName = trim((string) ($row['category_name'] ?? $row['category'] ?? ''));
+
+        $category = MembershipCategory::query()
+            ->where('name', $categoryName)
+            ->orWhere('slug', Str::slug($categoryName))
+            ->first();
+
+        if (! $category) {
+            throw new InvalidArgumentException("Category not found: {$categoryName}");
+        }
+
+        $categoryColumn = $this->planCategoryColumn();
+
+        $data = [
+            $categoryColumn => $category->id,
+            'name' => trim((string) ($row['name'] ?? '')),
+            'short_description' => $row['short_description'] ?? null,
+            'description' => $row['description'] ?? null,
+            'currency' => strtoupper((string) ($row['currency'] ?? 'INR')),
+            'price' => $this->toMoney($row['price'] ?? 0),
+            'sale_price' => $this->nullableMoney($row['sale_price'] ?? null),
+            'trial_days' => (int) ($row['trial_days'] ?? 0),
+            'is_popular' => $this->toBoolean($row['is_popular'] ?? false),
+            'status' => $this->toBoolean($row['status'] ?? true),
+        ];
+
+        if (Schema::hasColumn('membership_plans', 'duration')) {
+            $data['duration'] = (int) ($row['duration'] ?? $row['duration_days'] ?? 1);
+        }
+
+        if (Schema::hasColumn('membership_plans', 'duration_days')) {
+            $data['duration_days'] = (int) ($row['duration'] ?? $row['duration_days'] ?? 1);
+        }
+
+        if (Schema::hasColumn('membership_plans', 'duration_type')) {
+            $data['duration_type'] = $row['duration_type'] ?? 'days';
+        }
+
+        return $data;
     }
 
     private function bulkDeleteCategories(array $ids): array
@@ -243,25 +485,33 @@ class MembershipCatalogImportExportService
 
     private function applyExportFilters(Builder $query, string $type, array $filters): void
     {
-        $query->when(isset($filters['status']) && $filters['status'] !== '', function ($q) use ($filters) {
-            $q->where('status', filter_var($filters['status'], FILTER_VALIDATE_BOOLEAN));
-        });
+        $query->when(
+            array_key_exists('status', $filters)
+            && $filters['status'] !== null
+            && $filters['status'] !== '',
+            function ($q) use ($filters) {
+                $q->where('status', filter_var($filters['status'], FILTER_VALIDATE_BOOLEAN));
+            }
+        );
 
-        $query->when(!empty($filters['search']), function ($q) use ($filters) {
+        $query->when(! empty($filters['search']), function ($q) use ($filters) {
             $search = trim((string) $filters['search']);
 
             $q->where(function ($subQuery) use ($search) {
-                $subQuery->where('name', 'like', "%{$search}%")
-                    ->orWhere('slug', 'like', "%{$search}%");
+                $subQuery->where('name', 'like', "%{$search}%");
+
+                if ($subQuery->getModel() && Schema::hasColumn($subQuery->getModel()->getTable(), 'description')) {
+                    $subQuery->orWhere('description', 'like', "%{$search}%");
+                }
             });
         });
 
-        if ($type === 'features' && !empty($filters['feature_type'])) {
+        if ($type === 'features' && ! empty($filters['feature_type'])) {
             $query->where('feature_type', $filters['feature_type']);
         }
 
-        if ($type === 'plans' && !empty($filters['category_id']) && Schema::hasColumn('membership_plans', 'category_id')) {
-            $query->where('category_id', $filters['category_id']);
+        if ($type === 'plans' && ! empty($filters['category_id'])) {
+            $query->where($this->planCategoryColumn(), (int) $filters['category_id']);
         }
     }
 
@@ -281,18 +531,18 @@ class MembershipCatalogImportExportService
 
         $handle = fopen($file->getRealPath(), 'r');
 
-        if (!$handle) {
+        if (! $handle) {
             return [];
         }
 
         $header = fgetcsv($handle);
 
-        if (!$header) {
+        if (! $header) {
             fclose($handle);
             return [];
         }
 
-        $header = array_map(fn ($value) => $this->normalizeKey($value), $header);
+        $header = array_map(fn ($value) => $this->normalizeKey((string) $value), $header);
 
         $rows = [];
 
@@ -309,58 +559,13 @@ class MembershipCatalogImportExportService
         return $rows;
     }
 
-    private function prepareImportData(string $type, array $row, array $columns): array
+    private function cleanCsvRow(array $row): array
     {
-        $row = $this->normalizeRow($row);
-
-        $name = trim((string) ($row['name'] ?? ''));
-        $slug = trim((string) ($row['slug'] ?? ''));
-
-        if ($slug === '' && $name !== '') {
-            $slug = Str::slug($name);
-        } else {
-            $slug = Str::slug($slug);
+        foreach (self::EXCLUDED_CSV_COLUMNS as $column) {
+            unset($row[$column]);
         }
 
-        $row['slug'] = $slug;
-
-        $allowed = array_flip($columns);
-
-        $data = array_intersect_key($row, $allowed);
-
-        unset($data['id'], $data['created_at'], $data['updated_at'], $data['deleted_at']);
-
-        if (array_key_exists('status', $allowed)) {
-            $data['status'] = $this->toBoolean($data['status'] ?? true);
-        }
-
-        if (array_key_exists('sort_order', $allowed)) {
-            $data['sort_order'] = (int) ($data['sort_order'] ?? 0);
-        }
-
-        if ($type === 'features' && array_key_exists('feature_type', $allowed)) {
-            $data['feature_type'] = $data['feature_type'] ?? 'boolean';
-        }
-
-        if ($type === 'plans') {
-            if (array_key_exists('currency', $allowed)) {
-                $data['currency'] = $data['currency'] ?? 'INR';
-            }
-
-            foreach (['price', 'sale_price', 'discount_price', 'amount', 'final_amount'] as $moneyColumn) {
-                if (array_key_exists($moneyColumn, $data) && $data[$moneyColumn] !== null && $data[$moneyColumn] !== '') {
-                    $data[$moneyColumn] = (float) $data[$moneyColumn];
-                }
-            }
-
-            foreach (['category_id', 'duration_days', 'sort_order', 'trial_days'] as $integerColumn) {
-                if (array_key_exists($integerColumn, $data) && $data[$integerColumn] !== null && $data[$integerColumn] !== '') {
-                    $data[$integerColumn] = (int) $data[$integerColumn];
-                }
-            }
-        }
-
-        return $data;
+        return $row;
     }
 
     private function normalizeRow(array $row): array
@@ -396,7 +601,14 @@ class MembershipCatalogImportExportService
             return $value;
         }
 
-        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'active', 'enabled'], true);
+        return in_array(strtolower(trim((string) $value)), [
+            '1',
+            'true',
+            'yes',
+            'active',
+            'enabled',
+            'on',
+        ], true);
     }
 
     private function exportValue(mixed $value): mixed
@@ -408,29 +620,83 @@ class MembershipCatalogImportExportService
         return $value;
     }
 
+    private function toMoney(mixed $value): float
+    {
+        return round((float) $value, 2);
+    }
+
+    private function nullableMoney(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return round((float) $value, 2);
+    }
+
+    private function nextSortOrder(string $table): int
+    {
+        if (! Schema::hasColumn($table, 'sort_order')) {
+            return 0;
+        }
+
+        return ((int) DB::table($table)->max('sort_order')) + 10;
+    }
+
+    private function uniqueSlug(string $name, string $modelClass): string
+    {
+        $baseSlug = Str::slug($name);
+
+        if ($baseSlug === '') {
+            $baseSlug = 'item';
+        }
+
+        $slug = $baseSlug;
+        $counter = 1;
+
+        while ($modelClass::query()->where('slug', $slug)->exists()) {
+            $slug = $baseSlug . '-' . $counter;
+            $counter++;
+        }
+
+        return $slug;
+    }
+
+    private function planCategoryColumn(): string
+    {
+        return Schema::hasColumn('membership_plans', 'membership_category_id')
+            ? 'membership_category_id'
+            : 'category_id';
+    }
+
     private function rulesFor(string $type): array
     {
         return match ($type) {
             'categories' => [
                 'name' => ['required', 'string', 'max:255'],
-                'slug' => ['required', 'string', 'max:255'],
                 'description' => ['nullable', 'string'],
                 'status' => ['nullable', 'boolean'],
-                'sort_order' => ['nullable', 'integer', 'min:0'],
             ],
             'features' => [
                 'name' => ['required', 'string', 'max:255'],
-                'slug' => ['required', 'string', 'max:255'],
                 'description' => ['nullable', 'string'],
-                'feature_type' => ['required', 'string', 'max:100'],
+                'feature_type' => ['required', 'string', 'in:boolean,number,text,limit'],
                 'status' => ['nullable', 'boolean'],
-                'sort_order' => ['nullable', 'integer', 'min:0'],
             ],
             'plans' => [
+                'category_name' => ['nullable', 'string', 'max:255'],
                 'name' => ['required', 'string', 'max:255'],
-                'slug' => ['required', 'string', 'max:255'],
+                'short_description' => ['nullable', 'string'],
+                'description' => ['nullable', 'string'],
+                'currency' => ['nullable', 'string', 'size:3'],
+                'price' => ['required', 'numeric', 'min:0'],
+                'sale_price' => ['nullable', 'numeric', 'min:0'],
+                'duration' => ['nullable', 'integer', 'min:1'],
+                'duration_days' => ['nullable', 'integer', 'min:1'],
+                'duration_type' => ['nullable', 'string', 'max:50'],
+                'trial_days' => ['nullable', 'integer', 'min:0'],
+                'is_popular' => ['nullable', 'boolean'],
                 'status' => ['nullable', 'boolean'],
-                'sort_order' => ['nullable', 'integer', 'min:0'],
             ],
             default => [],
         };
@@ -447,50 +713,63 @@ class MembershipCatalogImportExportService
             'categories' => [
                 'model' => MembershipCategory::class,
                 'table' => 'membership_categories',
-                'export_columns' => ['id', 'name', 'slug', 'description', 'status', 'sort_order', 'created_at', 'updated_at'],
-                'import_columns' => ['name', 'slug', 'description', 'status', 'sort_order'],
+                'export_columns' => [
+                    'name',
+                    'description',
+                    'status',
+                ],
+                'import_columns' => [
+                    'name',
+                    'description',
+                    'status',
+                ],
             ],
             'features' => [
                 'model' => MembershipFeature::class,
                 'table' => 'membership_features',
-                'export_columns' => ['id', 'name', 'slug', 'description', 'feature_type', 'status', 'sort_order', 'created_at', 'updated_at'],
-                'import_columns' => ['name', 'slug', 'description', 'feature_type', 'status', 'sort_order'],
+                'export_columns' => [
+                    'name',
+                    'description',
+                    'feature_type',
+                    'status',
+                ],
+                'import_columns' => [
+                    'name',
+                    'description',
+                    'feature_type',
+                    'status',
+                ],
             ],
             'plans' => [
                 'model' => MembershipPlan::class,
                 'table' => 'membership_plans',
                 'export_columns' => [
-                    'id',
-                    'membership_category_id',
-                    'category_id',
+                    'category_name',
                     'name',
-                    'slug',
+                    'short_description',
                     'description',
+                    'currency',
                     'price',
                     'sale_price',
-                    'currency',
-                    'duration_days',
+                    'duration',
+                    'duration_type',
                     'trial_days',
-                    'status',
                     'is_popular',
-                    'sort_order',
-                    'created_at',
-                    'updated_at',
+                    'status',
                 ],
                 'import_columns' => [
-                    'membership_category_id',
-                    'category_id',
+                    'category_name',
                     'name',
-                    'slug',
+                    'short_description',
                     'description',
+                    'currency',
                     'price',
                     'sale_price',
-                    'currency',
-                    'duration_days',
+                    'duration',
+                    'duration_type',
                     'trial_days',
-                    'status',
                     'is_popular',
-                    'sort_order',
+                    'status',
                 ],
             ],
             default => throw new InvalidArgumentException('Invalid catalog type.'),
