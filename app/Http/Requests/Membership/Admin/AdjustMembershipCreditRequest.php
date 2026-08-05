@@ -13,6 +13,14 @@ class AdjustMembershipCreditRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'credit_type' => strtolower(trim((string) $this->credit_type)),
+            'transaction_type' => strtolower(trim((string) ($this->transaction_type ?? 'credit'))),
+        ]);
+    }
+
     public function rules(): array
     {
         return [
@@ -32,9 +40,44 @@ class AdjustMembershipCreditRequest extends FormRequest
                 ]),
             ],
 
-            'remaining_credits' => ['required', 'integer', 'min:0'],
+            'transaction_type' => [
+                'required',
+                'string',
+                Rule::in([
+                    'credit',
+                    'debit',
+                    'adjust',
+                    'refund',
+                    'expire',
+                ]),
+            ],
+
+            // Use this for credit/debit/refund/expire.
+            'quantity' => [
+                'required_unless:transaction_type,adjust',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+
+            // Optional. Only needed when admin wants to set exact remaining balance.
+            'remaining_credits' => [
+                'required_if:transaction_type,adjust',
+                'nullable',
+                'integer',
+                'min:0',
+            ],
+
             'reason' => ['nullable', 'string', 'max:1000'],
             'metadata' => ['nullable', 'array'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'quantity.required_unless' => 'The quantity field is required for this transaction type.',
+            'remaining_credits.required_if' => 'The remaining credits field is required when transaction type is adjust.',
         ];
     }
 }
