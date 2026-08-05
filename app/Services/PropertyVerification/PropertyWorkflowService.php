@@ -215,7 +215,19 @@ class PropertyWorkflowService
                 : null;
 
             $submittedPayload = $this->snapshots->capture($lockedProperty);
+            $latestRevisionForAssignment = $latestOpenRevision;
 
+            if (!$latestRevisionForAssignment) {
+                $latestRevisionForAssignment = PropertyListingRevision::query()
+                    ->where('dynamic_post_id', $lockedProperty->id)
+                    ->latest('version')
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            $previousAssignedTo = $latestRevisionForAssignment?->assigned_to;
+            $previousAssignedBy = $latestRevisionForAssignment?->assigned_by;
+            $previousAssignedAt = $latestRevisionForAssignment?->assigned_at;
             if ($latestOpenRevision) {
                 $fromStatus = $latestOpenRevision->status;
 
@@ -226,14 +238,10 @@ class PropertyWorkflowService
                     'submitted_payload' => $submittedPayload,
                     'submitted_by' => $owner->id,
                     'submitted_at' => now(),
+                    'assigned_to' => $previousAssignedTo,
+                    'assigned_by' => $previousAssignedBy,
+                    'assigned_at' => $previousAssignedAt,
 
-                    /*
-                 * User ne listing dobara change ki hai,
-                 * so old verifier assignment reset karo.
-                 */
-                    'assigned_to' => null,
-                    'assigned_by' => null,
-                    'assigned_at' => null,
                     'verification_started_at' => null,
                     'decided_by' => null,
                     'decided_at' => null,
@@ -242,10 +250,9 @@ class PropertyWorkflowService
 
                 $revision = $latestOpenRevision;
 
-                $this->clearDynamicPostAssignedVerifier($lockedProperty);
+                // $this->clearDynamicPostAssignedVerifier($lockedProperty);
             } else {
                 $fromStatus = $context['previous_live_status'] ?? null;
-
                 $revision = PropertyListingRevision::create([
                     'dynamic_post_id' => $lockedProperty->id,
                     'version' => $this->nextVersion($lockedProperty),
@@ -255,6 +262,13 @@ class PropertyWorkflowService
                     'submitted_payload' => $submittedPayload,
                     'submitted_by' => $owner->id,
                     'submitted_at' => now(),
+
+                    /*
+     * Previous verifier preserve.
+     */
+                    'assigned_to' => $previousAssignedTo,
+                    'assigned_by' => $previousAssignedBy,
+                    'assigned_at' => $previousAssignedAt,
                 ]);
             }
 
