@@ -333,25 +333,35 @@ class PropertyWorkflowService
 
             $fromStatus = $revision->status;
 
+            /*
+         * If already in_verification, this is reassignment.
+         * Do not move status back to assigned.
+         */
+            $nextStatus = $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                ? PropertyWorkflowStatus::IN_VERIFICATION
+                : PropertyWorkflowStatus::ASSIGNED;
+
             $revision->forceFill([
-                'status' => PropertyWorkflowStatus::ASSIGNED,
+                'status' => $nextStatus,
                 'assigned_to' => (int) $verifier->id,
                 'assigned_by' => (int) $actor->id,
                 'assigned_at' => now(),
-                'verification_started_at' => null,
+                'verification_started_at' => $nextStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                    ? ($revision->verification_started_at ?: now())
+                    : null,
             ])->save();
 
             $this->setPropertyWorkflowState(
                 $lockedProperty,
                 status: $lockedProperty->status ?: 'draft',
-                liveStatus: PropertyWorkflowStatus::ASSIGNED
+                liveStatus: $nextStatus
             );
 
             /*
-             * Existing table use kar rahe hain.
-             * dynamic_post_user.user_id = assigned verifier
-             * dynamic_post_user.assigned_by = assigning admin
-             */
+         * Existing table:
+         * dynamic_post_user.user_id = verifier id
+         * dynamic_post_user.assigned_by = admin id
+         */
             $this->syncDynamicPostAssignedVerifier(
                 property: $lockedProperty,
                 actor: $actor,
@@ -362,10 +372,16 @@ class PropertyWorkflowService
                 property: $lockedProperty,
                 revision: $revision,
                 actor: $actor,
-                event: 'property_assigned',
+                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                    ? 'property_reassigned'
+                    : 'property_assigned',
                 fromStatus: $fromStatus,
-                toStatus: PropertyWorkflowStatus::ASSIGNED,
-                message: $notes ?: 'Property assigned for verification.',
+                toStatus: $nextStatus,
+                message: $notes ?: (
+                    $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                    ? 'Property verifier reassigned during verification.'
+                    : 'Property assigned for verification.'
+                ),
                 metadata: [
                     'verifier_id' => (int) $verifier->id,
                     'verifier_name' => $this->userName($verifier),
@@ -375,7 +391,9 @@ class PropertyWorkflowService
             $this->notifyUserAfterCommit(
                 userId: (int) $verifier->id,
                 property: $lockedProperty,
-                event: 'property_assigned',
+                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                    ? 'property_reassigned'
+                    : 'property_assigned',
                 metadata: [
                     'assigned_by' => (int) $actor->id,
                 ]
@@ -384,7 +402,9 @@ class PropertyWorkflowService
             $this->notifyOwnerAfterCommit(
                 ownerId: (int) $lockedProperty->author_id,
                 property: $lockedProperty,
-                event: 'property_assigned',
+                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                    ? 'property_reassigned'
+                    : 'property_assigned',
                 metadata: [
                     'verifier_id' => (int) $verifier->id,
                 ]
@@ -397,9 +417,9 @@ class PropertyWorkflowService
             'property:id,title,slug,status,live_status,author_id,post_type_id',
             'assignedVerifier:id,first_name,last_name,email',
             'assigner:id,first_name,last_name,email',
+            'decider:id,first_name,last_name,email',
         ]);
     }
-
     public function startVerification(
         DynamicPost $property,
         User $actor
@@ -857,16 +877,20 @@ class PropertyWorkflowService
             );
         }
 
+        /*
+     * Allow assign/reassign before final decision.
+     */
         $allowedStatuses = [
             PropertyWorkflowStatus::UNDER_REVIEW,
             PropertyWorkflowStatus::RESUBMISSION,
             PropertyWorkflowStatus::ASSIGNED,
+            PropertyWorkflowStatus::IN_VERIFICATION,
         ];
 
         if (!in_array($revision->status, $allowedStatuses, true)) {
             throw ValidationException::withMessages([
                 'status' => [
-                    'This action is not allowed while the property verification status is '
+                    'Verifier cannot be assigned because this property verification is already '
                         . $revision->status
                         . '.',
                 ],
