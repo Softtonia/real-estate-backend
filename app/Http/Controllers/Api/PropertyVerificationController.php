@@ -27,8 +27,7 @@ class PropertyVerificationController extends Controller
 {
     public function __construct(
         private readonly PropertyWorkflowService $workflow
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -137,8 +136,8 @@ class PropertyVerificationController extends Controller
                 ->paginate((int) $request->get('per_page', 20));
 
             $items->getCollection()->transform(
-                fn (PropertyListingRevision $revision) =>
-                    $this->formatRevision($revision)
+                fn(PropertyListingRevision $revision) =>
+                $this->formatRevision($revision)
             );
 
             return response()->json([
@@ -197,8 +196,8 @@ class PropertyVerificationController extends Controller
                 ->map(function ($user) {
                     $name = trim(
                         ($user->first_name ?? '')
-                        . ' '
-                        . ($user->last_name ?? '')
+                            . ' '
+                            . ($user->last_name ?? '')
                     );
 
                     return [
@@ -270,16 +269,16 @@ class PropertyVerificationController extends Controller
                 ? 'roles.name'
                 : (
                     Schema::hasColumn('roles', 'role_name')
-                        ? 'roles.role_name'
-                        : 'roles.id'
+                    ? 'roles.role_name'
+                    : 'roles.id'
                 );
 
             $roles = $query
                 ->selectRaw(
                     'roles.id as role_id, '
-                    . $roleNameColumn
-                    . ' as role_name, '
-                    . 'COUNT(DISTINCT users.id) as eligible_users_count'
+                        . $roleNameColumn
+                        . ' as role_name, '
+                        . 'COUNT(DISTINCT users.id) as eligible_users_count'
                 )
                 ->groupBy('roles.id', $roleNameColumn)
                 ->havingRaw(
@@ -288,7 +287,7 @@ class PropertyVerificationController extends Controller
                 )
                 ->orderBy($roleNameColumn)
                 ->get()
-                ->map(fn ($role) => [
+                ->map(fn($role) => [
                     'id' => (int) $role->role_id,
                     'value' => (int) $role->role_id,
                     'label' => (string) $role->role_name,
@@ -372,7 +371,7 @@ class PropertyVerificationController extends Controller
                     'assigned_count' => $revisions->count(),
                     'verifier_id' => (int) $verifier->id,
                     'properties' => $revisions
-                        ->map(fn (PropertyListingRevision $revision) => [
+                        ->map(fn(PropertyListingRevision $revision) => [
                             'property_id' => (int) $revision->dynamic_post_id,
                             'revision_id' => (int) $revision->id,
                             'assigned_to' => (int) $revision->assigned_to,
@@ -426,7 +425,7 @@ class PropertyVerificationController extends Controller
             $propertyIds = $revisionQuery
                 ->orderBy('id')
                 ->pluck('dynamic_post_id')
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->unique()
                 ->values();
 
@@ -712,8 +711,8 @@ class PropertyVerificationController extends Controller
             ? 'roles.name'
             : (
                 Schema::hasColumn('roles', 'role_name')
-                    ? 'roles.role_name'
-                    : 'roles.id'
+                ? 'roles.role_name'
+                : 'roles.id'
             );
 
         $query = User::query()
@@ -774,7 +773,7 @@ class PropertyVerificationController extends Controller
                 'property_verifications.reject',
             ]
         ))
-            ->map(fn ($permission) => strtolower(trim((string) $permission)))
+            ->map(fn($permission) => strtolower(trim((string) $permission)))
             ->filter()
             ->unique()
             ->values()
@@ -819,55 +818,55 @@ class PropertyVerificationController extends Controller
             ->exists();
     }
 
-private function assertCanAccessRevision(
-    PropertyListingRevision $revision,
-    User $actor
-): void {
-    if ($this->isSystemAdmin($actor)) {
-        return;
+    private function assertCanAccessRevision(
+        PropertyListingRevision $revision,
+        User $actor
+    ): void {
+        if ($this->isSystemAdmin($actor)) {
+            return;
+        }
+
+        if ((int) $revision->assigned_to !== (int) $actor->id) {
+            throw new AuthorizationException(
+                'This property is assigned to another verifier.'
+            );
+        }
     }
 
-    if ((int) $revision->assigned_to !== (int) $actor->id) {
-        throw new AuthorizationException(
-            'This property is assigned to another verifier.'
-        );
+    private function isSystemAdmin(User $user): bool
+    {
+        if (
+            empty($user->role_id)
+            || !Schema::hasTable('roles')
+        ) {
+            return false;
+        }
+
+        $role = DB::table('roles')
+            ->where('id', (int) $user->role_id)
+            ->first();
+
+        if (!$role) {
+            return false;
+        }
+
+        $roleValues = collect([
+            $role->name ?? null,
+            $role->slug ?? null,
+            $role->role_name ?? null,
+        ])
+            ->filter()
+            ->map(fn($value) => Str::slug((string) $value))
+            ->values()
+            ->toArray();
+
+        return (bool) array_intersect($roleValues, [
+            'admin',
+            'administrator',
+            'super-admin',
+            'superadmin',
+        ]);
     }
-}
-
-private function isSystemAdmin(User $user): bool
-{
-    if (
-        empty($user->role_id)
-        || !Schema::hasTable('roles')
-    ) {
-        return false;
-    }
-
-    $role = DB::table('roles')
-        ->where('id', (int) $user->role_id)
-        ->first();
-
-    if (!$role) {
-        return false;
-    }
-
-    $roleValues = collect([
-        $role->name ?? null,
-        $role->slug ?? null,
-        $role->role_name ?? null,
-    ])
-        ->filter()
-        ->map(fn ($value) => Str::slug((string) $value))
-        ->values()
-        ->toArray();
-
-    return (bool) array_intersect($roleValues, [
-        'admin',
-        'administrator',
-        'super-admin',
-        'superadmin',
-    ]);
-}
 
     private function actor(Request $request): User
     {
@@ -986,8 +985,8 @@ private function isSystemAdmin(User $user): bool
 
         $name = trim(
             ($user->first_name ?? '')
-            . ' '
-            . ($user->last_name ?? '')
+                . ' '
+                . ($user->last_name ?? '')
         );
 
         return [

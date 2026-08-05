@@ -81,11 +81,10 @@ class PropertyWorkflowService
                     ],
                 ]);
             }
-
             $this->setPropertyWorkflowState(
                 $lockedProperty,
                 status: 'draft',
-                liveStatus: PropertyWorkflowStatus::UNDER_REVIEW,
+                liveStatus: PropertyWorkflowStatus::RESUBMISSION,
                 clearPublishedAt: true
             );
 
@@ -878,23 +877,23 @@ class PropertyWorkflowService
 
         return $revision;
     }
-private function latestRevisionOrFail(
-    DynamicPost $property
-): PropertyListingRevision {
-    $revision = PropertyListingRevision::query()
-        ->where('dynamic_post_id', $property->id)
-        ->latest('version')
-        ->lockForUpdate()
-        ->first();
+    private function latestRevisionOrFail(
+        DynamicPost $property
+    ): PropertyListingRevision {
+        $revision = PropertyListingRevision::query()
+            ->where('dynamic_post_id', $property->id)
+            ->latest('version')
+            ->lockForUpdate()
+            ->first();
 
-    if (!$revision) {
-        throw new RuntimeException(
-            'Property verification revision not found.'
-        );
+        if (!$revision) {
+            throw new RuntimeException(
+                'Property verification revision not found.'
+            );
+        }
+
+        return $revision;
     }
-
-    return $revision;
-}
     private function isSystemAdmin(User $user): bool
     {
         if (
