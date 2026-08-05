@@ -801,7 +801,8 @@ class UserListingController extends Controller
                 $request,
                 $user,
                 $postType,
-                $ownedListing
+                $ownedListing,
+                $workflowContext
             ) {
                 $payload = [];
 
@@ -2846,5 +2847,4 @@ class UserListingController extends Controller
     {
         return app(PropertyWorkflowService::class);
     }
-
 }
