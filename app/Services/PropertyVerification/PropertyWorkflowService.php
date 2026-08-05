@@ -962,45 +962,7 @@ private function latestRevisionOrFail(
             ]);
         }
     }
-    private function ensureActorCanWorkOnRevision(
-        PropertyListingRevision $revision,
-        DynamicPost $property,
-        User $actor,
-        ?string $autoAssignMessage = null
-    ): void {
-        if (empty($revision->assigned_to)) {
-            $revision->forceFill([
-                'assigned_to' => (int) $actor->id,
-                'assigned_by' => (int) $actor->id,
-                'assigned_at' => now(),
-            ])->save();
 
-            $this->syncDynamicPostAssignedVerifier(
-                property: $property,
-                actor: $actor,
-                verifier: $actor
-            );
-
-            $this->recordEvent(
-                property: $property,
-                revision: $revision,
-                actor: $actor,
-                event: 'property_assigned',
-                fromStatus: $revision->status,
-                toStatus: PropertyWorkflowStatus::ASSIGNED,
-                message: $autoAssignMessage ?: 'Property auto-assigned.',
-                metadata: [
-                    'verifier_id' => (int) $actor->id,
-                    'verifier_name' => $this->userName($actor),
-                    'auto_assigned' => true,
-                ]
-            );
-
-            return;
-        }
-
-        $this->assertAssignedVerifier($revision, $actor);
-    }
 
     private function clearDynamicPostAssignedVerifier(
         DynamicPost $property
