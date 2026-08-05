@@ -232,9 +232,10 @@ class MembershipCatalogImportExportService
 
     private function saveCategory(array $data, string $mode, array &$result): ?MembershipCategory
     {
+        $name = trim((string) ($data['name'] ?? ''));
+
         $existing = MembershipCategory::query()
-            ->where('slug', Str::slug($data['name']))
-            ->orWhere('name', $data['name'])
+            ->whereRaw('LOWER(name) = ?', [strtolower($name)])
             ->first();
 
         if ($mode === 'skip' && $existing) {
@@ -242,9 +243,9 @@ class MembershipCatalogImportExportService
             return null;
         }
 
-        if ($existing) {
-            $data = $this->filterTableData('membership_categories', $data);
+        $data = $this->filterTableData('membership_categories', $data);
 
+        if ($existing) {
             $existing->forceFill($data);
 
             if (! $existing->isDirty()) {
@@ -258,7 +259,7 @@ class MembershipCatalogImportExportService
             return $existing;
         }
 
-        $data['slug'] = $this->uniqueSlug($data['name'], MembershipCategory::class);
+        $data['slug'] = $this->uniqueSlug($name, MembershipCategory::class);
         $data['sort_order'] = $this->nextSortOrder('membership_categories');
 
         $record = MembershipCategory::query()->create(
@@ -271,9 +272,10 @@ class MembershipCatalogImportExportService
     }
     private function saveFeature(array $data, string $mode, array &$result): ?MembershipFeature
     {
+        $name = trim((string) ($data['name'] ?? ''));
+
         $existing = MembershipFeature::query()
-            ->where('slug', Str::slug($data['name']))
-            ->orWhere('name', $data['name'])
+            ->whereRaw('LOWER(name) = ?', [strtolower($name)])
             ->first();
 
         if ($mode === 'skip' && $existing) {
@@ -281,9 +283,9 @@ class MembershipCatalogImportExportService
             return null;
         }
 
-        if ($existing) {
-            $data = $this->filterTableData('membership_features', $data);
+        $data = $this->filterTableData('membership_features', $data);
 
+        if ($existing) {
             $existing->forceFill($data);
 
             if (! $existing->isDirty()) {
@@ -297,7 +299,7 @@ class MembershipCatalogImportExportService
             return $existing;
         }
 
-        $data['slug'] = $this->uniqueSlug($data['name'], MembershipFeature::class);
+        $data['slug'] = $this->uniqueSlug($name, MembershipFeature::class);
         $data['sort_order'] = $this->nextSortOrder('membership_features');
 
         $record = MembershipFeature::query()->create(
@@ -312,29 +314,23 @@ class MembershipCatalogImportExportService
     private function savePlan(array $data, string $mode, array &$result): ?MembershipPlan
     {
         $categoryColumn = $this->planCategoryColumn();
+
         $categoryId = (int) $data[$categoryColumn];
+        $name = trim((string) ($data['name'] ?? ''));
 
         $existing = MembershipPlan::query()
             ->where($categoryColumn, $categoryId)
-            ->where('name', $data['name'])
+            ->whereRaw('LOWER(name) = ?', [strtolower($name)])
             ->first();
-
-        if (! $existing) {
-            $generatedSlug = Str::slug($data['name']);
-
-            $existing = MembershipPlan::query()
-                ->where('slug', $generatedSlug)
-                ->first();
-        }
 
         if ($mode === 'skip' && $existing) {
             $result['skipped']++;
             return null;
         }
 
-        if ($existing) {
-            $data = $this->filterTableData('membership_plans', $data);
+        $data = $this->filterTableData('membership_plans', $data);
 
+        if ($existing) {
             $existing->forceFill($data);
 
             if (! $existing->isDirty()) {
@@ -348,7 +344,7 @@ class MembershipCatalogImportExportService
             return $existing;
         }
 
-        $data['slug'] = $this->uniqueSlug($data['name'], MembershipPlan::class);
+        $data['slug'] = $this->uniqueSlug($name, MembershipPlan::class);
         $data['sort_order'] = $this->nextSortOrder('membership_plans');
 
         $record = MembershipPlan::query()->create(
@@ -359,7 +355,6 @@ class MembershipCatalogImportExportService
 
         return $record;
     }
-
     private function prepareCategoryImportData(array $row): array
     {
         return [
