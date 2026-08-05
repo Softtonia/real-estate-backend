@@ -456,24 +456,13 @@ class PropertyWorkflowService
                 ]);
             }
 
-            if ($revision->status === PropertyWorkflowStatus::IN_VERIFICATION) {
-                $this->ensureActorCanWorkOnRevision(
-                    revision: $revision,
-                    property: $lockedProperty,
-                    actor: $actor
-                );
+            $this->ensureActorCanWorkOnRevision($revision, $actor);
 
+            if ($revision->status === PropertyWorkflowStatus::IN_VERIFICATION) {
                 return $revision;
             }
 
             $fromStatus = $revision->status;
-
-            $this->ensureActorCanWorkOnRevision(
-                revision: $revision,
-                property: $lockedProperty,
-                actor: $actor,
-                autoAssignMessage: 'Property auto-assigned before verification start.'
-            );
 
             $revision->forceFill([
                 'status' => PropertyWorkflowStatus::IN_VERIFICATION,
@@ -534,9 +523,6 @@ class PropertyWorkflowService
 
             $revision = $this->latestRevisionOrFail($lockedProperty);
 
-            /*
-         * Already approved par dobara approve click aaye to error nahi.
-         */
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
             }
@@ -558,15 +544,9 @@ class PropertyWorkflowService
                 ]);
             }
 
+            $this->ensureActorCanWorkOnRevision($revision, $actor);
+
             $fromStatus = $revision->status;
-
-            $this->ensureActorCanWorkOnRevision(
-                revision: $revision,
-                property: $lockedProperty,
-                actor: $actor,
-                autoAssignMessage: 'Property auto-assigned before approval.'
-            );
-
             $wasRepublish = $revision->source === 'live_update';
 
             $this->setPropertyWorkflowState(
@@ -574,11 +554,6 @@ class PropertyWorkflowService
                 status: 'published',
                 liveStatus: PropertyWorkflowStatus::LIVE,
                 publishNow: true
-            );
-
-            $this->markPropertyReviewed(
-                property: $lockedProperty,
-                actor: $actor
             );
 
             $this->clearRejectionMetadata($lockedProperty);
@@ -601,15 +576,11 @@ class PropertyWorkflowService
                 message: $notes ?: 'Property verification approved.'
             );
 
-            $publicationEvent = $wasRepublish
-                ? 'property_republished'
-                : 'property_published';
-
             $this->recordEvent(
                 property: $lockedProperty,
                 revision: $revision,
                 actor: $actor,
-                event: $publicationEvent,
+                event: $wasRepublish ? 'property_republished' : 'property_published',
                 fromStatus: PropertyWorkflowStatus::APPROVED,
                 toStatus: PropertyWorkflowStatus::LIVE,
                 message: $wasRepublish
@@ -620,9 +591,7 @@ class PropertyWorkflowService
             $this->notifyOwnerAfterCommit(
                 ownerId: (int) $lockedProperty->author_id,
                 property: $lockedProperty,
-                event: $wasRepublish
-                    ? 'property_republished'
-                    : 'property_approved'
+                event: $wasRepublish ? 'property_republished' : 'property_approved'
             );
 
             return $revision;
@@ -691,14 +660,9 @@ class PropertyWorkflowService
                 ]);
             }
 
-            $fromStatus = $revision->status;
+            $this->ensureActorCanWorkOnRevision($revision, $actor);
 
-            $this->ensureActorCanWorkOnRevision(
-                revision: $revision,
-                property: $lockedProperty,
-                actor: $actor,
-                autoAssignMessage: 'Property auto-assigned before rejection.'
-            );
+            $fromStatus = $revision->status;
 
             $revision->forceFill([
                 'status' => PropertyWorkflowStatus::REJECTED,
@@ -708,10 +672,6 @@ class PropertyWorkflowService
                 'rejection_reason' => $reason,
             ])->save();
 
-            /*
-         * Live listing update reject hua:
-         * old approved version restore hoga.
-         */
             if (
                 $revision->source === 'live_update'
                 && is_array($revision->baseline_payload)
@@ -729,11 +689,6 @@ class PropertyWorkflowService
                     publishNow: true
                 );
 
-                $this->markPropertyReviewed(
-                    property: $lockedProperty,
-                    actor: $actor
-                );
-
                 $this->recordEvent(
                     property: $lockedProperty,
                     revision: $revision,
@@ -749,11 +704,6 @@ class PropertyWorkflowService
                     status: 'draft',
                     liveStatus: PropertyWorkflowStatus::REJECTED,
                     clearPublishedAt: true
-                );
-
-                $this->markPropertyReviewed(
-                    property: $lockedProperty,
-                    actor: $actor
                 );
 
                 $this->setRejectionMetadata(
@@ -928,24 +878,90 @@ class PropertyWorkflowService
 
         return $revision;
     }
-    private function latestRevisionOrFail(
-        DynamicPost $property
-    ): PropertyListingRevision {
-        $revision = PropertyListingRevision::query()
-            ->where('dynamic_post_id', $property->id)
-            ->latest('version')
-            ->lockForUpdate()
-            ->first();
+private function latestRevisionOrFail(
+    DynamicPost $property
+): PropertyListingRevision {
+    $revision = PropertyListingRevision::query()
+        ->where('dynamic_post_id', $property->id)
+        ->latest('version')
+        ->lockForUpdate()
+        ->first();
 
-        if (!$revision) {
-            throw new RuntimeException(
-                'Property verification revision not found.'
-            );
-        }
-
-        return $revision;
+    if (!$revision) {
+        throw new RuntimeException(
+            'Property verification revision not found.'
+        );
     }
 
+    return $revision;
+}
+    private function isSystemAdmin(User $user): bool
+    {
+        if (
+            empty($user->role_id)
+            || !Schema::hasTable('roles')
+        ) {
+            return false;
+        }
+
+        $role = DB::table('roles')
+            ->where('id', (int) $user->role_id)
+            ->first();
+
+        if (!$role) {
+            return false;
+        }
+
+        $roleValues = collect([
+            $role->name ?? null,
+            $role->slug ?? null,
+            $role->role_name ?? null,
+        ])
+            ->filter()
+            ->map(fn($value) => Str::slug((string) $value))
+            ->values()
+            ->toArray();
+
+        return (bool) array_intersect($roleValues, [
+            'admin',
+            'administrator',
+            'super-admin',
+            'super-admin-user',
+            'superadmin',
+        ]);
+    }
+
+    private function ensureActorCanWorkOnRevision(
+        PropertyListingRevision $revision,
+        User $actor
+    ): void {
+        /*
+     * Admin can review/action without assignment.
+     * Important: admin ko auto assign nahi karna.
+     */
+        if ($this->isSystemAdmin($actor)) {
+            return;
+        }
+
+        /*
+     * Non-admin/verifier must be assigned.
+     */
+        if (empty($revision->assigned_to)) {
+            throw ValidationException::withMessages([
+                'assignment' => [
+                    'This property is not assigned to you.',
+                ],
+            ]);
+        }
+
+        if ((int) $revision->assigned_to !== (int) $actor->id) {
+            throw ValidationException::withMessages([
+                'assignment' => [
+                    'This property is assigned to another verifier.',
+                ],
+            ]);
+        }
+    }
     private function ensureActorCanWorkOnRevision(
         PropertyListingRevision $revision,
         DynamicPost $property,

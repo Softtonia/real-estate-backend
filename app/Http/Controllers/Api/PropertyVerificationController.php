@@ -819,23 +819,55 @@ class PropertyVerificationController extends Controller
             ->exists();
     }
 
-    private function assertCanAccessRevision(
-        PropertyListingRevision $revision,
-        User $actor
-    ): void {
-        if ($this->userHasPermission(
-            $actor,
-            'property_verifications.assign'
-        )) {
-            return;
-        }
-
-        if ((int) $revision->assigned_to !== (int) $actor->id) {
-            throw new AuthorizationException(
-                'This property is assigned to another verifier.'
-            );
-        }
+private function assertCanAccessRevision(
+    PropertyListingRevision $revision,
+    User $actor
+): void {
+    if ($this->isSystemAdmin($actor)) {
+        return;
     }
+
+    if ((int) $revision->assigned_to !== (int) $actor->id) {
+        throw new AuthorizationException(
+            'This property is assigned to another verifier.'
+        );
+    }
+}
+
+private function isSystemAdmin(User $user): bool
+{
+    if (
+        empty($user->role_id)
+        || !Schema::hasTable('roles')
+    ) {
+        return false;
+    }
+
+    $role = DB::table('roles')
+        ->where('id', (int) $user->role_id)
+        ->first();
+
+    if (!$role) {
+        return false;
+    }
+
+    $roleValues = collect([
+        $role->name ?? null,
+        $role->slug ?? null,
+        $role->role_name ?? null,
+    ])
+        ->filter()
+        ->map(fn ($value) => Str::slug((string) $value))
+        ->values()
+        ->toArray();
+
+    return (bool) array_intersect($roleValues, [
+        'admin',
+        'administrator',
+        'super-admin',
+        'superadmin',
+    ]);
+}
 
     private function actor(Request $request): User
     {
