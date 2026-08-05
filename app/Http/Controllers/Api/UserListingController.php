@@ -11,6 +11,7 @@ use App\Models\PostType;
 use App\Models\SiteSetting;
 use App\Models\State;
 use App\Models\User;
+use App\Models\CustomField;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -436,7 +437,12 @@ class UserListingController extends Controller
 
                 $this->syncUserListingTaxonomyTerms($listing, $termIds);
 
-                $this->storeCustomFieldsForListing($listing, $request->input('custom_fields', []));
+                $$this->storeCustomFieldsForListing(
+                    listing: $listing,
+                    customFields: $this->customFieldsFromRequest($request),
+                    request: $request,
+                    postType: $postType
+                );
 
                 $this->consumeMembershipListingCredit($request, $listing, 'frontend_listing');
 
@@ -966,10 +972,14 @@ class UserListingController extends Controller
                     );
                 }
 
-                if ($request->exists('custom_fields')) {
+                $customFields = $this->customFieldsFromRequest($request);
+
+                if (!empty($customFields)) {
                     $this->storeCustomFieldsForListing(
-                        $ownedListing,
-                        $request->input('custom_fields', []) ?: []
+                        listing: $ownedListing,
+                        customFields: $customFields,
+                        request: $request,
+                        postType: $postType
                     );
                 }
 
@@ -2689,8 +2699,12 @@ class UserListingController extends Controller
         $listing->taxonomyTerms()->sync($syncData);
     }
 
-    private function storeCustomFieldsForListing(DynamicPost $listing, array $customFields): void
-    {
+    private function storeCustomFieldsForListing(
+        DynamicPost $listing,
+        array $customFields,
+        Request $request,
+        PostType $postType
+    ): void {
         if (empty($customFields)) {
             return;
         }
@@ -2701,11 +2715,96 @@ class UserListingController extends Controller
             return;
         }
 
-        foreach ($customFields as $item) {
+        foreach ($customFields as $index => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
             $customFieldId = $item['custom_field_id'] ?? null;
 
             if (!$customFieldId) {
                 continue;
+            }
+
+            $customField = CustomField::query()->find((int) $customFieldId);
+
+            if (!$customField) {
+                continue;
+            }
+
+            /*
+         * Handle custom field media/file upload.
+         * Supported frontend keys:
+         * custom_fields[0][file]
+         * custom_fields[0][files][]
+         */
+            $uploadedMedia = [];
+
+            $singleFileKey = "custom_fields.{$index}.file";
+            $multiFileKey = "custom_fields.{$index}.files";
+
+            if ($request->hasFile($singleFileKey)) {
+                $file = $request->file($singleFileKey);
+
+                if ($file instanceof UploadedFile) {
+                    $media = $this->storeListingMediaFile(
+                        file: $file,
+                        user: $this->resolveCurrentUser($request),
+                        postType: $postType,
+                        fieldSlug: $customField->field_name_slug ?: ('custom-field-' . $customField->id)
+                    );
+
+                    if ($media) {
+                        $uploadedMedia[] = $this->mediaFilePayload($media);
+                    }
+                }
+            }
+
+            if ($request->hasFile($multiFileKey)) {
+                $files = $request->file($multiFileKey);
+
+                foreach (collect($files)->flatten() as $file) {
+                    if (!$file instanceof UploadedFile) {
+                        continue;
+                    }
+
+                    $media = $this->storeListingMediaFile(
+                        file: $file,
+                        user: $this->resolveCurrentUser($request),
+                        postType: $postType,
+                        fieldSlug: $customField->field_name_slug ?: ('custom-field-' . $customField->id)
+                    );
+
+                    if ($media) {
+                        $uploadedMedia[] = $this->mediaFilePayload($media);
+                    }
+                }
+            }
+
+            /*
+         * Existing media preserve.
+         */
+            if (
+                empty($uploadedMedia)
+                && isset($item['value_json'])
+                && !empty($item['value_json'])
+            ) {
+                $existingValue = is_array($item['value_json'])
+                    ? $item['value_json']
+                    : json_decode((string) $item['value_json'], true);
+
+                if (is_array($existingValue)) {
+                    $uploadedMedia = $existingValue['media'] ?? $existingValue;
+                }
+            }
+
+            if (!empty($uploadedMedia)) {
+                $item['value_json'] = [
+                    'media' => array_values($uploadedMedia),
+                ];
+
+                $item['value_string'] = $uploadedMedia[0]['url'] ?? null;
+                $item['value_text'] = $uploadedMedia[0]['url'] ?? null;
             }
 
             $payload = [];
@@ -2738,17 +2837,20 @@ class UserListingController extends Controller
             }
 
             if (Schema::hasColumn($table, 'field_meta_value')) {
-                $payload['field_meta_value'] =
-                    $item['value_string']
+                $fieldValue = $item['value_string']
                     ?? $item['value_text']
                     ?? $item['value_number']
                     ?? $item['value_date']
                     ?? $item['value_datetime']
-                    ?? (
-                        isset($item['value_json'])
-                        ? (is_array($item['value_json']) ? json_encode($item['value_json']) : $item['value_json'])
-                        : null
-                    );
+                    ?? null;
+
+                if (!$fieldValue && isset($item['value_json'])) {
+                    $fieldValue = is_array($item['value_json'])
+                        ? json_encode($item['value_json'])
+                        : $item['value_json'];
+                }
+
+                $payload['field_meta_value'] = $fieldValue;
             }
 
             if (Schema::hasColumn($table, 'updated_at')) {
@@ -2784,7 +2886,39 @@ class UserListingController extends Controller
             }
         }
     }
+private function customFieldsFromRequest(Request $request): array
+{
+    $customFields = $request->input('custom_fields', []);
 
+    if (is_string($customFields)) {
+        $decoded = json_decode($customFields, true);
+        $customFields = is_array($decoded) ? $decoded : [];
+    }
+
+    return is_array($customFields) ? $customFields : [];
+}
+
+private function mediaFilePayload(MediaFile $media): array
+{
+    $path = $media->path ?? null;
+    $url = $media->url ?? null;
+
+    if (!$url && $path) {
+        $url = $this->storagePublicUrl($path);
+    }
+
+    return [
+        'id' => (int) $media->id,
+        'disk' => $media->disk ?? 'public',
+        'path' => $path,
+        'url' => $url,
+        'file_name' => $media->file_name ?? null,
+        'original_name' => $media->original_name ?? null,
+        'mime_type' => $media->mime_type ?? null,
+        'extension' => $media->extension ?? null,
+        'size' => $media->size ?? null,
+    ];
+}
     private function dynamicPostMetaTable(): ?string
     {
         foreach (
