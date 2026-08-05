@@ -7,6 +7,7 @@ use App\Models\Membership\MembershipFeature;
 use App\Models\Membership\MembershipPlan;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -37,17 +38,12 @@ class MembershipCatalogImportExportService
 
             fputcsv($handle, $columns);
 
-            if ($type === 'categories') {
-                $this->exportCategories($handle, $filters, $columns);
-            }
-
-            if ($type === 'features') {
-                $this->exportFeatures($handle, $filters, $columns);
-            }
-
-            if ($type === 'plans') {
-                $this->exportPlans($handle, $filters, $columns);
-            }
+            match ($type) {
+                'categories' => $this->exportCategories($handle, $filters),
+                'features' => $this->exportFeatures($handle, $filters),
+                'plans' => $this->exportPlans($handle, $filters),
+                default => throw new InvalidArgumentException('Invalid catalog type.'),
+            };
 
             fclose($handle);
         }, $filename, [
@@ -57,12 +53,19 @@ class MembershipCatalogImportExportService
 
     public function import(string $type, UploadedFile $file, string $mode = 'upsert'): array
     {
+        $this->config($type);
+
+        if (! in_array($mode, ['upsert', 'skip'], true)) {
+            throw new InvalidArgumentException('Invalid import mode.');
+        }
+
         $rows = $this->readImportFile($file);
 
         $result = [
             'total_rows' => count($rows),
             'created' => 0,
             'updated' => 0,
+            'unchanged' => 0,
             'skipped' => 0,
             'failed' => 0,
             'errors' => [],
@@ -85,23 +88,23 @@ class MembershipCatalogImportExportService
 
                 if ($validator->fails()) {
                     $result['failed']++;
-                    $result['errors'][] = [
-                        'row' => $rowNumber,
-                        'errors' => $validator->errors()->toArray(),
-                    ];
+
+                    if (count($result['errors']) < 50) {
+                        $result['errors'][] = [
+                            'row' => $rowNumber,
+                            'errors' => $validator->errors()->toArray(),
+                        ];
+                    }
+
                     continue;
                 }
 
-                $record = match ($type) {
+                match ($type) {
                     'categories' => $this->saveCategory($data, $mode, $result),
                     'features' => $this->saveFeature($data, $mode, $result),
                     'plans' => $this->savePlan($data, $mode, $result),
                     default => throw new InvalidArgumentException('Invalid catalog type.'),
                 };
-
-                if (! $record) {
-                    continue;
-                }
             } catch (\Throwable $e) {
                 $result['failed']++;
 
@@ -114,12 +117,16 @@ class MembershipCatalogImportExportService
             }
         }
 
+        if ($result['created'] > 0 || $result['updated'] > 0) {
+            $this->clearCatalogCaches();
+        }
+
         return $result;
     }
 
     public function bulkDelete(string $type, array $ids): array
     {
-        return DB::transaction(function () use ($type, $ids) {
+        $result = DB::transaction(function () use ($type, $ids) {
             return match ($type) {
                 'categories' => $this->bulkDeleteCategories($ids),
                 'features' => $this->bulkDeleteFeatures($ids),
@@ -127,9 +134,13 @@ class MembershipCatalogImportExportService
                 default => throw new InvalidArgumentException('Invalid catalog type.'),
             };
         });
+
+        $this->clearCatalogCaches();
+
+        return $result;
     }
 
-    private function exportCategories($handle, array $filters, array $columns): void
+    private function exportCategories($handle, array $filters): void
     {
         $query = MembershipCategory::query()
             ->select($this->availableColumns('membership_categories', [
@@ -142,16 +153,16 @@ class MembershipCatalogImportExportService
 
         $query->orderBy('name')
             ->cursor()
-            ->each(function ($record) use ($handle, $columns) {
+            ->each(function ($record) use ($handle) {
                 fputcsv($handle, [
                     $record->name,
                     $record->description,
-                    $this->exportValue($record->status),
+                    $this->statusLabel($record->status),
                 ]);
             });
     }
 
-    private function exportFeatures($handle, array $filters, array $columns): void
+    private function exportFeatures($handle, array $filters): void
     {
         $query = MembershipFeature::query()
             ->select($this->availableColumns('membership_features', [
@@ -165,17 +176,17 @@ class MembershipCatalogImportExportService
 
         $query->orderBy('name')
             ->cursor()
-            ->each(function ($record) use ($handle, $columns) {
+            ->each(function ($record) use ($handle) {
                 fputcsv($handle, [
                     $record->name,
                     $record->description,
                     $record->feature_type,
-                    $this->exportValue($record->status),
+                    $this->statusLabel($record->status),
                 ]);
             });
     }
 
-    private function exportPlans($handle, array $filters, array $columns): void
+    private function exportPlans($handle, array $filters): void
     {
         $categoryColumn = $this->planCategoryColumn();
 
@@ -213,8 +224,8 @@ class MembershipCatalogImportExportService
                     $record->duration ?? $record->duration_days,
                     $record->duration_type,
                     $record->trial_days,
-                    $this->exportValue($record->is_popular),
-                    $this->exportValue($record->status),
+                    $this->yesNoLabel($record->is_popular),
+                    $this->statusLabel($record->status),
                 ]);
             });
     }
@@ -232,8 +243,16 @@ class MembershipCatalogImportExportService
         }
 
         if ($existing) {
-            $existing->update($data);
+            $existing->fill($data);
+
+            if (! $existing->isDirty()) {
+                $result['unchanged']++;
+                return $existing;
+            }
+
+            $existing->save();
             $result['updated']++;
+
             return $existing;
         }
 
@@ -259,8 +278,16 @@ class MembershipCatalogImportExportService
         }
 
         if ($existing) {
-            $existing->update($data);
+            $existing->fill($data);
+
+            if (! $existing->isDirty()) {
+                $result['unchanged']++;
+                return $existing;
+            }
+
+            $existing->save();
             $result['updated']++;
+
             return $existing;
         }
 
@@ -297,8 +324,16 @@ class MembershipCatalogImportExportService
         }
 
         if ($existing) {
-            $existing->update($data);
+            $existing->fill($data);
+
+            if (! $existing->isDirty()) {
+                $result['unchanged']++;
+                return $existing;
+            }
+
+            $existing->save();
             $result['updated']++;
+
             return $existing;
         }
 
@@ -315,8 +350,8 @@ class MembershipCatalogImportExportService
     {
         return [
             'name' => trim((string) ($row['name'] ?? '')),
-            'description' => $row['description'] ?? null,
-            'status' => $this->toBoolean($row['status'] ?? true),
+            'description' => $this->nullableString($row['description'] ?? null),
+            'status' => $this->toBoolean($row['status'] ?? 'Active'),
         ];
     }
 
@@ -324,15 +359,24 @@ class MembershipCatalogImportExportService
     {
         return [
             'name' => trim((string) ($row['name'] ?? '')),
-            'description' => $row['description'] ?? null,
-            'feature_type' => $row['feature_type'] ?? 'boolean',
-            'status' => $this->toBoolean($row['status'] ?? true),
+            'description' => $this->nullableString($row['description'] ?? null),
+            'feature_type' => strtolower(trim((string) ($row['feature_type'] ?? 'boolean'))),
+            'status' => $this->toBoolean($row['status'] ?? 'Active'),
         ];
     }
 
     private function preparePlanImportData(array $row): array
     {
-        $categoryName = trim((string) ($row['category_name'] ?? $row['category'] ?? ''));
+        $categoryName = trim((string) (
+            $row['category_name']
+            ?? $row['category']
+            ?? $row['category_slug']
+            ?? ''
+        ));
+
+        if ($categoryName === '') {
+            throw new InvalidArgumentException('Category name is required.');
+        }
 
         $category = MembershipCategory::query()
             ->where('name', $categoryName)
@@ -344,30 +388,31 @@ class MembershipCatalogImportExportService
         }
 
         $categoryColumn = $this->planCategoryColumn();
+        $duration = (int) ($row['duration'] ?? $row['duration_days'] ?? 1);
 
         $data = [
             $categoryColumn => $category->id,
             'name' => trim((string) ($row['name'] ?? '')),
-            'short_description' => $row['short_description'] ?? null,
-            'description' => $row['description'] ?? null,
+            'short_description' => $this->nullableString($row['short_description'] ?? null),
+            'description' => $this->nullableString($row['description'] ?? null),
             'currency' => strtoupper((string) ($row['currency'] ?? 'INR')),
             'price' => $this->toMoney($row['price'] ?? 0),
             'sale_price' => $this->nullableMoney($row['sale_price'] ?? null),
             'trial_days' => (int) ($row['trial_days'] ?? 0),
-            'is_popular' => $this->toBoolean($row['is_popular'] ?? false),
-            'status' => $this->toBoolean($row['status'] ?? true),
+            'is_popular' => $this->toBoolean($row['is_popular'] ?? 'No'),
+            'status' => $this->toBoolean($row['status'] ?? 'Active'),
         ];
 
         if (Schema::hasColumn('membership_plans', 'duration')) {
-            $data['duration'] = (int) ($row['duration'] ?? $row['duration_days'] ?? 1);
+            $data['duration'] = $duration;
         }
 
         if (Schema::hasColumn('membership_plans', 'duration_days')) {
-            $data['duration_days'] = (int) ($row['duration'] ?? $row['duration_days'] ?? 1);
+            $data['duration_days'] = $duration;
         }
 
         if (Schema::hasColumn('membership_plans', 'duration_type')) {
-            $data['duration_type'] = $row['duration_type'] ?? 'days';
+            $data['duration_type'] = strtolower(trim((string) ($row['duration_type'] ?? 'days')));
         }
 
         return $data;
@@ -490,7 +535,7 @@ class MembershipCatalogImportExportService
             && $filters['status'] !== null
             && $filters['status'] !== '',
             function ($q) use ($filters) {
-                $q->where('status', filter_var($filters['status'], FILTER_VALIDATE_BOOLEAN));
+                $q->where('status', $this->toBoolean($filters['status']));
             }
         );
 
@@ -500,8 +545,14 @@ class MembershipCatalogImportExportService
             $q->where(function ($subQuery) use ($search) {
                 $subQuery->where('name', 'like', "%{$search}%");
 
-                if ($subQuery->getModel() && Schema::hasColumn($subQuery->getModel()->getTable(), 'description')) {
+                $table = $subQuery->getModel()?->getTable();
+
+                if ($table && Schema::hasColumn($table, 'description')) {
                     $subQuery->orWhere('description', 'like', "%{$search}%");
+                }
+
+                if ($table && Schema::hasColumn($table, 'short_description')) {
+                    $subQuery->orWhere('short_description', 'like', "%{$search}%");
                 }
             });
         });
@@ -551,7 +602,8 @@ class MembershipCatalogImportExportService
                 continue;
             }
 
-            $rows[] = array_combine($header, array_pad($line, count($header), null));
+            $line = array_slice(array_pad($line, count($header), null), 0, count($header));
+            $rows[] = array_combine($header, $line);
         }
 
         fclose($handle);
@@ -573,7 +625,9 @@ class MembershipCatalogImportExportService
         $normalized = [];
 
         foreach ($row as $key => $value) {
-            $normalized[$this->normalizeKey((string) $key)] = is_string($value) ? trim($value) : $value;
+            $normalized[$this->normalizeKey((string) $key)] = is_string($value)
+                ? trim($value)
+                : $value;
         }
 
         return $normalized;
@@ -601,23 +655,62 @@ class MembershipCatalogImportExportService
             return $value;
         }
 
-        return in_array(strtolower(trim((string) $value)), [
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        $value = strtolower(trim((string) $value));
+
+        if (in_array($value, [
             '1',
             'true',
             'yes',
+            'y',
             'active',
             'enabled',
+            'enable',
             'on',
-        ], true);
-    }
-
-    private function exportValue(mixed $value): mixed
-    {
-        if (is_bool($value)) {
-            return $value ? 1 : 0;
+            'popular',
+        ], true)) {
+            return true;
         }
 
-        return $value;
+        if (in_array($value, [
+            '0',
+            'false',
+            'no',
+            'n',
+            'inactive',
+            'disabled',
+            'disable',
+            'off',
+            'normal',
+        ], true)) {
+            return false;
+        }
+
+        return false;
+    }
+
+    private function statusLabel(mixed $value): string
+    {
+        return $this->toBoolean($value) ? 'Active' : 'Inactive';
+    }
+
+    private function yesNoLabel(mixed $value): string
+    {
+        return $this->toBoolean($value) ? 'Yes' : 'No';
+    }
+
+    private function nullableString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     private function toMoney(mixed $value): float
@@ -684,7 +777,7 @@ class MembershipCatalogImportExportService
                 'status' => ['nullable', 'boolean'],
             ],
             'plans' => [
-                'category_name' => ['nullable', 'string', 'max:255'],
+                $this->planCategoryColumn() => ['required', 'integer'],
                 'name' => ['required', 'string', 'max:255'],
                 'short_description' => ['nullable', 'string'],
                 'description' => ['nullable', 'string'],
@@ -704,7 +797,17 @@ class MembershipCatalogImportExportService
 
     private function availableColumns(string $table, array $columns): array
     {
-        return array_values(array_filter($columns, fn ($column) => Schema::hasColumn($table, $column)));
+        return array_values(array_filter(
+            $columns,
+            fn ($column) => Schema::hasColumn($table, $column)
+        ));
+    }
+
+    private function clearCatalogCaches(): void
+    {
+        Cache::store('redis')->forget('membership:plans:active');
+        Cache::store('redis')->forget('membership:settings');
+        Cache::store('redis')->forget('membership:admin:stats');
     }
 
     private function config(string $type): array
