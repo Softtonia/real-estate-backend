@@ -34,7 +34,7 @@ class MembershipPlanService
         return Cache::store('redis')->remember(
             'membership:plans:active',
             self::CACHE_TTL_SECONDS,
-            fn () => MembershipPlan::query()
+            fn() => MembershipPlan::query()
                 ->select([
                     'id',
                     'category_id',
@@ -96,6 +96,25 @@ class MembershipPlanService
     {
         $perPage = min(max((int) ($filters['per_page'] ?? 20), 1), 100);
 
+        $allowedSorts = [
+            'id',
+            'name',
+            'price',
+            'sale_price',
+            'duration',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ];
+
+        $sortBy = in_array(($filters['sort_by'] ?? 'created_at'), $allowedSorts, true)
+            ? $filters['sort_by']
+            : 'created_at';
+
+        $sortDirection = strtolower((string) ($filters['sort_direction'] ?? 'desc')) === 'asc'
+            ? 'asc'
+            : 'desc';
+
         return MembershipPlan::query()
             ->select([
                 'id',
@@ -125,15 +144,8 @@ class MembershipPlanService
                 'orders',
                 'memberships',
             ])
-            ->when(isset($filters['category_id']), function ($query) use ($filters) {
-                $query->where('category_id', (int) $filters['category_id']);
-            })
-            ->when(isset($filters['status']), function ($query) use ($filters) {
-                $query->where('status', filter_var($filters['status'], FILTER_VALIDATE_BOOLEAN));
-            })
-            ->when(isset($filters['is_popular']), function ($query) use ($filters) {
-                $query->where('is_popular', filter_var($filters['is_popular'], FILTER_VALIDATE_BOOLEAN));
-            })
+
+            // Search
             ->when(! empty($filters['search']), function ($query) use ($filters) {
                 $search = trim((string) $filters['search']);
 
@@ -144,7 +156,55 @@ class MembershipPlanService
                         ->orWhere('description', 'like', "%{$search}%");
                 });
             })
-            ->ordered()
+
+            // Category filter
+            ->when(! empty($filters['category_id']), function ($query) use ($filters) {
+                $query->where('category_id', (int) $filters['category_id']);
+            })
+
+            // Status filter: important fix
+            ->when(
+                array_key_exists('status', $filters)
+                    && $filters['status'] !== null
+                    && $filters['status'] !== '',
+                function ($query) use ($filters) {
+                    $query->where('status', filter_var($filters['status'], FILTER_VALIDATE_BOOLEAN));
+                }
+            )
+
+            // Popular filter
+            ->when(
+                array_key_exists('is_popular', $filters)
+                    && $filters['is_popular'] !== null
+                    && $filters['is_popular'] !== '',
+                function ($query) use ($filters) {
+                    $query->where('is_popular', filter_var($filters['is_popular'], FILTER_VALIDATE_BOOLEAN));
+                }
+            )
+
+            // Date range
+            ->when(! empty($filters['date_from']), function ($query) use ($filters) {
+                $query->whereDate('created_at', '>=', $filters['date_from']);
+            })
+            ->when(! empty($filters['date_to']), function ($query) use ($filters) {
+                $query->whereDate('created_at', '<=', $filters['date_to']);
+            })
+
+            // Price range optional
+            ->when(isset($filters['price_min']) && $filters['price_min'] !== '', function ($query) use ($filters) {
+                $query->where('price', '>=', (float) $filters['price_min']);
+            })
+            ->when(isset($filters['price_max']) && $filters['price_max'] !== '', function ($query) use ($filters) {
+                $query->where('price', '<=', (float) $filters['price_max']);
+            })
+
+            // Duration type optional
+            ->when(! empty($filters['duration_type']), function ($query) use ($filters) {
+                $query->where('duration_type', $filters['duration_type']);
+            })
+
+            ->orderBy($sortBy, $sortDirection)
+            ->orderBy('id', 'desc')
             ->paginate($perPage);
     }
 
@@ -222,14 +282,16 @@ class MembershipPlanService
 
             $payload = [];
 
-            foreach ([
-                'category_id',
-                'name',
-                'short_description',
-                'description',
-                'duration_type',
-                'metadata',
-            ] as $field) {
+            foreach (
+                [
+                    'category_id',
+                    'name',
+                    'short_description',
+                    'description',
+                    'duration_type',
+                    'metadata',
+                ] as $field
+            ) {
                 if (array_key_exists($field, $data)) {
                     $payload[$field] = $data[$field];
                 }
@@ -514,8 +576,8 @@ class MembershipPlanService
             $oldValues = $plan->roleRules()->with('role')->get()->toArray();
 
             $roleIds = collect($roleIds)
-                ->map(fn ($roleId) => (int) $roleId)
-                ->filter(fn ($roleId) => $roleId > 0)
+                ->map(fn($roleId) => (int) $roleId)
+                ->filter(fn($roleId) => $roleId > 0)
                 ->unique()
                 ->values()
                 ->all();
@@ -524,7 +586,7 @@ class MembershipPlanService
                 $validRoleIds = Role::query()
                     ->whereIn('id', $roleIds)
                     ->pluck('id')
-                    ->map(fn ($id) => (int) $id)
+                    ->map(fn($id) => (int) $id)
                     ->values()
                     ->all();
 
