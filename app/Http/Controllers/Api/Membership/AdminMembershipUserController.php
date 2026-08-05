@@ -338,7 +338,11 @@ class AdminMembershipUserController extends Controller
             $transaction = $creditService->adjustCredits(
                 user: $user,
                 creditType: $data['credit_type'],
-                newRemainingCredits: (int) $data['remaining_credits'],
+                transactionType: $data['transaction_type'] ?? 'credit',
+                quantity: isset($data['quantity']) ? (int) $data['quantity'] : null,
+                newRemainingCredits: array_key_exists('remaining_credits', $data)
+                    ? (int) $data['remaining_credits']
+                    : null,
                 reason: $data['reason'] ?? null,
                 performedBy: $this->resolveCurrentUser($request),
                 metadata: $data['metadata'] ?? []
@@ -496,6 +500,4 @@ class AdminMembershipUserController extends Controller
             return $this->serverError('Unable to fetch membership payment.', $e);
         }
     }
-
-
 }

@@ -18,6 +18,7 @@ class MembershipCreditService
         private readonly MembershipAccessService $accessService
     ) {}
 
+
     public function activeBalance(User $user, string $creditType): ?MembershipCreditBalance
     {
         $membership = $this->activeMembership($user);
@@ -280,14 +281,18 @@ class MembershipCreditService
     public function adjustCredits(
         User $user,
         string $creditType,
-        int $newRemainingCredits,
+        string $transactionType = 'credit',
+        ?int $quantity = null,
+        ?int $newRemainingCredits = null,
         ?string $reason = null,
         ?User $performedBy = null,
         array $metadata = []
     ): MembershipCreditTransaction {
-        if ($newRemainingCredits < 0) {
+        $transactionType = strtolower(trim($transactionType));
+
+        if (! in_array($transactionType, ['credit', 'debit', 'adjust', 'refund', 'expire'], true)) {
             throw ValidationException::withMessages([
-                'remaining_credits' => ['Remaining credits cannot be negative.'],
+                'transaction_type' => ['Invalid transaction type.'],
             ]);
         }
 
@@ -296,6 +301,8 @@ class MembershipCreditService
         return Cache::store('redis')->lock($lockKey, 20)->block(10, function () use (
             $user,
             $creditType,
+            $transactionType,
+            $quantity,
             $newRemainingCredits,
             $reason,
             $performedBy,
@@ -304,6 +311,8 @@ class MembershipCreditService
             return DB::transaction(function () use (
                 $user,
                 $creditType,
+                $transactionType,
+                $quantity,
                 $newRemainingCredits,
                 $reason,
                 $performedBy,
@@ -311,17 +320,36 @@ class MembershipCreditService
             ) {
                 $membership = $this->activeMembershipForUpdate($user);
 
-                if (!$membership) {
+                if (! $membership) {
                     throw ValidationException::withMessages([
                         'membership' => ['Active membership is required.'],
                     ]);
                 }
 
-                $balance = $this->balanceForUpdate($membership, $creditType);
+                $balance = MembershipCreditBalance::query()
+                    ->where('user_id', $user->id)
+                    ->where('membership_id', $membership->id)
+                    ->where('credit_type', $creditType)
+                    ->lockForUpdate()
+                    ->first();
 
-                if (!$balance) {
-                    throw ValidationException::withMessages([
-                        'credit_type' => ["Credit balance not found for {$creditType}."],
+                if (! $balance) {
+                    if (in_array($transactionType, ['debit', 'expire'], true)) {
+                        throw ValidationException::withMessages([
+                            'credit_type' => ["Credit balance not found for {$creditType}."],
+                        ]);
+                    }
+
+                    $balance = MembershipCreditBalance::query()->create([
+                        'user_id' => $user->id,
+                        'membership_id' => $membership->id,
+                        'credit_type' => $creditType,
+                        'is_unlimited' => false,
+                        'total_credits' => 0,
+                        'used_credits' => 0,
+                        'remaining_credits' => 0,
+                        'status' => true,
+                        'expires_at' => $membership->expiry_date,
                     ]);
                 }
 
@@ -331,15 +359,90 @@ class MembershipCreditService
                     ]);
                 }
 
-                $balanceBefore = (int) $balance->remaining_credits;
-                $difference = $newRemainingCredits - $balanceBefore;
+                $beforeRemaining = (int) ($balance->remaining_credits ?? 0);
+                $beforeUsed = (int) ($balance->used_credits ?? 0);
+                $beforeTotal = (int) ($balance->total_credits ?? 0);
+
+                $quantity = $quantity !== null ? (int) $quantity : 0;
+
+                $afterRemaining = $beforeRemaining;
+                $afterUsed = $beforeUsed;
+                $afterTotal = $beforeTotal;
+
+                if ($transactionType === 'credit') {
+                    if ($quantity <= 0) {
+                        throw ValidationException::withMessages([
+                            'quantity' => ['Quantity must be greater than zero.'],
+                        ]);
+                    }
+
+                    $afterRemaining = $beforeRemaining + $quantity;
+                    $afterTotal = $beforeTotal + $quantity;
+                }
+
+                if ($transactionType === 'debit') {
+                    if ($quantity <= 0) {
+                        throw ValidationException::withMessages([
+                            'quantity' => ['Quantity must be greater than zero.'],
+                        ]);
+                    }
+
+                    if ($beforeRemaining < $quantity) {
+                        throw ValidationException::withMessages([
+                            'quantity' => ['Insufficient remaining credits.'],
+                        ]);
+                    }
+
+                    $afterRemaining = $beforeRemaining - $quantity;
+                    $afterUsed = $beforeUsed + $quantity;
+                }
+
+                if ($transactionType === 'refund') {
+                    if ($quantity <= 0) {
+                        throw ValidationException::withMessages([
+                            'quantity' => ['Quantity must be greater than zero.'],
+                        ]);
+                    }
+
+                    $afterRemaining = $beforeRemaining + $quantity;
+                    $afterUsed = max(0, $beforeUsed - $quantity);
+                    $afterTotal = max($beforeTotal, $afterRemaining + $afterUsed);
+                }
+
+                if ($transactionType === 'expire') {
+                    if ($quantity <= 0) {
+                        throw ValidationException::withMessages([
+                            'quantity' => ['Quantity must be greater than zero.'],
+                        ]);
+                    }
+
+                    if ($beforeRemaining < $quantity) {
+                        throw ValidationException::withMessages([
+                            'quantity' => ['Expire quantity cannot be greater than remaining credits.'],
+                        ]);
+                    }
+
+                    $afterRemaining = $beforeRemaining - $quantity;
+                }
+
+                if ($transactionType === 'adjust') {
+                    if ($newRemainingCredits === null || $newRemainingCredits < 0) {
+                        throw ValidationException::withMessages([
+                            'remaining_credits' => ['Remaining credits cannot be negative.'],
+                        ]);
+                    }
+
+                    $afterRemaining = $newRemainingCredits;
+                    $quantity = abs($afterRemaining - $beforeRemaining);
+                    $afterTotal = max($beforeTotal, $beforeUsed + $afterRemaining);
+                }
 
                 $balance->update([
-                    'remaining_credits' => $newRemainingCredits,
-                    'total_credits' => max(
-                        (int) $balance->used_credits + $newRemainingCredits,
-                        (int) $balance->total_credits
-                    ),
+                    'total_credits' => $afterTotal,
+                    'used_credits' => $afterUsed,
+                    'remaining_credits' => $afterRemaining,
+                    'status' => true,
+                    'expires_at' => $membership->expiry_date,
                 ]);
 
                 $transaction = MembershipCreditTransaction::query()->create([
@@ -347,16 +450,20 @@ class MembershipCreditService
                     'membership_id' => $membership->id,
                     'balance_id' => $balance->id,
                     'credit_type' => $creditType,
-                    'transaction_type' => MembershipCreditTransaction::TYPE_ADJUST,
-                    'quantity' => abs($difference),
-                    'balance_before' => $balanceBefore,
-                    'balance_after' => $newRemainingCredits,
+                    'transaction_type' => $transactionType,
+                    'quantity' => $quantity,
+                    'balance_before' => $beforeRemaining,
+                    'balance_after' => $afterRemaining,
                     'reference_type' => 'admin_adjustment',
                     'reference_id' => $performedBy?->id,
                     'reason' => $reason ?: 'Membership credit adjusted.',
                     'performed_by' => $performedBy?->id,
                     'metadata' => array_merge($metadata, [
-                        'difference' => $difference,
+                        'admin_transaction_type' => $transactionType,
+                        'before_total_credits' => $beforeTotal,
+                        'after_total_credits' => $afterTotal,
+                        'before_used_credits' => $beforeUsed,
+                        'after_used_credits' => $afterUsed,
                     ]),
                 ]);
 

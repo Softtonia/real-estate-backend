@@ -52,7 +52,6 @@ class AdjustMembershipCreditRequest extends FormRequest
                 ]),
             ],
 
-            // Use this for credit/debit/refund/expire.
             'quantity' => [
                 'required_unless:transaction_type,adjust',
                 'nullable',
@@ -60,7 +59,6 @@ class AdjustMembershipCreditRequest extends FormRequest
                 'min:1',
             ],
 
-            // Optional. Only needed when admin wants to set exact remaining balance.
             'remaining_credits' => [
                 'required_if:transaction_type,adjust',
                 'nullable',
