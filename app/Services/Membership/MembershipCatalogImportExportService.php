@@ -243,7 +243,9 @@ class MembershipCatalogImportExportService
         }
 
         if ($existing) {
-            $existing->fill($data);
+            $data = $this->filterTableData('membership_categories', $data);
+
+            $existing->forceFill($data);
 
             if (! $existing->isDirty()) {
                 $result['unchanged']++;
@@ -259,12 +261,14 @@ class MembershipCatalogImportExportService
         $data['slug'] = $this->uniqueSlug($data['name'], MembershipCategory::class);
         $data['sort_order'] = $this->nextSortOrder('membership_categories');
 
-        $record = MembershipCategory::query()->create($data);
+        $record = MembershipCategory::query()->create(
+            $this->filterTableData('membership_categories', $data)
+        );
+
         $result['created']++;
 
         return $record;
     }
-
     private function saveFeature(array $data, string $mode, array &$result): ?MembershipFeature
     {
         $existing = MembershipFeature::query()
@@ -278,7 +282,9 @@ class MembershipCatalogImportExportService
         }
 
         if ($existing) {
-            $existing->fill($data);
+            $data = $this->filterTableData('membership_features', $data);
+
+            $existing->forceFill($data);
 
             if (! $existing->isDirty()) {
                 $result['unchanged']++;
@@ -294,7 +300,10 @@ class MembershipCatalogImportExportService
         $data['slug'] = $this->uniqueSlug($data['name'], MembershipFeature::class);
         $data['sort_order'] = $this->nextSortOrder('membership_features');
 
-        $record = MembershipFeature::query()->create($data);
+        $record = MembershipFeature::query()->create(
+            $this->filterTableData('membership_features', $data)
+        );
+
         $result['created']++;
 
         return $record;
@@ -324,7 +333,9 @@ class MembershipCatalogImportExportService
         }
 
         if ($existing) {
-            $existing->fill($data);
+            $data = $this->filterTableData('membership_plans', $data);
+
+            $existing->forceFill($data);
 
             if (! $existing->isDirty()) {
                 $result['unchanged']++;
@@ -340,7 +351,10 @@ class MembershipCatalogImportExportService
         $data['slug'] = $this->uniqueSlug($data['name'], MembershipPlan::class);
         $data['sort_order'] = $this->nextSortOrder('membership_plans');
 
-        $record = MembershipPlan::query()->create($data);
+        $record = MembershipPlan::query()->create(
+            $this->filterTableData('membership_plans', $data)
+        );
+
         $result['created']++;
 
         return $record;
@@ -354,7 +368,12 @@ class MembershipCatalogImportExportService
             'status' => $this->toBoolean($row['status'] ?? 'Active'),
         ];
     }
-
+    private function filterTableData(string $table, array $data): array
+    {
+        return collect($data)
+            ->filter(fn($value, $column) => Schema::hasColumn($table, $column))
+            ->toArray();
+    }
     private function prepareFeatureImportData(array $row): array
     {
         return [
@@ -532,8 +551,8 @@ class MembershipCatalogImportExportService
     {
         $query->when(
             array_key_exists('status', $filters)
-            && $filters['status'] !== null
-            && $filters['status'] !== '',
+                && $filters['status'] !== null
+                && $filters['status'] !== '',
             function ($q) use ($filters) {
                 $q->where('status', $this->toBoolean($filters['status']));
             }
@@ -593,7 +612,7 @@ class MembershipCatalogImportExportService
             return [];
         }
 
-        $header = array_map(fn ($value) => $this->normalizeKey((string) $value), $header);
+        $header = array_map(fn($value) => $this->normalizeKey((string) $value), $header);
 
         $rows = [];
 
@@ -799,7 +818,7 @@ class MembershipCatalogImportExportService
     {
         return array_values(array_filter(
             $columns,
-            fn ($column) => Schema::hasColumn($table, $column)
+            fn($column) => Schema::hasColumn($table, $column)
         ));
     }
 
