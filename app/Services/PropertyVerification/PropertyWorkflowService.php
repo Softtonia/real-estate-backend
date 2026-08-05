@@ -81,10 +81,11 @@ class PropertyWorkflowService
                     ],
                 ]);
             }
+
             $this->setPropertyWorkflowState(
                 $lockedProperty,
                 status: 'draft',
-                liveStatus: PropertyWorkflowStatus::RESUBMISSION,
+                liveStatus: PropertyWorkflowStatus::UNDER_REVIEW,
                 clearPublishedAt: true
             );
 
@@ -259,9 +260,9 @@ class PropertyWorkflowService
 
             $this->setPropertyWorkflowState(
                 $lockedProperty,
-                status: $wasLive ? 'published' : 'draft',
+                status: 'draft',
                 liveStatus: PropertyWorkflowStatus::RESUBMISSION,
-                clearPublishedAt: !$wasLive
+                clearPublishedAt: true
             );
 
             $this->clearRejectionMetadata($lockedProperty);
