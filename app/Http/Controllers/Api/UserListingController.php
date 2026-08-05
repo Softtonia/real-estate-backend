@@ -840,14 +840,6 @@ class UserListingController extends Controller
                     }
                 }
 
-                if ($request->exists('status')) {
-                    $this->putIfColumnExists(
-                        $payload,
-                        'status',
-                        $request->input('status')
-                            ?: ($ownedListing->status ?? 'draft')
-                    );
-                }
 
                 if (
                     $request->exists('slug')
@@ -878,18 +870,6 @@ class UserListingController extends Controller
                     'update'
                 );
 
-                if (
-                    Schema::hasColumn(
-                        'dynamic_posts',
-                        'published_at'
-                    )
-                    && $request->exists('status')
-                ) {
-                    $ownedListing->published_at =
-                        $request->input('status') === 'published'
-                        ? ($ownedListing->published_at ?: now())
-                        : null;
-                }
 
                 $featuredImageFile = $this->featuredImageFile(
                     $request
@@ -1936,6 +1916,11 @@ class UserListingController extends Controller
 
     private function applyReviewMetadataToListing(DynamicPost $listing, string $action): void
     {
+        /*
+     * First update ke time original approved status save karo.
+     * Agar listing already under_review hai aur user dobara edit kare,
+     * previous status overwrite nahi hona chahiye.
+     */
         if ($action !== 'create') {
             if (
                 Schema::hasColumn('dynamic_posts', 'review_previous_status')
@@ -1960,8 +1945,32 @@ class UserListingController extends Controller
             $listing->review_requested_at = now();
         }
 
+        if (Schema::hasColumn('dynamic_posts', 'reviewed_at')) {
+            $listing->reviewed_at = null;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'reviewed_by')) {
+            $listing->reviewed_by = null;
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'rejection_reason')) {
+            $listing->rejection_reason = null;
+        }
+
+        /*
+     * User-side create/update ke baad direct published nahi rahega.
+     * Admin approve karega tab published + approve hoga.
+     */
+        if (Schema::hasColumn('dynamic_posts', 'status')) {
+            $listing->status = 'draft';
+        }
+
         if (Schema::hasColumn('dynamic_posts', 'live_status')) {
             $listing->live_status = 'under_review';
+        }
+
+        if (Schema::hasColumn('dynamic_posts', 'published_at')) {
+            $listing->published_at = null;
         }
     }
 
