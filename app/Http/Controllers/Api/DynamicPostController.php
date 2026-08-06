@@ -35,6 +35,7 @@ use App\Models\Country;
 use App\Models\State;
 use App\Models\City;
 use App\Services\Membership\MembershipCreditService;
+use App\Models\PropertyListingRevision;
 
 class DynamicPostController extends Controller
 {
@@ -44,6 +45,7 @@ class DynamicPostController extends Controller
         'taxonomyTerms.taxonomy',
         'meta.customField.options',
         'meta.customField.repeaters.options',
+        'latestVerificationRevision',
     ];
 
     private array $singlePostRelations = [
@@ -53,6 +55,7 @@ class DynamicPostController extends Controller
         'taxonomyTerms.taxonomy',
         'meta.customField.options',
         'meta.customField.repeaters.options',
+        'latestVerificationRevision',
     ];
 
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
@@ -469,14 +472,7 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $post->load([
-                'postType',
-                'parent:id,post_type_id,title,slug,status,live_status',
-                'children:id,post_type_id,parent_id,title,slug,status,live_status',
-                'taxonomyTerms.taxonomy',
-                'meta.customField.options',
-                'meta.customField.repeaters.options',
-            ]);
+            $post->load($this->singlePostRelations);
 
             return $this->successResponse(
                 'Dynamic post fetched successfully.',
@@ -4732,10 +4728,91 @@ class DynamicPostController extends Controller
             'taxonomyTerms.taxonomy',
             'meta.customField.options',
             'meta.customField.repeaters.options',
+            'latestVerificationRevision',
         ]);
 
         $data = $post->toArray();
+        $latestRevision = $post->latestVerificationRevision;
 
+        $workflowStatus = $latestRevision?->status
+            ?: $this->workflowStatusFromLegacy(
+                $post->status ?? null,
+                $post->live_status ?? null
+            );
+
+        $data['workflow_status'] = $workflowStatus;
+        $data['verification_status'] = $workflowStatus;
+
+        $data['review_status_label'] = $this->reviewStatusLabel(
+            $workflowStatus
+        );
+
+        $data['is_under_review'] = in_array(
+            $workflowStatus,
+            [
+                'under_review',
+                'resubmission',
+                'assigned',
+                'in_verification',
+                'submit',
+            ],
+            true
+        );
+
+        $data['is_active'] =
+            ($post->status ?? null) === 'published'
+            && ($post->live_status ?? null) === 'approve'
+            && in_array($workflowStatus, ['approved', 'approve'], true);
+
+        $data['is_rejected'] = in_array(
+            $workflowStatus,
+            ['rejected', 'reject', 'disapprove'],
+            true
+        );
+
+        $data['latest_verification_revision'] = $latestRevision
+            ? [
+                'id' => (int) $latestRevision->id,
+                'dynamic_post_id' => (int) $latestRevision->dynamic_post_id,
+                'version' => (int) $latestRevision->version,
+                'source' => $latestRevision->source,
+                'status' => $latestRevision->status,
+
+                'submitted_by' => $latestRevision->submitted_by
+                    ? (int) $latestRevision->submitted_by
+                    : null,
+
+                'assigned_to' => $latestRevision->assigned_to
+                    ? (int) $latestRevision->assigned_to
+                    : null,
+
+                'assigned_by' => $latestRevision->assigned_by
+                    ? (int) $latestRevision->assigned_by
+                    : null,
+
+                'decided_by' => $latestRevision->decided_by
+                    ? (int) $latestRevision->decided_by
+                    : null,
+
+                'submitted_at' => optional(
+                    $latestRevision->submitted_at
+                )->toISOString(),
+
+                'assigned_at' => optional(
+                    $latestRevision->assigned_at
+                )->toISOString(),
+
+                'verification_started_at' => optional(
+                    $latestRevision->verification_started_at
+                )->toISOString(),
+
+                'decided_at' => optional(
+                    $latestRevision->decided_at
+                )->toISOString(),
+
+                'rejection_reason' => $latestRevision->rejection_reason,
+            ]
+            : null;
         $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
         $data['display_id'] = $post->listing_code ?? null;
 
@@ -4777,7 +4854,51 @@ class DynamicPostController extends Controller
 
         return $data;
     }
+    private function workflowStatusFromLegacy(
+        ?string $status,
+        ?string $liveStatus
+    ): string {
+        if (
+            $status === 'published'
+            && $liveStatus === 'approve'
+        ) {
+            return 'approved';
+        }
 
+        if (in_array(
+            $liveStatus,
+            ['reject', 'disapprove'],
+            true
+        )) {
+            return 'rejected';
+        }
+
+        if (in_array(
+            $liveStatus,
+            ['under_review', 'submit'],
+            true
+        )) {
+            return 'under_review';
+        }
+
+        return 'pending';
+    }
+
+    private function reviewStatusLabel(?string $status): string
+    {
+        return match ($status) {
+            'approve', 'approved' => 'Approved',
+            'reject', 'rejected' => 'Rejected',
+            'disapprove' => 'Disapproved',
+            'under_review' => 'Under Review',
+            'resubmission' => 'Resubmitted',
+            'assigned' => 'Assigned',
+            'in_verification' => 'In Verification',
+            'modify_review' => 'Modification Required',
+            'submit' => 'Submitted',
+            default => 'Pending',
+        };
+    }
     private function formatMediaFileById(null|int|string $mediaId): ?array
     {
         if (empty($mediaId)) {
