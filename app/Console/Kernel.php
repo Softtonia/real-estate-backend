@@ -14,6 +14,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\ProcessMembershipReminderNotificationsCommand::class,
         \App\Console\Commands\MembershipHealthCheckCommand::class,
         ProcessScheduledNotificationsCommand::class,
+        \App\Console\Commands\DispatchExpiredSoldPropertyVisibilityJobs::class
     ];
     /**
      * Define the application's command schedule.
@@ -56,6 +57,11 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/notification-scheduler.log'));
+        $schedule
+            ->command('property-availability:dispatch-expired-sold')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->onOneServer();
     }
 
     /**

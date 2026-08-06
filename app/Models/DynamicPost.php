@@ -7,6 +7,10 @@ use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Models\PropertyListingRevision;
+use App\Enums\PropertyAvailabilityStatus;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DynamicPost extends Model
 {
@@ -49,6 +53,10 @@ class DynamicPost extends Model
         'state_id' => 'integer',
         'city_id' => 'integer',
         'area_locality' => 'string',
+        'availability_changed_at' => 'datetime',
+        'availability_public_until' => 'datetime',
+        'availability_hidden_at' => 'datetime',
+        'sold_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -383,5 +391,28 @@ class DynamicPost extends Model
             PropertyListingRevision::class,
             'dynamic_post_id'
         )->latestOfMany('version');
+    }
+    public function availabilityChangedBy(): BelongsTo
+    {
+        return $this->belongsTo(
+            User::class,
+            'availability_changed_by'
+        );
+    }
+
+    public function soldBy(): BelongsTo
+    {
+        return $this->belongsTo(
+            User::class,
+            'sold_by'
+        );
+    }
+
+    public function availabilityHistories(): HasMany
+    {
+        return $this->hasMany(
+            PropertyAvailabilityHistory::class,
+            'dynamic_post_id'
+        );
     }
 }

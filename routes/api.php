@@ -120,6 +120,7 @@ use App\Http\Controllers\Api\Notification\UserNotificationDeviceController;
 use App\Http\Controllers\Api\Notification\UserNotificationTopicController;
 use App\Http\Controllers\Api\PageBuilder\DynamicFieldApiController;
 use App\Http\Controllers\Api\PageBuilder\WidgetApiController;
+use App\Http\Controllers\Api\PropertyAvailabilityController;
 use App\Http\Controllers\Api\PropertyVerificationController;
 use App\Http\Controllers\Api\UserProfileController;
 use App\Http\Controllers\Api\UserListingController;
@@ -922,7 +923,34 @@ Route::post('/business-enquiries', [BusinessEnquiryController::class, 'store'])-
 Route::middleware(['throttle:60,1', 'admin.token'])->get('/business-enquiries/{id}', [BusinessEnquiryController::class, 'show']);
 Route::middleware(['throttle:60,1', 'admin.token'])->delete('/business-enquiries/{id}', [BusinessEnquiryController::class, 'destroy']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('/business-enquiries/bulk-delete', [BusinessEnquiryController::class, 'bulkDelete']);
+Route::prefix('admin')
+    ->middleware([
+        'validate.api.client',
+        'admin.token',
+    ])
+    ->group(function () {
+        Route::patch(
+            'property-listings/{property}/availability',
+            [
+                PropertyAvailabilityController::class,
+                'adminUpdate',
+            ]
+        )->middleware([
+            'permission.check:property_availability,update',
+            'throttle:property-availability-admin',
+        ]);
 
+        Route::get(
+            'property-listings/{property}/availability-history',
+            [
+                PropertyAvailabilityController::class,
+                'adminHistory',
+            ]
+        )->middleware([
+            'permission.check:property_availability,history',
+            'throttle:property-availability-admin',
+        ]);
+    });
 Route::middleware(['admin.token'])
     ->prefix('admin/kyc')
     ->group(function () {
@@ -2176,5 +2204,28 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         });
     Route::get('membership/me/access', [MembershipAccessController::class, 'me'])
         ->middleware('throttle:membership-user');
+});
+Route::middleware([
+    'validate.api.client',
+])->group(function () {
+    Route::patch(
+        'user-listings/{property}/availability',
+        [
+            PropertyAvailabilityController::class,
+            'ownerUpdate',
+        ]
+    )->middleware(
+        'throttle:property-availability-owner'
+    );
+
+    Route::get(
+        'user-listings/{property}/availability-history',
+        [
+            PropertyAvailabilityController::class,
+            'ownerHistory',
+        ]
+    )->middleware(
+        'throttle:property-availability-owner'
+    );
 });
 Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);

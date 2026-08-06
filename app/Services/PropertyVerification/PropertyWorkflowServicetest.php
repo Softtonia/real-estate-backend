@@ -8,7 +8,6 @@ use App\Models\PropertyListingRevision;
 use App\Models\PropertyVerificationEvent;
 use App\Models\User;
 use App\Notifications\PropertyWorkflowNotification;
-use App\Services\PropertyAvailability\PropertyAvailabilityService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -31,8 +30,7 @@ class PropertyWorkflowService
     ];
 
     public function __construct(
-        private readonly PropertySnapshotService $snapshots,
-        private readonly PropertyAvailabilityService $availability
+        private readonly PropertySnapshotService $snapshots
     ) {}
 
     public function assertCanSubmitProperty(User $user): void
@@ -582,16 +580,6 @@ class PropertyWorkflowService
                 'rejection_reason' => null,
             ])->save();
 
-            /*
-             * Availability reactivation is finalized only after
-             * the verification revision is approved.
-             */
-            $this->availability->approvePendingReactivation(
-                property: $lockedProperty,
-                revision: $revision,
-                actor: $actor
-            );
-
             $this->recordEvent(
                 property: $lockedProperty,
                 revision: $revision,
@@ -705,17 +693,6 @@ class PropertyWorkflowService
                 'decided_at' => now(),
                 'rejection_reason' => $reason,
             ])->save();
-
-            /*
-             * On reactivation rejection, keep the previous sold/rented/
-             * off-market state and clear only the pending Available request.
-             */
-            $this->availability->rejectPendingReactivation(
-                property: $lockedProperty,
-                revision: $revision,
-                actor: $actor,
-                reason: $reason
-            );
 
             /*
          * Important:
