@@ -624,6 +624,10 @@ class PropertyWorkflowService
         User $actor,
         string $reason
     ): PropertyListingRevision {
+        /*
+     * Admin can reject without assignment.
+     * Non-admin verifier must be valid + assigned.
+     */
         $this->assertCanActOnVerification($actor);
 
         $reason = trim($reason);
@@ -674,6 +678,10 @@ class PropertyWorkflowService
                 ]);
             }
 
+            /*
+         * Admin bypasses assignment.
+         * Company/verifier must be assigned.
+         */
             $this->ensureActorCanWorkOnRevision($revision, $actor);
 
             $fromStatus = $revision->status;
@@ -681,51 +689,35 @@ class PropertyWorkflowService
             $revision->forceFill([
                 'status' => PropertyWorkflowStatus::REJECTED,
                 'verification_started_at' => $revision->verification_started_at ?: now(),
-                'decided_by' => $actor->id,
+                'decided_by' => (int) $actor->id,
                 'decided_at' => now(),
                 'rejection_reason' => $reason,
             ])->save();
 
-            if (
-                $revision->source === 'live_update'
-                && is_array($revision->baseline_payload)
-                && !empty($revision->baseline_payload)
-            ) {
-                $lockedProperty = $this->snapshots->restore(
-                    $lockedProperty,
-                    $revision->baseline_payload
-                );
+            /*
+         * Important:
+         * Do not restore old live version.
+         * Your required final status:
+         * dynamic_posts.status = draft
+         * dynamic_posts.live_status = reject
+         */
+            $this->setPropertyWorkflowState(
+                $lockedProperty,
+                status: 'draft',
+                liveStatus: PropertyWorkflowStatus::REJECTED,
+                clearPublishedAt: true
+            );
 
-                $this->setPropertyWorkflowState(
-                    $lockedProperty,
-                    status: 'published',
-                    liveStatus: PropertyWorkflowStatus::LIVE,
-                    publishNow: true
-                );
+            $this->setRejectionMetadata(
+                $lockedProperty,
+                $actor,
+                $reason
+            );
 
-                $this->recordEvent(
-                    property: $lockedProperty,
-                    revision: $revision,
-                    actor: $actor,
-                    event: 'previous_live_version_restored',
-                    fromStatus: $fromStatus,
-                    toStatus: PropertyWorkflowStatus::LIVE,
-                    message: 'Rejected changes were discarded and previous approved version was restored.'
-                );
-            } else {
-                $this->setPropertyWorkflowState(
-                    $lockedProperty,
-                    status: 'draft',
-                    liveStatus: PropertyWorkflowStatus::REJECTED,
-                    clearPublishedAt: true
-                );
-
-                $this->setRejectionMetadata(
-                    $lockedProperty,
-                    $actor,
-                    $reason
-                );
-            }
+            $this->markPropertyReviewed(
+                $lockedProperty,
+                $actor
+            );
 
             $this->recordEvent(
                 property: $lockedProperty,
@@ -1479,17 +1471,10 @@ class PropertyWorkflowService
     }
     private function assertCanActOnVerification(User $actor): void
     {
-        /*
-     * Admin can start/approve/reject without being assigned
-     * and without becoming assigned.
-     */
         if ($this->isSystemAdmin($actor)) {
             return;
         }
 
-        /*
-     * Non-admin verifier must pass verifier eligibility.
-     */
         $this->assertVerifier($actor);
     }
 }
