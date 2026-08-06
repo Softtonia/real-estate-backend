@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\PropertyListingRevision;
 
 class DynamicPost extends Model
 {
@@ -374,5 +376,12 @@ class DynamicPost extends Model
             \App\Models\PropertyVerificationEvent::class,
             'dynamic_post_id'
         )->orderBy('created_at');
+    }
+    public function latestVerificationRevision(): HasOne
+    {
+        return $this->hasOne(
+            PropertyListingRevision::class,
+            'dynamic_post_id'
+        )->latestOfMany('version');
     }
 }

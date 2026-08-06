@@ -1230,6 +1230,7 @@ class UserListingController extends Controller
             'taxonomyTerms.taxonomy',
             'meta.customField.options',
             'meta.customField.repeaters.options',
+            'latestVerificationRevision:id,dynamic_post_id,version,source,status,submitted_by,submitted_at,assigned_to,assigned_by,assigned_at,verification_started_at,decided_by,decided_at,rejection_reason',
         ];
     }
 
@@ -1357,15 +1358,58 @@ class UserListingController extends Controller
         $data['display_id'] = $listing->listing_code ?? null;
         $data['property_listing_id'] = $listing->listing_code ?? null;
 
+        $latestRevision = $listing->latestVerificationRevision;
+
+        $workflowStatus = $latestRevision?->status
+            ?: $this->workflowStatusFromLegacy(
+                $listing->status ?? null,
+                $listing->live_status ?? null
+            );
+
+        $data['workflow_status'] = $workflowStatus;
+        $data['verification_status'] = $workflowStatus;
+
         $data['review_status_label'] = $this->reviewStatusLabel(
-            $listing->live_status ?? null
+            $workflowStatus
         );
+
+        $data['latest_verification_revision'] = $latestRevision
+            ? [
+                'id' => (int) $latestRevision->id,
+                'version' => (int) $latestRevision->version,
+                'source' => $latestRevision->source,
+                'status' => $latestRevision->status,
+                'assigned_to' => $latestRevision->assigned_to
+                    ? (int) $latestRevision->assigned_to
+                    : null,
+                'assigned_by' => $latestRevision->assigned_by
+                    ? (int) $latestRevision->assigned_by
+                    : null,
+                'submitted_by' => $latestRevision->submitted_by
+                    ? (int) $latestRevision->submitted_by
+                    : null,
+                'decided_by' => $latestRevision->decided_by
+                    ? (int) $latestRevision->decided_by
+                    : null,
+                'submitted_at' => optional($latestRevision->submitted_at)->toISOString(),
+                'assigned_at' => optional($latestRevision->assigned_at)->toISOString(),
+                'verification_started_at' => optional($latestRevision->verification_started_at)->toISOString(),
+                'decided_at' => optional($latestRevision->decided_at)->toISOString(),
+                'rejection_reason' => $latestRevision->rejection_reason,
+            ]
+            : null;
 
         $data['pending_action'] = $this->pendingReviewAction($listing);
 
         $data['is_under_review'] = in_array(
-            $listing->live_status,
-            ['under_review', 'submit'],
+            $workflowStatus,
+            [
+                'under_review',
+                'resubmission',
+                'assigned',
+                'in_verification',
+                'submit',
+            ],
             true
         );
 
@@ -1792,17 +1836,38 @@ class UserListingController extends Controller
             ->toArray();
     }
 
-    private function reviewStatusLabel(?string $liveStatus): string
+    private function reviewStatusLabel(?string $status): string
     {
-        return match ($liveStatus) {
-            'approve' => 'Approved',
-            'reject' => 'Rejected',
+        return match ($status) {
+            'approve', 'approved' => 'Approved',
+            'reject', 'rejected' => 'Rejected',
             'disapprove' => 'Disapproved',
             'under_review' => 'Under Review',
+            'resubmission' => 'Resubmitted',
+            'assigned' => 'Assigned',
+            'in_verification' => 'In Verification',
             'modify_review' => 'Modification Required',
             'submit' => 'Submitted',
             default => 'Pending',
         };
+    }
+    private function workflowStatusFromLegacy(
+        ?string $status,
+        ?string $liveStatus
+    ): string {
+        if ($liveStatus === 'approve' && $status === 'published') {
+            return 'approved';
+        }
+
+        if (in_array($liveStatus, ['reject', 'disapprove'], true)) {
+            return 'rejected';
+        }
+
+        if (in_array($liveStatus, ['under_review', 'submit'], true)) {
+            return 'under_review';
+        }
+
+        return 'pending';
     }
 
     private function applyExpiredListingFilter($query): bool
@@ -2886,39 +2951,39 @@ class UserListingController extends Controller
             }
         }
     }
-private function customFieldsFromRequest(Request $request): array
-{
-    $customFields = $request->input('custom_fields', []);
+    private function customFieldsFromRequest(Request $request): array
+    {
+        $customFields = $request->input('custom_fields', []);
 
-    if (is_string($customFields)) {
-        $decoded = json_decode($customFields, true);
-        $customFields = is_array($decoded) ? $decoded : [];
+        if (is_string($customFields)) {
+            $decoded = json_decode($customFields, true);
+            $customFields = is_array($decoded) ? $decoded : [];
+        }
+
+        return is_array($customFields) ? $customFields : [];
     }
 
-    return is_array($customFields) ? $customFields : [];
-}
+    private function mediaFilePayload(MediaFile $media): array
+    {
+        $path = $media->path ?? null;
+        $url = $media->url ?? null;
 
-private function mediaFilePayload(MediaFile $media): array
-{
-    $path = $media->path ?? null;
-    $url = $media->url ?? null;
+        if (!$url && $path) {
+            $url = $this->storagePublicUrl($path);
+        }
 
-    if (!$url && $path) {
-        $url = $this->storagePublicUrl($path);
+        return [
+            'id' => (int) $media->id,
+            'disk' => $media->disk ?? 'public',
+            'path' => $path,
+            'url' => $url,
+            'file_name' => $media->file_name ?? null,
+            'original_name' => $media->original_name ?? null,
+            'mime_type' => $media->mime_type ?? null,
+            'extension' => $media->extension ?? null,
+            'size' => $media->size ?? null,
+        ];
     }
-
-    return [
-        'id' => (int) $media->id,
-        'disk' => $media->disk ?? 'public',
-        'path' => $path,
-        'url' => $url,
-        'file_name' => $media->file_name ?? null,
-        'original_name' => $media->original_name ?? null,
-        'mime_type' => $media->mime_type ?? null,
-        'extension' => $media->extension ?? null,
-        'size' => $media->size ?? null,
-    ];
-}
     private function dynamicPostMetaTable(): ?string
     {
         foreach (
