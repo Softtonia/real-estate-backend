@@ -627,18 +627,38 @@ class PropertyVerificationController extends Controller
     ): JsonResponse {
         try {
             $validated = $request->validate([
+                'reason' => [
+                    'nullable',
+                    'string',
+                    'min:5',
+                    'max:5000',
+                ],
                 'rejection_reason' => [
-                    'required',
+                    'nullable',
                     'string',
                     'min:5',
                     'max:5000',
                 ],
             ]);
 
+            $reason = trim((string) (
+                $validated['rejection_reason']
+                ?? $validated['reason']
+                ?? ''
+            ));
+
+            if ($reason === '') {
+                throw ValidationException::withMessages([
+                    'rejection_reason' => [
+                        'Rejection reason is required.',
+                    ],
+                ]);
+            }
+
             $revision = $this->workflow->reject(
                 property: $property,
                 actor: $this->actor($request),
-                reason: $validated['rejection_reason']
+                reason: $reason
             );
 
             return response()->json([

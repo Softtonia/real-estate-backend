@@ -438,7 +438,7 @@ class PropertyWorkflowService
         DynamicPost $property,
         User $actor
     ): PropertyListingRevision {
-        $this->assertVerifier($actor);
+        $this->assertCanActOnVerification($actor);
 
         $revision = DB::transaction(function () use ($property, $actor) {
             $lockedProperty = DynamicPost::query()
@@ -522,7 +522,7 @@ class PropertyWorkflowService
         User $actor,
         ?string $notes = null
     ): PropertyListingRevision {
-        $this->assertVerifier($actor);
+        $this->assertCanActOnVerification($actor);
 
         $revision = DB::transaction(function () use (
             $property,
@@ -624,7 +624,7 @@ class PropertyWorkflowService
         User $actor,
         string $reason
     ): PropertyListingRevision {
-        $this->assertVerifier($actor);
+        $this->assertCanActOnVerification($actor);
 
         $reason = trim($reason);
 
@@ -1476,5 +1476,20 @@ class PropertyWorkflowService
                 . ' '
                 . ($user->last_name ?? '')
         ) ?: ($user->email ?? ('User #' . $user->id));
+    }
+    private function assertCanActOnVerification(User $actor): void
+    {
+        /*
+     * Admin can start/approve/reject without being assigned
+     * and without becoming assigned.
+     */
+        if ($this->isSystemAdmin($actor)) {
+            return;
+        }
+
+        /*
+     * Non-admin verifier must pass verifier eligibility.
+     */
+        $this->assertVerifier($actor);
     }
 }
