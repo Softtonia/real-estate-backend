@@ -437,7 +437,7 @@ class UserListingController extends Controller
 
                 $this->syncUserListingTaxonomyTerms($listing, $termIds);
 
-                $$this->storeCustomFieldsForListing(
+                $this->storeCustomFieldsForListing(
                     listing: $listing,
                     customFields: $this->customFieldsFromRequest($request),
                     request: $request,
@@ -1230,7 +1230,7 @@ class UserListingController extends Controller
             'taxonomyTerms.taxonomy',
             'meta.customField.options',
             'meta.customField.repeaters.options',
-            'latestVerificationRevision:id,dynamic_post_id,version,source,status,submitted_by,submitted_at,assigned_to,assigned_by,assigned_at,verification_started_at,decided_by,decided_at,rejection_reason',
+            'latestVerificationRevision',
         ];
     }
 
