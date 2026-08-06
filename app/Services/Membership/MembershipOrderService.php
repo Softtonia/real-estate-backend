@@ -44,12 +44,9 @@ class MembershipOrderService
             subtotal: $subtotal
         );
 
-        $gstPercentage = $this->gstPercentage();
-
         $amounts = $this->calculateAmounts(
             subtotal: $subtotal,
-            discountAmount: (float) $couponResult['discount_amount'],
-            gstPercentage: $gstPercentage
+            discountAmount: (float) $couponResult['discount_amount']
         );
 
         return DB::transaction(function () use ($user, $plan, $data, $couponResult, $amounts) {
@@ -429,23 +426,22 @@ class MembershipOrderService
 
     public function calculateAmounts(
         float $subtotal,
-        float $discountAmount,
-        float $gstPercentage
+        float $discountAmount
     ): array {
         $subtotal = round(max(0, $subtotal), 2);
         $discountAmount = round(min(max(0, $discountAmount), $subtotal), 2);
 
         $taxableAmount = round($subtotal - $discountAmount, 2);
-        $gstAmount = round(($taxableAmount * $gstPercentage) / 100, 2);
-        $totalAmount = round($taxableAmount + $gstAmount, 2);
+
+        $taxCalculation = app(MembershipTaxService::class)->calculate($taxableAmount);
 
         return [
             'subtotal' => $subtotal,
             'discount_amount' => $discountAmount,
-            'taxable_amount' => $taxableAmount,
-            'gst_percentage' => round($gstPercentage, 2),
-            'gst_amount' => $gstAmount,
-            'total_amount' => $totalAmount,
+            'taxable_amount' => round((float) ($taxCalculation['taxable_amount'] ?? $taxableAmount), 2),
+            'gst_percentage' => round((float) ($taxCalculation['gst_percentage'] ?? 0), 2),
+            'gst_amount' => round((float) ($taxCalculation['tax_amount'] ?? 0), 2),
+            'total_amount' => round((float) ($taxCalculation['total_amount'] ?? $taxableAmount), 2),
         ];
     }
 
@@ -488,11 +484,6 @@ class MembershipOrderService
         } while (MembershipOrder::query()->where('order_number', $number)->exists());
 
         return $number;
-    }
-
-    private function gstPercentage(): float
-    {
-        return (float) $this->settingValue('gst_percentage', 18);
     }
 
     private function orderExpiryMinutes(): int

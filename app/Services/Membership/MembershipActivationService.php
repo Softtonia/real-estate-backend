@@ -167,9 +167,13 @@ class MembershipActivationService
             $this->expireExistingActiveMemberships($user);
 
             $subtotal = round((float) $plan->payableAmount(), 2);
-            $gstPercentage = 18.00;
-            $gstAmount = round(($subtotal * $gstPercentage) / 100, 2);
-            $totalAmount = round($subtotal + $gstAmount, 2);
+
+            $taxCalculation = app(MembershipTaxService::class)->calculate($subtotal);
+
+            $taxableAmount = round((float) ($taxCalculation['taxable_amount'] ?? $subtotal), 2);
+            $gstPercentage = round((float) ($taxCalculation['gst_percentage'] ?? 0), 2);
+            $gstAmount = round((float) ($taxCalculation['tax_amount'] ?? 0), 2);
+            $totalAmount = round((float) ($taxCalculation['total_amount'] ?? $subtotal), 2);
 
             $order = MembershipOrder::query()->create([
                 'user_id' => $user->id,
@@ -183,7 +187,7 @@ class MembershipActivationService
                 'currency' => $plan->currency ?: 'INR',
                 'subtotal' => $subtotal,
                 'discount_amount' => 0,
-                'taxable_amount' => $subtotal,
+                'taxable_amount' => $taxableAmount,
                 'gst_percentage' => $gstPercentage,
                 'gst_amount' => $gstAmount,
                 'total_amount' => $totalAmount,

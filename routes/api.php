@@ -107,6 +107,7 @@ use App\Http\Controllers\Api\Membership\AdminMembershipInvoiceController;
 use App\Http\Controllers\Api\Membership\AdminMembershipRefundController;
 use App\Http\Controllers\Api\Membership\AdminMembershipReportController;
 use App\Http\Controllers\Api\Membership\AdminMembershipSettingController;
+use App\Http\Controllers\Api\Membership\AdminMembershipTaxSettingController;
 use App\Http\Controllers\Api\Membership\AdminMembershipUserController;
 use App\Http\Controllers\Api\Membership\MembershipAccessController;
 use App\Http\Controllers\Api\Membership\RazorpayWebhookController;
@@ -1319,7 +1320,25 @@ Route::prefix('admin/notifications')
             ->whereNumber('template');
     });
 
+Route::prefix('admin/membership/settings')
+    ->middleware([
+        'validate.api.client',
+        'admin.token',
+        'throttle:membership-admin',
+    ])
+    ->group(function () {
+        Route::get('tax', [AdminMembershipTaxSettingController::class, 'show'])
+            ->middleware('permission.check:membership_settings,read');
 
+        Route::put('tax', [AdminMembershipTaxSettingController::class, 'update'])
+            ->middleware('permission.check:membership_settings,edit');
+
+        Route::patch('tax', [AdminMembershipTaxSettingController::class, 'update'])
+            ->middleware('permission.check:membership_settings,edit');
+
+        Route::post('tax/preview', [AdminMembershipTaxSettingController::class, 'calculatePreview'])
+            ->middleware('permission.check:membership_settings,read');
+    });
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get(
         'auth/google',
