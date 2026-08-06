@@ -7,6 +7,7 @@ use App\Http\Requests\Membership\CreateMembershipOrderRequest;
 use App\Http\Requests\Membership\VerifyRazorpayPaymentRequest;
 use App\Http\Resources\Membership\MembershipOrderResource;
 use App\Http\Resources\Membership\MembershipPlanResource;
+use App\Http\Resources\Membership\MembershipPlanPriceResource;
 use App\Models\Membership\MembershipOrder;
 use App\Models\Membership\MembershipPlan;
 use App\Models\User;
@@ -15,6 +16,7 @@ use App\Services\Membership\MembershipActivationService;
 use App\Services\Membership\MembershipCreditService;
 use App\Services\Membership\MembershipOrderService;
 use App\Services\Membership\MembershipPlanService;
+use App\Services\Membership\MembershipPlanPriceService;
 use App\Services\Membership\RazorpayPaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,7 +49,8 @@ class UserMembershipController extends Controller
     public function showPlan(
         Request $request,
         string|int $plan,
-        MembershipPlanService $planService
+        MembershipPlanService $planService,
+        MembershipPlanPriceService $priceService
     ): JsonResponse {
         try {
             $user = $this->resolveCurrentUser($request);
@@ -63,10 +66,19 @@ class UserMembershipController extends Controller
 
             $membershipPlan = $planService->planDetail($membershipPlan, $user);
 
+            $priceSummary = $priceService->calculate(
+                plan: $membershipPlan,
+                user: $user,
+                couponCode: $request->query('coupon_code')
+            );
+
             return response()->json([
                 'status' => true,
                 'message' => 'Membership plan fetched successfully.',
-                'data' => new MembershipPlanResource($membershipPlan),
+                'data' => [
+                    'plan' => new MembershipPlanResource($membershipPlan),
+                    'price_summary' => new MembershipPlanPriceResource($priceSummary),
+                ],
             ]);
         } catch (ValidationException $e) {
             return $this->validationError($e);
@@ -74,7 +86,43 @@ class UserMembershipController extends Controller
             return $this->serverError('Unable to fetch membership plan.', $e);
         }
     }
+    public function planPricePreview(
+        Request $request,
+        string|int $plan,
+        MembershipPlanPriceService $priceService
+    ): JsonResponse {
+        try {
+            $user = $this->resolveCurrentUser($request);
 
+            $membershipPlan = $this->findPlan($plan);
+
+            if (!$membershipPlan || !$membershipPlan->status) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Membership plan not found.',
+                ], 404);
+            }
+
+            $priceSummary = $priceService->calculate(
+                plan: $membershipPlan,
+                user: $user,
+                couponCode: $request->query('coupon_code')
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership plan price calculated successfully.',
+                'data' => [
+                    'plan_id' => (int) $membershipPlan->id,
+                    'price_summary' => new MembershipPlanPriceResource($priceSummary),
+                ],
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to calculate membership plan price.', $e);
+        }
+    }
     public function myStatus(
         Request $request,
         MembershipAccessService $accessService
