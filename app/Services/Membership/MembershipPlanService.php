@@ -107,11 +107,15 @@ class MembershipPlanService
             'updated_at',
         ];
 
-        $sortBy = in_array(($filters['sort_by'] ?? 'created_at'), $allowedSorts, true)
-            ? $filters['sort_by']
+        $requestedSortBy = $filters['sort_by'] ?? 'created_at';
+
+        $sortBy = in_array($requestedSortBy, $allowedSorts, true)
+            ? $requestedSortBy
             : 'created_at';
 
-        $sortDirection = strtolower((string) ($filters['sort_direction'] ?? 'desc')) === 'asc'
+        $requestedSortDirection = strtolower((string) ($filters['sort_direction'] ?? 'desc'));
+
+        $sortDirection = $requestedSortDirection === 'asc'
             ? 'asc'
             : 'desc';
 
@@ -145,7 +149,6 @@ class MembershipPlanService
                 'memberships',
             ])
 
-            // Search
             ->when(! empty($filters['search']), function ($query) use ($filters) {
                 $search = trim((string) $filters['search']);
 
@@ -157,12 +160,10 @@ class MembershipPlanService
                 });
             })
 
-            // Category filter
             ->when(! empty($filters['category_id']), function ($query) use ($filters) {
                 $query->where('category_id', (int) $filters['category_id']);
             })
 
-            // Status filter: important fix
             ->when(
                 array_key_exists('status', $filters)
                     && $filters['status'] !== null
@@ -172,7 +173,6 @@ class MembershipPlanService
                 }
             )
 
-            // Popular filter
             ->when(
                 array_key_exists('is_popular', $filters)
                     && $filters['is_popular'] !== null
@@ -182,23 +182,22 @@ class MembershipPlanService
                 }
             )
 
-            // Date range
             ->when(! empty($filters['date_from']), function ($query) use ($filters) {
                 $query->whereDate('created_at', '>=', $filters['date_from']);
             })
+
             ->when(! empty($filters['date_to']), function ($query) use ($filters) {
                 $query->whereDate('created_at', '<=', $filters['date_to']);
             })
 
-            // Price range optional
             ->when(isset($filters['price_min']) && $filters['price_min'] !== '', function ($query) use ($filters) {
                 $query->where('price', '>=', (float) $filters['price_min']);
             })
+
             ->when(isset($filters['price_max']) && $filters['price_max'] !== '', function ($query) use ($filters) {
                 $query->where('price', '<=', (float) $filters['price_max']);
             })
 
-            // Duration type optional
             ->when(! empty($filters['duration_type']), function ($query) use ($filters) {
                 $query->where('duration_type', $filters['duration_type']);
             })
