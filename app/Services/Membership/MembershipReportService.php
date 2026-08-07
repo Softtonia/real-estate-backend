@@ -23,6 +23,8 @@ class MembershipReportService
         $cacheKey = 'membership:reports:dashboard:' . md5(json_encode($filters));
 
         return Cache::remember($cacheKey, now()->addMinutes(2), function () use ($filters) {
+            $plansRevenue = $this->safeDashboardStat(fn() => $this->allPlansRevenue($filters));
+
             return [
                 'period' => [
                     'date_from' => $filters['date_from'],
@@ -44,7 +46,8 @@ class MembershipReportService
                 'addon_orders' => $this->safeDashboardStat(fn() => $this->dashboardAddonOrderStats($filters)),
 
                 'revenue' => $this->safeDashboardStat(fn() => $this->dashboardRevenueStats($filters)),
-
+                'plans_revenue' => $plansRevenue,
+                'all_plans_total_revenue' => $plansRevenue,
                 'top_plans' => method_exists($this, 'topPlans')
                     ? $this->topPlans(array_merge($filters, ['limit' => 5]))
                     : [],
@@ -397,6 +400,294 @@ class MembershipReportService
             'refunded_amount' => $this->sumByStatus($table, $periodQuery, $amountColumn, ['refunded', 'refund']),
         ];
     }
+
+
+    private function allPlansRevenue(array $filters): array
+    {
+        if (! Schema::hasTable('membership_plans')) {
+            return $this->missingTableStats('membership_plans');
+        }
+
+        if (! Schema::hasTable('membership_orders')) {
+            return $this->missingTableStats('membership_orders');
+        }
+
+        $dateFrom = Carbon::parse($filters['date_from'])->startOfDay();
+        $dateTo = Carbon::parse($filters['date_to'])->endOfDay();
+
+        $amountColumn = $this->firstColumn('membership_orders', [
+            'total_amount',
+            'payable_amount',
+            'amount',
+        ]);
+
+        if (! $amountColumn) {
+            return [
+                'available' => false,
+                'reason' => 'No amount column found in membership_orders table.',
+            ];
+        }
+
+        $statusColumn = $this->firstColumn('membership_orders', [
+            'payment_status',
+            'order_status',
+            'status',
+        ]);
+
+        $dateColumn = $this->firstColumn('membership_orders', [
+            'paid_at',
+            'payment_date',
+            'created_at',
+            'updated_at',
+        ]);
+
+        $paidStatuses = ['paid', 'success', 'completed', 'captured'];
+        $pendingStatuses = ['pending', 'created', 'initiated'];
+        $failedStatuses = ['failed', 'failure'];
+        $cancelledStatuses = ['cancelled', 'canceled'];
+
+        $plans = DB::table('membership_plans as p')
+            ->leftJoin('membership_categories as c', 'c.id', '=', 'p.category_id')
+            ->select([
+                'p.id',
+                'p.category_id',
+                'c.name as category_name',
+                'p.name',
+                'p.slug',
+                'p.currency',
+                'p.price',
+                'p.sale_price',
+                'p.status',
+            ])
+            ->when(! empty($filters['plan_id']), function ($query) use ($filters) {
+                $query->where('p.id', (int) $filters['plan_id']);
+            })
+            ->orderBy('p.sort_order')
+            ->orderBy('p.id')
+            ->get();
+
+        $periodOrders = $this->planOrderRevenueRows(
+            dateColumn: $dateColumn,
+            amountColumn: $amountColumn,
+            statusColumn: $statusColumn,
+            paidStatuses: $paidStatuses,
+            pendingStatuses: $pendingStatuses,
+            failedStatuses: $failedStatuses,
+            cancelledStatuses: $cancelledStatuses,
+            dateFrom: $dateFrom,
+            dateTo: $dateTo,
+            planId: $filters['plan_id'] ?? null,
+            applyDateFilter: true
+        );
+
+        $allTimeOrders = $this->planOrderRevenueRows(
+            dateColumn: $dateColumn,
+            amountColumn: $amountColumn,
+            statusColumn: $statusColumn,
+            paidStatuses: $paidStatuses,
+            pendingStatuses: $pendingStatuses,
+            failedStatuses: $failedStatuses,
+            cancelledStatuses: $cancelledStatuses,
+            dateFrom: $dateFrom,
+            dateTo: $dateTo,
+            planId: $filters['plan_id'] ?? null,
+            applyDateFilter: false
+        );
+
+        $membershipCounts = collect();
+
+        if (Schema::hasTable('user_memberships')) {
+            $membershipCounts = DB::table('user_memberships')
+                ->select('plan_id')
+                ->selectRaw('COUNT(*) as total_memberships')
+                ->selectRaw("SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_memberships")
+                ->when(! empty($filters['plan_id']), function ($query) use ($filters) {
+                    $query->where('plan_id', (int) $filters['plan_id']);
+                })
+                ->whereNotNull('plan_id')
+                ->groupBy('plan_id')
+                ->get()
+                ->keyBy('plan_id');
+        }
+
+        $items = $plans->map(function ($plan) use ($periodOrders, $allTimeOrders, $membershipCounts) {
+            $period = $periodOrders->get($plan->id);
+            $allTime = $allTimeOrders->get($plan->id);
+            $membership = $membershipCounts->get($plan->id);
+
+            return [
+                'plan_id' => (int) $plan->id,
+                'category_id' => $plan->category_id !== null ? (int) $plan->category_id : null,
+                'category_name' => $plan->category_name,
+
+                'plan_name' => $plan->name,
+                'plan_slug' => $plan->slug,
+                'currency' => $plan->currency ?: 'INR',
+
+                'price' => round((float) $plan->price, 2),
+                'sale_price' => $plan->sale_price !== null ? round((float) $plan->sale_price, 2) : null,
+
+                'status' => (bool) $plan->status,
+
+                'period' => [
+                    'total_orders' => $period ? (int) $period->total_orders : 0,
+                    'paid_orders' => $period ? (int) $period->paid_orders : 0,
+                    'pending_orders' => $period ? (int) $period->pending_orders : 0,
+                    'failed_orders' => $period ? (int) $period->failed_orders : 0,
+                    'cancelled_orders' => $period ? (int) $period->cancelled_orders : 0,
+
+                    'total_order_amount' => $period ? round((float) $period->total_order_amount, 2) : 0.0,
+                    'paid_revenue' => $period ? round((float) $period->paid_revenue, 2) : 0.0,
+                    'pending_amount' => $period ? round((float) $period->pending_amount, 2) : 0.0,
+                    'failed_amount' => $period ? round((float) $period->failed_amount, 2) : 0.0,
+                    'cancelled_amount' => $period ? round((float) $period->cancelled_amount, 2) : 0.0,
+                ],
+
+                'all_time' => [
+                    'total_orders' => $allTime ? (int) $allTime->total_orders : 0,
+                    'paid_orders' => $allTime ? (int) $allTime->paid_orders : 0,
+                    'pending_orders' => $allTime ? (int) $allTime->pending_orders : 0,
+                    'failed_orders' => $allTime ? (int) $allTime->failed_orders : 0,
+                    'cancelled_orders' => $allTime ? (int) $allTime->cancelled_orders : 0,
+
+                    'total_order_amount' => $allTime ? round((float) $allTime->total_order_amount, 2) : 0.0,
+                    'paid_revenue' => $allTime ? round((float) $allTime->paid_revenue, 2) : 0.0,
+                    'pending_amount' => $allTime ? round((float) $allTime->pending_amount, 2) : 0.0,
+                    'failed_amount' => $allTime ? round((float) $allTime->failed_amount, 2) : 0.0,
+                    'cancelled_amount' => $allTime ? round((float) $allTime->cancelled_amount, 2) : 0.0,
+                ],
+
+                'memberships' => [
+                    'total_memberships' => $membership ? (int) $membership->total_memberships : 0,
+                    'active_memberships' => $membership ? (int) $membership->active_memberships : 0,
+                ],
+            ];
+        })->values();
+
+        return [
+            'available' => true,
+            'summary' => [
+                'total_plans' => $items->count(),
+                'plans_with_period_revenue' => $items->filter(fn ($item) => ($item['period']['paid_revenue'] ?? 0) > 0)->count(),
+                'plans_with_all_time_revenue' => $items->filter(fn ($item) => ($item['all_time']['paid_revenue'] ?? 0) > 0)->count(),
+
+                'period' => [
+                    'total_orders' => $items->sum(fn ($item) => $item['period']['total_orders']),
+                    'paid_orders' => $items->sum(fn ($item) => $item['period']['paid_orders']),
+                    'pending_orders' => $items->sum(fn ($item) => $item['period']['pending_orders']),
+                    'failed_orders' => $items->sum(fn ($item) => $item['period']['failed_orders']),
+                    'cancelled_orders' => $items->sum(fn ($item) => $item['period']['cancelled_orders']),
+
+                    'total_order_amount' => round((float) $items->sum(fn ($item) => $item['period']['total_order_amount']), 2),
+                    'total_paid_revenue' => round((float) $items->sum(fn ($item) => $item['period']['paid_revenue']), 2),
+                    'total_pending_amount' => round((float) $items->sum(fn ($item) => $item['period']['pending_amount']), 2),
+                    'total_failed_amount' => round((float) $items->sum(fn ($item) => $item['period']['failed_amount']), 2),
+                    'total_cancelled_amount' => round((float) $items->sum(fn ($item) => $item['period']['cancelled_amount']), 2),
+                ],
+
+                'all_time' => [
+                    'total_orders' => $items->sum(fn ($item) => $item['all_time']['total_orders']),
+                    'paid_orders' => $items->sum(fn ($item) => $item['all_time']['paid_orders']),
+                    'pending_orders' => $items->sum(fn ($item) => $item['all_time']['pending_orders']),
+                    'failed_orders' => $items->sum(fn ($item) => $item['all_time']['failed_orders']),
+                    'cancelled_orders' => $items->sum(fn ($item) => $item['all_time']['cancelled_orders']),
+
+                    'total_order_amount' => round((float) $items->sum(fn ($item) => $item['all_time']['total_order_amount']), 2),
+                    'total_paid_revenue' => round((float) $items->sum(fn ($item) => $item['all_time']['paid_revenue']), 2),
+                    'total_pending_amount' => round((float) $items->sum(fn ($item) => $item['all_time']['pending_amount']), 2),
+                    'total_failed_amount' => round((float) $items->sum(fn ($item) => $item['all_time']['failed_amount']), 2),
+                    'total_cancelled_amount' => round((float) $items->sum(fn ($item) => $item['all_time']['cancelled_amount']), 2),
+                ],
+
+                'memberships' => [
+                    'total_memberships' => $items->sum(fn ($item) => $item['memberships']['total_memberships']),
+                    'active_memberships' => $items->sum(fn ($item) => $item['memberships']['active_memberships']),
+                ],
+            ],
+
+            'plans' => $items
+                ->sortByDesc(fn ($item) => $item['all_time']['paid_revenue'])
+                ->values(),
+        ];
+    }
+
+    private function planOrderRevenueRows(
+        ?string $dateColumn,
+        string $amountColumn,
+        ?string $statusColumn,
+        array $paidStatuses,
+        array $pendingStatuses,
+        array $failedStatuses,
+        array $cancelledStatuses,
+        Carbon $dateFrom,
+        Carbon $dateTo,
+        mixed $planId = null,
+        bool $applyDateFilter = true
+    ) {
+        $query = DB::table('membership_orders')
+            ->select('plan_id')
+            ->selectRaw('COUNT(*) as total_orders')
+            ->selectRaw("COALESCE(SUM({$amountColumn}), 0) as total_order_amount")
+            ->whereNotNull('plan_id')
+            ->when(! empty($planId), function ($query) use ($planId) {
+                $query->where('plan_id', (int) $planId);
+            })
+            ->when($applyDateFilter && $dateColumn, function ($query) use ($dateColumn, $dateFrom, $dateTo) {
+                $query->whereBetween($dateColumn, [$dateFrom, $dateTo]);
+            });
+
+        if ($statusColumn) {
+            $query
+                ->selectRaw(
+                    "SUM(CASE WHEN {$statusColumn} IN (?, ?, ?, ?) THEN 1 ELSE 0 END) as paid_orders",
+                    $paidStatuses
+                )
+                ->selectRaw(
+                    "SUM(CASE WHEN {$statusColumn} IN (?, ?, ?) THEN 1 ELSE 0 END) as pending_orders",
+                    $pendingStatuses
+                )
+                ->selectRaw(
+                    "SUM(CASE WHEN {$statusColumn} IN (?, ?) THEN 1 ELSE 0 END) as failed_orders",
+                    $failedStatuses
+                )
+                ->selectRaw(
+                    "SUM(CASE WHEN {$statusColumn} IN (?, ?) THEN 1 ELSE 0 END) as cancelled_orders",
+                    $cancelledStatuses
+                )
+                ->selectRaw(
+                    "COALESCE(SUM(CASE WHEN {$statusColumn} IN (?, ?, ?, ?) THEN {$amountColumn} ELSE 0 END), 0) as paid_revenue",
+                    $paidStatuses
+                )
+                ->selectRaw(
+                    "COALESCE(SUM(CASE WHEN {$statusColumn} IN (?, ?, ?) THEN {$amountColumn} ELSE 0 END), 0) as pending_amount",
+                    $pendingStatuses
+                )
+                ->selectRaw(
+                    "COALESCE(SUM(CASE WHEN {$statusColumn} IN (?, ?) THEN {$amountColumn} ELSE 0 END), 0) as failed_amount",
+                    $failedStatuses
+                )
+                ->selectRaw(
+                    "COALESCE(SUM(CASE WHEN {$statusColumn} IN (?, ?) THEN {$amountColumn} ELSE 0 END), 0) as cancelled_amount",
+                    $cancelledStatuses
+                );
+        } else {
+            $query
+                ->selectRaw('0 as paid_orders')
+                ->selectRaw('0 as pending_orders')
+                ->selectRaw('0 as failed_orders')
+                ->selectRaw('0 as cancelled_orders')
+                ->selectRaw('0 as paid_revenue')
+                ->selectRaw('0 as pending_amount')
+                ->selectRaw('0 as failed_amount')
+                ->selectRaw('0 as cancelled_amount');
+        }
+
+        return $query
+            ->groupBy('plan_id')
+            ->get()
+            ->keyBy('plan_id');
+    }
+
 
     private function dashboardQuery(string $table, array $filters): Builder
     {
