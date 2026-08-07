@@ -308,21 +308,187 @@ class AdminMembershipUserController extends Controller
         MembershipCreditService $creditService
     ): JsonResponse {
         try {
-            $request->validate([
-                'user_id' => ['required', 'integer', 'exists:users,id'],
-            ]);
+            /*
+        |--------------------------------------------------------------------------
+        | If user_id is passed, return single user credit summary
+        |--------------------------------------------------------------------------
+        */
+            if ($request->filled('user_id') && ! $request->boolean('list')) {
+                $request->validate([
+                    'user_id' => ['required', 'integer', 'exists:users,id'],
+                ]);
 
-            $user = User::query()->findOrFail((int) $request->user_id);
+                $user = User::query()->findOrFail((int) $request->user_id);
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'User membership credits fetched successfully.',
+                    'data' => $creditService->userCreditSummary($user),
+                ]);
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Otherwise return admin credit balance list
+        |--------------------------------------------------------------------------
+        */
+            $perPage = min(max((int) $request->get('per_page', 20), 1), 100);
+
+            $query = MembershipCreditBalance::query()
+                ->select([
+                    'id',
+                    'user_id',
+                    'membership_id',
+                    'credit_type',
+                    'is_unlimited',
+                    'total_credits',
+                    'used_credits',
+                    'remaining_credits',
+                    'status',
+                    'expires_at',
+                    'created_at',
+                    'updated_at',
+                ])
+                ->with([
+                    'user:id,user_name,first_name,last_name,email,phone,role_id',
+                    'membership:id,user_id,plan_id,status,start_date,expiry_date',
+                    'membership.plan:id,name,slug',
+                ])
+                ->when($request->filled('user_id'), function ($query) use ($request) {
+                    $query->where('user_id', (int) $request->user_id);
+                })
+                ->when($request->filled('membership_id'), function ($query) use ($request) {
+                    $query->where('membership_id', (int) $request->membership_id);
+                })
+                ->when($request->filled('credit_type'), function ($query) use ($request) {
+                    $query->where('credit_type', $request->credit_type);
+                })
+                ->when($request->filled('status'), function ($query) use ($request) {
+                    $query->where('status', filter_var($request->status, FILTER_VALIDATE_BOOLEAN));
+                })
+                ->when($request->filled('is_unlimited'), function ($query) use ($request) {
+                    $query->where('is_unlimited', filter_var($request->is_unlimited, FILTER_VALIDATE_BOOLEAN));
+                })
+                ->when($request->filled('date_from'), function ($query) use ($request) {
+                    $query->whereDate('created_at', '>=', $request->date_from);
+                })
+                ->when($request->filled('date_to'), function ($query) use ($request) {
+                    $query->whereDate('created_at', '<=', $request->date_to);
+                })
+                ->when($request->filled('search'), function ($query) use ($request) {
+                    $search = trim((string) $request->search);
+
+                    $query->where(function ($q) use ($search) {
+                        $q->where('credit_type', 'like', "%{$search}%")
+                            ->orWhereHas('user', function ($userQuery) use ($search) {
+                                $userQuery->where('user_name', 'like', "%{$search}%")
+                                    ->orWhere('first_name', 'like', "%{$search}%")
+                                    ->orWhere('last_name', 'like', "%{$search}%")
+                                    ->orWhere('email', 'like', "%{$search}%")
+                                    ->orWhere('phone', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('membership.plan', function ($planQuery) use ($search) {
+                                $planQuery->where('name', 'like', "%{$search}%")
+                                    ->orWhere('slug', 'like', "%{$search}%");
+                            });
+                    });
+                });
+
+            $stats = null;
+
+            if ($request->boolean('include_stats')) {
+                $statsQuery = clone $query;
+
+                $stats = [
+                    'total_records' => (clone $statsQuery)->count(),
+                    'active' => (clone $statsQuery)->where('status', true)->count(),
+                    'inactive' => (clone $statsQuery)->where('status', false)->count(),
+
+                    'unlimited' => (clone $statsQuery)->where('is_unlimited', true)->count(),
+                    'limited' => (clone $statsQuery)->where('is_unlimited', false)->count(),
+
+                    'unique_users' => (clone $statsQuery)->distinct()->count('user_id'),
+                    'unique_memberships' => (clone $statsQuery)->distinct()->count('membership_id'),
+
+                    'total_credits' => round((float) (clone $statsQuery)->where('is_unlimited', false)->sum('total_credits'), 2),
+                    'used_credits' => round((float) (clone $statsQuery)->sum('used_credits'), 2),
+                    'remaining_credits' => round((float) (clone $statsQuery)->where('is_unlimited', false)->sum('remaining_credits'), 2),
+
+                    'by_credit_type' => (clone $statsQuery)
+                        ->selectRaw('credit_type, COUNT(*) as total, SUM(total_credits) as total_credits, SUM(used_credits) as used_credits, SUM(remaining_credits) as remaining_credits')
+                        ->groupBy('credit_type')
+                        ->get()
+                        ->map(function ($row) {
+                            return [
+                                'credit_type' => $row->credit_type,
+                                'total' => (int) $row->total,
+                                'total_credits' => (int) $row->total_credits,
+                                'used_credits' => (int) $row->used_credits,
+                                'remaining_credits' => (int) $row->remaining_credits,
+                            ];
+                        })
+                        ->values(),
+                ];
+            }
+
+            $balances = $query
+                ->latest('id')
+                ->paginate($perPage);
 
             return response()->json([
                 'status' => true,
-                'message' => 'User membership credits fetched successfully.',
-                'data' => $creditService->userCreditSummary($user),
+                'message' => 'Membership credits fetched successfully.',
+                'data' => $balances->getCollection()->map(function (MembershipCreditBalance $balance) {
+                    return [
+                        'id' => (int) $balance->id,
+                        'user_id' => (int) $balance->user_id,
+                        'membership_id' => (int) $balance->membership_id,
+
+                        'user' => $balance->user ? [
+                            'id' => (int) $balance->user->id,
+                            'user_name' => $balance->user->user_name,
+                            'first_name' => $balance->user->first_name,
+                            'last_name' => $balance->user->last_name,
+                            'email' => $balance->user->email,
+                            'phone' => $balance->user->phone,
+                            'role_id' => $balance->user->role_id,
+                        ] : null,
+
+                        'membership' => $balance->membership ? [
+                            'id' => (int) $balance->membership->id,
+                            'plan_id' => (int) $balance->membership->plan_id,
+                            'plan_name' => $balance->membership->plan?->name,
+                            'plan_slug' => $balance->membership->plan?->slug,
+                            'status' => $balance->membership->status,
+                            'start_date' => optional($balance->membership->start_date)->toDateTimeString(),
+                            'expiry_date' => optional($balance->membership->expiry_date)->toDateTimeString(),
+                        ] : null,
+
+                        'credit_type' => $balance->credit_type,
+                        'is_unlimited' => (bool) $balance->is_unlimited,
+
+                        'total_credits' => $balance->total_credits !== null ? (int) $balance->total_credits : null,
+                        'used_credits' => (int) $balance->used_credits,
+                        'remaining_credits' => $balance->remaining_credits !== null ? (int) $balance->remaining_credits : null,
+
+                        'status' => (bool) $balance->status,
+                        'expires_at' => optional($balance->expires_at)->toDateTimeString(),
+                        'created_at' => optional($balance->created_at)->toDateTimeString(),
+                        'updated_at' => optional($balance->updated_at)->toDateTimeString(),
+                    ];
+                }),
+                'stats' => $stats,
+                'meta' => [
+                    'current_page' => $balances->currentPage(),
+                    'last_page' => $balances->lastPage(),
+                    'per_page' => $balances->perPage(),
+                    'total' => $balances->total(),
+                ],
             ]);
         } catch (ValidationException $e) {
             return $this->validationError($e);
         } catch (Throwable $e) {
-            return $this->serverError('Unable to fetch user credits.', $e);
+            return $this->serverError('Unable to fetch membership credits.', $e);
         }
     }
 
