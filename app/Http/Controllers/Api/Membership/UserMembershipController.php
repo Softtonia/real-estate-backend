@@ -73,7 +73,7 @@ class UserMembershipController extends Controller
 
             $membershipPlan = $this->findPlan($plan);
 
-            if (!$membershipPlan || !$membershipPlan->status) {
+            if (! $membershipPlan || ! $membershipPlan->status) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Membership plan not found.',
@@ -399,9 +399,9 @@ class UserMembershipController extends Controller
 
     private function resolveCurrentUser(Request $request): ?User
     {
-        $token = $this->extractUserToken($request);
+        $token = $this->extractBearerToken($request);
 
-        if ($token && Schema::hasColumn('users', 'api_token')) {
+        if ($token) {
             $user = User::query()
                 ->where('api_token', $token)
                 ->first();
@@ -414,6 +414,40 @@ class UserMembershipController extends Controller
         $authUser = $request->user() ?: Auth::user();
 
         return $authUser instanceof User ? $authUser : null;
+    }
+
+    private function extractBearerToken(Request $request): ?string
+    {
+        $authorization = (string) $request->header('Authorization');
+
+        if ($authorization !== '') {
+            if (preg_match('/Bearer\s+(.+)/i', $authorization, $matches)) {
+                return trim($matches[1]);
+            }
+
+            if (preg_match('/Token\s+(.+)/i', $authorization, $matches)) {
+                return trim($matches[1]);
+            }
+        }
+
+        $token = $request->bearerToken()
+            ?: $request->header('X-User-Token')
+            ?: $request->header('X-Api-Token')
+            ?: $request->header('Api-Token')
+            ?: $request->header('api-token')
+            ?: $request->header('token');
+
+        if (! is_string($token)) {
+            return null;
+        }
+
+        $token = trim($token);
+
+        if (str_starts_with(strtolower($token), 'bearer ')) {
+            $token = trim(substr($token, 7));
+        }
+
+        return $token !== '' ? $token : null;
     }
 
     private function extractUserToken(Request $request): ?string
