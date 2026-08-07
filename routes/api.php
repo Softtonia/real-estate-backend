@@ -92,6 +92,7 @@ use App\Http\Controllers\Api\CustomFieldGroupExportImportController;
 use App\Http\Controllers\Api\DynamicPostController;
 use App\Http\Controllers\Api\DynamicPostCsvController;
 use App\Http\Controllers\Api\DynamicPostFormStepController;
+use App\Http\Controllers\Api\Frontend\PropertySearchController;
 use App\Http\Controllers\Api\FrontendLocationController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
@@ -1466,7 +1467,7 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
             Route::post('plans/{plan}/role-rules', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
                 ->middleware('permission.check:membership_plan_rules,edit');
-                
+
             Route::get('plans/{plan}/features', [AdminMembershipCatalogController::class, 'planFeatures'])
                 ->whereNumber('plan')
                 ->middleware('permission.check:membership_plans,read');
@@ -2042,7 +2043,13 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         Route::get('locations/selected', [FrontendLocationController::class, 'selected']);
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
     });
-
+    Route::prefix('frontend')
+        ->middleware(['validate.api.client', 'throttle:api'])
+        ->group(function () {
+            Route::get('property-search/options', [PropertySearchController::class, 'options']);
+            Route::get('property-search/location-suggestions', [PropertySearchController::class, 'locationSuggestions']);
+            Route::get('properties/search', [PropertySearchController::class, 'search']);
+        });
     /*
     |--------------------------------------------------------------------------
     | User Property Listings
