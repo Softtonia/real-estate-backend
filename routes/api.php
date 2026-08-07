@@ -1466,7 +1466,10 @@ Route::middleware(['throttle:60,1'])->group(function () {
 
             Route::post('plans/{plan}/role-rules', [AdminMembershipCatalogController::class, 'syncPlanRoles'])
                 ->middleware('permission.check:membership_plan_rules,edit');
-
+                
+            Route::get('plans/{plan}/features', [AdminMembershipCatalogController::class, 'planFeatures'])
+                ->whereNumber('plan')
+                ->middleware('permission.check:membership_plans,read');
 
             /*
         |--------------------------------------------------------------------------

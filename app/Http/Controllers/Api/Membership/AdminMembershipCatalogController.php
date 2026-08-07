@@ -26,6 +26,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Services\Membership\MembershipPlanFeatureAutoFetchService;
 use Throwable;
 
 
@@ -62,7 +63,31 @@ class AdminMembershipCatalogController extends Controller
             return $this->serverError('Unable to fetch membership categories.', $e);
         }
     }
+    public function planFeatures(
+        Request $request,
+        MembershipPlan $plan,
+        MembershipPlanFeatureAutoFetchService $service
+    ): JsonResponse {
+        try {
+            return response()->json([
+                'status' => true,
+                'message' => 'Membership plan features fetched successfully.',
+                'data' => $service->fetch($plan, [
+                    'active_only' => $request->boolean('active_only'),
+                    'feature_type' => $request->query('feature_type'),
+                    'search' => $request->query('search'),
+                ]),
+            ]);
+        } catch (Throwable $e) {
+            report($e);
 
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch membership plan features.',
+                'error' => config('app.debug') ? $e->getMessage() : 'Server error',
+            ], 500);
+        }
+    }
     public function storeCategory(MembershipCategoryRequest $request): JsonResponse
     {
         try {
