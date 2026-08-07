@@ -29,18 +29,34 @@ class UserMembershipController extends Controller
 {
     public function plans(
         Request $request,
-        MembershipPlanService $planService
+        MembershipPlanService $planService,
+        MembershipPlanPriceService $priceService
     ): JsonResponse {
         try {
             $user = $this->resolveCurrentUser($request);
 
             $plans = $planService->activePlans($user);
 
+            $couponCode = $request->query('coupon_code');
+
             return response()->json([
                 'status' => true,
                 'message' => 'Membership plans fetched successfully.',
-                'data' => MembershipPlanResource::collection($plans),
+                'data' => $plans->map(function ($plan) use ($priceService, $user, $couponCode) {
+                    return [
+                        'plan' => new MembershipPlanResource($plan),
+                        'price_summary' => new MembershipPlanPriceResource(
+                            $priceService->calculate(
+                                plan: $plan,
+                                user: $user,
+                                couponCode: $couponCode
+                            )
+                        ),
+                    ];
+                })->values(),
             ]);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
         } catch (Throwable $e) {
             return $this->serverError('Unable to fetch membership plans.', $e);
         }

@@ -13,9 +13,7 @@ class MembershipPlanPriceResource extends JsonResource
 
         return [
             'currency' => $data['currency'] ?? 'INR',
-
             'price' => (float) ($data['price'] ?? 0),
-
             'sale_price' => array_key_exists('sale_price', $data) && $data['sale_price'] !== null
                 ? (float) $data['sale_price']
                 : null,
