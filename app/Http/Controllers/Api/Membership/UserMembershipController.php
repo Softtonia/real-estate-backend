@@ -399,17 +399,14 @@ class UserMembershipController extends Controller
 
     private function resolveCurrentUser(Request $request): ?User
     {
-        $token = $request->bearerToken()
-            ?: $request->header('api-token')
-            ?: $request->header('api_token')
-            ?: $request->input('api_token');
+        $token = $this->extractUserToken($request);
 
         if ($token && Schema::hasColumn('users', 'api_token')) {
             $user = User::query()
                 ->where('api_token', $token)
                 ->first();
 
-            if ($user) {
+            if ($user instanceof User) {
                 return $user;
             }
         }
@@ -417,6 +414,51 @@ class UserMembershipController extends Controller
         $authUser = $request->user() ?: Auth::user();
 
         return $authUser instanceof User ? $authUser : null;
+    }
+
+    private function extractUserToken(Request $request): ?string
+    {
+        $token = $request->bearerToken();
+
+        if (! $token) {
+            $authorization = (string) $request->header('Authorization');
+
+            if (str_starts_with(strtolower($authorization), 'bearer ')) {
+                $token = trim(substr($authorization, 7));
+            } elseif (str_starts_with(strtolower($authorization), 'token ')) {
+                $token = trim(substr($authorization, 6));
+            }
+        }
+
+        $token = $token
+            ?: $request->header('api-token')
+            ?: $request->header('api_token')
+            ?: $request->header('Api-Token')
+            ?: $request->header('X-Api-Token')
+            ?: $request->header('X-User-Token')
+            ?: $request->header('X-Auth-Token')
+            ?: $request->header('token')
+            ?: $request->cookie('api_token')
+            ?: $request->cookie('user_token')
+            ?: $request->cookie('auth_token')
+            ?: $request->cookie('access_token')
+            ?: $request->cookie('token');
+
+        if (! is_string($token)) {
+            return null;
+        }
+
+        $token = trim($token);
+
+        if ($token === '') {
+            return null;
+        }
+
+        if (str_starts_with(strtolower($token), 'bearer ')) {
+            $token = trim(substr($token, 7));
+        }
+
+        return $token !== '' ? $token : null;
     }
 
     private function isAdminUser(User $user): bool
