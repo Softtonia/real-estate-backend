@@ -100,7 +100,7 @@ class FirebaseMessagingService
             $errorCode = $this->extractFirebaseErrorCode($responseData);
             $errorMessage = $this->extractFirebaseErrorMessage($responseData);
 
-            $log?->markFailed($errorCode, $errorMessage);
+            $log?->markFailed($errorCode ?: 'FIREBASE_ERROR', $errorMessage ?: 'Firebase notification failed.');
 
             if ($this->isInvalidTokenError($errorCode, $errorMessage)) {
                 $this->deviceService->markInvalidToken($token);
@@ -109,6 +109,7 @@ class FirebaseMessagingService
             return [
                 'status' => false,
                 'message' => 'Firebase notification failed.',
+                'http_status' => $response->status(),
                 'error_code' => $errorCode,
                 'error_message' => $errorMessage,
                 'response' => $responseData,
@@ -139,29 +140,41 @@ class FirebaseMessagingService
         array $data = [],
         ?string $platform = null
     ): array {
-        $message = $this->buildMessage(
-            token: $token,
-            title: $title,
-            body: $body,
-            imageUrl: $imageUrl,
-            data: $data,
-            platform: $platform
-        );
+        try {
+            $message = $this->buildMessage(
+                token: $token,
+                title: $title,
+                body: $body,
+                imageUrl: $imageUrl,
+                data: $data,
+                platform: $platform
+            );
 
-        $response = Http::withToken($this->configService->accessToken())
-            ->acceptJson()
-            ->asJson()
-            ->timeout(20)
-            ->post($this->configService->messagingUrl(), [
-                'validate_only' => true,
-                'message' => $message,
-            ]);
+            $response = Http::withToken($this->configService->accessToken())
+                ->acceptJson()
+                ->asJson()
+                ->timeout(20)
+                ->post($this->configService->messagingUrl(), [
+                    'validate_only' => true,
+                    'message' => $message,
+                ]);
 
-        return [
-            'status' => $response->successful(),
-            'response' => $response->json() ?: [],
-            'http_status' => $response->status(),
-        ];
+            return [
+                'status' => $response->successful(),
+                'http_status' => $response->status(),
+                'response' => $response->json() ?: [],
+                'payload' => config('app.debug') ? ['message' => $message] : null,
+            ];
+        } catch (Throwable $e) {
+            report($e);
+
+            return [
+                'status' => false,
+                'http_status' => null,
+                'response' => [],
+                'error_message' => $e->getMessage(),
+            ];
+        }
     }
 
     private function buildMessage(
@@ -172,69 +185,136 @@ class FirebaseMessagingService
         array $data = [],
         ?string $platform = null
     ): array {
+        $token = trim($token);
+        $title = trim($title);
+        $body = trim($body);
+
+        if ($token === '') {
+            throw ValidationException::withMessages([
+                'fcm_token' => ['FCM token is required.'],
+            ]);
+        }
+
+        if ($title === '') {
+            throw ValidationException::withMessages([
+                'title' => ['Notification title is required.'],
+            ]);
+        }
+
+        if ($body === '') {
+            throw ValidationException::withMessages([
+                'body' => ['Notification body is required.'],
+            ]);
+        }
+
+        $normalizedData = $this->normalizeData($data);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Correct FCM HTTP v1 message object
+        |--------------------------------------------------------------------------
+        | Do not put fcm_options directly inside notification.
+        | Do not put webpush.fcm_options inside webpush.notification.
+        | Correct web click link path is: message.webpush.fcm_options.link
+        */
         $message = [
             'token' => $token,
 
-            'notification' => array_filter([
+            'notification' => $this->removeEmptyValues([
                 'title' => $title,
                 'body' => $body,
-                'image' => $imageUrl,
+                'image' => $this->validUrlOrNull($imageUrl),
             ]),
 
-            'data' => $this->normalizeData($data),
+            'data' => $normalizedData,
         ];
 
-        $platform = strtolower((string) $platform);
+        $platform = $this->normalizePlatform($platform);
 
+        /*
+        |--------------------------------------------------------------------------
+        | Very important:
+        |--------------------------------------------------------------------------
+        | If platform is null/unknown, send minimal common payload only.
+        | Earlier issue happened because extra platform config/fcm_options was being
+        | sent incorrectly for test-send.
+        */
         if ($platform === NotificationDevice::PLATFORM_ANDROID) {
-            $message['android'] = $this->androidConfig($imageUrl);
+            $message['android'] = $this->androidConfig(
+                title: $title,
+                body: $body,
+                imageUrl: $imageUrl
+            );
         }
 
         if ($platform === NotificationDevice::PLATFORM_IOS) {
-            $message['apns'] = $this->apnsConfig($imageUrl);
+            $message['apns'] = $this->apnsConfig(
+                title: $title,
+                body: $body,
+                imageUrl: $imageUrl
+            );
         }
 
         if ($platform === NotificationDevice::PLATFORM_WEB) {
-            $message['webpush'] = $this->webPushConfig($title, $body, $imageUrl, $data);
+            $message['webpush'] = $this->webPushConfig(
+                title: $title,
+                body: $body,
+                imageUrl: $imageUrl,
+                data: $data
+            );
         }
 
-        if (! in_array($platform, NotificationDevice::PLATFORMS, true)) {
-            $message['android'] = $this->androidConfig($imageUrl);
-            $message['apns'] = $this->apnsConfig($imageUrl);
-            $message['webpush'] = $this->webPushConfig($title, $body, $imageUrl, $data);
-        }
-
-        return $message;
+        return $this->removeEmptyValues($message);
     }
 
-    private function androidConfig(?string $imageUrl = null): array
-    {
-        return [
+    private function androidConfig(
+        string $title,
+        string $body,
+        ?string $imageUrl = null
+    ): array {
+        return $this->removeEmptyValues([
             'priority' => 'HIGH',
-            'notification' => array_filter([
+
+            'notification' => [
+                'title' => $title,
+                'body' => $body,
                 'sound' => 'default',
-                'image' => $imageUrl,
+                'image' => $this->validUrlOrNull($imageUrl),
                 'channel_id' => 'default',
-            ]),
-        ];
+            ],
+
+            'fcm_options' => [
+                'analytics_label' => 'holiplaces_notification',
+            ],
+        ]);
     }
 
-    private function apnsConfig(?string $imageUrl = null): array
-    {
-        return [
+    private function apnsConfig(
+        string $title,
+        string $body,
+        ?string $imageUrl = null
+    ): array {
+        return $this->removeEmptyValues([
             'headers' => [
                 'apns-priority' => '10',
             ],
+
             'payload' => [
                 'aps' => [
+                    'alert' => [
+                        'title' => $title,
+                        'body' => $body,
+                    ],
                     'sound' => 'default',
-                    'mutable-content' => $imageUrl ? 1 : 0,
+                    'mutable-content' => $imageUrl ? 1 : null,
                 ],
             ],
-            'fcm_options' => array_filter([
-                'image' => $imageUrl,
-            ]),
-        ];
+
+            'fcm_options' => [
+                'image' => $this->validUrlOrNull($imageUrl),
+                'analytics_label' => 'holiplaces_notification',
+            ],
+        ]);
     }
 
     private function webPushConfig(
@@ -243,17 +323,40 @@ class FirebaseMessagingService
         ?string $imageUrl = null,
         array $data = []
     ): array {
-        return [
-            'notification' => array_filter([
+        $link = $data['url']
+            ?? $data['link']
+            ?? $data['click_url']
+            ?? null;
+
+        $icon = $data['icon']
+            ?? $data['icon_url']
+            ?? null;
+
+        $badge = $data['badge']
+            ?? null;
+
+        return $this->removeEmptyValues([
+            'headers' => [
+                'Urgency' => 'high',
+            ],
+
+            'notification' => [
                 'title' => $title,
                 'body' => $body,
-                'icon' => $data['icon'] ?? null,
-                'image' => $imageUrl,
-            ]),
-            'fcm_options' => array_filter([
-                'link' => $data['url'] ?? $data['link'] ?? null,
-            ]),
-        ];
+                'icon' => $this->validUrlOrNull($icon) ?: '/favicon.ico',
+                'badge' => $this->validUrlOrNull($badge),
+                'image' => $this->validUrlOrNull($imageUrl),
+            ],
+
+            /*
+             * Correct location for web click URL:
+             * message.webpush.fcm_options.link
+             */
+            'fcm_options' => [
+                'link' => $this->validHttpsUrlOrNull($link),
+                'analytics_label' => 'holiplaces_notification',
+            ],
+        ]);
     }
 
     private function normalizeData(array $data): array
@@ -265,6 +368,15 @@ class FirebaseMessagingService
                 continue;
             }
 
+            $key = trim((string) $key);
+
+            if ($key === '') {
+                continue;
+            }
+
+            /*
+             * FCM data payload values must be strings.
+             */
             if (is_bool($value)) {
                 $normalized[$key] = $value ? 'true' : 'false';
                 continue;
@@ -281,6 +393,27 @@ class FirebaseMessagingService
         return $normalized;
     }
 
+    private function normalizePlatform(?string $platform): ?string
+    {
+        $platform = strtolower(trim((string) $platform));
+
+        if ($platform === '') {
+            return null;
+        }
+
+        $allowedPlatforms = defined(NotificationDevice::class . '::PLATFORMS')
+            ? NotificationDevice::PLATFORMS
+            : [
+                NotificationDevice::PLATFORM_ANDROID,
+                NotificationDevice::PLATFORM_IOS,
+                NotificationDevice::PLATFORM_WEB,
+            ];
+
+        return in_array($platform, $allowedPlatforms, true)
+            ? $platform
+            : null;
+    }
+
     private function extractFirebaseErrorCode(array $response): ?string
     {
         $error = $response['error'] ?? [];
@@ -294,7 +427,15 @@ class FirebaseMessagingService
                 if (! empty($detail['errorCode'])) {
                     return (string) $detail['errorCode'];
                 }
+
+                if (! empty($detail['error_code'])) {
+                    return (string) $detail['error_code'];
+                }
             }
+        }
+
+        if (! empty($error['code'])) {
+            return (string) $error['code'];
         }
 
         return null;
@@ -320,9 +461,73 @@ class FirebaseMessagingService
             'UNREGISTERED',
             'INVALID_ARGUMENT',
             'NOT_FOUND',
+            '404',
+            '400',
         ], true)
             || str_contains($errorMessage, 'REGISTRATION TOKEN')
             || str_contains($errorMessage, 'UNREGISTERED')
-            || str_contains($errorMessage, 'INVALID REGISTRATION');
+            || str_contains($errorMessage, 'INVALID REGISTRATION')
+            || str_contains($errorMessage, 'REQUESTED ENTITY WAS NOT FOUND');
+    }
+
+    private function validUrlOrNull(?string $url): ?string
+    {
+        if (! is_string($url)) {
+            return null;
+        }
+
+        $url = trim($url);
+
+        if ($url === '') {
+            return null;
+        }
+
+        return filter_var($url, FILTER_VALIDATE_URL)
+            ? $url
+            : null;
+    }
+
+    private function validHttpsUrlOrNull(mixed $url): ?string
+    {
+        if (! is_string($url)) {
+            return null;
+        }
+
+        $url = trim($url);
+
+        if ($url === '') {
+            return null;
+        }
+
+        if (! filter_var($url, FILTER_VALIDATE_URL)) {
+            return null;
+        }
+
+        return str_starts_with(strtolower($url), 'https://')
+            ? $url
+            : null;
+    }
+
+    private function removeEmptyValues(array $array): array
+    {
+        foreach ($array as $key => $value) {
+            if (is_array($value)) {
+                $value = $this->removeEmptyValues($value);
+
+                if ($value === []) {
+                    unset($array[$key]);
+                    continue;
+                }
+
+                $array[$key] = $value;
+                continue;
+            }
+
+            if ($value === null || $value === '') {
+                unset($array[$key]);
+            }
+        }
+
+        return $array;
     }
 }
