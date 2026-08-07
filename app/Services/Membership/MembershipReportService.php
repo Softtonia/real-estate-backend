@@ -10,26 +10,569 @@ use App\Models\Membership\UserMembership;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class MembershipReportService
 {
     public function dashboard(array $filters = []): array
     {
-        return Cache::store('redis')->remember(
-            $this->cacheKey('dashboard', $filters),
-            300,
-            fn () => [
-                'period' => $this->period($filters),
-                'summary' => $this->summary($filters),
-                'membership_status' => $this->membershipStatusCounts(),
-                'revenue_trend' => $this->revenueTrend($filters),
-                'top_plans' => $this->topPlans($filters),
-                'top_addons' => $this->topAddons($filters),
-                'credit_usage' => $this->creditUsage($filters),
-                'latest_membership_orders' => $this->latestMembershipOrders(),
-                'latest_addon_orders' => $this->latestAddonOrders(),
-            ]
-        );
+        $filters = $this->dashboardFilters($filters);
+
+        $cacheKey = 'membership:reports:dashboard:' . md5(json_encode($filters));
+
+        return Cache::remember($cacheKey, now()->addMinutes(2), function () use ($filters) {
+            return [
+                'period' => [
+                    'date_from' => $filters['date_from'],
+                    'date_to' => $filters['date_to'],
+                    'group_by' => $filters['group_by'],
+                ],
+
+                'plans' => $this->safeDashboardStat(fn() => $this->dashboardPlanStats($filters)),
+                'features' => $this->safeDashboardStat(fn() => $this->dashboardFeatureStats($filters)),
+                'plan_features' => $this->safeDashboardStat(fn() => $this->dashboardPlanFeatureStats($filters)),
+                'role_rules' => $this->safeDashboardStat(fn() => $this->dashboardRoleRuleStats($filters)),
+
+                'orders' => $this->safeDashboardStat(fn() => $this->dashboardOrderStats($filters)),
+                'user_memberships' => $this->safeDashboardStat(fn() => $this->dashboardUserMembershipStats($filters)),
+                'transactions' => $this->safeDashboardStat(fn() => $this->dashboardTransactionStats($filters)),
+                'credits' => $this->safeDashboardStat(fn() => $this->dashboardCreditStats($filters)),
+                'coupons' => $this->safeDashboardStat(fn() => $this->dashboardCouponStats($filters)),
+                'addons' => $this->safeDashboardStat(fn() => $this->dashboardAddonStats($filters)),
+                'addon_orders' => $this->safeDashboardStat(fn() => $this->dashboardAddonOrderStats($filters)),
+
+                'revenue' => $this->safeDashboardStat(fn() => $this->dashboardRevenueStats($filters)),
+
+                'top_plans' => method_exists($this, 'topPlans')
+                    ? $this->topPlans(array_merge($filters, ['limit' => 5]))
+                    : [],
+
+                'top_addons' => method_exists($this, 'topAddons')
+                    ? $this->topAddons(array_merge($filters, ['limit' => 5]))
+                    : [],
+
+                'generated_at' => now()->toDateTimeString(),
+            ];
+        });
+    }
+
+    private function dashboardFilters(array $filters): array
+    {
+        return [
+            'date_from' => ! empty($filters['date_from'])
+                ? Carbon::parse($filters['date_from'])->toDateString()
+                : now()->subDays(30)->toDateString(),
+
+            'date_to' => ! empty($filters['date_to'])
+                ? Carbon::parse($filters['date_to'])->toDateString()
+                : now()->toDateString(),
+
+            'group_by' => $filters['group_by'] ?? 'day',
+
+            'plan_id' => $filters['plan_id'] ?? null,
+            'addon_id' => $filters['addon_id'] ?? null,
+            'user_id' => $filters['user_id'] ?? null,
+            'limit' => $filters['limit'] ?? 10,
+        ];
+    }
+
+    private function dashboardPlanStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_plans')) {
+            return $this->missingTableStats('membership_plans');
+        }
+
+        $query = $this->dashboardQuery('membership_plans', $filters);
+
+        $total = (clone $query)->count();
+
+        $withFeatures = Schema::hasTable('membership_plan_features')
+            ? (clone $query)->whereIn('id', function ($q) {
+                $q->select('plan_id')->from('membership_plan_features');
+            })->count()
+            : 0;
+
+        $withRoleRules = Schema::hasTable('membership_plan_role_rules')
+            ? (clone $query)->whereIn('id', function ($q) {
+                $q->select('plan_id')->from('membership_plan_role_rules');
+            })->count()
+            : 0;
+
+        return [
+            'available' => true,
+            'total' => $total,
+            'active' => Schema::hasColumn('membership_plans', 'status') ? (clone $query)->where('status', true)->count() : 0,
+            'inactive' => Schema::hasColumn('membership_plans', 'status') ? (clone $query)->where('status', false)->count() : 0,
+            'popular' => Schema::hasColumn('membership_plans', 'is_popular') ? (clone $query)->where('is_popular', true)->count() : 0,
+            'with_features' => $withFeatures,
+            'without_features' => max($total - $withFeatures, 0),
+            'with_role_rules' => $withRoleRules,
+            'without_role_rules' => max($total - $withRoleRules, 0),
+        ];
+    }
+
+    private function dashboardFeatureStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_features')) {
+            return $this->missingTableStats('membership_features');
+        }
+
+        $query = $this->dashboardQuery('membership_features', $filters);
+
+        $total = (clone $query)->count();
+
+        return [
+            'available' => true,
+            'total' => $total,
+            'active' => Schema::hasColumn('membership_features', 'status') ? (clone $query)->where('status', true)->count() : 0,
+            'inactive' => Schema::hasColumn('membership_features', 'status') ? (clone $query)->where('status', false)->count() : 0,
+            'limit' => $this->countByColumnValue($query, 'membership_features', 'feature_type', ['limit']),
+            'number' => $this->countByColumnValue($query, 'membership_features', 'feature_type', ['number']),
+            'text' => $this->countByColumnValue($query, 'membership_features', 'feature_type', ['text']),
+            'bool' => $this->countByColumnValue($query, 'membership_features', 'feature_type', ['bool', 'boolean']),
+            'attached_to_plans' => Schema::hasTable('membership_plan_features')
+                ? DB::table('membership_plan_features')->distinct()->count('feature_id')
+                : 0,
+            'not_attached_to_plans' => Schema::hasTable('membership_plan_features')
+                ? max($total - DB::table('membership_plan_features')->distinct()->count('feature_id'), 0)
+                : $total,
+        ];
+    }
+
+    private function dashboardPlanFeatureStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_plan_features')) {
+            return $this->missingTableStats('membership_plan_features');
+        }
+
+        $query = $this->dashboardQuery('membership_plan_features', $filters);
+
+        return [
+            'available' => true,
+            'total_assignments' => (clone $query)->count(),
+            'unlimited_assignments' => Schema::hasColumn('membership_plan_features', 'is_unlimited')
+                ? (clone $query)->where('is_unlimited', true)->count()
+                : 0,
+            'limited_assignments' => Schema::hasColumn('membership_plan_features', 'is_unlimited')
+                ? (clone $query)->where('is_unlimited', false)->count()
+                : 0,
+            'assigned_plans' => Schema::hasColumn('membership_plan_features', 'plan_id')
+                ? (clone $query)->distinct()->count('plan_id')
+                : 0,
+            'assigned_features' => Schema::hasColumn('membership_plan_features', 'feature_id')
+                ? (clone $query)->distinct()->count('feature_id')
+                : 0,
+        ];
+    }
+
+    private function dashboardRoleRuleStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_plan_role_rules')) {
+            return $this->missingTableStats('membership_plan_role_rules');
+        }
+
+        $query = $this->dashboardQuery('membership_plan_role_rules', $filters);
+
+        return [
+            'available' => true,
+            'total' => (clone $query)->count(),
+            'active' => Schema::hasColumn('membership_plan_role_rules', 'is_active')
+                ? (clone $query)->where('is_active', true)->count()
+                : 0,
+            'inactive' => Schema::hasColumn('membership_plan_role_rules', 'is_active')
+                ? (clone $query)->where('is_active', false)->count()
+                : 0,
+            'plans_with_rules' => Schema::hasColumn('membership_plan_role_rules', 'plan_id')
+                ? (clone $query)->distinct()->count('plan_id')
+                : 0,
+            'roles_used' => Schema::hasColumn('membership_plan_role_rules', 'role_id')
+                ? (clone $query)->distinct()->count('role_id')
+                : 0,
+        ];
+    }
+
+    private function dashboardOrderStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_orders')) {
+            return $this->missingTableStats('membership_orders');
+        }
+
+        $table = 'membership_orders';
+        $query = $this->dashboardQuery($table, $filters);
+        $amountColumn = $this->firstColumn($table, ['total_amount', 'payable_amount', 'amount']);
+
+        return [
+            'available' => true,
+            'total' => (clone $query)->count(),
+
+            'status' => $this->statusSummary($table, $query, 'status'),
+            'payment_status' => $this->statusSummary($table, $query, 'payment_status'),
+
+            'total_amount' => $this->sumColumn($query, $amountColumn),
+            'paid_amount' => $this->sumByStatus($table, $query, $amountColumn, ['paid', 'success', 'completed', 'captured']),
+            'pending_amount' => $this->sumByStatus($table, $query, $amountColumn, ['pending', 'created', 'initiated']),
+            'failed_amount' => $this->sumByStatus($table, $query, $amountColumn, ['failed', 'failure']),
+            'cancelled_amount' => $this->sumByStatus($table, $query, $amountColumn, ['cancelled', 'canceled']),
+        ];
+    }
+
+    private function dashboardUserMembershipStats(array $filters): array
+    {
+        if (! Schema::hasTable('user_memberships')) {
+            return $this->missingTableStats('user_memberships');
+        }
+
+        $table = 'user_memberships';
+        $query = $this->dashboardQuery($table, $filters);
+
+        return [
+            'available' => true,
+            'total' => (clone $query)->count(),
+            'status' => $this->statusSummary($table, $query, 'status'),
+            'active_users' => Schema::hasColumn($table, 'user_id')
+                ? (clone $query)->where('status', 'active')->distinct()->count('user_id')
+                : 0,
+            'unique_users' => Schema::hasColumn($table, 'user_id')
+                ? (clone $query)->distinct()->count('user_id')
+                : 0,
+            'expiring_soon_7_days' => Schema::hasColumn($table, 'ends_at')
+                ? (clone $query)->whereBetween('ends_at', [now(), now()->addDays(7)])->count()
+                : 0,
+            'expiring_soon_30_days' => Schema::hasColumn($table, 'ends_at')
+                ? (clone $query)->whereBetween('ends_at', [now(), now()->addDays(30)])->count()
+                : 0,
+        ];
+    }
+
+    private function dashboardTransactionStats(array $filters): array
+    {
+        $table = $this->firstExistingTable(['membership_transactions', 'membership_payments']);
+
+        if (! $table) {
+            return $this->missingTableStats('membership_transactions');
+        }
+
+        $query = $this->dashboardQuery($table, $filters);
+        $amountColumn = $this->firstColumn($table, ['amount', 'total_amount', 'paid_amount']);
+
+        return [
+            'available' => true,
+            'table' => $table,
+            'total' => (clone $query)->count(),
+            'status' => $this->statusSummary($table, $query, 'status'),
+            'gateway' => $this->groupCount($query, $table, 'gateway'),
+            'total_amount' => $this->sumColumn($query, $amountColumn),
+            'success_amount' => $this->sumByStatus($table, $query, $amountColumn, ['success', 'paid', 'completed', 'captured']),
+            'failed_amount' => $this->sumByStatus($table, $query, $amountColumn, ['failed', 'failure']),
+            'refunded_amount' => $this->sumByStatus($table, $query, $amountColumn, ['refunded', 'refund']),
+        ];
+    }
+
+    private function dashboardCreditStats(array $filters): array
+    {
+        $table = $this->firstExistingTable([
+            'membership_user_credits',
+            'membership_credits',
+            'membership_feature_usages',
+        ]);
+
+        if (! $table) {
+            return $this->missingTableStats('membership_credits');
+        }
+
+        $query = $this->dashboardQuery($table, $filters);
+
+        return [
+            'available' => true,
+            'table' => $table,
+            'total_records' => (clone $query)->count(),
+            'unique_users' => Schema::hasColumn($table, 'user_id') ? (clone $query)->distinct()->count('user_id') : 0,
+            'unique_features' => Schema::hasColumn($table, 'feature_id') ? (clone $query)->distinct()->count('feature_id') : 0,
+            'allocated' => $this->sumFirstAvailableColumn($query, $table, ['allocated', 'allocated_count', 'total_credits', 'credit_limit', 'quantity']),
+            'used' => $this->sumFirstAvailableColumn($query, $table, ['used', 'used_count', 'usage_count', 'consumed']),
+            'remaining' => $this->sumFirstAvailableColumn($query, $table, ['remaining', 'remaining_count', 'available_credits', 'balance']),
+            'unlimited' => Schema::hasColumn($table, 'is_unlimited') ? (clone $query)->where('is_unlimited', true)->count() : 0,
+        ];
+    }
+
+    private function dashboardCouponStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_coupons')) {
+            return $this->missingTableStats('membership_coupons');
+        }
+
+        $table = 'membership_coupons';
+        $query = $this->dashboardQuery($table, $filters);
+
+        return [
+            'available' => true,
+            'total' => (clone $query)->count(),
+            'active' => Schema::hasColumn($table, 'status') ? (clone $query)->where('status', true)->count() : 0,
+            'inactive' => Schema::hasColumn($table, 'status') ? (clone $query)->where('status', false)->count() : 0,
+            'expired' => Schema::hasColumn($table, 'expires_at') ? (clone $query)->where('expires_at', '<', now())->count() : 0,
+            'percentage' => $this->countByColumnValue($query, $table, 'discount_type', ['percentage', 'percent']),
+            'fixed' => $this->countByColumnValue($query, $table, 'discount_type', ['fixed', 'flat']),
+            'used_count' => Schema::hasTable('membership_coupon_usages')
+                ? DB::table('membership_coupon_usages')->count()
+                : $this->sumFirstAvailableColumn($query, $table, ['used_count', 'usage_count']),
+            'discount_given' => Schema::hasTable('membership_orders')
+                ? round((float) DB::table('membership_orders')->sum('discount_amount'), 2)
+                : 0.0,
+        ];
+    }
+
+    private function dashboardAddonStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_addons')) {
+            return $this->missingTableStats('membership_addons');
+        }
+
+        $table = 'membership_addons';
+        $query = $this->dashboardQuery($table, $filters);
+
+        return [
+            'available' => true,
+            'total' => (clone $query)->count(),
+            'active' => Schema::hasColumn($table, 'status') ? (clone $query)->where('status', true)->count() : 0,
+            'inactive' => Schema::hasColumn($table, 'status') ? (clone $query)->where('status', false)->count() : 0,
+            'total_sold' => Schema::hasTable('membership_addon_orders') ? DB::table('membership_addon_orders')->count() : 0,
+            'total_revenue' => $this->addonRevenue(),
+        ];
+    }
+
+    private function dashboardAddonOrderStats(array $filters): array
+    {
+        if (! Schema::hasTable('membership_addon_orders')) {
+            return $this->missingTableStats('membership_addon_orders');
+        }
+
+        $table = 'membership_addon_orders';
+        $query = $this->dashboardQuery($table, $filters);
+        $amountColumn = $this->firstColumn($table, ['total_amount', 'payable_amount', 'amount']);
+
+        return [
+            'available' => true,
+            'total' => (clone $query)->count(),
+            'status' => $this->statusSummary($table, $query, 'status'),
+            'payment_status' => $this->statusSummary($table, $query, 'payment_status'),
+            'total_amount' => $this->sumColumn($query, $amountColumn),
+            'paid_amount' => $this->sumByStatus($table, $query, $amountColumn, ['paid', 'success', 'completed', 'captured']),
+            'pending_amount' => $this->sumByStatus($table, $query, $amountColumn, ['pending', 'created', 'initiated']),
+            'failed_amount' => $this->sumByStatus($table, $query, $amountColumn, ['failed', 'failure']),
+        ];
+    }
+
+    private function dashboardRevenueStats(array $filters): array
+    {
+        $table = $this->firstExistingTable(['membership_transactions', 'membership_orders']);
+
+        if (! $table) {
+            return $this->missingTableStats('membership_revenue');
+        }
+
+        $amountColumn = $this->firstColumn($table, ['amount', 'total_amount', 'paid_amount', 'payable_amount']);
+
+        if (! $amountColumn) {
+            return [
+                'available' => false,
+                'reason' => 'No amount column found.',
+            ];
+        }
+
+        $periodQuery = $this->dashboardQuery($table, $filters);
+        $allTimeQuery = DB::table($table);
+
+        $paidStatuses = ['paid', 'success', 'completed', 'captured'];
+
+        return [
+            'available' => true,
+            'source_table' => $table,
+            'period_revenue' => $this->sumByStatus($table, $periodQuery, $amountColumn, $paidStatuses),
+            'all_time_revenue' => $this->sumByStatus($table, $allTimeQuery, $amountColumn, $paidStatuses),
+            'today_revenue' => $this->revenueBetween($table, $amountColumn, now()->startOfDay(), now()->endOfDay()),
+            'this_month_revenue' => $this->revenueBetween($table, $amountColumn, now()->startOfMonth(), now()->endOfMonth()),
+            'failed_amount' => $this->sumByStatus($table, $periodQuery, $amountColumn, ['failed', 'failure']),
+            'refunded_amount' => $this->sumByStatus($table, $periodQuery, $amountColumn, ['refunded', 'refund']),
+        ];
+    }
+
+    private function dashboardQuery(string $table, array $filters): Builder
+    {
+        $query = DB::table($table);
+
+        foreach (['user_id', 'plan_id', 'addon_id', 'feature_id', 'category_id'] as $filterColumn) {
+            if (! empty($filters[$filterColumn]) && Schema::hasColumn($table, $filterColumn)) {
+                $query->where($filterColumn, $filters[$filterColumn]);
+            }
+        }
+
+        $dateColumn = $this->firstColumn($table, ['created_at', 'paid_at', 'updated_at']);
+
+        if ($dateColumn) {
+            $query->whereBetween($dateColumn, [
+                Carbon::parse($filters['date_from'])->startOfDay(),
+                Carbon::parse($filters['date_to'])->endOfDay(),
+            ]);
+        }
+
+        return $query;
+    }
+
+    private function statusSummary(string $table, Builder $query, string $column): array
+    {
+        if (! Schema::hasColumn($table, $column)) {
+            return [];
+        }
+
+        return [
+            'pending' => (clone $query)->whereIn($column, ['pending', 'created', 'initiated'])->count(),
+            'paid' => (clone $query)->whereIn($column, ['paid', 'success', 'completed', 'captured'])->count(),
+            'active' => (clone $query)->where($column, 'active')->count(),
+            'expired' => (clone $query)->where($column, 'expired')->count(),
+            'failed' => (clone $query)->whereIn($column, ['failed', 'failure'])->count(),
+            'cancelled' => (clone $query)->whereIn($column, ['cancelled', 'canceled'])->count(),
+            'refunded' => (clone $query)->whereIn($column, ['refunded', 'refund'])->count(),
+        ];
+    }
+
+    private function sumByStatus(string $table, Builder $query, ?string $amountColumn, array $statuses): float
+    {
+        if (! $amountColumn) {
+            return 0.0;
+        }
+
+        $statusColumn = null;
+
+        if (Schema::hasColumn($table, 'payment_status')) {
+            $statusColumn = 'payment_status';
+        } elseif (Schema::hasColumn($table, 'status')) {
+            $statusColumn = 'status';
+        }
+
+        if (! $statusColumn) {
+            return 0.0;
+        }
+
+        return round((float) (clone $query)->whereIn($statusColumn, $statuses)->sum($amountColumn), 2);
+    }
+
+    private function revenueBetween(string $table, string $amountColumn, Carbon $from, Carbon $to): float
+    {
+        $dateColumn = $this->firstColumn($table, ['paid_at', 'created_at', 'updated_at']);
+
+        if (! $dateColumn) {
+            return 0.0;
+        }
+
+        $query = DB::table($table)->whereBetween($dateColumn, [$from, $to]);
+
+        return $this->sumByStatus($table, $query, $amountColumn, ['paid', 'success', 'completed', 'captured']);
+    }
+
+    private function countByColumnValue(Builder $query, string $table, string $column, array $values): int
+    {
+        if (! Schema::hasColumn($table, $column)) {
+            return 0;
+        }
+
+        return (clone $query)->whereIn($column, $values)->count();
+    }
+
+    private function groupCount(Builder $query, string $table, string $column): array
+    {
+        if (! Schema::hasColumn($table, $column)) {
+            return [];
+        }
+
+        return (clone $query)
+            ->select($column, DB::raw('COUNT(*) as total'))
+            ->whereNotNull($column)
+            ->groupBy($column)
+            ->pluck('total', $column)
+            ->toArray();
+    }
+
+    private function sumColumn(Builder $query, ?string $column): float
+    {
+        if (! $column) {
+            return 0.0;
+        }
+
+        return round((float) (clone $query)->sum($column), 2);
+    }
+
+    private function sumFirstAvailableColumn(Builder $query, string $table, array $columns): float
+    {
+        $column = $this->firstColumn($table, $columns);
+
+        return $this->sumColumn($query, $column);
+    }
+
+    private function addonRevenue(): float
+    {
+        if (! Schema::hasTable('membership_addon_orders')) {
+            return 0.0;
+        }
+
+        $table = 'membership_addon_orders';
+        $amountColumn = $this->firstColumn($table, ['total_amount', 'payable_amount', 'amount']);
+
+        if (! $amountColumn) {
+            return 0.0;
+        }
+
+        return $this->sumByStatus($table, DB::table($table), $amountColumn, ['paid', 'success', 'completed', 'captured']);
+    }
+
+    private function firstExistingTable(array $tables): ?string
+    {
+        foreach ($tables as $table) {
+            if (Schema::hasTable($table)) {
+                return $table;
+            }
+        }
+
+        return null;
+    }
+
+    private function firstColumn(string $table, array $columns): ?string
+    {
+        if (! Schema::hasTable($table)) {
+            return null;
+        }
+
+        foreach ($columns as $column) {
+            if (Schema::hasColumn($table, $column)) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
+
+    private function missingTableStats(string $table): array
+    {
+        return [
+            'available' => false,
+            'table' => $table,
+            'reason' => 'Table not found.',
+        ];
+    }
+
+    private function safeDashboardStat(callable $callback): array
+    {
+        try {
+            return $callback();
+        } catch (Throwable $e) {
+            report($e);
+
+            return [
+                'available' => false,
+                'error' => config('app.debug') ? $e->getMessage() : 'Unable to calculate stats.',
+            ];
+        }
     }
 
     public function summary(array $filters = []): array
@@ -42,7 +585,7 @@ class MembershipReportService
                 $start->toDateTimeString(),
                 $end->toDateTimeString(),
             ])
-            ->when(!empty($filters['plan_id']), fn ($q) => $q->where('plan_id', (int) $filters['plan_id']))
+            ->when(!empty($filters['plan_id']), fn($q) => $q->where('plan_id', (int) $filters['plan_id']))
             ->selectRaw('
                 COUNT(*) as paid_orders,
                 COALESCE(SUM(subtotal), 0) as subtotal,
@@ -59,7 +602,7 @@ class MembershipReportService
                 $start->toDateTimeString(),
                 $end->toDateTimeString(),
             ])
-            ->when(!empty($filters['addon_id']), fn ($q) => $q->where('addon_id', (int) $filters['addon_id']))
+            ->when(!empty($filters['addon_id']), fn($q) => $q->where('addon_id', (int) $filters['addon_id']))
             ->selectRaw('
                 COUNT(*) as paid_orders,
                 COALESCE(SUM(subtotal), 0) as subtotal,
@@ -130,7 +673,7 @@ class MembershipReportService
                         $start->toDateTimeString(),
                         $end->toDateTimeString(),
                     ])
-                    ->when(!empty($filters['plan_id']), fn ($q) => $q->where('plan_id', (int) $filters['plan_id']))
+                    ->when(!empty($filters['plan_id']), fn($q) => $q->where('plan_id', (int) $filters['plan_id']))
                     ->selectRaw("
                         {$periodExpression} as period,
                         COUNT(*) as membership_order_count,
@@ -146,7 +689,7 @@ class MembershipReportService
                         $start->toDateTimeString(),
                         $end->toDateTimeString(),
                     ])
-                    ->when(!empty($filters['addon_id']), fn ($q) => $q->where('addon_id', (int) $filters['addon_id']))
+                    ->when(!empty($filters['addon_id']), fn($q) => $q->where('addon_id', (int) $filters['addon_id']))
                     ->selectRaw("
                         {$periodExpression} as period,
                         COUNT(*) as addon_order_count,
@@ -216,7 +759,7 @@ class MembershipReportService
             ->orderByDesc('revenue')
             ->limit($limit)
             ->get()
-            ->map(fn ($row) => [
+            ->map(fn($row) => [
                 'plan_id' => (int) $row->plan_id,
                 'plan_name' => $row->plan_name,
                 'plan_slug' => $row->plan_slug,
@@ -258,7 +801,7 @@ class MembershipReportService
             ->orderByDesc('revenue')
             ->limit($limit)
             ->get()
-            ->map(fn ($row) => [
+            ->map(fn($row) => [
                 'addon_id' => (int) $row->addon_id,
                 'addon_name' => $row->addon_name,
                 'addon_slug' => $row->addon_slug,
@@ -277,7 +820,7 @@ class MembershipReportService
 
         return MembershipCreditTransaction::query()
             ->whereBetween('created_at', [$start, $end])
-            ->when(!empty($filters['user_id']), fn ($q) => $q->where('user_id', (int) $filters['user_id']))
+            ->when(!empty($filters['user_id']), fn($q) => $q->where('user_id', (int) $filters['user_id']))
             ->selectRaw('
                 credit_type,
                 COALESCE(SUM(CASE WHEN transaction_type = "credit" THEN quantity ELSE 0 END), 0) as credited,
@@ -289,7 +832,7 @@ class MembershipReportService
             ->groupBy('credit_type')
             ->orderBy('credit_type')
             ->get()
-            ->map(fn ($row) => [
+            ->map(fn($row) => [
                 'credit_type' => $row->credit_type,
                 'credited' => (int) $row->credited,
                 'debited' => (int) $row->debited,
@@ -330,7 +873,7 @@ class MembershipReportService
             ->latest('id')
             ->limit(10)
             ->get()
-            ->map(fn ($order) => [
+            ->map(fn($order) => [
                 'id' => (int) $order->id,
                 'order_number' => $order->order_number,
                 'user' => $this->userPayload($order->user),
@@ -355,7 +898,7 @@ class MembershipReportService
             ->latest('id')
             ->limit(10)
             ->get()
-            ->map(fn ($order) => [
+            ->map(fn($order) => [
                 'id' => (int) $order->id,
                 'order_number' => $order->order_number,
                 'user' => $this->userPayload($order->user),

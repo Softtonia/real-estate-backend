@@ -96,6 +96,8 @@ class AdminMembershipReportController extends Controller
 
     private function serverError(string $message, Throwable $e): JsonResponse
     {
+        report($e);
+
         return response()->json([
             'status' => false,
             'message' => $message,
