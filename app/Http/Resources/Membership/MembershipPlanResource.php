@@ -11,9 +11,16 @@ class MembershipPlanResource extends JsonResource
     {
         return [
             'id' => (int) $this->id,
-            'category_id' => (int) $this->category_id,
+
+            'category_id' => $this->category_id !== null
+                ? (int) $this->category_id
+                : null,
 
             'category' => $this->whenLoaded('category', function () {
+                if (! $this->category) {
+                    return null;
+                }
+
                 return [
                     'id' => (int) $this->category->id,
                     'name' => $this->category->name,
@@ -26,10 +33,15 @@ class MembershipPlanResource extends JsonResource
             'short_description' => $this->short_description,
             'description' => $this->description,
 
-            'currency' => $this->currency,
+            'currency' => $this->currency ?: 'INR',
             'price' => (float) $this->price,
-            'sale_price' => $this->sale_price !== null ? (float) $this->sale_price : null,
-            'payable_amount' => $this->payableAmount(),
+            'sale_price' => $this->sale_price !== null
+                ? (float) $this->sale_price
+                : null,
+
+            'payable_amount' => method_exists($this->resource, 'payableAmount')
+                ? (float) $this->payableAmount()
+                : (float) ($this->sale_price ?? $this->price ?? 0),
 
             'duration' => (int) $this->duration,
             'duration_type' => $this->duration_type,
@@ -41,7 +53,7 @@ class MembershipPlanResource extends JsonResource
 
             'features' => $this->whenLoaded('planFeatures', function () {
                 return $this->planFeatures
-                    ->filter(fn ($planFeature) => $planFeature->feature)
+                    ->filter(fn ($planFeature) => $planFeature && $planFeature->feature)
                     ->map(function ($planFeature) {
                         return [
                             'id' => (int) $planFeature->feature->id,
@@ -54,6 +66,16 @@ class MembershipPlanResource extends JsonResource
                     })
                     ->values();
             }),
+
+            'counts' => [
+                'plan_features_count' => $this->whenCounted('planFeatures'),
+                'role_rules_count' => $this->whenCounted('roleRules'),
+                'orders_count' => $this->whenCounted('orders'),
+                'memberships_count' => $this->whenCounted('memberships'),
+            ],
+
+            'created_at' => optional($this->created_at)->toDateTimeString(),
+            'updated_at' => optional($this->updated_at)->toDateTimeString(),
         ];
     }
 }
