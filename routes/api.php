@@ -1321,7 +1321,7 @@ Route::prefix('admin/notifications')
             ->middleware('permission.check:notification_templates,delete')
             ->whereNumber('template');
 
-        Route::get('admin/notifications/payload-options', [NotificationPayloadOptionController::class, 'index'])
+        Route::get('payload-options', [NotificationPayloadOptionController::class, 'index'])
             ->middleware('permission.check:notifications,read');
     });
 
