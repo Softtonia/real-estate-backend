@@ -63,6 +63,7 @@ use App\Http\Controllers\Api\Admin\Notification\AdminNotificationSendController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationTemplateController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationTopicController;
 use App\Http\Controllers\Api\Admin\Notification\NotificationConfigController;
+use App\Http\Controllers\Api\Admin\Notification\NotificationPayloadOptionController;
 use App\Http\Controllers\Api\Admin\Payment\PaymentGatewayController;
 use App\Http\Controllers\Api\CustomFieldGroupController;
 use App\Http\Controllers\OtpController;
@@ -1319,6 +1320,9 @@ Route::prefix('admin/notifications')
         Route::delete('templates/{template}', [AdminNotificationTemplateController::class, 'destroy'])
             ->middleware('permission.check:notification_templates,delete')
             ->whereNumber('template');
+
+        Route::get('admin/notifications/payload-options', [NotificationPayloadOptionController::class, 'index'])
+            ->middleware('permission.check:notifications,read');
     });
 
 Route::prefix('admin/membership/settings')
