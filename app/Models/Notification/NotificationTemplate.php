@@ -28,15 +28,81 @@ class NotificationTemplate extends Model
         'status' => 'boolean',
     ];
 
+    /*
+    |--------------------------------------------------------------------------
+    | New channel values
+    |--------------------------------------------------------------------------
+    */
+    public const CHANNEL_PUSH_IN_APP = 'push_in_app';
     public const CHANNEL_PUSH = 'push';
+    public const CHANNEL_IN_APP = 'in_app';
+    public const CHANNEL_EMAIL = 'email';
+
+    /*
+    |--------------------------------------------------------------------------
+    | Legacy channel values - keep for old DB/templates
+    |--------------------------------------------------------------------------
+    */
     public const CHANNEL_DATABASE = 'database';
     public const CHANNEL_PUSH_DATABASE = 'push_database';
 
     public const CHANNELS = [
+        self::CHANNEL_PUSH_IN_APP,
         self::CHANNEL_PUSH,
+        self::CHANNEL_IN_APP,
+        self::CHANNEL_EMAIL,
+
+        // legacy allowed values
         self::CHANNEL_DATABASE,
         self::CHANNEL_PUSH_DATABASE,
     ];
+
+    public const ADMIN_CHANNEL_OPTIONS = [
+        self::CHANNEL_PUSH_IN_APP => 'Push + In-App Database',
+        self::CHANNEL_PUSH => 'Push Notification Only',
+        self::CHANNEL_IN_APP => 'In-App Notification Only',
+        self::CHANNEL_EMAIL => 'Email Only',
+    ];
+
+    public static function normalizeChannel(?string $channel): string
+    {
+        $channel = strtolower(trim((string) $channel));
+
+        return match ($channel) {
+            self::CHANNEL_PUSH_DATABASE => self::CHANNEL_PUSH_IN_APP,
+            self::CHANNEL_DATABASE => self::CHANNEL_IN_APP,
+            self::CHANNEL_PUSH => self::CHANNEL_PUSH,
+            self::CHANNEL_IN_APP => self::CHANNEL_IN_APP,
+            self::CHANNEL_EMAIL => self::CHANNEL_EMAIL,
+            self::CHANNEL_PUSH_IN_APP => self::CHANNEL_PUSH_IN_APP,
+            default => self::CHANNEL_PUSH_IN_APP,
+        };
+    }
+
+    public static function shouldSendPush(?string $channel): bool
+    {
+        $channel = self::normalizeChannel($channel);
+
+        return in_array($channel, [
+            self::CHANNEL_PUSH_IN_APP,
+            self::CHANNEL_PUSH,
+        ], true);
+    }
+
+    public static function shouldCreateInbox(?string $channel): bool
+    {
+        $channel = self::normalizeChannel($channel);
+
+        return in_array($channel, [
+            self::CHANNEL_PUSH_IN_APP,
+            self::CHANNEL_IN_APP,
+        ], true);
+    }
+
+    public static function shouldSendEmail(?string $channel): bool
+    {
+        return self::normalizeChannel($channel) === self::CHANNEL_EMAIL;
+    }
 
     public function createdBy(): BelongsTo
     {
@@ -55,6 +121,6 @@ class NotificationTemplate extends Model
 
     public function scopeChannel(Builder $query, string $channel): Builder
     {
-        return $query->where('channel', $channel);
+        return $query->where('channel', self::normalizeChannel($channel));
     }
 }

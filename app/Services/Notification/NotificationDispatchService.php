@@ -20,13 +20,16 @@ class NotificationDispatchService
 
             $title = $data['title'] ?? $template?->title;
             $body = $data['body'] ?? $template?->body;
+
             $imageUrl = array_key_exists('image_url', $data)
                 ? $data['image_url']
                 : $template?->image_url;
 
-            $channel = $data['channel']
+            $channel = NotificationTemplate::normalizeChannel(
+                $data['channel']
                 ?? $template?->channel
-                ?? NotificationTemplate::CHANNEL_PUSH_DATABASE;
+                ?? NotificationTemplate::CHANNEL_PUSH_IN_APP
+            );
 
             if (! $title || ! $body) {
                 throw ValidationException::withMessages([
@@ -37,6 +40,13 @@ class NotificationDispatchService
             $scheduledAt = ! empty($data['scheduled_at'])
                 ? Carbon::parse($data['scheduled_at'])
                 : null;
+
+            $templateData = is_array($template?->data) ? $template->data : [];
+            $requestData = is_array($data['data'] ?? null) ? $data['data'] : [];
+
+            $payloadData = array_merge($templateData, $requestData);
+            $payloadData['type'] = $payloadData['type'] ?? 'general';
+            $payloadData['screen'] = $payloadData['screen'] ?? 'home';
 
             $batch = NotificationBatch::query()->create([
                 'batch_uuid' => (string) Str::uuid(),
@@ -51,7 +61,7 @@ class NotificationDispatchService
 
                 'payload' => [
                     'channel' => $channel,
-                    'data' => $data['data'] ?? [],
+                    'data' => $payloadData,
                 ],
 
                 'total_count' => 0,
@@ -67,7 +77,8 @@ class NotificationDispatchService
             ]);
 
             DB::afterCommit(function () use ($batch, $scheduledAt) {
-                $job = ProcessNotificationBatchJob::dispatch($batch->id);
+                $job = ProcessNotificationBatchJob::dispatch($batch->id)
+                    ->onQueue('notifications');
 
                 if ($scheduledAt && $scheduledAt->isFuture()) {
                     $job->delay($scheduledAt);
@@ -136,12 +147,13 @@ class NotificationDispatchService
 
             NotificationBatch::TARGET_TOKEN => [
                 'token' => $data['fcm_token'],
+                'fcm_token' => $data['fcm_token'],
                 'platform' => $data['platform'] ?? null,
             ],
 
             default => null,
         };
 
-        return $value === null ? null : json_encode($value);
+        return $value === null ? null : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 }
