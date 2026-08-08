@@ -22,7 +22,7 @@ class PropertySearchService
             now()->addHours(6),
             function (): array {
                 return [
-                    'tabs' => $this->taxonomyOptions('purpose'),
+                    'purposes' => $this->taxonomyOptions('purpose'),
                     'property_types' => $this->taxonomyOptions('property_type'),
                     'bedrooms' => $this->bedroomOptions(),
                     'budget_options' => config('property_search.budget_options', []),
