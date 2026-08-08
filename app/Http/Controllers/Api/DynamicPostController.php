@@ -517,18 +517,179 @@ class DynamicPostController extends Controller
                 );
             }
 
-            $propertyVerificationOverride =
-                $this->prepareAdminPropertyVerificationOverride(
-                    $request,
-                    $post
-                );
+            /*
+            |--------------------------------------------------------------------------
+            | Property admin status override
+            |--------------------------------------------------------------------------
+            |
+            | Requirement:
+            | - Admin does NOT need verifier assignment.
+            | - Existing assigned user/verifier must remain unchanged.
+            | - Admin must NEVER become assigned_to / assigned user automatically.
+            | - Approve/reject still goes through PropertyWorkflowService so the
+            |   latest verification revision and dynamic_posts stay in sync.
+            |
+            */
+            $workflowAction = null;
+            $workflowActor = null;
+            $workflowReason = null;
+            $workflowNotes = null;
+
+            $postTypeSlug = DB::table('post_types')
+                ->where('id', (int) $post->post_type_id)
+                ->value('slug');
+
+            $isPropertyListing =
+                Str::slug((string) $postTypeSlug) === 'property-listing';
+
+            $hasPropertyStatusPayload =
+                $isPropertyListing
+                && $request->hasAny([
+                    'status',
+                    'live_status',
+                    'rejection_reason',
+                    'rejected_by',
+                    'rejected_at',
+                ]);
+
+            if ($hasPropertyStatusPayload) {
+                $workflowActor = $this->resolveDynamicPostActor($request);
+
+                if (
+                    !$workflowActor
+                    || !$this->isAdminOrSuperAdminUser($workflowActor)
+                ) {
+                    throw ValidationException::withMessages([
+                        'verification' => [
+                            'Use the property verification APIs to approve, reject or publish a property.',
+                        ],
+                    ]);
+                }
+
+                $requestedStatus = $request->filled('status')
+                    ? strtolower(trim((string) $request->input('status')))
+                    : null;
+
+                $requestedLiveStatus = $request->filled('live_status')
+                    ? strtolower(trim((string) $request->input('live_status')))
+                    : null;
+
+                if (
+                    $requestedStatus === 'published'
+                    && in_array(
+                        $requestedLiveStatus,
+                        ['reject', 'disapprove'],
+                        true
+                    )
+                ) {
+                    throw ValidationException::withMessages([
+                        'verification' => [
+                            'A property cannot be published and rejected in the same request.',
+                        ],
+                    ]);
+                }
+
+                if (
+                    in_array(
+                        $requestedStatus,
+                        ['draft', 'private', 'archived'],
+                        true
+                    )
+                    && $requestedLiveStatus === 'approve'
+                ) {
+                    throw ValidationException::withMessages([
+                        'verification' => [
+                            'A property cannot be approved with a non-published status in the same request.',
+                        ],
+                    ]);
+                }
+
+                /*
+                 * Publish / Approve
+                 */
+                if (
+                    $requestedStatus === 'published'
+                    || $requestedLiveStatus === 'approve'
+                ) {
+                    $workflowAction = 'approve';
+                    $workflowNotes = $request->filled('notes')
+                        ? trim((string) $request->input('notes'))
+                        : null;
+                }
+
+                /*
+                 * Reject / Disapprove
+                 */
+                if (
+                    in_array(
+                        $requestedLiveStatus,
+                        ['reject', 'disapprove'],
+                        true
+                    )
+                ) {
+                    $workflowReason = trim(
+                        (string) $request->input('rejection_reason', '')
+                    );
+
+                    if ($workflowReason === '') {
+                        throw ValidationException::withMessages([
+                            'rejection_reason' => [
+                                'Rejection reason is required when property is rejected.',
+                            ],
+                        ]);
+                    }
+
+                    $workflowAction = 'reject';
+                }
+
+                /*
+                 * These are workflow states, not direct admin CRUD statuses.
+                 */
+                if (
+                    in_array(
+                        $requestedLiveStatus,
+                        ['under_review', 'modify_review', 'submit'],
+                        true
+                    )
+                ) {
+                    throw ValidationException::withMessages([
+                        'live_status' => [
+                            'Use the property verification workflow to change this verification status.',
+                        ],
+                    ]);
+                }
+
+                /*
+                 * Client is not allowed to set audit fields.
+                 */
+                $request->request->remove('rejected_by');
+                $request->request->remove('rejected_at');
+
+                /*
+                 * For approve/reject, PropertyWorkflowService owns these fields.
+                 * Remove them before normal DynamicPost validation/save so there
+                 * is only one source of truth.
+                 */
+                if ($workflowAction !== null) {
+                    $request->replace(
+                        $request->except([
+                            'status',
+                            'live_status',
+                            'rejection_reason',
+                            'rejected_by',
+                            'rejected_at',
+                            'published_at',
+                        ])
+                    );
+                }
+            }
 
             $validated = $this->validatePost($request, true);
 
-            if (
-                empty($propertyVerificationOverride)
-                || empty($propertyVerificationOverride['action'])
-            ) {
+            /*
+             * Non-workflow updates keep the existing normal visibility logic.
+             */
+            if ($workflowAction === null) {
                 $validated = $this->normalizeLiveVisibilityStatus(
                     $validated,
                     $post
@@ -604,27 +765,27 @@ class DynamicPostController extends Controller
 
             $relationshipPostTypes =
                 $hasRelationshipPayload
-                ? $this->normalizeRelationshipPostTypeInputs(
-                    $rawRequestData
-                )
-                : null;
+                    ? $this->normalizeRelationshipPostTypeInputs(
+                        $rawRequestData
+                    )
+                    : null;
 
             $taxonomyTermIds =
                 $hasTaxonomyPayload
-                ? $this->normalizeSubmittedTaxonomyTermIds(
-                    $validated
-                )
-                : null;
+                    ? $this->normalizeSubmittedTaxonomyTermIds(
+                        $validated
+                    )
+                    : null;
 
             $customFields =
                 array_key_exists('custom_fields', $validated)
-                ? $this->prepareCustomFieldsForSave(
-                    $request,
-                    $validated,
-                    $postType,
-                    $post
-                )
-                : null;
+                    ? $this->prepareCustomFieldsForSave(
+                        $request,
+                        $validated,
+                        $postType,
+                        $post
+                    )
+                    : null;
 
             if (is_array($customFields)) {
                 $customFields =
@@ -653,11 +814,11 @@ class DynamicPostController extends Controller
             if (is_array($customFields)) {
                 $effectiveTermIds =
                     is_array($taxonomyTermIds)
-                    ? $taxonomyTermIds
-                    : $post->taxonomyTerms()
-                    ->pluck('taxonomy_terms.id')
-                    ->map(fn($id) => (int) $id)
-                    ->toArray();
+                        ? $taxonomyTermIds
+                        : $post->taxonomyTerms()
+                            ->pluck('taxonomy_terms.id')
+                            ->map(fn ($id) => (int) $id)
+                            ->toArray();
 
                 $this->validateSubmittedCustomFieldsForPostType(
                     $postType,
@@ -721,14 +882,14 @@ class DynamicPostController extends Controller
             }
 
             /*
-         * Admin approve/reject must NEVER reassign the property.
-         */
+             * Critical:
+             * Approve/reject must never change listing assignment even when
+             * the frontend sends user_id / assigned_user_id in the full form.
+             */
             $hasAssignedUserPayload =
-                !empty($propertyVerificationOverride['action'])
-                ? false
-                : $this->hasAssignedUserPayload(
-                    $request->all()
-                );
+                $workflowAction === null
+                    ? $this->hasAssignedUserPayload($request->all())
+                    : false;
 
             DB::transaction(function () use (
                 $post,
@@ -740,7 +901,10 @@ class DynamicPostController extends Controller
                 $hasAssignedUserPayload,
                 $postType,
                 $hasKeywordPayload,
-                $propertyVerificationOverride
+                $workflowAction,
+                $workflowActor,
+                $workflowReason,
+                $workflowNotes
             ) {
                 $postData =
                     $this->dynamicPostPayloadForDatabase(
@@ -843,10 +1007,23 @@ class DynamicPostController extends Controller
                     );
                 }
 
-                $this->executeAdminPropertyVerificationOverride(
-                    $post,
-                    $propertyVerificationOverride
-                );
+                /*
+                 * Workflow decision is deliberately last.
+                 * It updates publication + revision status but never assignment.
+                 */
+                if ($workflowAction === 'approve') {
+                    app(PropertyWorkflowService::class)->approve(
+                        property: $post->fresh(),
+                        actor: $workflowActor,
+                        notes: $workflowNotes
+                    );
+                } elseif ($workflowAction === 'reject') {
+                    app(PropertyWorkflowService::class)->reject(
+                        property: $post->fresh(),
+                        actor: $workflowActor,
+                        reason: (string) $workflowReason
+                    );
+                }
             });
 
             $freshPost = $post->fresh()
@@ -875,244 +1052,9 @@ class DynamicPostController extends Controller
             );
         }
     }
-    private function prepareAdminPropertyVerificationOverride(
-        Request $request,
-        DynamicPost $post
-    ): ?array {
-        $postTypeSlug = DB::table('post_types')
-            ->where('id', (int) $post->post_type_id)
-            ->value('slug');
 
-        if (
-            Str::slug((string) $postTypeSlug)
-            !== 'property-listing'
-        ) {
-            return null;
-        }
-
-        $hasVerificationPayload =
-            $request->hasAny([
-                'status',
-                'live_status',
-                'rejection_reason',
-                'rejected_by',
-                'rejected_at',
-            ]);
-
-        if (!$hasVerificationPayload) {
-            return null;
-        }
-
-        $actor =
-            $this->resolveDynamicPostActor($request);
-
-        if (
-            !$actor
-            || !$this->isAdminOrSuperAdminUser($actor)
-        ) {
-            throw ValidationException::withMessages([
-                'verification' => [
-                    'Use the property verification APIs to approve, reject or publish a property.',
-                ],
-            ]);
-        }
-
-        $requestedStatus =
-            $request->filled('status')
-            ? strtolower(trim(
-                (string) $request->input('status')
-            ))
-            : null;
-
-        $requestedLiveStatus =
-            $request->filled('live_status')
-            ? strtolower(trim(
-                (string) $request->input('live_status')
-            ))
-            : null;
-
-        /*
-     * Never trust client supplied audit actor/timestamps.
-     */
-        $request->request->remove('rejected_by');
-        $request->request->remove('rejected_at');
-
-        if (
-            $requestedStatus === 'published'
-            && in_array(
-                $requestedLiveStatus,
-                ['reject', 'disapprove'],
-                true
-            )
-        ) {
-            throw ValidationException::withMessages([
-                'verification' => [
-                    'A property cannot be published and rejected in the same request.',
-                ],
-            ]);
-        }
-
-        if (
-            in_array(
-                $requestedStatus,
-                ['draft', 'private', 'archived'],
-                true
-            )
-            && $requestedLiveStatus === 'approve'
-        ) {
-            throw ValidationException::withMessages([
-                'verification' => [
-                    'A property cannot be approved while requesting a non-published status in the same request.',
-                ],
-            ]);
-        }
-
-        /*
-     * APPROVE / PUBLISH
-     */
-        if (
-            $requestedStatus === 'published'
-            || $requestedLiveStatus === 'approve'
-        ) {
-            $notes = $request->filled('notes')
-                ? trim((string) $request->input('notes'))
-                : null;
-
-            $this->removeVerificationControlledRequestFields(
-                $request
-            );
-
-            return [
-                'action' => 'approve',
-                'actor' => $actor,
-                'notes' => $notes ?: null,
-                'reason' => null,
-            ];
-        }
-
-        /*
-     * REJECT
-     */
-        if (
-            in_array(
-                $requestedLiveStatus,
-                ['reject', 'disapprove'],
-                true
-            )
-        ) {
-            $reason = trim(
-                (string) $request->input(
-                    'rejection_reason',
-                    ''
-                )
-            );
-
-            if ($reason === '') {
-                throw ValidationException::withMessages([
-                    'rejection_reason' => [
-                        'Rejection reason is required when property is rejected.',
-                    ],
-                ]);
-            }
-
-            $this->removeVerificationControlledRequestFields(
-                $request
-            );
-
-            return [
-                'action' => 'reject',
-                'actor' => $actor,
-                'notes' => null,
-                'reason' => $reason,
-            ];
-        }
-
-        /*
-     * These are workflow states, not direct publication states.
-     */
-        if (
-            in_array(
-                $requestedLiveStatus,
-                [
-                    'under_review',
-                    'submit',
-                    'modify_review',
-                ],
-                true
-            )
-        ) {
-            throw ValidationException::withMessages([
-                'live_status' => [
-                    'Use the property verification workflow to change this verification status.',
-                ],
-            ]);
-        }
-
-        /*
-     * draft/private/archived remain normal admin publication updates.
-     */
-        return [
-            'action' => null,
-            'actor' => $actor,
-            'notes' => null,
-            'reason' => null,
-        ];
-    }
-
-    private function removeVerificationControlledRequestFields(
-        Request $request
-    ): void {
-        $request->replace(
-            $request->except([
-                'status',
-                'live_status',
-                'rejection_reason',
-                'rejected_by',
-                'rejected_at',
-                'published_at',
-            ])
-        );
-    }
-    private function executeAdminPropertyVerificationOverride(
-        DynamicPost $post,
-        ?array $override
-    ): void {
-        if (
-            empty($override)
-            || empty($override['action'])
-        ) {
-            return;
-        }
-
-        /** @var User $actor */
-        $actor = $override['actor'];
-
-        if ($override['action'] === 'approve') {
-            $this->propertyWorkflowService()
-                ->approve(
-                    property: $post->fresh(),
-                    actor: $actor,
-                    notes: $override['notes'] ?? null
-                );
-
-            return;
-        }
-
-        if ($override['action'] === 'reject') {
-            $this->propertyWorkflowService()
-                ->reject(
-                    property: $post->fresh(),
-                    actor: $actor,
-                    reason: (string) (
-                        $override['reason'] ?? ''
-                    )
-                );
-        }
-    }
-
-    private function resolveDynamicPostActor(
-        Request $request
-    ): ?User {
+    private function resolveDynamicPostActor(Request $request): ?User
+    {
         $actor = $request->user();
 
         if ($actor instanceof User) {
@@ -1142,12 +1084,7 @@ class DynamicPostController extends Controller
             ->first();
     }
 
-    private function propertyWorkflowService(): PropertyWorkflowService
-    {
-        return app(
-            PropertyWorkflowService::class
-        );
-    }
+
     public function destroy(int|string $dynamicPost): JsonResponse
     {
         try {

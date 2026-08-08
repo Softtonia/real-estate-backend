@@ -21,7 +21,7 @@ class PropertyWorkflowService
     private const ALLOWED_OWNER_ROLES = [
         'owner',
         'owners',
-        'agent',
+        'property-owner',
         'property-owners',
         'company',
         'companies',
@@ -340,49 +340,30 @@ class PropertyWorkflowService
                 ->lockForUpdate()
                 ->findOrFail($property->id);
 
-            $this->assertPropertyListing(
-                $lockedProperty
-            );
+            $this->assertPropertyListing($lockedProperty);
 
-            $revision =
-                $this->latestOrCreateAssignmentRevision(
-                    property: $lockedProperty,
-                    actor: $actor
-                );
+            $revision = $this->latestOrCreateAssignmentRevision(
+                property: $lockedProperty,
+                actor: $actor
+            );
 
             $fromStatus = $revision->status;
 
             /*
-         * Reassignment while verification is running
-         * must not downgrade the workflow.
+         * If already in_verification, this is reassignment.
+         * Do not move status back to assigned.
          */
-            $nextStatus =
-                $fromStatus ===
-                PropertyWorkflowStatus::IN_VERIFICATION
+            $nextStatus = $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
                 ? PropertyWorkflowStatus::IN_VERIFICATION
                 : PropertyWorkflowStatus::ASSIGNED;
 
-            /*
-         * ONLY assignment endpoint changes these.
-         */
             $revision->forceFill([
                 'status' => $nextStatus,
-
-                'assigned_to' =>
-                (int) $verifier->id,
-
-                'assigned_by' =>
-                (int) $actor->id,
-
+                'assigned_to' => (int) $verifier->id,
+                'assigned_by' => (int) $actor->id,
                 'assigned_at' => now(),
-
-                'verification_started_at' =>
-                $nextStatus ===
-                    PropertyWorkflowStatus::IN_VERIFICATION
-                    ? (
-                        $revision->verification_started_at
-                        ?: now()
-                    )
+                'verification_started_at' => $nextStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                    ? ($revision->verification_started_at ?: now())
                     : null,
             ])->save();
 
@@ -393,7 +374,9 @@ class PropertyWorkflowService
             );
 
             /*
-         * Existing dynamic_post_user table.
+         * Existing table:
+         * dynamic_post_user.user_id = verifier id
+         * dynamic_post_user.assigned_by = admin id
          */
             $this->syncDynamicPostAssignedVerifier(
                 property: $lockedProperty,
@@ -405,59 +388,41 @@ class PropertyWorkflowService
                 property: $lockedProperty,
                 revision: $revision,
                 actor: $actor,
-
-                event: $fromStatus ===
-                    PropertyWorkflowStatus::IN_VERIFICATION
+                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'property_reassigned'
                     : 'property_assigned',
-
                 fromStatus: $fromStatus,
                 toStatus: $nextStatus,
-
                 message: $notes ?: (
-                    $fromStatus ===
-                    PropertyWorkflowStatus::IN_VERIFICATION
+                    $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'Property verifier reassigned during verification.'
                     : 'Property assigned for verification.'
                 ),
-
                 metadata: [
-                    'verifier_id' =>
-                    (int) $verifier->id,
-
-                    'verifier_name' =>
-                    $this->userName($verifier),
+                    'verifier_id' => (int) $verifier->id,
+                    'verifier_name' => $this->userName($verifier),
                 ]
             );
 
             $this->notifyUserAfterCommit(
                 userId: (int) $verifier->id,
                 property: $lockedProperty,
-
-                event: $fromStatus ===
-                    PropertyWorkflowStatus::IN_VERIFICATION
+                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'property_reassigned'
                     : 'property_assigned',
-
                 metadata: [
-                    'assigned_by' =>
-                    (int) $actor->id,
+                    'assigned_by' => (int) $actor->id,
                 ]
             );
 
             $this->notifyOwnerAfterCommit(
                 ownerId: (int) $lockedProperty->author_id,
-
                 property: $lockedProperty,
-
-                event: $fromStatus ===
-                    PropertyWorkflowStatus::IN_VERIFICATION
+                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'property_reassigned'
                     : 'property_assigned',
-
                 metadata: [
-                    'verifier_id' =>
-                    (int) $verifier->id,
+                    'verifier_id' => (int) $verifier->id,
                 ]
             );
 
@@ -477,110 +442,73 @@ class PropertyWorkflowService
     ): PropertyListingRevision {
         $this->assertCanActOnVerification($actor);
 
-        $revision = DB::transaction(
-            function () use ($property, $actor) {
-                $lockedProperty =
-                    DynamicPost::query()
-                    ->lockForUpdate()
-                    ->findOrFail($property->id);
+        $revision = DB::transaction(function () use ($property, $actor) {
+            $lockedProperty = DynamicPost::query()
+                ->lockForUpdate()
+                ->findOrFail($property->id);
 
-                $this->assertPropertyListing(
-                    $lockedProperty
-                );
+            $this->assertPropertyListing($lockedProperty);
 
-                $revision =
-                    $this->latestRevisionOrFail(
-                        $lockedProperty
-                    );
+            $revision = $this->latestRevisionOrFail($lockedProperty);
 
-                if (
-                    $revision->status ===
-                    PropertyWorkflowStatus::APPROVED
-                ) {
-                    return $revision;
-                }
-
-                $allowedStatuses = [
-                    PropertyWorkflowStatus::UNDER_REVIEW,
-                    PropertyWorkflowStatus::RESUBMISSION,
-                    PropertyWorkflowStatus::ASSIGNED,
-                    PropertyWorkflowStatus::IN_VERIFICATION,
-                ];
-
-                if (!in_array(
-                    $revision->status,
-                    $allowedStatuses,
-                    true
-                )) {
-                    throw ValidationException::withMessages([
-                        'status' => [
-                            'This action is not allowed while the property verification status is '
-                                . $revision->status
-                                . '.',
-                        ],
-                    ]);
-                }
-
-                /*
-             * Admin bypass.
-             * Verifier must be assigned.
-             */
-                $this->ensureActorCanWorkOnRevision(
-                    $revision,
-                    $actor
-                );
-
-                if (
-                    $revision->status ===
-                    PropertyWorkflowStatus::IN_VERIFICATION
-                ) {
-                    return $revision;
-                }
-
-                $fromStatus = $revision->status;
-
-                /*
-             * DO NOT touch:
-             *
-             * assigned_to
-             * assigned_by
-             * assigned_at
-             */
-                $revision->forceFill([
-                    'status' =>
-                    PropertyWorkflowStatus::IN_VERIFICATION,
-
-                    'verification_started_at' => now(),
-                ])->save();
-
-                $this->setPropertyWorkflowState(
-                    $lockedProperty,
-                    status: $lockedProperty->status
-                        ?: 'draft',
-
-                    liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
-                );
-
-                $this->recordEvent(
-                    property: $lockedProperty,
-                    revision: $revision,
-                    actor: $actor,
-                    event: 'verification_started',
-                    fromStatus: $fromStatus,
-                    toStatus: PropertyWorkflowStatus::IN_VERIFICATION,
-                    message: 'Property verification started.'
-                );
-
-                $this->notifyOwnerAfterCommit(
-                    ownerId: (int) $lockedProperty->author_id,
-
-                    property: $lockedProperty,
-                    event: 'verification_started'
-                );
-
+            if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
             }
-        );
+
+            $allowedStatuses = [
+                PropertyWorkflowStatus::UNDER_REVIEW,
+                PropertyWorkflowStatus::RESUBMISSION,
+                PropertyWorkflowStatus::ASSIGNED,
+                PropertyWorkflowStatus::IN_VERIFICATION,
+            ];
+
+            if (!in_array($revision->status, $allowedStatuses, true)) {
+                throw ValidationException::withMessages([
+                    'status' => [
+                        'This action is not allowed while the property verification status is '
+                            . $revision->status
+                            . '.',
+                    ],
+                ]);
+            }
+
+            $this->ensureActorCanWorkOnRevision($revision, $actor);
+
+            if ($revision->status === PropertyWorkflowStatus::IN_VERIFICATION) {
+                return $revision;
+            }
+
+            $fromStatus = $revision->status;
+
+            $revision->forceFill([
+                'status' => PropertyWorkflowStatus::IN_VERIFICATION,
+                'verification_started_at' => now(),
+            ])->save();
+
+            $this->setPropertyWorkflowState(
+                $lockedProperty,
+                status: $lockedProperty->status ?: 'draft',
+                liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
+            );
+
+            $this->recordEvent(
+                property: $lockedProperty,
+                revision: $revision,
+                actor: $actor,
+                event: 'verification_started',
+                fromStatus: $fromStatus,
+                toStatus: PropertyWorkflowStatus::IN_VERIFICATION,
+                message: 'Property verification started.'
+            );
+
+            $this->notifyOwnerAfterCommit(
+                ownerId: (int) $lockedProperty->author_id,
+                property: $lockedProperty,
+                event: 'verification_started'
+            );
+
+            return $revision;
+        });
 
         return $revision->fresh([
             'property:id,title,slug,status,live_status,author_id,post_type_id',
@@ -589,6 +517,7 @@ class PropertyWorkflowService
             'decider:id,first_name,last_name,email',
         ]);
     }
+
 
     public function approve(
         DynamicPost $property,
@@ -646,29 +575,32 @@ class PropertyWorkflowService
             $this->clearRejectionMetadata($lockedProperty);
 
             $revision->forceFill([
-                'status' =>
-                PropertyWorkflowStatus::APPROVED,
-
-                'verification_started_at' =>
-                $revision->verification_started_at
-                    ?: now(),
-
-                'decided_by' => (int) $actor->id,
-
+                'status' => PropertyWorkflowStatus::APPROVED,
+                'verification_started_at' => $revision->verification_started_at ?: now(),
+                'decided_by' => $actor->id,
                 'decided_at' => now(),
-
                 'rejection_reason' => null,
             ])->save();
 
             /*
-             * Availability reactivation is finalized only after
-             * the verification revision is approved.
+             * Availability is a separate workflow.
+             * Normal verification approval must not depend on availability
+             * reactivation methods. Only an availability reactivation revision
+             * is allowed to call the availability finalizer.
              */
-            $this->availability->approvePendingReactivation(
-                property: $lockedProperty,
-                revision: $revision,
-                actor: $actor
-            );
+            if ($revision->source === 'availability_reactivation') {
+                if (!method_exists($this->availability, 'approvePendingReactivation')) {
+                    throw new RuntimeException(
+                        'PropertyAvailabilityService::approvePendingReactivation() is required for availability reactivation approval.'
+                    );
+                }
+
+                $this->availability->approvePendingReactivation(
+                    property: $lockedProperty,
+                    revision: $revision,
+                    actor: $actor
+                );
+            }
 
             $this->recordEvent(
                 property: $lockedProperty,
@@ -777,29 +709,32 @@ class PropertyWorkflowService
             $fromStatus = $revision->status;
 
             $revision->forceFill([
-                'status' =>
-                PropertyWorkflowStatus::REJECTED,
-
-                'verification_started_at' =>
-                $revision->verification_started_at
-                    ?: now(),
-
+                'status' => PropertyWorkflowStatus::REJECTED,
+                'verification_started_at' => $revision->verification_started_at ?: now(),
                 'decided_by' => (int) $actor->id,
                 'decided_at' => now(),
-
                 'rejection_reason' => $reason,
             ])->save();
 
             /*
-             * On reactivation rejection, keep the previous sold/rented/
-             * off-market state and clear only the pending Available request.
+             * Availability is a separate workflow.
+             * Normal verification rejection must not depend on availability
+             * reactivation methods.
              */
-            $this->availability->rejectPendingReactivation(
-                property: $lockedProperty,
-                revision: $revision,
-                actor: $actor,
-                reason: $reason
-            );
+            if ($revision->source === 'availability_reactivation') {
+                if (!method_exists($this->availability, 'rejectPendingReactivation')) {
+                    throw new RuntimeException(
+                        'PropertyAvailabilityService::rejectPendingReactivation() is required for availability reactivation rejection.'
+                    );
+                }
+
+                $this->availability->rejectPendingReactivation(
+                    property: $lockedProperty,
+                    revision: $revision,
+                    actor: $actor,
+                    reason: $reason
+                );
+            }
 
             /*
          * Important:
@@ -1031,24 +966,50 @@ class PropertyWorkflowService
             $role->role_name ?? null,
         ])
             ->filter()
-            ->map(fn($value) => Str::slug(
-                (string) $value
-            ))
+            ->map(fn($value) => Str::slug((string) $value))
             ->values()
             ->toArray();
 
-        return (bool) array_intersect(
-            $roleValues,
-            [
-                'admin',
-                'administrator',
-                'super-admin',
-                'super-admin-user',
-                'superadmin',
-            ]
-        );
+        return (bool) array_intersect($roleValues, [
+            'admin',
+            'administrator',
+            'super-admin',
+            'super-admin-user',
+            'superadmin',
+        ]);
     }
 
+    private function ensureActorCanWorkOnRevision(
+        PropertyListingRevision $revision,
+        User $actor
+    ): void {
+        /*
+     * Admin can review/action without assignment.
+     * Important: admin ko auto assign nahi karna.
+     */
+        if ($this->isSystemAdmin($actor)) {
+            return;
+        }
+
+        /*
+     * Non-admin/verifier must be assigned.
+     */
+        if (empty($revision->assigned_to)) {
+            throw ValidationException::withMessages([
+                'assignment' => [
+                    'This property is not assigned to you.',
+                ],
+            ]);
+        }
+
+        if ((int) $revision->assigned_to !== (int) $actor->id) {
+            throw ValidationException::withMessages([
+                'assignment' => [
+                    'This property is assigned to another verifier.',
+                ],
+            ]);
+        }
+    }
 
 
     private function clearDynamicPostAssignedVerifier(
@@ -1550,228 +1511,12 @@ class PropertyWorkflowService
                 . ($user->last_name ?? '')
         ) ?: ($user->email ?? ('User #' . $user->id));
     }
-
-    private function ensureActorCanWorkOnRevision(
-        PropertyListingRevision $revision,
-        User $actor
-    ): void {
-        /*
-     * Admin / Super Admin:
-     * - assignment required nahi
-     * - assigned_to change nahi hoga
-     * - admin auto-assigned nahi hoga
-     */
+    private function assertCanActOnVerification(User $actor): void
+    {
         if ($this->isSystemAdmin($actor)) {
             return;
         }
 
-        /*
-     * Non-admin verifier must be assigned.
-     */
-        if (empty($revision->assigned_to)) {
-            throw ValidationException::withMessages([
-                'assignment' => [
-                    'This property is not assigned to you.',
-                ],
-            ]);
-        }
-
-        if (
-            (int) $revision->assigned_to
-            !== (int) $actor->id
-        ) {
-            throw ValidationException::withMessages([
-                'assignment' => [
-                    'This property is assigned to another verifier.',
-                ],
-            ]);
-        }
-    }
-
-    private function assertCanActOnVerification(
-        User $actor
-    ): void {
-        /*
-     * Admin bypasses verifier eligibility + assignment.
-     */
-        if ($this->isSystemAdmin($actor)) {
-            return;
-        }
-
-        /*
-     * Non-admin must first be eligible verifier.
-     */
         $this->assertVerifier($actor);
-    }
-    public function approvePendingReactivation(
-        DynamicPost $property,
-        PropertyListingRevision $revision,
-        User $actor
-    ): void {
-        /*
-     * Availability module/migration not present ho to
-     * normal property approval ko block mat karo.
-     */
-        if (
-            !Schema::hasColumn('dynamic_posts', 'availability_pending_status')
-            || !Schema::hasColumn('dynamic_posts', 'availability_status')
-        ) {
-            return;
-        }
-
-        $property->refresh();
-
-        /*
-     * Normal property verification approval.
-     * No availability reactivation pending => nothing to do.
-     */
-        if (
-            $property->availability_pending_status
-            !== PropertyAvailabilityStatus::AVAILABLE
-        ) {
-            return;
-        }
-
-        /*
-     * Extra safety:
-     * Pending Available request should normally come from
-     * availability_reactivation revision.
-     */
-        if (
-            !empty($revision->source)
-            && $revision->source !== 'availability_reactivation'
-        ) {
-            return;
-        }
-
-        $update = [
-            'availability_status' =>
-            PropertyAvailabilityStatus::AVAILABLE,
-
-            'availability_pending_status' => null,
-        ];
-
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'availability_review_requested_at'
-            )
-        ) {
-            $update['availability_review_requested_at'] = null;
-        }
-
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'availability_public_until'
-            )
-        ) {
-            $update['availability_public_until'] = null;
-        }
-
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'availability_hidden_at'
-            )
-        ) {
-            $update['availability_hidden_at'] = null;
-        }
-
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'availability_changed_at'
-            )
-        ) {
-            $update['availability_changed_at'] = now();
-        }
-
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'availability_changed_by'
-            )
-        ) {
-            $update['availability_changed_by'] =
-                (int) $actor->id;
-        }
-
-        /*
-     * Property is available again,
-     * therefore old Sold metadata must be cleared.
-     */
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'sold_at'
-            )
-        ) {
-            $update['sold_at'] = null;
-        }
-
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'sold_by'
-            )
-        ) {
-            $update['sold_by'] = null;
-        }
-
-        $property->forceFill($update);
-        $property->save();
-    }
-    public function rejectPendingReactivation(
-        DynamicPost $property,
-        PropertyListingRevision $revision,
-        User $actor,
-        string $reason
-    ): void {
-        if (
-            !Schema::hasColumn(
-                'dynamic_posts',
-                'availability_pending_status'
-            )
-        ) {
-            return;
-        }
-
-        $property->refresh();
-
-        /*
-     * No pending reactivation => normal rejection.
-     */
-        if (
-            $property->availability_pending_status
-            !== PropertyAvailabilityStatus::AVAILABLE
-        ) {
-            return;
-        }
-
-        /*
-     * Reject means:
-     *
-     * sold       stays sold
-     * rented     stays rented
-     * off_market stays off_market
-     *
-     * Only requested "available" state is cancelled.
-     */
-        $update = [
-            'availability_pending_status' => null,
-        ];
-
-        if (
-            Schema::hasColumn(
-                'dynamic_posts',
-                'availability_review_requested_at'
-            )
-        ) {
-            $update['availability_review_requested_at'] = null;
-        }
-
-        $property->forceFill($update);
-        $property->save();
     }
 }
