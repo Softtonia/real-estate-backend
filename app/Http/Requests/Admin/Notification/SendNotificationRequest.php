@@ -351,20 +351,13 @@ class SendNotificationRequest extends FormRequest
             return;
         }
 
-        $requiredFields = $types[$type]['screens'][$screen]['required_fields'] ?? [];
-
-        foreach ($requiredFields as $field) {
-            if (
-                ! array_key_exists($field, $data)
-                || $data[$field] === null
-                || $data[$field] === ''
-            ) {
-                $validator->errors()->add(
-                    "data.{$field}",
-                    "{$field} is required for {$screen} screen."
-                );
-            }
-        }
+        /*
+    |--------------------------------------------------------------------------
+    | Important:
+    |--------------------------------------------------------------------------
+    | We only validate type and screen.
+    | Extra fields like property_id, order_id, lead_id, membership_id are optional.
+    */
     }
 
     private function validateRequired(Validator $validator, string $field): void

@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Str;
 
 class NotificationEssentialSeeder extends Seeder
 {
@@ -79,9 +78,13 @@ class NotificationEssentialSeeder extends Seeder
                 'updated_at' => now(),
             ]);
 
-            DB::table('notification_topics')->updateOrInsert(
-                ['slug' => $topic['slug']],
-                $payload
+            $this->updateOrInsertByExistingColumn(
+                table: 'notification_topics',
+                identityCandidates: [
+                    'slug' => $topic['slug'],
+                    'name' => $topic['name'],
+                ],
+                payload: $payload
             );
         }
     }
@@ -94,28 +97,24 @@ class NotificationEssentialSeeder extends Seeder
 
         $templates = [
             [
-                'name' => 'General Announcement',
-                'slug' => 'general-announcement',
+                'template_key' => 'general_announcement',
                 'title' => 'New Update',
                 'body' => 'A new update is available for you.',
+                'channel' => 'push',
                 'type' => 'general',
                 'screen' => 'home',
-                'channel' => 'push_in_app',
-                'description' => 'Use for normal announcement to users.',
                 'data' => [
                     'type' => 'general',
                     'screen' => 'home',
                 ],
             ],
             [
-                'name' => 'Property Approved',
-                'slug' => 'property-approved',
+                'template_key' => 'property_approved',
                 'title' => 'Property Approved',
                 'body' => 'Your property listing is now live.',
+                'channel' => 'push',
                 'type' => 'property',
                 'screen' => 'property_detail',
-                'channel' => 'push_in_app',
-                'description' => 'Send when property listing is approved.',
                 'data' => [
                     'type' => 'property',
                     'screen' => 'property_detail',
@@ -123,14 +122,12 @@ class NotificationEssentialSeeder extends Seeder
                 ],
             ],
             [
-                'name' => 'Property Rejected',
-                'slug' => 'property-rejected',
+                'template_key' => 'property_rejected',
                 'title' => 'Property Rejected',
                 'body' => 'Your property listing was rejected. Please check the reason and update it.',
+                'channel' => 'push',
                 'type' => 'property',
                 'screen' => 'my_properties',
-                'channel' => 'push_in_app',
-                'description' => 'Send when property listing is rejected.',
                 'data' => [
                     'type' => 'property',
                     'screen' => 'my_properties',
@@ -138,57 +135,36 @@ class NotificationEssentialSeeder extends Seeder
                 ],
             ],
             [
-                'name' => 'KYC Approved',
-                'slug' => 'kyc-approved',
+                'template_key' => 'kyc_approved',
                 'title' => 'KYC Approved',
                 'body' => 'Your KYC verification has been approved.',
+                'channel' => 'push',
                 'type' => 'kyc',
                 'screen' => 'kyc_status',
-                'channel' => 'push_in_app',
-                'description' => 'Send when user KYC is approved.',
                 'data' => [
                     'type' => 'kyc',
                     'screen' => 'kyc_status',
                 ],
             ],
             [
-                'name' => 'KYC Rejected',
-                'slug' => 'kyc-rejected',
+                'template_key' => 'kyc_rejected',
                 'title' => 'KYC Rejected',
                 'body' => 'Your KYC was rejected. Please update your documents.',
+                'channel' => 'push',
                 'type' => 'kyc',
                 'screen' => 'kyc_status',
-                'channel' => 'push_in_app',
-                'description' => 'Send when user KYC is rejected.',
                 'data' => [
                     'type' => 'kyc',
                     'screen' => 'kyc_status',
                 ],
             ],
             [
-                'name' => 'Membership Expiring Soon',
-                'slug' => 'membership-expiring-soon',
-                'title' => 'Membership Expiring Soon',
-                'body' => 'Your membership will expire soon. Renew now to continue your benefits.',
-                'type' => 'membership',
-                'screen' => 'my_membership',
-                'channel' => 'push_in_app',
-                'description' => 'Send before membership expiry.',
-                'data' => [
-                    'type' => 'membership',
-                    'screen' => 'my_membership',
-                    'membership_id' => null,
-                ],
-            ],
-            [
-                'name' => 'Membership Activated',
-                'slug' => 'membership-activated',
+                'template_key' => 'membership_activated',
                 'title' => 'Membership Activated',
                 'body' => 'Your membership has been activated successfully.',
+                'channel' => 'push',
                 'type' => 'membership',
                 'screen' => 'my_membership',
-                'channel' => 'push_in_app',
-                'description' => 'Send after successful membership activation.',
                 'data' => [
                     'type' => 'membership',
                     'screen' => 'my_membership',
@@ -196,14 +172,25 @@ class NotificationEssentialSeeder extends Seeder
                 ],
             ],
             [
-                'name' => 'Payment Successful',
-                'slug' => 'payment-successful',
+                'template_key' => 'membership_expiring_soon',
+                'title' => 'Membership Expiring Soon',
+                'body' => 'Your membership will expire soon. Renew now to continue your benefits.',
+                'channel' => 'push',
+                'type' => 'membership',
+                'screen' => 'my_membership',
+                'data' => [
+                    'type' => 'membership',
+                    'screen' => 'my_membership',
+                    'membership_id' => null,
+                ],
+            ],
+            [
+                'template_key' => 'payment_successful',
                 'title' => 'Payment Successful',
                 'body' => 'Your payment was successful.',
+                'channel' => 'push',
                 'type' => 'payment',
                 'screen' => 'payment_detail',
-                'channel' => 'push_in_app',
-                'description' => 'Send after successful payment.',
                 'data' => [
                     'type' => 'payment',
                     'screen' => 'payment_detail',
@@ -211,14 +198,12 @@ class NotificationEssentialSeeder extends Seeder
                 ],
             ],
             [
-                'name' => 'Payment Failed',
-                'slug' => 'payment-failed',
+                'template_key' => 'payment_failed',
                 'title' => 'Payment Failed',
                 'body' => 'Your payment could not be completed. Please try again.',
+                'channel' => 'push',
                 'type' => 'payment',
                 'screen' => 'payment_history',
-                'channel' => 'push_in_app',
-                'description' => 'Send when payment fails.',
                 'data' => [
                     'type' => 'payment',
                     'screen' => 'payment_history',
@@ -226,14 +211,12 @@ class NotificationEssentialSeeder extends Seeder
                 ],
             ],
             [
-                'name' => 'New Lead Received',
-                'slug' => 'new-lead-received',
+                'template_key' => 'new_lead_received',
                 'title' => 'New Lead Received',
                 'body' => 'You have received a new property enquiry.',
+                'channel' => 'push',
                 'type' => 'lead',
                 'screen' => 'lead_detail',
-                'channel' => 'push_in_app',
-                'description' => 'Send when owner/business receives a new lead.',
                 'data' => [
                     'type' => 'lead',
                     'screen' => 'lead_detail',
@@ -241,42 +224,36 @@ class NotificationEssentialSeeder extends Seeder
                 ],
             ],
             [
-                'name' => 'Special Offer',
-                'slug' => 'special-offer',
+                'template_key' => 'special_offer',
                 'title' => 'Special Offer',
                 'body' => 'A special offer is available for you.',
+                'channel' => 'push',
                 'type' => 'offer',
                 'screen' => 'membership_plans',
-                'channel' => 'push_in_app',
-                'description' => 'Use for marketing offers and promotions.',
                 'data' => [
                     'type' => 'offer',
                     'screen' => 'membership_plans',
                 ],
             ],
             [
-                'name' => 'System Alert',
-                'slug' => 'system-alert',
+                'template_key' => 'system_alert',
                 'title' => 'System Alert',
                 'body' => 'Important system update from Holiplaces.',
+                'channel' => 'push',
                 'type' => 'system',
                 'screen' => 'notifications',
-                'channel' => 'push_in_app',
-                'description' => 'Use for system or maintenance alerts.',
                 'data' => [
                     'type' => 'system',
                     'screen' => 'notifications',
                 ],
             ],
             [
-                'name' => 'Support Ticket Update',
-                'slug' => 'support-ticket-update',
+                'template_key' => 'support_ticket_update',
                 'title' => 'Support Ticket Updated',
                 'body' => 'Your support ticket has been updated.',
+                'channel' => 'push',
                 'type' => 'support',
                 'screen' => 'support_ticket',
-                'channel' => 'push_in_app',
-                'description' => 'Send when support ticket is updated.',
                 'data' => [
                     'type' => 'support',
                     'screen' => 'support_ticket',
@@ -286,26 +263,54 @@ class NotificationEssentialSeeder extends Seeder
         ];
 
         foreach ($templates as $template) {
+            $jsonData = json_encode($template['data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
             $payload = $this->filterColumns('notification_templates', [
-                'name' => $template['name'],
-                'slug' => $template['slug'],
+                'template_key' => $template['template_key'],
+
+                // These columns may or may not exist. filterColumns will keep only existing columns.
+                'name' => ucwords(str_replace('_', ' ', $template['template_key'])),
+                'slug' => str_replace('_', '-', $template['template_key']),
+                'description' => ucwords(str_replace('_', ' ', $template['template_key'])),
+
                 'title' => $template['title'],
                 'body' => $template['body'],
-                'description' => $template['description'],
+                'channel' => $template['channel'],
                 'type' => $template['type'],
                 'screen' => $template['screen'],
-                'channel' => $template['channel'],
-                'data' => json_encode($template['data']),
-                'payload' => json_encode($template['data']),
+                'data' => $jsonData,
+                'payload' => $jsonData,
                 'status' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            DB::table('notification_templates')->updateOrInsert(
-                ['slug' => $template['slug']],
-                $payload
+            $this->updateOrInsertByExistingColumn(
+                table: 'notification_templates',
+                identityCandidates: [
+                    'template_key' => $template['template_key'],
+                    'slug' => str_replace('_', '-', $template['template_key']),
+                    'name' => ucwords(str_replace('_', ' ', $template['template_key'])),
+                ],
+                payload: $payload
             );
+        }
+    }
+
+    private function updateOrInsertByExistingColumn(
+        string $table,
+        array $identityCandidates,
+        array $payload
+    ): void {
+        foreach ($identityCandidates as $column => $value) {
+            if (Schema::hasColumn($table, $column)) {
+                DB::table($table)->updateOrInsert(
+                    [$column => $value],
+                    $payload
+                );
+
+                return;
+            }
         }
     }
 
