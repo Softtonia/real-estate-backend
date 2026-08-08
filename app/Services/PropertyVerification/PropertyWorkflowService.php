@@ -1550,24 +1550,23 @@ class PropertyWorkflowService
                 . ($user->last_name ?? '')
         ) ?: ($user->email ?? ('User #' . $user->id));
     }
+
     private function ensureActorCanWorkOnRevision(
         PropertyListingRevision $revision,
         User $actor
     ): void {
         /*
-     * Admin / Super Admin can work on any property.
-     *
-     * Important:
-     * - no assignment required
-     * - admin is never auto-assigned
-     * - existing verifier assignment remains unchanged
+     * Admin / Super Admin:
+     * - assignment required nahi
+     * - assigned_to change nahi hoga
+     * - admin auto-assigned nahi hoga
      */
         if ($this->isSystemAdmin($actor)) {
             return;
         }
 
         /*
-     * Non-admin verifier must have this revision assigned.
+     * Non-admin verifier must be assigned.
      */
         if (empty($revision->assigned_to)) {
             throw ValidationException::withMessages([
@@ -1588,4 +1587,21 @@ class PropertyWorkflowService
             ]);
         }
     }
+
+    private function assertCanActOnVerification(
+        User $actor
+    ): void {
+        /*
+     * Admin bypasses verifier eligibility + assignment.
+     */
+        if ($this->isSystemAdmin($actor)) {
+            return;
+        }
+
+        /*
+     * Non-admin must first be eligible verifier.
+     */
+        $this->assertVerifier($actor);
+    }
+
 }
