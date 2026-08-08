@@ -24,32 +24,6 @@ class MembershipActivationService
 
     public function activateFromOrder(MembershipOrder $order): UserMembership
     {
-        $order = MembershipOrder::query()
-            ->with([
-                'user',
-                'plan.category',
-                'plan.planFeatures.feature',
-                'membership',
-            ])
-            ->findOrFail($order->id);
-
-        if ($order->payment_status !== MembershipOrder::PAYMENT_PAID) {
-            throw ValidationException::withMessages([
-                'order_id' => ['Only paid membership orders can be activated.'],
-            ]);
-        }
-
-        if ($order->membership) {
-            return $order->membership->loadMissing([
-                'user:id,first_name,last_name,email,phone,role_id',
-                'creator:id,first_name,last_name,email,phone,role_id',
-                'plan.category',
-                'plan.planFeatures.feature',
-                'order',
-                'creditBalances',
-            ]);
-        }
-
         return DB::transaction(function () use ($order) {
             $order = MembershipOrder::query()
                 ->with([
@@ -62,14 +36,9 @@ class MembershipActivationService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($order->membership) {
-                return $order->membership->loadMissing([
-                    'user:id,first_name,last_name,email,phone,role_id',
-                    'creator:id,first_name,last_name,email,phone,role_id',
-                    'plan.category',
-                    'plan.planFeatures.feature',
-                    'order',
-                    'creditBalances',
+            if (! $this->isPaidOrder($order)) {
+                throw ValidationException::withMessages([
+                    'order_id' => ['Only paid membership orders can be activated.'],
                 ]);
             }
 
@@ -82,34 +51,74 @@ class MembershipActivationService
                 ]);
             }
 
+            $this->markOrderCompletedIfNeeded($order);
+
+            /*
+            |--------------------------------------------------------------------------
+            | Idempotency: if membership already exists for this order, repair it
+            |--------------------------------------------------------------------------
+            */
+            $existingMembership = UserMembership::query()
+                ->where('order_id', $order->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingMembership) {
+                $update = [];
+
+                if ($existingMembership->status !== UserMembership::STATUS_ACTIVE) {
+                    $update['status'] = UserMembership::STATUS_ACTIVE;
+                    $update['cancelled_at'] = null;
+                    $update['expired_at'] = null;
+                }
+
+                if (! $existingMembership->start_date) {
+                    $update['start_date'] = now();
+                }
+
+                if (! $existingMembership->expiry_date) {
+                    $update['expiry_date'] = $this->calculateExpiryDate($plan, Carbon::parse($existingMembership->start_date ?: now()));
+                }
+
+                if ($update) {
+                    $existingMembership->update($update);
+                }
+
+                $this->createCreditBalances($existingMembership, $plan, $user, $order);
+                $this->clearCaches($user);
+
+                return $existingMembership->fresh($this->membershipRelations());
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | New purchase: expire older active memberships and create new active one
+            |--------------------------------------------------------------------------
+            */
             $this->expireExistingActiveMemberships($user);
 
             $startDate = now();
             $expiryDate = $this->calculateExpiryDate($plan, $startDate);
 
-            $membership = UserMembership::query()->create([
-                'user_id' => $user->id,
-                'plan_id' => $plan->id,
-                'order_id' => $order->id,
-                'parent_membership_id' => null,
-                'start_date' => $startDate,
-                'expiry_date' => $expiryDate,
-                'status' => UserMembership::STATUS_ACTIVE,
-                'auto_renew' => false,
-                'cancelled_at' => null,
-                'expired_at' => null,
-                'grace_until' => null,
-                'source' => 'purchase',
-                'created_by' => $order->created_by ?: $user->id,
-                'metadata' => [
-                    'activated_from_order' => true,
-                    'order_number' => $order->order_number,
-                    'payment_status' => $order->payment_status,
-                    'plan_snapshot' => $order->metadata['plan_snapshot'] ?? null,
-                ],
-            ]);
+            $membership = UserMembership::query()->create(
+                $this->membershipCreatePayload(
+                    user: $user,
+                    plan: $plan,
+                    order: $order,
+                    startDate: $startDate,
+                    expiryDate: $expiryDate,
+                    source: 'purchase',
+                    createdBy: $order->created_by ?: $user->id,
+                    metadata: [
+                        'activated_from_order' => true,
+                        'order_number' => $order->order_number,
+                        'payment_status' => $order->payment_status,
+                        'plan_snapshot' => $this->metadataValue($order, 'plan_snapshot'),
+                    ]
+                )
+            );
 
-            $this->createCreditBalances($membership, $plan, $user);
+            $this->createCreditBalances($membership, $plan, $user, $order);
 
             $this->audit(
                 action: 'membership_activated',
@@ -121,17 +130,9 @@ class MembershipActivationService
             );
 
             $this->clearCaches($user);
-
             $this->dispatchInvoiceJobIfExists($order);
 
-            return $membership->fresh([
-                'user:id,first_name,last_name,email,phone,role_id',
-                'creator:id,first_name,last_name,email,phone,role_id',
-                'plan.category',
-                'plan.planFeatures.feature',
-                'order',
-                'creditBalances',
-            ]);
+            return $membership->fresh($this->membershipRelations());
         });
     }
 
@@ -167,7 +168,6 @@ class MembershipActivationService
             $this->expireExistingActiveMemberships($user);
 
             $subtotal = round((float) $plan->payableAmount(), 2);
-
             $taxCalculation = app(MembershipTaxService::class)->calculate($subtotal);
 
             $taxableAmount = round((float) ($taxCalculation['taxable_amount'] ?? $subtotal), 2);
@@ -175,7 +175,7 @@ class MembershipActivationService
             $gstAmount = round((float) ($taxCalculation['tax_amount'] ?? 0), 2);
             $totalAmount = round((float) ($taxCalculation['total_amount'] ?? $subtotal), 2);
 
-            $order = MembershipOrder::query()->create([
+            $orderPayload = [
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
                 'coupon_id' => null,
@@ -221,32 +221,30 @@ class MembershipActivationService
                         'duration_type' => $plan->duration_type,
                     ],
                 ],
-            ]);
+            ];
 
-            $membership = UserMembership::query()->create([
-                'user_id' => $user->id,
-                'plan_id' => $plan->id,
-                'order_id' => $order->id,
-                'parent_membership_id' => null,
-                'start_date' => $startDate,
-                'expiry_date' => $expiryDate,
-                'status' => UserMembership::STATUS_ACTIVE,
-                'auto_renew' => false,
-                'cancelled_at' => null,
-                'expired_at' => null,
-                'grace_until' => null,
-                'source' => 'manual',
-                'created_by' => $admin?->id,
-                'metadata' => [
-                    'manual_reason' => $options['reason'] ?? null,
-                    'manual_notes' => $options['notes'] ?? null,
-                    'activated_by_admin' => $admin?->id,
-                    'manual_order_id' => $order->id,
-                    'manual_order_number' => $order->order_number,
-                ],
-            ]);
+            $order = MembershipOrder::query()->create($orderPayload);
 
-            $this->createCreditBalances($membership, $plan, $user);
+            $membership = UserMembership::query()->create(
+                $this->membershipCreatePayload(
+                    user: $user,
+                    plan: $plan,
+                    order: $order,
+                    startDate: $startDate,
+                    expiryDate: $expiryDate,
+                    source: 'manual',
+                    createdBy: $admin?->id,
+                    metadata: [
+                        'manual_reason' => $options['reason'] ?? null,
+                        'manual_notes' => $options['notes'] ?? null,
+                        'activated_by_admin' => $admin?->id,
+                        'manual_order_id' => $order->id,
+                        'manual_order_number' => $order->order_number,
+                    ]
+                )
+            );
+
+            $this->createCreditBalances($membership, $plan, $user, $order);
 
             $this->audit(
                 action: 'membership_manual_activated',
@@ -259,14 +257,7 @@ class MembershipActivationService
 
             $this->clearCaches($user);
 
-            return $membership->fresh([
-                'user:id,first_name,last_name,email,phone,role_id',
-                'creator:id,first_name,last_name,email,phone,role_id',
-                'plan.category',
-                'plan.planFeatures.feature',
-                'order',
-                'creditBalances',
-            ]);
+            return $membership->fresh($this->membershipRelations());
         });
     }
 
@@ -279,13 +270,7 @@ class MembershipActivationService
                 ->firstOrFail();
 
             if ($membership->status === UserMembership::STATUS_EXPIRED) {
-                return $membership->fresh([
-                    'user:id,first_name,last_name,email,phone,role_id',
-                    'creator:id,first_name,last_name,email,phone,role_id',
-                    'plan.category',
-                    'order',
-                    'creditBalances',
-                ]);
+                return $membership->fresh($this->membershipRelations());
             }
 
             $oldValues = $membership->toArray();
@@ -313,13 +298,7 @@ class MembershipActivationService
 
             $this->clearCaches($membership->user);
 
-            return $membership->fresh([
-                'user:id,first_name,last_name,email,phone,role_id',
-                'creator:id,first_name,last_name,email,phone,role_id',
-                'plan.category',
-                'order',
-                'creditBalances',
-            ]);
+            return $membership->fresh($this->membershipRelations());
         });
     }
 
@@ -335,13 +314,7 @@ class MembershipActivationService
                 ->firstOrFail();
 
             if ($membership->status === UserMembership::STATUS_CANCELLED) {
-                return $membership->fresh([
-                    'user:id,first_name,last_name,email,phone,role_id',
-                    'creator:id,first_name,last_name,email,phone,role_id',
-                    'plan.category',
-                    'order',
-                    'creditBalances',
-                ]);
+                return $membership->fresh($this->membershipRelations());
             }
 
             $oldValues = $membership->toArray();
@@ -373,13 +346,7 @@ class MembershipActivationService
 
             $this->clearCaches($membership->user);
 
-            return $membership->fresh([
-                'user:id,first_name,last_name,email,phone,role_id',
-                'creator:id,first_name,last_name,email,phone,role_id',
-                'plan.category',
-                'order',
-                'creditBalances',
-            ]);
+            return $membership->fresh($this->membershipRelations());
         });
     }
 
@@ -413,6 +380,7 @@ class MembershipActivationService
 
         return match ($durationType) {
             'day', 'days' => $startDate->copy()->addDays($duration),
+            'week', 'weeks' => $startDate->copy()->addWeeks($duration),
             'month', 'months' => $startDate->copy()->addMonths($duration),
             'year', 'years' => $startDate->copy()->addYears($duration),
             default => $startDate->copy()->addDays($duration),
@@ -422,7 +390,8 @@ class MembershipActivationService
     private function createCreditBalances(
         UserMembership $membership,
         MembershipPlan $plan,
-        User $user
+        User $user,
+        ?MembershipOrder $order = null
     ): void {
         $plan->loadMissing(['planFeatures.feature']);
 
@@ -433,82 +402,255 @@ class MembershipActivationService
                 continue;
             }
 
-            $creditType = $this->creditTypeFromFeatureSlug($feature->slug);
+            $featureType = strtolower((string) $feature->feature_type);
+
+            /*
+            |--------------------------------------------------------------------------
+            | Credits should be created for limit-type features.
+            | Old issue: if slug was not in hard-coded mapping, credits were skipped.
+            | Now: mapped slug is preferred, otherwise feature slug becomes credit_type.
+            |--------------------------------------------------------------------------
+            */
+            $mappedCreditType = $this->creditTypeFromFeatureSlug((string) $feature->slug);
+
+            if ($featureType !== 'limit' && ! $mappedCreditType) {
+                continue;
+            }
+
+            $creditType = $mappedCreditType ?: Str::slug((string) $feature->slug, '_');
 
             if (! $creditType) {
                 continue;
             }
 
+            $rawValue = $planFeature->feature_value;
+
             $isUnlimited = (bool) $planFeature->is_unlimited
-                || strtolower((string) $planFeature->feature_value) === 'unlimited';
+                || strtolower((string) $rawValue) === 'unlimited';
 
             $totalCredits = $isUnlimited
                 ? null
-                : max(0, (int) $planFeature->feature_value);
+                : max(0, (int) $rawValue);
 
-            $remainingCredits = $isUnlimited
-                ? null
-                : $totalCredits;
+            /*
+            |--------------------------------------------------------------------------
+            | Keep unlimited credits visible also.
+            | For limited credits, skip only if value is zero and not already assigned.
+            |--------------------------------------------------------------------------
+            */
+            if (! $isUnlimited && $totalCredits <= 0) {
+                continue;
+            }
 
-            $balance = MembershipCreditBalance::query()->create([
-                'user_id' => $user->id,
-                'membership_id' => $membership->id,
-                'credit_type' => $creditType,
-                'is_unlimited' => $isUnlimited,
-                'total_credits' => $totalCredits,
-                'used_credits' => 0,
-                'remaining_credits' => $remainingCredits,
-                'status' => true,
-                'expires_at' => $membership->expiry_date,
-            ]);
-
-            MembershipCreditTransaction::query()->create([
-                'user_id' => $user->id,
-                'membership_id' => $membership->id,
-                'balance_id' => $balance->id,
-                'credit_type' => $creditType,
-                'transaction_type' => MembershipCreditTransaction::TYPE_CREDIT,
-                'quantity' => $totalCredits ?? 0,
-                'balance_before' => 0,
-                'balance_after' => $remainingCredits,
-                'reference_type' => 'membership_activation',
-                'reference_id' => $membership->id,
-                'reason' => 'Credits created from membership activation.',
-                'performed_by' => null,
-                'metadata' => [
-                    'plan_id' => $plan->id,
-                    'plan_slug' => $plan->slug,
-                    'feature_slug' => $feature->slug,
-                    'is_unlimited' => $isUnlimited,
+            $balance = MembershipCreditBalance::query()->updateOrCreate(
+                [
+                    'user_id' => $user->id,
+                    'membership_id' => $membership->id,
+                    'credit_type' => $creditType,
                 ],
-            ]);
+                [
+                    'is_unlimited' => $isUnlimited,
+                    'total_credits' => $totalCredits,
+                    'used_credits' => 0,
+                    'remaining_credits' => $isUnlimited ? null : $totalCredits,
+                    'status' => true,
+                    'expires_at' => $membership->expiry_date,
+                ]
+            );
+
+            $referenceType = $order ? 'membership_order' : 'membership_activation';
+            $referenceId = $order?->id ?: $membership->id;
+
+            $alreadyLogged = MembershipCreditTransaction::query()
+                ->where('user_id', $user->id)
+                ->where('membership_id', $membership->id)
+                ->where('balance_id', $balance->id)
+                ->where('credit_type', $creditType)
+                ->where('transaction_type', MembershipCreditTransaction::TYPE_CREDIT)
+                ->where('reference_type', $referenceType)
+                ->where('reference_id', $referenceId)
+                ->exists();
+
+            if (! $alreadyLogged) {
+                MembershipCreditTransaction::query()->create([
+                    'user_id' => $user->id,
+                    'membership_id' => $membership->id,
+                    'balance_id' => $balance->id,
+                    'credit_type' => $creditType,
+                    'transaction_type' => MembershipCreditTransaction::TYPE_CREDIT,
+                    'quantity' => $totalCredits ?? 0,
+                    'balance_before' => 0,
+                    'balance_after' => $isUnlimited ? null : $totalCredits,
+                    'reference_type' => $referenceType,
+                    'reference_id' => $referenceId,
+                    'reason' => 'Credits created from membership activation.',
+                    'performed_by' => null,
+                    'metadata' => [
+                        'plan_id' => $plan->id,
+                        'plan_slug' => $plan->slug,
+                        'feature_id' => $feature->id,
+                        'feature_slug' => $feature->slug,
+                        'feature_type' => $featureType,
+                        'raw_feature_value' => $rawValue,
+                        'is_unlimited' => $isUnlimited,
+                        'order_id' => $order?->id,
+                        'order_number' => $order?->order_number,
+                    ],
+                ]);
+            }
         }
+    }
+
+    private function membershipCreatePayload(
+        User $user,
+        MembershipPlan $plan,
+        MembershipOrder $order,
+        Carbon $startDate,
+        Carbon $expiryDate,
+        string $source,
+        ?int $createdBy,
+        array $metadata
+    ): array {
+        $payload = [
+            'user_id' => $user->id,
+            'plan_id' => $plan->id,
+            'order_id' => $order->id,
+            'parent_membership_id' => null,
+            'start_date' => $startDate,
+            'expiry_date' => $expiryDate,
+            'status' => UserMembership::STATUS_ACTIVE,
+            'auto_renew' => false,
+            'cancelled_at' => null,
+            'expired_at' => null,
+            'source' => $source,
+        ];
+
+        if (Schema::hasColumn('user_memberships', 'grace_until')) {
+            $payload['grace_until'] = null;
+        }
+
+        if (Schema::hasColumn('user_memberships', 'created_by')) {
+            $payload['created_by'] = $createdBy;
+        }
+
+        if (Schema::hasColumn('user_memberships', 'metadata')) {
+            $payload['metadata'] = $metadata;
+        }
+
+        return $payload;
+    }
+
+    private function isPaidOrder(MembershipOrder $order): bool
+    {
+        return in_array(strtolower((string) $order->payment_status), [
+            strtolower((string) MembershipOrder::PAYMENT_PAID),
+            'paid',
+            'success',
+            'successful',
+            'completed',
+            'captured',
+        ], true);
+    }
+
+    private function markOrderCompletedIfNeeded(MembershipOrder $order): void
+    {
+        $updates = [];
+
+        if (
+            Schema::hasColumn('membership_orders', 'order_status')
+            && ! in_array(strtolower((string) $order->order_status), [
+                strtolower((string) MembershipOrder::STATUS_COMPLETED),
+                'completed',
+                'active',
+            ], true)
+        ) {
+            $updates['order_status'] = MembershipOrder::STATUS_COMPLETED;
+        }
+
+        if (Schema::hasColumn('membership_orders', 'paid_at') && ! $order->paid_at) {
+            $updates['paid_at'] = now();
+        }
+
+        if (Schema::hasColumn('membership_orders', 'completed_at') && ! $order->completed_at) {
+            $updates['completed_at'] = now();
+        }
+
+        if ($updates) {
+            $order->update($updates);
+        }
+    }
+
+    private function metadataValue(MembershipOrder $order, string $key): mixed
+    {
+        $metadata = $order->metadata;
+
+        if (is_array($metadata)) {
+            return $metadata[$key] ?? null;
+        }
+
+        return null;
+    }
+
+    private function membershipRelations(): array
+    {
+        return [
+            'user:id,first_name,last_name,email,phone,role_id',
+            'creator:id,first_name,last_name,email,phone,role_id',
+            'plan.category',
+            'plan.planFeatures.feature',
+            'order',
+            'creditBalances',
+        ];
     }
 
     private function creditTypeFromFeatureSlug(string $featureSlug): ?string
     {
+        $featureSlug = Str::slug($featureSlug, '_');
+
         return match ($featureSlug) {
+            'listing',
             'listing_limit',
-            'active_property_listings' => MembershipCreditBalance::TYPE_LISTING,
+            'listing_credits',
+            'property_listing',
+            'property_listings',
+            'active_property_listings',
+            'active_listing_limit',
+            'active_listings' => MembershipCreditBalance::TYPE_LISTING,
 
+            'featured_listing',
             'featured_listing_limit',
-            'featured_listing_credits' => MembershipCreditBalance::TYPE_FEATURED_LISTING,
+            'featured_listing_credits',
+            'featured_property',
+            'featured_property_limit' => MembershipCreditBalance::TYPE_FEATURED_LISTING,
 
+            'boost',
             'boost_limit',
+            'boost_credits',
+            'listing_boost',
             'listing_boost_credits',
+            'project_boost',
             'project_boost_credits' => MembershipCreditBalance::TYPE_BOOST,
 
+            'lead_view',
             'lead_view_limit',
-            'buyer_contact_credits' => MembershipCreditBalance::TYPE_LEAD_VIEW,
+            'lead_view_credits',
+            'buyer_contact',
+            'buyer_contact_credits',
+            'contact_unlock',
+            'contact_unlock_credits' => MembershipCreditBalance::TYPE_LEAD_VIEW,
 
+            'video_upload',
             'video_upload_limit',
+            'video_upload_credits',
             'property_videos',
             'project_videos',
             'project_walkthrough_videos' => MembershipCreditBalance::TYPE_VIDEO_UPLOAD,
 
+            'virtual_tour',
             'virtual_tour_limit',
             'virtual_tour_credits' => MembershipCreditBalance::TYPE_VIRTUAL_TOUR,
 
+            'ai_description',
             'ai_description_limit',
             'ai_description_credits' => MembershipCreditBalance::TYPE_AI_DESCRIPTION,
 
@@ -542,6 +684,10 @@ class MembershipActivationService
     {
         if ($user) {
             $this->accessService->forgetUserCache($user);
+
+            Cache::store('redis')->forget("membership:user:{$user->id}:status");
+            Cache::store('redis')->forget("membership:user:{$user->id}:credits");
+            Cache::store('redis')->forget("membership:user:{$user->id}:access");
         }
 
         Cache::store('redis')->forget('membership:admin:stats');

@@ -14,7 +14,8 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\ProcessMembershipReminderNotificationsCommand::class,
         \App\Console\Commands\MembershipHealthCheckCommand::class,
         ProcessScheduledNotificationsCommand::class,
-        \App\Console\Commands\DispatchExpiredSoldPropertyVisibilityJobs::class
+        \App\Console\Commands\DispatchExpiredSoldPropertyVisibilityJobs::class,
+        \App\Console\Commands\MembershipActivatePaidOrdersCommand::class,
     ];
     /**
      * Define the application's command schedule.
