@@ -1603,5 +1603,175 @@ class PropertyWorkflowService
      */
         $this->assertVerifier($actor);
     }
+    public function approvePendingReactivation(
+        DynamicPost $property,
+        PropertyListingRevision $revision,
+        User $actor
+    ): void {
+        /*
+     * Availability module/migration not present ho to
+     * normal property approval ko block mat karo.
+     */
+        if (
+            !Schema::hasColumn('dynamic_posts', 'availability_pending_status')
+            || !Schema::hasColumn('dynamic_posts', 'availability_status')
+        ) {
+            return;
+        }
 
+        $property->refresh();
+
+        /*
+     * Normal property verification approval.
+     * No availability reactivation pending => nothing to do.
+     */
+        if (
+            $property->availability_pending_status
+            !== PropertyAvailabilityStatus::AVAILABLE
+        ) {
+            return;
+        }
+
+        /*
+     * Extra safety:
+     * Pending Available request should normally come from
+     * availability_reactivation revision.
+     */
+        if (
+            !empty($revision->source)
+            && $revision->source !== 'availability_reactivation'
+        ) {
+            return;
+        }
+
+        $update = [
+            'availability_status' =>
+            PropertyAvailabilityStatus::AVAILABLE,
+
+            'availability_pending_status' => null,
+        ];
+
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'availability_review_requested_at'
+            )
+        ) {
+            $update['availability_review_requested_at'] = null;
+        }
+
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'availability_public_until'
+            )
+        ) {
+            $update['availability_public_until'] = null;
+        }
+
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'availability_hidden_at'
+            )
+        ) {
+            $update['availability_hidden_at'] = null;
+        }
+
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'availability_changed_at'
+            )
+        ) {
+            $update['availability_changed_at'] = now();
+        }
+
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'availability_changed_by'
+            )
+        ) {
+            $update['availability_changed_by'] =
+                (int) $actor->id;
+        }
+
+        /*
+     * Property is available again,
+     * therefore old Sold metadata must be cleared.
+     */
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'sold_at'
+            )
+        ) {
+            $update['sold_at'] = null;
+        }
+
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'sold_by'
+            )
+        ) {
+            $update['sold_by'] = null;
+        }
+
+        $property->forceFill($update);
+        $property->save();
+    }
+    public function rejectPendingReactivation(
+        DynamicPost $property,
+        PropertyListingRevision $revision,
+        User $actor,
+        string $reason
+    ): void {
+        if (
+            !Schema::hasColumn(
+                'dynamic_posts',
+                'availability_pending_status'
+            )
+        ) {
+            return;
+        }
+
+        $property->refresh();
+
+        /*
+     * No pending reactivation => normal rejection.
+     */
+        if (
+            $property->availability_pending_status
+            !== PropertyAvailabilityStatus::AVAILABLE
+        ) {
+            return;
+        }
+
+        /*
+     * Reject means:
+     *
+     * sold       stays sold
+     * rented     stays rented
+     * off_market stays off_market
+     *
+     * Only requested "available" state is cancelled.
+     */
+        $update = [
+            'availability_pending_status' => null,
+        ];
+
+        if (
+            Schema::hasColumn(
+                'dynamic_posts',
+                'availability_review_requested_at'
+            )
+        ) {
+            $update['availability_review_requested_at'] = null;
+        }
+
+        $property->forceFill($update);
+        $property->save();
+    }
 }
