@@ -1049,37 +1049,6 @@ class PropertyWorkflowService
         );
     }
 
-    private function ensureActorCanWorkOnRevision(
-        PropertyListingRevision $revision,
-        User $actor
-    ): void {
-        /*
-     * Admin can review/action without assignment.
-     * Important: admin ko auto assign nahi karna.
-     */
-        if ($this->isSystemAdmin($actor)) {
-            return;
-        }
-
-        /*
-     * Non-admin/verifier must be assigned.
-     */
-        if (empty($revision->assigned_to)) {
-            throw ValidationException::withMessages([
-                'assignment' => [
-                    'This property is not assigned to you.',
-                ],
-            ]);
-        }
-
-        if ((int) $revision->assigned_to !== (int) $actor->id) {
-            throw ValidationException::withMessages([
-                'assignment' => [
-                    'This property is assigned to another verifier.',
-                ],
-            ]);
-        }
-    }
 
 
     private function clearDynamicPostAssignedVerifier(
@@ -1586,17 +1555,20 @@ class PropertyWorkflowService
         User $actor
     ): void {
         /*
-     * Admin can work on:
+     * Admin / Super Admin can work on any property.
      *
-     * - unassigned listing
-     * - listing assigned to another verifier
-     *
-     * Never auto-assign admin.
+     * Important:
+     * - no assignment required
+     * - admin is never auto-assigned
+     * - existing verifier assignment remains unchanged
      */
         if ($this->isSystemAdmin($actor)) {
             return;
         }
 
+        /*
+     * Non-admin verifier must have this revision assigned.
+     */
         if (empty($revision->assigned_to)) {
             throw ValidationException::withMessages([
                 'assignment' => [
@@ -1606,8 +1578,8 @@ class PropertyWorkflowService
         }
 
         if (
-            (int) $revision->assigned_to !==
-            (int) $actor->id
+            (int) $revision->assigned_to
+            !== (int) $actor->id
         ) {
             throw ValidationException::withMessages([
                 'assignment' => [

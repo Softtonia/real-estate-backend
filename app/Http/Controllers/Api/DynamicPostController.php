@@ -1062,18 +1062,16 @@ class DynamicPostController extends Controller
     private function removeVerificationControlledRequestFields(
         Request $request
     ): void {
-        foreach (
-            [
+        $request->replace(
+            $request->except([
                 'status',
                 'live_status',
                 'rejection_reason',
                 'rejected_by',
                 'rejected_at',
                 'published_at',
-            ] as $field
-        ) {
-            $request->request->remove($field);
-        }
+            ])
+        );
     }
     private function executeAdminPropertyVerificationOverride(
         DynamicPost $post,
@@ -1121,20 +1119,20 @@ class DynamicPostController extends Controller
             return $actor;
         }
 
-        $authUser = Auth::user();
+        $actor = Auth::user();
 
-        if ($authUser instanceof User) {
-            return $authUser;
+        if ($actor instanceof User) {
+            return $actor;
         }
 
-        $token = $request->bearerToken();
+        $token = $request->bearerToken()
+            ?: $request->header('api-token')
+            ?: $request->header('api_token')
+            ?: $request->input('api_token');
 
         if (
             !$token
-            || !Schema::hasColumn(
-                'users',
-                'api_token'
-            )
+            || !Schema::hasColumn('users', 'api_token')
         ) {
             return null;
         }
