@@ -21,7 +21,7 @@ class PropertyWorkflowService
     private const ALLOWED_OWNER_ROLES = [
         'owner',
         'owners',
-        'property-owner',
+        'agent',
         'property-owners',
         'company',
         'companies',
@@ -340,30 +340,49 @@ class PropertyWorkflowService
                 ->lockForUpdate()
                 ->findOrFail($property->id);
 
-            $this->assertPropertyListing($lockedProperty);
-
-            $revision = $this->latestOrCreateAssignmentRevision(
-                property: $lockedProperty,
-                actor: $actor
+            $this->assertPropertyListing(
+                $lockedProperty
             );
+
+            $revision =
+                $this->latestOrCreateAssignmentRevision(
+                    property: $lockedProperty,
+                    actor: $actor
+                );
 
             $fromStatus = $revision->status;
 
             /*
-         * If already in_verification, this is reassignment.
-         * Do not move status back to assigned.
+         * Reassignment while verification is running
+         * must not downgrade the workflow.
          */
-            $nextStatus = $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+            $nextStatus =
+                $fromStatus ===
+                PropertyWorkflowStatus::IN_VERIFICATION
                 ? PropertyWorkflowStatus::IN_VERIFICATION
                 : PropertyWorkflowStatus::ASSIGNED;
 
+            /*
+         * ONLY assignment endpoint changes these.
+         */
             $revision->forceFill([
                 'status' => $nextStatus,
-                'assigned_to' => (int) $verifier->id,
-                'assigned_by' => (int) $actor->id,
+
+                'assigned_to' =>
+                (int) $verifier->id,
+
+                'assigned_by' =>
+                (int) $actor->id,
+
                 'assigned_at' => now(),
-                'verification_started_at' => $nextStatus === PropertyWorkflowStatus::IN_VERIFICATION
-                    ? ($revision->verification_started_at ?: now())
+
+                'verification_started_at' =>
+                $nextStatus ===
+                    PropertyWorkflowStatus::IN_VERIFICATION
+                    ? (
+                        $revision->verification_started_at
+                        ?: now()
+                    )
                     : null,
             ])->save();
 
@@ -374,9 +393,7 @@ class PropertyWorkflowService
             );
 
             /*
-         * Existing table:
-         * dynamic_post_user.user_id = verifier id
-         * dynamic_post_user.assigned_by = admin id
+         * Existing dynamic_post_user table.
          */
             $this->syncDynamicPostAssignedVerifier(
                 property: $lockedProperty,
@@ -388,41 +405,59 @@ class PropertyWorkflowService
                 property: $lockedProperty,
                 revision: $revision,
                 actor: $actor,
-                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+
+                event: $fromStatus ===
+                    PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'property_reassigned'
                     : 'property_assigned',
+
                 fromStatus: $fromStatus,
                 toStatus: $nextStatus,
+
                 message: $notes ?: (
-                    $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+                    $fromStatus ===
+                    PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'Property verifier reassigned during verification.'
                     : 'Property assigned for verification.'
                 ),
+
                 metadata: [
-                    'verifier_id' => (int) $verifier->id,
-                    'verifier_name' => $this->userName($verifier),
+                    'verifier_id' =>
+                    (int) $verifier->id,
+
+                    'verifier_name' =>
+                    $this->userName($verifier),
                 ]
             );
 
             $this->notifyUserAfterCommit(
                 userId: (int) $verifier->id,
                 property: $lockedProperty,
-                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+
+                event: $fromStatus ===
+                    PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'property_reassigned'
                     : 'property_assigned',
+
                 metadata: [
-                    'assigned_by' => (int) $actor->id,
+                    'assigned_by' =>
+                    (int) $actor->id,
                 ]
             );
 
             $this->notifyOwnerAfterCommit(
                 ownerId: (int) $lockedProperty->author_id,
+
                 property: $lockedProperty,
-                event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
+
+                event: $fromStatus ===
+                    PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'property_reassigned'
                     : 'property_assigned',
+
                 metadata: [
-                    'verifier_id' => (int) $verifier->id,
+                    'verifier_id' =>
+                    (int) $verifier->id,
                 ]
             );
 
@@ -442,73 +477,110 @@ class PropertyWorkflowService
     ): PropertyListingRevision {
         $this->assertCanActOnVerification($actor);
 
-        $revision = DB::transaction(function () use ($property, $actor) {
-            $lockedProperty = DynamicPost::query()
-                ->lockForUpdate()
-                ->findOrFail($property->id);
+        $revision = DB::transaction(
+            function () use ($property, $actor) {
+                $lockedProperty =
+                    DynamicPost::query()
+                    ->lockForUpdate()
+                    ->findOrFail($property->id);
 
-            $this->assertPropertyListing($lockedProperty);
+                $this->assertPropertyListing(
+                    $lockedProperty
+                );
 
-            $revision = $this->latestRevisionOrFail($lockedProperty);
+                $revision =
+                    $this->latestRevisionOrFail(
+                        $lockedProperty
+                    );
 
-            if ($revision->status === PropertyWorkflowStatus::APPROVED) {
+                if (
+                    $revision->status ===
+                    PropertyWorkflowStatus::APPROVED
+                ) {
+                    return $revision;
+                }
+
+                $allowedStatuses = [
+                    PropertyWorkflowStatus::UNDER_REVIEW,
+                    PropertyWorkflowStatus::RESUBMISSION,
+                    PropertyWorkflowStatus::ASSIGNED,
+                    PropertyWorkflowStatus::IN_VERIFICATION,
+                ];
+
+                if (!in_array(
+                    $revision->status,
+                    $allowedStatuses,
+                    true
+                )) {
+                    throw ValidationException::withMessages([
+                        'status' => [
+                            'This action is not allowed while the property verification status is '
+                                . $revision->status
+                                . '.',
+                        ],
+                    ]);
+                }
+
+                /*
+             * Admin bypass.
+             * Verifier must be assigned.
+             */
+                $this->ensureActorCanWorkOnRevision(
+                    $revision,
+                    $actor
+                );
+
+                if (
+                    $revision->status ===
+                    PropertyWorkflowStatus::IN_VERIFICATION
+                ) {
+                    return $revision;
+                }
+
+                $fromStatus = $revision->status;
+
+                /*
+             * DO NOT touch:
+             *
+             * assigned_to
+             * assigned_by
+             * assigned_at
+             */
+                $revision->forceFill([
+                    'status' =>
+                    PropertyWorkflowStatus::IN_VERIFICATION,
+
+                    'verification_started_at' => now(),
+                ])->save();
+
+                $this->setPropertyWorkflowState(
+                    $lockedProperty,
+                    status: $lockedProperty->status
+                        ?: 'draft',
+
+                    liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
+                );
+
+                $this->recordEvent(
+                    property: $lockedProperty,
+                    revision: $revision,
+                    actor: $actor,
+                    event: 'verification_started',
+                    fromStatus: $fromStatus,
+                    toStatus: PropertyWorkflowStatus::IN_VERIFICATION,
+                    message: 'Property verification started.'
+                );
+
+                $this->notifyOwnerAfterCommit(
+                    ownerId: (int) $lockedProperty->author_id,
+
+                    property: $lockedProperty,
+                    event: 'verification_started'
+                );
+
                 return $revision;
             }
-
-            $allowedStatuses = [
-                PropertyWorkflowStatus::UNDER_REVIEW,
-                PropertyWorkflowStatus::RESUBMISSION,
-                PropertyWorkflowStatus::ASSIGNED,
-                PropertyWorkflowStatus::IN_VERIFICATION,
-            ];
-
-            if (!in_array($revision->status, $allowedStatuses, true)) {
-                throw ValidationException::withMessages([
-                    'status' => [
-                        'This action is not allowed while the property verification status is '
-                            . $revision->status
-                            . '.',
-                    ],
-                ]);
-            }
-
-            $this->ensureActorCanWorkOnRevision($revision, $actor);
-
-            if ($revision->status === PropertyWorkflowStatus::IN_VERIFICATION) {
-                return $revision;
-            }
-
-            $fromStatus = $revision->status;
-
-            $revision->forceFill([
-                'status' => PropertyWorkflowStatus::IN_VERIFICATION,
-                'verification_started_at' => now(),
-            ])->save();
-
-            $this->setPropertyWorkflowState(
-                $lockedProperty,
-                status: $lockedProperty->status ?: 'draft',
-                liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
-            );
-
-            $this->recordEvent(
-                property: $lockedProperty,
-                revision: $revision,
-                actor: $actor,
-                event: 'verification_started',
-                fromStatus: $fromStatus,
-                toStatus: PropertyWorkflowStatus::IN_VERIFICATION,
-                message: 'Property verification started.'
-            );
-
-            $this->notifyOwnerAfterCommit(
-                ownerId: (int) $lockedProperty->author_id,
-                property: $lockedProperty,
-                event: 'verification_started'
-            );
-
-            return $revision;
-        });
+        );
 
         return $revision->fresh([
             'property:id,title,slug,status,live_status,author_id,post_type_id',
@@ -517,7 +589,6 @@ class PropertyWorkflowService
             'decider:id,first_name,last_name,email',
         ]);
     }
-
 
     public function approve(
         DynamicPost $property,
@@ -575,10 +646,17 @@ class PropertyWorkflowService
             $this->clearRejectionMetadata($lockedProperty);
 
             $revision->forceFill([
-                'status' => PropertyWorkflowStatus::APPROVED,
-                'verification_started_at' => $revision->verification_started_at ?: now(),
-                'decided_by' => $actor->id,
+                'status' =>
+                PropertyWorkflowStatus::APPROVED,
+
+                'verification_started_at' =>
+                $revision->verification_started_at
+                    ?: now(),
+
+                'decided_by' => (int) $actor->id,
+
                 'decided_at' => now(),
+
                 'rejection_reason' => null,
             ])->save();
 
@@ -699,10 +777,16 @@ class PropertyWorkflowService
             $fromStatus = $revision->status;
 
             $revision->forceFill([
-                'status' => PropertyWorkflowStatus::REJECTED,
-                'verification_started_at' => $revision->verification_started_at ?: now(),
+                'status' =>
+                PropertyWorkflowStatus::REJECTED,
+
+                'verification_started_at' =>
+                $revision->verification_started_at
+                    ?: now(),
+
                 'decided_by' => (int) $actor->id,
                 'decided_at' => now(),
+
                 'rejection_reason' => $reason,
             ])->save();
 
@@ -947,17 +1031,22 @@ class PropertyWorkflowService
             $role->role_name ?? null,
         ])
             ->filter()
-            ->map(fn($value) => Str::slug((string) $value))
+            ->map(fn($value) => Str::slug(
+                (string) $value
+            ))
             ->values()
             ->toArray();
 
-        return (bool) array_intersect($roleValues, [
-            'admin',
-            'administrator',
-            'super-admin',
-            'super-admin-user',
-            'superadmin',
-        ]);
+        return (bool) array_intersect(
+            $roleValues,
+            [
+                'admin',
+                'administrator',
+                'super-admin',
+                'super-admin-user',
+                'superadmin',
+            ]
+        );
     }
 
     private function ensureActorCanWorkOnRevision(
@@ -1492,12 +1581,39 @@ class PropertyWorkflowService
                 . ($user->last_name ?? '')
         ) ?: ($user->email ?? ('User #' . $user->id));
     }
-    private function assertCanActOnVerification(User $actor): void
-    {
+    private function ensureActorCanWorkOnRevision(
+        PropertyListingRevision $revision,
+        User $actor
+    ): void {
+        /*
+     * Admin can work on:
+     *
+     * - unassigned listing
+     * - listing assigned to another verifier
+     *
+     * Never auto-assign admin.
+     */
         if ($this->isSystemAdmin($actor)) {
             return;
         }
 
-        $this->assertVerifier($actor);
+        if (empty($revision->assigned_to)) {
+            throw ValidationException::withMessages([
+                'assignment' => [
+                    'This property is not assigned to you.',
+                ],
+            ]);
+        }
+
+        if (
+            (int) $revision->assigned_to !==
+            (int) $actor->id
+        ) {
+            throw ValidationException::withMessages([
+                'assignment' => [
+                    'This property is assigned to another verifier.',
+                ],
+            ]);
+        }
     }
 }
