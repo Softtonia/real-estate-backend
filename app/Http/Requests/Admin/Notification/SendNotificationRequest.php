@@ -6,6 +6,7 @@ use App\Models\Notification\NotificationBatch;
 use App\Models\Notification\NotificationTemplate;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class SendNotificationRequest extends FormRequest
 {
@@ -24,16 +25,49 @@ class SendNotificationRequest extends FormRequest
             }
         }
 
-        if (isset($data['title']) && is_string($data['title'])) {
-            $data['title'] = trim($data['title']);
+        foreach (['title', 'body', 'fcm_token', 'image_url'] as $field) {
+            if (isset($data[$field]) && is_string($data[$field])) {
+                $data[$field] = trim($data[$field]);
+            }
         }
 
-        if (isset($data['body']) && is_string($data['body'])) {
-            $data['body'] = trim($data['body']);
+        /*
+        |--------------------------------------------------------------------------
+        | Normalize notification payload data
+        |--------------------------------------------------------------------------
+        | Admin panel should send:
+        | data.type
+        | data.screen
+        |
+        | If old API sends no data, default it to general/home.
+        */
+        if (! isset($data['data']) || $data['data'] === null || $data['data'] === '') {
+            $data['data'] = [];
         }
 
-        if (isset($data['fcm_token']) && is_string($data['fcm_token'])) {
-            $data['fcm_token'] = trim($data['fcm_token']);
+        if (is_string($data['data'])) {
+            $decoded = json_decode($data['data'], true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $data['data'] = $decoded;
+            }
+        }
+
+        if (is_array($data['data'])) {
+            if (isset($data['data']['type']) && is_string($data['data']['type'])) {
+                $data['data']['type'] = strtolower(trim($data['data']['type']));
+            }
+
+            if (isset($data['data']['screen']) && is_string($data['data']['screen'])) {
+                $data['data']['screen'] = strtolower(trim($data['data']['screen']));
+            }
+
+            if (isset($data['data']['url']) && is_string($data['data']['url'])) {
+                $data['data']['url'] = trim($data['data']['url']);
+            }
+
+            $data['data']['type'] = $data['data']['type'] ?? 'general';
+            $data['data']['screen'] = $data['data']['screen'] ?? 'home';
         }
 
         $this->merge($data);
@@ -42,11 +76,29 @@ class SendNotificationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'template_id' => ['nullable', 'integer', 'exists:notification_templates,id'],
+            'template_id' => [
+                'nullable',
+                'integer',
+                'exists:notification_templates,id',
+            ],
 
-            'title' => ['nullable', 'string', 'max:255'],
-            'body' => ['nullable', 'string', 'max:2000'],
-            'image_url' => ['nullable', 'url', 'max:1000'],
+            'title' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'body' => [
+                'nullable',
+                'string',
+                'max:2000',
+            ],
+
+            'image_url' => [
+                'nullable',
+                'url',
+                'max:1000',
+            ],
 
             'channel' => [
                 'nullable',
@@ -58,65 +110,282 @@ class SendNotificationRequest extends FormRequest
                 Rule::in(NotificationBatch::TARGETS),
             ],
 
-            'data' => ['nullable', 'array'],
+            /*
+            |--------------------------------------------------------------------------
+            | Notification click payload
+            |--------------------------------------------------------------------------
+            */
+            'data' => [
+                'nullable',
+                'array',
+            ],
 
-            'scheduled_at' => ['nullable', 'date', 'after_or_equal:now'],
+            'data.type' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
 
-            // target_type = user
-            'user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'data.screen' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
 
-            // target_type = users
-            'user_ids' => ['nullable', 'array'],
-            'user_ids.*' => ['integer', 'exists:users,id'],
+            'data.property_id' => [
+                'nullable',
+                'integer',
+            ],
 
-            // target_type = role
-            'role_ids' => ['nullable', 'array'],
-            'role_ids.*' => ['integer'],
+            'data.membership_id' => [
+                'nullable',
+                'integer',
+            ],
 
-            // target_type = topic
-            'topic_id' => ['nullable', 'integer', 'exists:notification_topics,id'],
+            'data.order_id' => [
+                'nullable',
+                'integer',
+            ],
 
-            // target_type = token
-            'fcm_token' => ['nullable', 'string', 'max:512'],
-            'platform' => ['nullable', 'string', Rule::in(['android', 'ios', 'web'])],
+            'data.lead_id' => [
+                'nullable',
+                'integer',
+            ],
+
+            'data.ticket_id' => [
+                'nullable',
+                'integer',
+            ],
+
+            'data.url' => [
+                'nullable',
+                'url',
+                'max:1000',
+            ],
+
+            'data.link' => [
+                'nullable',
+                'url',
+                'max:1000',
+            ],
+
+            'data.click_url' => [
+                'nullable',
+                'url',
+                'max:1000',
+            ],
+
+            'data.icon' => [
+                'nullable',
+                'url',
+                'max:1000',
+            ],
+
+            'data.icon_url' => [
+                'nullable',
+                'url',
+                'max:1000',
+            ],
+
+            'data.badge' => [
+                'nullable',
+                'url',
+                'max:1000',
+            ],
+
+            'scheduled_at' => [
+                'nullable',
+                'date',
+                'after_or_equal:now',
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | target_type = user
+            |--------------------------------------------------------------------------
+            */
+            'user_id' => [
+                'nullable',
+                'integer',
+                'exists:users,id',
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | target_type = users
+            |--------------------------------------------------------------------------
+            */
+            'user_ids' => [
+                'nullable',
+                'array',
+            ],
+
+            'user_ids.*' => [
+                'integer',
+                'distinct',
+                'exists:users,id',
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | target_type = role
+            |--------------------------------------------------------------------------
+            */
+            'role_ids' => [
+                'nullable',
+                'array',
+            ],
+
+            'role_ids.*' => [
+                'integer',
+                'distinct',
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | target_type = topic
+            |--------------------------------------------------------------------------
+            */
+            'topic_id' => [
+                'nullable',
+                'integer',
+                'exists:notification_topics,id',
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | target_type = token
+            |--------------------------------------------------------------------------
+            */
+            'fcm_token' => [
+                'nullable',
+                'string',
+                'max:512',
+            ],
+
+            'platform' => [
+                'nullable',
+                'string',
+                Rule::in(['android', 'ios', 'web']),
+            ],
         ];
     }
 
-    public function withValidator($validator): void
+    public function withValidator(Validator $validator): void
     {
-        $validator->after(function ($validator) {
-            $hasTemplate = $this->filled('template_id');
-
-            if (! $hasTemplate && ! $this->filled('title')) {
-                $validator->errors()->add('title', 'Title is required when template_id is not provided.');
-            }
-
-            if (! $hasTemplate && ! $this->filled('body')) {
-                $validator->errors()->add('body', 'Body is required when template_id is not provided.');
-            }
-
-            match ($this->input('target_type')) {
-                NotificationBatch::TARGET_USER => $this->validateRequired($validator, 'user_id'),
-                NotificationBatch::TARGET_USERS => $this->validateArrayRequired($validator, 'user_ids'),
-                NotificationBatch::TARGET_ROLE => $this->validateArrayRequired($validator, 'role_ids'),
-                NotificationBatch::TARGET_TOPIC => $this->validateRequired($validator, 'topic_id'),
-                NotificationBatch::TARGET_TOKEN => $this->validateRequired($validator, 'fcm_token'),
-                default => null,
-            };
+        $validator->after(function (Validator $validator) {
+            $this->validateTitleAndBody($validator);
+            $this->validateTargetPayload($validator);
+            $this->validateNotificationPayloadData($validator);
         });
     }
 
-    private function validateRequired($validator, string $field): void
+    private function validateTitleAndBody(Validator $validator): void
     {
-        if (! $this->filled($field)) {
-            $validator->errors()->add($field, "{$field} is required for selected target_type.");
+        $hasTemplate = $this->filled('template_id');
+
+        if (! $hasTemplate && ! $this->filled('title')) {
+            $validator->errors()->add(
+                'title',
+                'Title is required when template_id is not provided.'
+            );
+        }
+
+        if (! $hasTemplate && ! $this->filled('body')) {
+            $validator->errors()->add(
+                'body',
+                'Body is required when template_id is not provided.'
+            );
         }
     }
 
-    private function validateArrayRequired($validator, string $field): void
+    private function validateTargetPayload(Validator $validator): void
     {
-        if (! is_array($this->input($field)) || count($this->input($field)) === 0) {
-            $validator->errors()->add($field, "{$field} is required for selected target_type.");
+        match ($this->input('target_type')) {
+            NotificationBatch::TARGET_USER => $this->validateRequired($validator, 'user_id'),
+            NotificationBatch::TARGET_USERS => $this->validateArrayRequired($validator, 'user_ids'),
+            NotificationBatch::TARGET_ROLE => $this->validateArrayRequired($validator, 'role_ids'),
+            NotificationBatch::TARGET_TOPIC => $this->validateRequired($validator, 'topic_id'),
+            NotificationBatch::TARGET_TOKEN => $this->validateRequired($validator, 'fcm_token'),
+            default => null,
+        };
+    }
+
+    private function validateNotificationPayloadData(Validator $validator): void
+    {
+        $data = $this->input('data', []);
+
+        if (! is_array($data)) {
+            $validator->errors()->add(
+                'data',
+                'Notification data must be a valid object.'
+            );
+
+            return;
+        }
+
+        $type = $data['type'] ?? null;
+        $screen = $data['screen'] ?? null;
+
+        $types = config('notification_payload.types', []);
+
+        if (! is_string($type) || $type === '' || ! isset($types[$type])) {
+            $validator->errors()->add(
+                'data.type',
+                'Invalid notification type.'
+            );
+
+            return;
+        }
+
+        if (
+            ! is_string($screen)
+            || $screen === ''
+            || ! isset($types[$type]['screens'][$screen])
+        ) {
+            $validator->errors()->add(
+                'data.screen',
+                'Invalid notification screen for selected type.'
+            );
+
+            return;
+        }
+
+        $requiredFields = $types[$type]['screens'][$screen]['required_fields'] ?? [];
+
+        foreach ($requiredFields as $field) {
+            if (
+                ! array_key_exists($field, $data)
+                || $data[$field] === null
+                || $data[$field] === ''
+            ) {
+                $validator->errors()->add(
+                    "data.{$field}",
+                    "{$field} is required for {$screen} screen."
+                );
+            }
+        }
+    }
+
+    private function validateRequired(Validator $validator, string $field): void
+    {
+        if (! $this->filled($field)) {
+            $validator->errors()->add(
+                $field,
+                "{$field} is required for selected target_type."
+            );
+        }
+    }
+
+    private function validateArrayRequired(Validator $validator, string $field): void
+    {
+        $value = $this->input($field);
+
+        if (! is_array($value) || count($value) === 0) {
+            $validator->errors()->add(
+                $field,
+                "{$field} is required for selected target_type."
+            );
         }
     }
 }
