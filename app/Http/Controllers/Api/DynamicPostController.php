@@ -36,6 +36,7 @@ use App\Models\State;
 use App\Models\City;
 use App\Services\Membership\MembershipCreditService;
 use App\Models\PropertyListingRevision;
+use App\Services\PropertyVerification\PropertyWorkflowService;
 
 class DynamicPostController extends Controller
 {
@@ -488,10 +489,6 @@ class DynamicPostController extends Controller
     public function update(Request $request, int|string $dynamicPost): JsonResponse
     {
         try {
-            /*
-         * Multipart PUT/PATCH bodies are not reliably parsed by PHP.
-         * For image upload, send POST with _method=PUT.
-         */
             $this->normalizeDynamicPostRequest($request);
 
             $contentType = strtolower((string) $request->header('Content-Type', ''));
@@ -512,48 +509,38 @@ class DynamicPostController extends Controller
             $post = $this->findDynamicPost($dynamicPost);
 
             if (!$post) {
-                return $this->errorResponse('Dynamic post not found.', 404, 'No dynamic post exists with this id.', [
-                    'id' => $dynamicPost,
-                ]);
+                return $this->errorResponse(
+                    'Dynamic post not found.',
+                    404,
+                    'No dynamic post exists with this id.',
+                    ['id' => $dynamicPost]
+                );
             }
 
-            /*
-             * Property publication decisions must pass through the dedicated
-             * verification APIs so assignment, notifications and timeline
-             * entries cannot be bypassed.
-             */
-            $postTypeSlug = DB::table('post_types')
-                ->where('id', $post->post_type_id)
-                ->value('slug');
-
-            if (
-                Str::slug((string) $postTypeSlug) === 'property-listing'
-                && $request->hasAny([
-                    'status',
-                    'live_status',
-                    'rejection_reason',
-                    'rejected_by',
-                    'rejected_at',
-                ])
-            ) {
-                throw ValidationException::withMessages([
-                    'verification' => [
-                        'Use the property verification APIs to approve, reject or publish a property.',
-                    ],
-                ]);
-            }
+            $propertyVerificationOverride =
+                $this->prepareAdminPropertyVerificationOverride(
+                    $request,
+                    $post
+                );
 
             $validated = $this->validatePost($request, true);
 
-            /*
-         * Important:
-         * If admin sends only status=published, listing should become live.
-         * If admin sends only live_status=approve, listing should become published.
-         */
-            $validated = $this->normalizeLiveVisibilityStatus($validated, $post);
+            if (
+                empty($propertyVerificationOverride)
+                || empty($propertyVerificationOverride['action'])
+            ) {
+                $validated = $this->normalizeLiveVisibilityStatus(
+                    $validated,
+                    $post
+                );
+            }
 
             if (
-                in_array(($validated['live_status'] ?? null), ['reject', 'disapprove'], true)
+                in_array(
+                    ($validated['live_status'] ?? null),
+                    ['reject', 'disapprove'],
+                    true
+                )
                 && empty($validated['rejection_reason'])
             ) {
                 throw ValidationException::withMessages([
@@ -563,19 +550,27 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            $postTypeId = $validated['post_type_id'] ?? $post->post_type_id;
+            $postTypeId = $validated['post_type_id']
+                ?? $post->post_type_id;
 
-            $postType = PostType::with('taxonomies')->find($postTypeId);
+            $postType = PostType::with('taxonomies')
+                ->find($postTypeId);
 
             if (!$postType) {
-                return $this->errorResponse('Post type not found.', 404);
+                return $this->errorResponse(
+                    'Post type not found.',
+                    404
+                );
             }
 
-            $hasLocationPayload = $this->hasLocationPayload($validated);
+            $hasLocationPayload =
+                $this->hasLocationPayload($validated);
 
             if ($hasLocationPayload) {
                 $this->validatePostTypeLocationSupport($postType);
-                $validated = $this->prepareLocationForSave($validated);
+
+                $validated =
+                    $this->prepareLocationForSave($validated);
             }
 
             $hasBaseMediaPayload =
@@ -587,56 +582,100 @@ class DynamicPostController extends Controller
                 || array_key_exists('gallery_image_ids', $validated);
 
             if ($hasBaseMediaPayload) {
-                $validated = $this->prepareBaseMediaForSave($request, $validated, $postType, $post);
+                $validated = $this->prepareBaseMediaForSave(
+                    $request,
+                    $validated,
+                    $postType,
+                    $post
+                );
             }
 
-            $hasTaxonomyPayload = array_key_exists('taxonomies', $validated)
+            $hasTaxonomyPayload =
+                array_key_exists('taxonomies', $validated)
                 || array_key_exists('taxonomy_term_ids', $validated);
 
             $rawRequestData = $request->all();
 
-            $hasRelationshipPayload = $this->hasRelationshipPayload($rawRequestData);
+            $hasRelationshipPayload =
+                $this->hasRelationshipPayload($rawRequestData);
 
-            $submittedTaxonomies = $validated['taxonomies'] ?? [];
+            $submittedTaxonomies =
+                $validated['taxonomies'] ?? [];
 
-            $relationshipPostTypes = $hasRelationshipPayload
-                ? $this->normalizeRelationshipPostTypeInputs($rawRequestData)
+            $relationshipPostTypes =
+                $hasRelationshipPayload
+                ? $this->normalizeRelationshipPostTypeInputs(
+                    $rawRequestData
+                )
                 : null;
 
-            $taxonomyTermIds = $hasTaxonomyPayload
-                ? $this->normalizeSubmittedTaxonomyTermIds($validated)
+            $taxonomyTermIds =
+                $hasTaxonomyPayload
+                ? $this->normalizeSubmittedTaxonomyTermIds(
+                    $validated
+                )
                 : null;
 
-            $customFields = array_key_exists('custom_fields', $validated)
-                ? $this->prepareCustomFieldsForSave($request, $validated, $postType, $post)
+            $customFields =
+                array_key_exists('custom_fields', $validated)
+                ? $this->prepareCustomFieldsForSave(
+                    $request,
+                    $validated,
+                    $postType,
+                    $post
+                )
                 : null;
 
             if (is_array($customFields)) {
-                $customFields = $this->appendMissingMediaCustomFieldDeletes($post, $customFields);
+                $customFields =
+                    $this->appendMissingMediaCustomFieldDeletes(
+                        $post,
+                        $customFields
+                    );
             }
 
             if ($hasTaxonomyPayload) {
-                $this->validateSubmittedTaxonomyGroups($postType, $submittedTaxonomies);
-                $this->validateTaxonomyTermsForPostType($postType, $taxonomyTermIds);
-                $this->validateDependentTaxonomySelections($taxonomyTermIds);
+                $this->validateSubmittedTaxonomyGroups(
+                    $postType,
+                    $submittedTaxonomies
+                );
+
+                $this->validateTaxonomyTermsForPostType(
+                    $postType,
+                    $taxonomyTermIds
+                );
+
+                $this->validateDependentTaxonomySelections(
+                    $taxonomyTermIds
+                );
             }
 
             if (is_array($customFields)) {
-                $effectiveTermIds = is_array($taxonomyTermIds)
+                $effectiveTermIds =
+                    is_array($taxonomyTermIds)
                     ? $taxonomyTermIds
                     : $post->taxonomyTerms()
                     ->pluck('taxonomy_terms.id')
                     ->map(fn($id) => (int) $id)
                     ->toArray();
 
-                $this->validateSubmittedCustomFieldsForPostType($postType, $effectiveTermIds, $customFields);
+                $this->validateSubmittedCustomFieldsForPostType(
+                    $postType,
+                    $effectiveTermIds,
+                    $customFields
+                );
             }
 
             if (is_array($relationshipPostTypes)) {
-                $this->validateSubmittedRelationshipPostTypes($postType, $relationshipPostTypes, $post->id);
+                $this->validateSubmittedRelationshipPostTypes(
+                    $postType,
+                    $relationshipPostTypes,
+                    $post->id
+                );
             }
 
-            $hasKeywordPayload = $this->hasKeywordPayload($validated);
+            $hasKeywordPayload =
+                $this->hasKeywordPayload($validated);
 
             if ($hasKeywordPayload) {
                 $this->validatePostTypeKeywordSupport($postType);
@@ -644,32 +683,52 @@ class DynamicPostController extends Controller
 
             $newSlug = $post->slug;
 
-            if (array_key_exists('slug', $validated) && !empty($validated['slug'])) {
+            if (
+                array_key_exists('slug', $validated)
+                && !empty($validated['slug'])
+            ) {
                 $newSlug = Str::slug($validated['slug']);
-            } elseif (array_key_exists('title', $validated)) {
+            } elseif (
+                array_key_exists('title', $validated)
+            ) {
                 $newSlug = Str::slug($validated['title']);
             }
 
             if (empty($newSlug)) {
-                $newSlug = $post->slug ?: ('post-' . $post->id);
+                $newSlug =
+                    $post->slug ?: ('post-' . $post->id);
             }
 
-            $slugExists = DynamicPost::where('post_type_id', $postTypeId)
+            $slugExists = DynamicPost::query()
+                ->where('post_type_id', $postTypeId)
                 ->where('slug', $newSlug)
                 ->where('id', '!=', $post->id)
                 ->exists();
 
             if ($slugExists) {
-                return $this->errorResponse('Dynamic post slug already exists.', 422, null, [
-                    'errors' => [
-                        'slug' => [
-                            $newSlug . ' already exists for this post type.',
+                return $this->errorResponse(
+                    'Dynamic post slug already exists.',
+                    422,
+                    null,
+                    [
+                        'errors' => [
+                            'slug' => [
+                                $newSlug . ' already exists for this post type.',
+                            ],
                         ],
-                    ],
-                ]);
+                    ]
+                );
             }
 
-            $hasAssignedUserPayload = $this->hasAssignedUserPayload($request->all());
+            /*
+         * Admin approve/reject must NEVER reassign the property.
+         */
+            $hasAssignedUserPayload =
+                !empty($propertyVerificationOverride['action'])
+                ? false
+                : $this->hasAssignedUserPayload(
+                    $request->all()
+                );
 
             DB::transaction(function () use (
                 $post,
@@ -680,18 +739,23 @@ class DynamicPostController extends Controller
                 $relationshipPostTypes,
                 $hasAssignedUserPayload,
                 $postType,
-                $hasKeywordPayload
+                $hasKeywordPayload,
+                $propertyVerificationOverride
             ) {
-                $postData = $this->dynamicPostPayloadForDatabase($validated);
+                $postData =
+                    $this->dynamicPostPayloadForDatabase(
+                        $validated
+                    );
 
                 $postData['slug'] = $newSlug;
 
-                /*
-             * Rejection handling
-             */
                 if (
                     array_key_exists('live_status', $postData)
-                    && in_array($postData['live_status'], ['reject', 'disapprove'], true)
+                    && in_array(
+                        $postData['live_status'],
+                        ['reject', 'disapprove'],
+                        true
+                    )
                 ) {
                     $postData['rejected_by'] = Auth::id();
                     $postData['rejected_at'] = now();
@@ -701,9 +765,6 @@ class DynamicPostController extends Controller
                     }
                 }
 
-                /*
-             * Approve / live handling
-             */
                 if (
                     array_key_exists('live_status', $postData)
                     && $postData['live_status'] === 'approve'
@@ -720,7 +781,10 @@ class DynamicPostController extends Controller
                 if (array_key_exists('status', $postData)) {
                     if (
                         $postData['status'] === 'published'
-                        && Schema::hasColumn('dynamic_posts', 'published_at')
+                        && Schema::hasColumn(
+                            'dynamic_posts',
+                            'published_at'
+                        )
                         && empty($post->published_at)
                     ) {
                         $postData['published_at'] = now();
@@ -728,60 +792,364 @@ class DynamicPostController extends Controller
 
                     if (
                         $postData['status'] !== 'published'
-                        && Schema::hasColumn('dynamic_posts', 'published_at')
+                        && Schema::hasColumn(
+                            'dynamic_posts',
+                            'published_at'
+                        )
                     ) {
                         $postData['published_at'] = null;
                     }
                 }
 
-                /*
-             * forceFill avoids fillable issue.
-             */
                 $post->forceFill($postData);
                 $post->save();
 
                 if (is_array($taxonomyTermIds)) {
-                    $this->syncTaxonomyTerms($post, $taxonomyTermIds);
+                    $this->syncTaxonomyTerms(
+                        $post,
+                        $taxonomyTermIds
+                    );
                 }
 
                 if (is_array($relationshipPostTypes)) {
-                    $this->syncDynamicPostRelationships($post, $relationshipPostTypes);
+                    $this->syncDynamicPostRelationships(
+                        $post,
+                        $relationshipPostTypes
+                    );
                 }
 
                 if (is_array($customFields)) {
-                    $this->saveCustomFieldValues($post->id, 'post', $customFields);
+                    $this->saveCustomFieldValues(
+                        $post->id,
+                        'post',
+                        $customFields
+                    );
                 }
 
                 if ($hasAssignedUserPayload) {
-                    $this->syncDynamicPostAssignedUser($post, $validated);
+                    $this->syncDynamicPostAssignedUser(
+                        $post,
+                        $validated
+                    );
                 }
 
                 if ($hasKeywordPayload) {
                     $this->syncKeywordsForDynamicPost(
                         post: $post,
                         postType: $postType,
-                        input: $this->getKeywordPayload($validated)
+                        input: $this->getKeywordPayload(
+                            $validated
+                        )
                     );
                 }
+
+                $this->executeAdminPropertyVerificationOverride(
+                    $post,
+                    $propertyVerificationOverride
+                );
             });
 
-            $freshPost = $post->fresh()->load($this->postRelations);
+            $freshPost = $post->fresh()
+                ->load($this->postRelations);
 
             $this->clearDynamicPostCaches($freshPost);
 
             return $this->successResponse(
                 'Dynamic post updated successfully.',
-                $this->formatDynamicPostResponse($freshPost)
+                $this->formatDynamicPostResponse(
+                    $freshPost
+                )
             );
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while updating dynamic post.');
+            return $this->databaseErrorResponse(
+                $e,
+                'Database error while updating dynamic post.'
+            );
         } catch (Throwable $e) {
-            return $this->errorResponse('Unable to update dynamic post.', 500, $e->getMessage());
+            return $this->errorResponse(
+                'Unable to update dynamic post.',
+                500,
+                $e->getMessage()
+            );
+        }
+    }
+    private function prepareAdminPropertyVerificationOverride(
+        Request $request,
+        DynamicPost $post
+    ): ?array {
+        $postTypeSlug = DB::table('post_types')
+            ->where('id', (int) $post->post_type_id)
+            ->value('slug');
+
+        if (
+            Str::slug((string) $postTypeSlug)
+            !== 'property-listing'
+        ) {
+            return null;
+        }
+
+        $hasVerificationPayload =
+            $request->hasAny([
+                'status',
+                'live_status',
+                'rejection_reason',
+                'rejected_by',
+                'rejected_at',
+            ]);
+
+        if (!$hasVerificationPayload) {
+            return null;
+        }
+
+        $actor =
+            $this->resolveDynamicPostActor($request);
+
+        if (
+            !$actor
+            || !$this->isAdminOrSuperAdminUser($actor)
+        ) {
+            throw ValidationException::withMessages([
+                'verification' => [
+                    'Use the property verification APIs to approve, reject or publish a property.',
+                ],
+            ]);
+        }
+
+        $requestedStatus =
+            $request->filled('status')
+            ? strtolower(trim(
+                (string) $request->input('status')
+            ))
+            : null;
+
+        $requestedLiveStatus =
+            $request->filled('live_status')
+            ? strtolower(trim(
+                (string) $request->input('live_status')
+            ))
+            : null;
+
+        /*
+     * Never trust client supplied audit actor/timestamps.
+     */
+        $request->request->remove('rejected_by');
+        $request->request->remove('rejected_at');
+
+        if (
+            $requestedStatus === 'published'
+            && in_array(
+                $requestedLiveStatus,
+                ['reject', 'disapprove'],
+                true
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'verification' => [
+                    'A property cannot be published and rejected in the same request.',
+                ],
+            ]);
+        }
+
+        if (
+            in_array(
+                $requestedStatus,
+                ['draft', 'private', 'archived'],
+                true
+            )
+            && $requestedLiveStatus === 'approve'
+        ) {
+            throw ValidationException::withMessages([
+                'verification' => [
+                    'A property cannot be approved while requesting a non-published status in the same request.',
+                ],
+            ]);
+        }
+
+        /*
+     * APPROVE / PUBLISH
+     */
+        if (
+            $requestedStatus === 'published'
+            || $requestedLiveStatus === 'approve'
+        ) {
+            $notes = $request->filled('notes')
+                ? trim((string) $request->input('notes'))
+                : null;
+
+            $this->removeVerificationControlledRequestFields(
+                $request
+            );
+
+            return [
+                'action' => 'approve',
+                'actor' => $actor,
+                'notes' => $notes ?: null,
+                'reason' => null,
+            ];
+        }
+
+        /*
+     * REJECT
+     */
+        if (
+            in_array(
+                $requestedLiveStatus,
+                ['reject', 'disapprove'],
+                true
+            )
+        ) {
+            $reason = trim(
+                (string) $request->input(
+                    'rejection_reason',
+                    ''
+                )
+            );
+
+            if ($reason === '') {
+                throw ValidationException::withMessages([
+                    'rejection_reason' => [
+                        'Rejection reason is required when property is rejected.',
+                    ],
+                ]);
+            }
+
+            $this->removeVerificationControlledRequestFields(
+                $request
+            );
+
+            return [
+                'action' => 'reject',
+                'actor' => $actor,
+                'notes' => null,
+                'reason' => $reason,
+            ];
+        }
+
+        /*
+     * These are workflow states, not direct publication states.
+     */
+        if (
+            in_array(
+                $requestedLiveStatus,
+                [
+                    'under_review',
+                    'submit',
+                    'modify_review',
+                ],
+                true
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'live_status' => [
+                    'Use the property verification workflow to change this verification status.',
+                ],
+            ]);
+        }
+
+        /*
+     * draft/private/archived remain normal admin publication updates.
+     */
+        return [
+            'action' => null,
+            'actor' => $actor,
+            'notes' => null,
+            'reason' => null,
+        ];
+    }
+
+    private function removeVerificationControlledRequestFields(
+        Request $request
+    ): void {
+        foreach (
+            [
+                'status',
+                'live_status',
+                'rejection_reason',
+                'rejected_by',
+                'rejected_at',
+                'published_at',
+            ] as $field
+        ) {
+            $request->request->remove($field);
+        }
+    }
+    private function executeAdminPropertyVerificationOverride(
+        DynamicPost $post,
+        ?array $override
+    ): void {
+        if (
+            empty($override)
+            || empty($override['action'])
+        ) {
+            return;
+        }
+
+        /** @var User $actor */
+        $actor = $override['actor'];
+
+        if ($override['action'] === 'approve') {
+            $this->propertyWorkflowService()
+                ->approve(
+                    property: $post->fresh(),
+                    actor: $actor,
+                    notes: $override['notes'] ?? null
+                );
+
+            return;
+        }
+
+        if ($override['action'] === 'reject') {
+            $this->propertyWorkflowService()
+                ->reject(
+                    property: $post->fresh(),
+                    actor: $actor,
+                    reason: (string) (
+                        $override['reason'] ?? ''
+                    )
+                );
         }
     }
 
+    private function resolveDynamicPostActor(
+        Request $request
+    ): ?User {
+        $actor = $request->user();
+
+        if ($actor instanceof User) {
+            return $actor;
+        }
+
+        $authUser = Auth::user();
+
+        if ($authUser instanceof User) {
+            return $authUser;
+        }
+
+        $token = $request->bearerToken();
+
+        if (
+            !$token
+            || !Schema::hasColumn(
+                'users',
+                'api_token'
+            )
+        ) {
+            return null;
+        }
+
+        return User::query()
+            ->where('api_token', $token)
+            ->first();
+    }
+
+    private function propertyWorkflowService(): PropertyWorkflowService
+    {
+        return app(
+            PropertyWorkflowService::class
+        );
+    }
     public function destroy(int|string $dynamicPost): JsonResponse
     {
         try {
