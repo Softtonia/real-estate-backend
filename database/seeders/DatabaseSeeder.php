@@ -43,5 +43,8 @@ class DatabaseSeeder extends Seeder
         $this->call([TicketModuleSeeder::class,]);
         $this->call([KycRoleRuleSeeder::class,]);
         $this->call(PropertyVerificationPermissionSeeder::class);
+        $this->call([
+            NotificationEssentialSeeder::class,
+        ]);
     }
 }
