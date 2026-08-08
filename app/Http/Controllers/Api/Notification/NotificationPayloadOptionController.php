@@ -13,25 +13,30 @@ class NotificationPayloadOptionController extends Controller
         try {
             $types = config('notification_payload.types', []);
 
-            $data = collect($types)->map(function (array $typeConfig, string $typeKey) {
-                return [
-                    'value' => $typeKey,
-                    'label' => $typeConfig['label'] ?? ucfirst(str_replace('_', ' ', $typeKey)),
-                    'screens' => collect($typeConfig['screens'] ?? [])->map(function (array $screenConfig, string $screenKey) {
-                        return [
-                            'value' => $screenKey,
-                            'label' => $screenConfig['label'] ?? ucfirst(str_replace('_', ' ', $screenKey)),
-                            'required_fields' => $screenConfig['required_fields'] ?? [],
-                        ];
-                    })->values(),
-                ];
-            })->values();
+            $payloadTypes = collect($types)
+                ->map(function (array $typeConfig, string $typeKey) {
+                    return [
+                        'value' => $typeKey,
+                        'label' => $typeConfig['label'] ?? ucfirst(str_replace('_', ' ', $typeKey)),
+
+                        'screens' => collect($typeConfig['screens'] ?? [])
+                            ->map(function (array $screenConfig, string $screenKey) {
+                                return [
+                                    'value' => $screenKey,
+                                    'label' => $screenConfig['label'] ?? ucfirst(str_replace('_', ' ', $screenKey)),
+                                    'required_fields' => $screenConfig['required_fields'] ?? [],
+                                ];
+                            })
+                            ->values(),
+                    ];
+                })
+                ->values();
 
             return response()->json([
                 'status' => true,
                 'message' => 'Notification payload options fetched successfully.',
                 'data' => [
-                    'types' => $data,
+                    'types' => $payloadTypes,
                 ],
             ]);
         } catch (Throwable $e) {
