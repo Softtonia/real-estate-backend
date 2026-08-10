@@ -8,6 +8,7 @@ use App\Models\PropertyListingRevision;
 use App\Models\PropertyVerificationEvent;
 use App\Models\User;
 use App\Notifications\PropertyWorkflowNotification;
+use App\Services\PropertyAvailability\PropertyAvailabilityService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -30,7 +31,8 @@ class PropertyWorkflowService
     ];
 
     public function __construct(
-        private readonly PropertySnapshotService $snapshots
+        private readonly PropertySnapshotService $snapshots,
+        private readonly PropertyAvailabilityService $availability
     ) {}
 
     public function assertCanSubmitProperty(User $user): void
@@ -580,6 +582,26 @@ class PropertyWorkflowService
                 'rejection_reason' => null,
             ])->save();
 
+            /*
+             * Availability is a separate workflow.
+             * Normal verification approval must not depend on availability
+             * reactivation methods. Only an availability reactivation revision
+             * is allowed to call the availability finalizer.
+             */
+            if ($revision->source === 'availability_reactivation') {
+                if (!method_exists($this->availability, 'approvePendingReactivation')) {
+                    throw new RuntimeException(
+                        'PropertyAvailabilityService::approvePendingReactivation() is required for availability reactivation approval.'
+                    );
+                }
+
+                $this->availability->approvePendingReactivation(
+                    property: $lockedProperty,
+                    revision: $revision,
+                    actor: $actor
+                );
+            }
+
             $this->recordEvent(
                 property: $lockedProperty,
                 revision: $revision,
@@ -693,6 +715,26 @@ class PropertyWorkflowService
                 'decided_at' => now(),
                 'rejection_reason' => $reason,
             ])->save();
+
+            /*
+             * Availability is a separate workflow.
+             * Normal verification rejection must not depend on availability
+             * reactivation methods.
+             */
+            if ($revision->source === 'availability_reactivation') {
+                if (!method_exists($this->availability, 'rejectPendingReactivation')) {
+                    throw new RuntimeException(
+                        'PropertyAvailabilityService::rejectPendingReactivation() is required for availability reactivation rejection.'
+                    );
+                }
+
+                $this->availability->rejectPendingReactivation(
+                    property: $lockedProperty,
+                    revision: $revision,
+                    actor: $actor,
+                    reason: $reason
+                );
+            }
 
             /*
          * Important:
