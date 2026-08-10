@@ -57,6 +57,7 @@ use App\Http\Controllers\Help\HelpChildcategoryController;
 use App\Http\Controllers\Help\HelpArticleController;
 use App\Http\Controllers\Admin\MailConfigController;
 use App\Http\Controllers\Admin\SystemController;
+use App\Http\Controllers\Api\Admin\FeaturedPropertyController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationReportController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationRetryController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationSendController;
@@ -1819,6 +1820,14 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
 
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
         ->whereNumber('dynamicPost');
+
+        Route::get('property-options', [FeaturedPropertyController::class, 'propertyOptions']);
+        Route::get('featured-properties/', [FeaturedPropertyController::class, 'index']);
+        Route::post('featured-properties/', [FeaturedPropertyController::class, 'store']);
+        Route::get('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'show'])->whereNumber('featuredProperty');
+        Route::put('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'update'])->whereNumber('featuredProperty');
+        Route::patch('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'update'])->whereNumber('featuredProperty');
+        Route::delete('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'cancel'])->whereNumber('featuredProperty');
 
     /*
     |--------------------------------------------------------------------------

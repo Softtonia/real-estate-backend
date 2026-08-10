@@ -415,4 +415,34 @@ class DynamicPost extends Model
             'dynamic_post_id'
         );
     }
+    public function featuredPromotions(): HasMany
+    {
+        return $this->hasMany(
+            PropertyFeaturedPromotion::class,
+            'dynamic_post_id'
+        );
+    }
+    public function currentFeaturedPromotion(): HasOne
+    {
+        return $this->hasOne(
+            PropertyFeaturedPromotion::class,
+            'dynamic_post_id'
+        )
+            ->where(
+                'status',
+                PropertyFeaturedPromotion::STATUS_ACTIVE
+            )
+            ->where(
+                'starts_at',
+                '<=',
+                now()
+            )
+            ->where(
+                'ends_at',
+                '>',
+                now()
+            )
+            ->orderByDesc('priority')
+            ->orderByDesc('id');
+    }
 }
