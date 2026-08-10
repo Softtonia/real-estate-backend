@@ -1821,7 +1821,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
         ->whereNumber('dynamicPost');
 
-        Route::get('property-options', [FeaturedPropertyController::class, 'propertyOptions']);
+        Route::get('featured-properties/property-options', [FeaturedPropertyController::class, 'propertyOptions']);
         Route::get('featured-properties/', [FeaturedPropertyController::class, 'index']);
         Route::post('featured-properties/', [FeaturedPropertyController::class, 'store']);
         Route::get('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'show'])->whereNumber('featuredProperty');
