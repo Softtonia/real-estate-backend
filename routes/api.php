@@ -1821,14 +1821,6 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
         ->whereNumber('dynamicPost');
 
-        Route::get('featured-properties/property-options', [FeaturedPropertyController::class, 'propertyOptions']);
-        Route::get('featured-properties/', [FeaturedPropertyController::class, 'index']);
-        Route::post('featured-properties/', [FeaturedPropertyController::class, 'store']);
-        Route::get('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'show'])->whereNumber('featuredProperty');
-        Route::put('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'update'])->whereNumber('featuredProperty');
-        Route::patch('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'update'])->whereNumber('featuredProperty');
-        Route::delete('featured-properties/{featuredProperty}', [FeaturedPropertyController::class, 'cancel'])->whereNumber('featuredProperty');
-
     /*
     |--------------------------------------------------------------------------
     | Taxonomies
@@ -1985,6 +1977,15 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('keywords-delete/{id}', [KeywordController::class, 'destroy']);
 });
 
+Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->prefix('admin/featured-properties')->group(function () {
+    Route::get('property-options', [FeaturedPropertyController::class, 'propertyOptions']);
+    Route::get('/', [FeaturedPropertyController::class, 'index']);
+    Route::post('/', [FeaturedPropertyController::class, 'store']);
+    Route::get('{featuredProperty}', [FeaturedPropertyController::class, 'show'])->whereNumber('featuredProperty');
+    Route::put('{featuredProperty}', [FeaturedPropertyController::class, 'update'])->whereNumber('featuredProperty');
+    Route::patch('{featuredProperty}', [FeaturedPropertyController::class, 'update'])->whereNumber('featuredProperty');
+    Route::delete('{featuredProperty}', [FeaturedPropertyController::class, 'cancel'])->whereNumber('featuredProperty');
+});
 Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     /*
     |--------------------------------------------------------------------------
