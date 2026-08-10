@@ -24,51 +24,145 @@ class GuestDynamicPostDetailResource extends JsonResource
         );
 
         if (!$galleryMedia instanceof Collection) {
-            $galleryMedia = collect();
+            $galleryMedia = collect(
+                is_array($galleryMedia)
+                    ? $galleryMedia
+                    : []
+            );
         }
 
         return [
-            'id' => (int) $this->id,
+            'id' =>
+                (int) $this->id,
 
-            'listing_code' => $this->listing_code,
+            'listing_code' =>
+                $this->listing_code ?? null,
 
-            'title' => $this->title,
+            'title' =>
+                $this->title ?? null,
 
-            'slug' => $this->slug,
+            'slug' =>
+                $this->slug ?? null,
 
-            'content' => $this->content,
+            'content' =>
+                $this->content ?? null,
 
-            'excerpt' => $this->excerpt,
+            'excerpt' =>
+                $this->excerpt ?? null,
 
-            'post_type' => $this->postType
-                ? [
-                    'id' => (int) $this->postType->id,
-                    'name' => $this->postType->name,
-                    'slug' => $this->postType->slug,
-                ]
-                : null,
+            /*
+            |--------------------------------------------------------------------------
+            | Post Type
+            |--------------------------------------------------------------------------
+            */
+
+            'post_type' =>
+                $this->postType
+                    ? [
+                        'id' =>
+                            (int) $this->postType->id,
+
+                        'name' =>
+                            $this->postType->name,
+
+                        'slug' =>
+                            $this->postType->slug,
+                    ]
+                    : null,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Publication
+            |--------------------------------------------------------------------------
+            */
+
+            'status' =>
+                $this->status ?? null,
+
+            'live_status' =>
+                $this->live_status ?? null,
+
+            'published_at' =>
+                $this->formatDate(
+                    $this->published_at ?? null
+                ),
+
+            /*
+            |--------------------------------------------------------------------------
+            | Location
+            |--------------------------------------------------------------------------
+            */
 
             'location' => [
-                'country' =>
-                    $this->guest_country_name,
+                'country_id' =>
+                    !empty($this->country_id)
+                        ? (int) $this->country_id
+                        : null,
 
-                'state' =>
-                    $this->guest_state_name,
+                'country_name' =>
+                    $this->guest_country_name
+                    ?? null,
 
-                'city' =>
-                    $this->guest_city_name,
+                'state_id' =>
+                    !empty($this->state_id)
+                        ? (int) $this->state_id
+                        : null,
+
+                'state_name' =>
+                    $this->guest_state_name
+                    ?? null,
+
+                'city_id' =>
+                    !empty($this->city_id)
+                        ? (int) $this->city_id
+                        : null,
+
+                'city_name' =>
+                    $this->guest_city_name
+                    ?? null,
 
                 'area_locality' =>
-                    $this->area_locality,
+                    $this->area_locality ?? null,
 
                 'full_address' =>
                     $this->fullAddress(),
             ],
 
+            /*
+            |--------------------------------------------------------------------------
+            | Featured Image
+            |--------------------------------------------------------------------------
+            */
+
+            'featured_image_id' =>
+                !empty($this->featured_image_id)
+                    ? (int) $this->featured_image_id
+                    : null,
+
             'featured_image' =>
                 $this->mediaUrl(
                     $featuredMedia
                 ),
+
+            'featured_image_media' =>
+                $this->formatMedia(
+                    $featuredMedia
+                ),
+
+            /*
+            |--------------------------------------------------------------------------
+            | Gallery
+            |--------------------------------------------------------------------------
+            */
+
+            'gallery_image_ids' =>
+                $galleryMedia
+                    ->pluck('id')
+                    ->map(
+                        fn ($id) => (int) $id
+                    )
+                    ->values()
+                    ->all(),
 
             'gallery_images' =>
                 $galleryMedia
@@ -80,15 +174,62 @@ class GuestDynamicPostDetailResource extends JsonResource
                     ->values()
                     ->all(),
 
+            'gallery_image_files' =>
+                $galleryMedia
+                    ->map(
+                        fn ($media) =>
+                            $this->formatMedia($media)
+                    )
+                    ->filter()
+                    ->values()
+                    ->all(),
+
+            /*
+            |--------------------------------------------------------------------------
+            | Taxonomies
+            |--------------------------------------------------------------------------
+            */
+
             'taxonomies' =>
                 $this->formatTaxonomies(),
+
+            /*
+            |--------------------------------------------------------------------------
+            | Custom Fields
+            |--------------------------------------------------------------------------
+            */
 
             'custom_fields' =>
                 $this->formatCustomFields(),
 
+            /*
+            |--------------------------------------------------------------------------
+            | Featured Promotion
+            |--------------------------------------------------------------------------
+            |
+            | Admin notes / audit information are intentionally
+            | not exposed to guest APIs.
+            |
+            */
+
             'featured' => [
                 'is_featured' =>
                     $promotion !== null,
+
+                'promotion_id' =>
+                    $promotion
+                        ? (int) $promotion->id
+                        : null,
+
+                'priority' =>
+                    $promotion
+                        ? (int) $promotion->priority
+                        : null,
+
+                'starts_at' =>
+                    $promotion
+                        ?->starts_at
+                        ?->toISOString(),
 
                 'ends_at' =>
                     $promotion
@@ -96,315 +237,459 @@ class GuestDynamicPostDetailResource extends JsonResource
                         ?->toISOString(),
             ],
 
-            'availability_status' =>
-                $this->availability_status,
+            /*
+            |--------------------------------------------------------------------------
+            | Availability
+            |--------------------------------------------------------------------------
+            |
+            | Relevant mainly for property-listing.
+            | Other post types normally return null values.
+            |
+            */
 
-            'published_at' =>
+            'availability' => [
+                'status' =>
+                    $this->availability_status
+                    ?? null,
+
+                'sold_at' =>
+                    $this->formatDate(
+                        $this->sold_at ?? null
+                    ),
+
+                'public_until' =>
+                    $this->formatDate(
+                        $this->availability_public_until
+                            ?? null
+                    ),
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | Public Relationships
+            |--------------------------------------------------------------------------
+            */
+
+            'relationships' => [
+                'parent' =>
+                    $this->formatRelatedPost(
+                        $this->relationLoaded('parent')
+                            ? $this->parent
+                            : null
+                    ),
+
+                'children' =>
+                    $this->relationLoaded('children')
+                        ? $this->children
+                            ->map(
+                                fn ($post) =>
+                                    $this->formatRelatedPost(
+                                        $post
+                                    )
+                            )
+                            ->filter()
+                            ->values()
+                            ->all()
+                        : [],
+            ],
+
+            'created_at' =>
                 $this->formatDate(
-                    $this->published_at
+                    $this->created_at ?? null
+                ),
+
+            'updated_at' =>
+                $this->formatDate(
+                    $this->updated_at ?? null
                 ),
         ];
     }
 
     private function formatTaxonomies(): array
     {
-        $terms = $this->taxonomyTerms
+        $terms =
+            $this->taxonomyTerms
             ?? collect();
 
         return $terms
-            ->filter(
-                fn ($term) =>
-                    $term->taxonomy !== null
-            )
-            ->groupBy(
-                fn ($term) =>
-                    $term->taxonomy->slug
-            )
-            ->map(
-                function ($items) {
-                    return $items
-                        ->map(
-                            fn ($term) => [
-                                'id' =>
-                                    (int) $term->id,
+            ->groupBy('taxonomy_id')
+            ->map(function ($taxonomyTerms) {
+                $first =
+                    $taxonomyTerms->first();
 
-                                'name' =>
-                                    $term->name,
+                $taxonomy =
+                    $first?->taxonomy;
 
-                                'slug' =>
-                                    $term->slug,
-                            ]
-                        )
-                        ->values()
-                        ->all();
+                if (!$taxonomy) {
+                    return null;
                 }
-            )
-            ->toArray();
+
+                return [
+                    'taxonomy_id' =>
+                        (int) $taxonomy->id,
+
+                    'taxonomy_name' =>
+                        $taxonomy->name,
+
+                    'taxonomy_slug' =>
+                        $taxonomy->slug,
+
+                    'selected_term_ids' =>
+                        $taxonomyTerms
+                            ->pluck('id')
+                            ->map(
+                                fn ($id) =>
+                                    (int) $id
+                            )
+                            ->values()
+                            ->all(),
+
+                    'selected_terms' =>
+                        $taxonomyTerms
+                            ->map(
+                                fn ($term) => [
+                                    'id' =>
+                                        (int) $term->id,
+
+                                    'name' =>
+                                        $term->name,
+
+                                    'slug' =>
+                                        $term->slug,
+                                ]
+                            )
+                            ->values()
+                            ->all(),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
     }
 
     private function formatCustomFields(): array
     {
-        $meta = $this->meta
+        $meta =
+            $this->meta
             ?? collect();
 
-        $mediaMap = $this->getAttribute(
-            '_guest_media_map'
-        );
+        $repeaterValues =
+            $this->getAttribute(
+                '_guest_repeater_values'
+            );
+
+        if (!$repeaterValues instanceof Collection) {
+            $repeaterValues = collect(
+                is_array($repeaterValues)
+                    ? $repeaterValues
+                    : []
+            );
+        }
+
+        $mediaMap =
+            $this->getAttribute(
+                '_guest_media_map'
+            );
 
         if (!$mediaMap instanceof Collection) {
             $mediaMap = collect();
         }
 
         return $meta
-            ->mapWithKeys(
-                function ($item) use (
-                    $mediaMap
-                ) {
-                    $field =
-                        $item->customField;
+            ->map(function ($item) use (
+                $repeaterValues,
+                $mediaMap
+            ) {
+                $field =
+                    $item->customField
+                    ?? null;
 
-                    if (!$field) {
-                        return [];
-                    }
+                if (!$field) {
+                    return null;
+                }
 
-                    $slug =
+                $fieldType =
+                    $field->field_type
+                    ?? null;
+
+                $valueJson =
+                    $this->decodeJsonValue(
+                        $item->value_json
+                        ?? null
+                    );
+
+                $response = [
+                    'id' =>
+                        (int) $item->id,
+
+                    'custom_field_id' =>
+                        (int) $field->id,
+
+                    'name' =>
+                        $field->name
+                        ?? null,
+
+                    'label' =>
+                        $field->label
+                        ?? $field->name
+                        ?? null,
+
+                    'slug' =>
                         $field->field_name_slug
                         ?? $field->slug
-                        ?? null;
+                        ?? null,
 
-                    if (!$slug) {
-                        return [];
-                    }
+                    'field_type' =>
+                        $fieldType,
 
-                    $value =
-                        $this->resolveMetaValue(
-                            $item
+                    'value_string' =>
+                        $item->value_string
+                        ?? null,
+
+                    'value_text' =>
+                        $item->value_text
+                        ?? null,
+
+                    'value_number' =>
+                        $item->value_number
+                        ?? null,
+
+                    'value_date' =>
+                        $item->value_date
+                        ?? null,
+
+                    'value_datetime' =>
+                        $this->formatDate(
+                            $item->value_datetime
+                            ?? null
+                        ),
+
+                    'value_json' =>
+                        $valueJson,
+                ];
+
+                /*
+                 * Media / file custom fields.
+                 */
+                if (
+                    in_array(
+                        $fieldType,
+                        [
+                            'media',
+                            'file',
+                        ],
+                        true
+                    )
+                ) {
+                    $files =
+                        $this->formatCustomFieldMedia(
+                            $valueJson,
+                            $mediaMap
                         );
 
-                    if (
-                        in_array(
-                            $field->field_type,
-                            [
-                                'media',
-                                'file',
-                            ],
-                            true
-                        )
-                    ) {
-                        $value =
-                            $this->resolveMediaValue(
-                                $value,
-                                $mediaMap
-                            );
-                    }
+                    $response['media_files'] =
+                        $files;
 
-                    return [
-                        $slug => $value,
-                    ];
+                    $response['media_urls'] =
+                        collect($files)
+                            ->pluck('url')
+                            ->filter()
+                            ->values()
+                            ->all();
                 }
-            )
-            ->toArray();
+
+                /*
+                 * Repeater values were loaded by service,
+                 * therefore no query happens here.
+                 */
+                if (
+                    $fieldType === 'repeater'
+                ) {
+                    $response['repeaters'] =
+                        $repeaterValues
+                            ->get(
+                                (int) $field->id,
+                                []
+                            );
+                }
+
+                return $response;
+            })
+            ->filter()
+            ->values()
+            ->all();
     }
 
-    private function resolveMetaValue(
-        mixed $item
-    ): mixed {
-        if (
-            $item->value_number
-            !== null
-        ) {
-            return $item->value_number + 0;
-        }
-
-        if (
-            $item->value_text
-            !== null
-        ) {
-            return $item->value_text;
-        }
-
-        if (
-            $item->value_string
-            !== null
-        ) {
-            return $item->value_string;
-        }
-
-        if (
-            $item->value_date
-            !== null
-        ) {
-            return $item->value_date;
-        }
-
-        if (
-            $item->value_datetime
-            !== null
-        ) {
-            return $this->formatDate(
-                $item->value_datetime
-            );
-        }
-
-        if (
-            $item->value_json
-            !== null
-        ) {
-            return $this->decodeJson(
-                $item->value_json
-            );
-        }
-
-        return null;
-    }
-
-    private function resolveMediaValue(
+    private function formatCustomFieldMedia(
         mixed $value,
         Collection $mediaMap
-    ): mixed {
+    ): array {
+        if (!$value) {
+            return [];
+        }
+
         if (
-            $value === null
-            || $value === ''
-        ) {
-            return null;
-        }
-
-        if (is_numeric($value)) {
-            return $this->mediaUrl(
-                $mediaMap->get(
-                    (int) $value
-                )
-            );
-        }
-
-        if (!is_array($value)) {
-            return null;
-        }
-
-        /*
-         * Support:
-         *
-         * [1, 2]
-         *
-         * or:
-         *
-         * [
-         *   ['id' => 1],
-         *   ['media_id' => 2]
-         * ]
-         *
-         * or:
-         *
-         * ['media' => [...]]
-         */
-        if (
-            isset($value['media'])
+            is_array($value)
+            && isset($value['media'])
             && is_array($value['media'])
         ) {
             $value = $value['media'];
         }
 
-        $urls = collect($value)
-            ->map(
-                function ($item) use (
-                    $mediaMap
-                ) {
-                    if (is_numeric($item)) {
-                        return $this->mediaUrl(
-                            $mediaMap->get(
-                                (int) $item
-                            )
+        if (!is_array($value)) {
+            $value = [$value];
+        }
+
+        return collect($value)
+            ->map(function ($item) use (
+                $mediaMap
+            ) {
+                if (is_numeric($item)) {
+                    $media =
+                        $mediaMap->get(
+                            (int) $item
                         );
-                    }
 
-                    if (!is_array($item)) {
-                        return null;
-                    }
+                    return $media
+                        ? $this->formatMedia(
+                            $media
+                        )
+                        : null;
+                }
 
-                    $mediaId =
-                        $item['id']
-                        ?? $item['media_id']
-                        ?? null;
-
-                    if (
-                        $mediaId
-                        && is_numeric($mediaId)
-                    ) {
-                        return $this->mediaUrl(
-                            $mediaMap->get(
-                                (int) $mediaId
-                            )
-                        );
-                    }
-
-                    if (
-                        !empty($item['url'])
-                    ) {
-                        return $this->absoluteUrl(
-                            $item['url']
-                        );
-                    }
-
+                if (!is_array($item)) {
                     return null;
                 }
-            )
+
+                $mediaId =
+                    $item['id']
+                    ?? $item['media_id']
+                    ?? null;
+
+                if (
+                    $mediaId
+                    && is_numeric($mediaId)
+                ) {
+                    $media =
+                        $mediaMap->get(
+                            (int) $mediaId
+                        );
+
+                    if ($media) {
+                        return $this->formatMedia(
+                            $media
+                        );
+                    }
+                }
+
+                $path =
+                    $item['path']
+                    ?? null;
+
+                $url =
+                    $item['url']
+                    ?? null;
+
+                if (!$url && $path) {
+                    $url =
+                        $this->storageUrl(
+                            $path,
+                            $item['disk']
+                                ?? 'public'
+                        );
+                }
+
+                if (!$url) {
+                    return null;
+                }
+
+                return array_merge(
+                    $item,
+                    [
+                        'url' => $url,
+                    ]
+                );
+            })
             ->filter()
             ->values()
             ->all();
+    }
 
-        if (count($urls) === 0) {
+    private function formatRelatedPost(
+        mixed $post
+    ): ?array {
+        if (!$post) {
             return null;
         }
 
-        if (count($urls) === 1) {
-            return $urls[0];
-        }
+        return [
+            'id' =>
+                (int) $post->id,
 
-        return $urls;
+            'post_type_id' =>
+                !empty($post->post_type_id)
+                    ? (int) $post->post_type_id
+                    : null,
+
+            'listing_code' =>
+                $post->listing_code
+                ?? null,
+
+            'title' =>
+                $post->title
+                ?? null,
+
+            'slug' =>
+                $post->slug
+                ?? null,
+        ];
     }
 
-    private function decodeJson(
-        mixed $value
-    ): mixed {
-        if (!is_string($value)) {
-            return $value;
+    private function formatMedia(
+        mixed $media
+    ): ?array {
+        if (!$media) {
+            return null;
         }
 
-        $decoded = json_decode(
-            $value,
-            true
-        );
+        return [
+            'id' =>
+                (int) $media->id,
 
-        if (
-            json_last_error()
-            !== JSON_ERROR_NONE
-        ) {
-            return $value;
-        }
+            'disk' =>
+                $media->disk
+                ?? 'public',
 
-        /*
-         * Some existing DB values may be
-         * double JSON encoded.
-         *
-         * Example:
-         * "\"[]\""
-         */
-        if (is_string($decoded)) {
-            $secondDecoded =
-                json_decode(
-                    $decoded,
-                    true
-                );
+            'path' =>
+                $media->path
+                ?? null,
 
-            if (
-                json_last_error()
-                === JSON_ERROR_NONE
-            ) {
-                return $secondDecoded;
-            }
-        }
+            'url' =>
+                $this->mediaUrl(
+                    $media
+                ),
 
-        return $decoded;
+            'file_name' =>
+                $media->file_name
+                ?? null,
+
+            'original_name' =>
+                $media->original_name
+                ?? null,
+
+            'mime_type' =>
+                $media->mime_type
+                ?? null,
+
+            'extension' =>
+                $media->extension
+                ?? null,
+
+            'size' =>
+                !empty($media->size)
+                    ? (int) $media->size
+                    : null,
+        ];
     }
 
     private function mediaUrl(
@@ -414,64 +699,130 @@ class GuestDynamicPostDetailResource extends JsonResource
             return null;
         }
 
-        if (!empty($media->url)) {
-            return $this->absoluteUrl(
-                $media->url
+        $url =
+            $media->url
+            ?? null;
+
+        if ($url) {
+            if (
+                str_starts_with(
+                    $url,
+                    'http://'
+                )
+                || str_starts_with(
+                    $url,
+                    'https://'
+                )
+            ) {
+                return $url;
+            }
+
+            return url($url);
+        }
+
+        if (!empty($media->path)) {
+            return $this->storageUrl(
+                $media->path,
+                $media->disk
+                    ?? 'public'
             );
         }
 
-        if (empty($media->path)) {
-            return null;
-        }
-
-        $url = Storage::disk(
-            $media->disk
-            ?? 'public'
-        )->url(
-            $media->path
-        );
-
-        return $this->absoluteUrl(
-            $url
-        );
+        return null;
     }
 
-    private function absoluteUrl(
-        string $value
+    private function storageUrl(
+        string $path,
+        string $disk = 'public'
     ): string {
         if (
             str_starts_with(
-                $value,
+                $path,
                 'http://'
             )
             || str_starts_with(
-                $value,
+                $path,
                 'https://'
             )
         ) {
+            return $path;
+        }
+
+        $url =
+            Storage::disk($disk)
+                ->url($path);
+
+        if (
+            str_starts_with(
+                $url,
+                'http://'
+            )
+            || str_starts_with(
+                $url,
+                'https://'
+            )
+        ) {
+            return $url;
+        }
+
+        return url($url);
+    }
+
+    private function decodeJsonValue(
+        mixed $value
+    ): mixed {
+        if (
+            $value === null
+            || $value === ''
+        ) {
+            return null;
+        }
+
+        if (is_array($value)) {
             return $value;
         }
 
-        return url($value);
+        if (!is_string($value)) {
+            return $value;
+        }
+
+        $decoded =
+            json_decode(
+                $value,
+                true
+            );
+
+        return json_last_error()
+            === JSON_ERROR_NONE
+                ? $decoded
+                : $value;
     }
 
     private function fullAddress(): ?string
     {
-        $address = collect([
-            $this->area_locality,
-            $this->guest_city_name,
-            $this->guest_state_name,
-            $this->guest_country_name,
-        ])
-            ->filter(
-                fn ($value) =>
-                    $value !== null
-                    && trim(
-                        (string) $value
-                    ) !== ''
-            )
-            ->unique()
-            ->implode(', ');
+        $address =
+            collect([
+                $this->area_locality
+                    ?? null,
+
+                $this->guest_city_name
+                    ?? null,
+
+                $this->guest_state_name
+                    ?? null,
+
+                $this->guest_country_name
+                    ?? null,
+            ])
+                ->filter(
+                    fn ($value) =>
+                        $value !== null
+                        && trim(
+                            (string) $value
+                        ) !== ''
+                )
+                ->unique()
+                ->implode(', ');
 
         return $address !== ''
             ? $address
