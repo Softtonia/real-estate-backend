@@ -679,12 +679,6 @@ class DynamicPostController extends Controller
                             'rejected_by',
                             'rejected_at',
                             'published_at',
-
-                            /*
-                             * Listing owner changes are normal edit operations.
-                             * Approve/reject must not silently change author_id.
-                             */
-                            'author_id',
                         ])
                     );
                 }
@@ -1339,54 +1333,6 @@ class DynamicPostController extends Controller
     }
     private function assignedUserField(?PostType $postType = null): array
     {
-        /*
-        |--------------------------------------------------------------------------
-        | Property Listing Owner Selection
-        |--------------------------------------------------------------------------
-        |
-        | IMPORTANT:
-        | - For property-listing, this field stores the selected customer/user
-        |   directly in dynamic_posts.author_id.
-        | - It does NOT use dynamic_post_user.
-        | - It does NOT change property_listing_revisions.assigned_to.
-        | - Existing verification assignment flow remains untouched.
-        |
-        */
-        if (
-            $postType
-            && Str::slug((string) $postType->slug) === 'property-listing'
-        ) {
-            $queryString = '?mode=listing_owner&post_type_id=' . (int) $postType->id;
-
-            return [
-                'key' => 'author_id',
-                'label' => 'Listing For',
-                'type' => 'select',
-                'multiple' => false,
-                'request_key' => 'author_id',
-                'nullable' => true,
-
-                /*
-                 * Reuse the existing route, but use an explicit mode so the
-                 * normal assignment/verifier dropdown behaviour is unchanged.
-                 */
-                'user_dropdown_api' => 'dynamic-post-assignment/users' . $queryString,
-
-                'allow_anonymous' => true,
-                'default_to_authenticated_user_if_empty' => true,
-                'stores_in' => 'dynamic_posts.author_id',
-                'purpose' => 'listing_owner',
-            ];
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Existing Assignment Flow For Other Post Types
-        |--------------------------------------------------------------------------
-        |
-        | Keep this exactly separate from property listing ownership.
-        |
-        */
         $queryString = $postType
             ? '?post_type_id=' . (int) $postType->id
             : '';
@@ -1399,8 +1345,12 @@ class DynamicPostController extends Controller
             'request_key' => 'user_id',
             'nullable' => true,
 
+            // This API will now return only matched role users.
             'user_dropdown_api' => 'dynamic-post-assignment/users' . $queryString,
+
+            // Optional role dropdown also filtered by post type.
             'role_dropdown_api' => 'dynamic-post-assignment/roles' . $queryString,
+
             'auto_assign_anonymous_if_empty' => true,
 
             'allowed_roles' => $postType
@@ -1489,12 +1439,12 @@ class DynamicPostController extends Controller
             'options' => [],
         ]);
     }
+
     private function isAnonymousAssignmentUser(User $user): bool
     {
-        return strtolower(trim((string) ($user->user_name ?? ''))) === 'anonymous'
-            || strtolower(trim((string) ($user->email ?? ''))) === 'anonymous@system.local'
-            || strtolower(trim((string) ($user->name ?? ''))) === 'anonymous user'
-            || strtolower(trim((string) ($user->first_name ?? ''))) === 'anonymous';
+        return ($user->email ?? null) === 'anonymous@system.local'
+            || ($user->name ?? null) === 'Anonymous User'
+            || ($user->first_name ?? null) === 'Anonymous';
     }
     private function hasRelationshipPayload(array $input): bool
     {
@@ -5169,14 +5119,6 @@ class DynamicPostController extends Controller
         $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
         $data['display_id'] = $post->listing_code ?? null;
 
-        /*
-         * Listing owner/customer is dynamic_posts.author_id.
-         * Verification assignment remains separate.
-         */
-        $data['listing_owner_id'] = !empty($post->author_id)
-            ? (int) $post->author_id
-            : null;
-
         $featuredMedia = $this->formatMediaFileById($post->featured_image_id ?? null);
         $galleryMedia = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
 
@@ -6011,43 +5953,23 @@ class DynamicPostController extends Controller
     }
     private function getAnonymousUser(): ?User
     {
-        return User::query()
-            ->where(function ($query) {
-                $hasCondition = false;
+        $query = User::query();
 
-                if (Schema::hasColumn('users', 'user_name')) {
-                    $query->where('user_name', 'anonymous');
-                    $hasCondition = true;
-                }
+        $query->where(function ($q) {
+            if (Schema::hasColumn('users', 'email')) {
+                $q->where('email', 'anonymous@system.local');
+            }
 
-                if (Schema::hasColumn('users', 'email')) {
-                    if ($hasCondition) {
-                        $query->orWhere('email', 'anonymous@system.local');
-                    } else {
-                        $query->where('email', 'anonymous@system.local');
-                        $hasCondition = true;
-                    }
-                }
+            if (Schema::hasColumn('users', 'name')) {
+                $q->orWhere('name', 'Anonymous User');
+            }
 
-                if (Schema::hasColumn('users', 'name')) {
-                    if ($hasCondition) {
-                        $query->orWhere('name', 'Anonymous User');
-                    } else {
-                        $query->where('name', 'Anonymous User');
-                        $hasCondition = true;
-                    }
-                }
+            if (Schema::hasColumn('users', 'first_name')) {
+                $q->orWhere('first_name', 'Anonymous');
+            }
+        });
 
-                if (Schema::hasColumn('users', 'first_name')) {
-                    if ($hasCondition) {
-                        $query->orWhere('first_name', 'Anonymous');
-                    } else {
-                        $query->where('first_name', 'Anonymous');
-                    }
-                }
-            })
-            ->orderBy('id')
-            ->first();
+        return $query->first();
     }
 
     private function assertAssignableUser(
@@ -6268,7 +6190,6 @@ class DynamicPostController extends Controller
     {
         try {
             $request->validate([
-                'mode' => ['nullable', Rule::in(['assignment', 'listing_owner'])],
                 'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
                 'post_type' => ['nullable', 'string', 'max:255'],
                 'post_type_slug' => ['nullable', 'string', 'max:255'],
@@ -6276,20 +6197,6 @@ class DynamicPostController extends Controller
                 'role_id' => ['nullable', 'integer', 'exists:roles,id'],
                 'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
             ]);
-
-            /*
-            |--------------------------------------------------------------------------
-            | Listing Owner Mode
-            |--------------------------------------------------------------------------
-            |
-            | This mode is used only by the admin/staff create/edit listing form.
-            | It reads/writes dynamic_posts.author_id and must not touch the
-            | verification assignment stored in dynamic_post_user / revisions.
-            |
-            */
-            if ($request->input('mode') === 'listing_owner') {
-                return $this->listingOwnerDropdownResponse($request);
-            }
 
             $postType = $this->resolveAssignmentPostType($request);
 
@@ -6494,282 +6401,6 @@ class DynamicPostController extends Controller
             ->map(fn($id) => (int) $id)
             ->toArray();
     }
-    private function listingOwnerDropdownResponse(Request $request): JsonResponse
-    {
-        $limit = min(
-            max((int) $request->get('limit', 100), 1),
-            500
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Available User Columns
-        |--------------------------------------------------------------------------
-        |
-        | The project has changed user columns over time, so only select columns
-        | that actually exist. This prevents SQL errors across environments.
-        |
-        */
-        $columns = collect([
-            'id',
-            'user_name',
-            'first_name',
-            'last_name',
-            'name',
-            'email',
-            'phone',
-            'role_id',
-            'role',
-            'status',
-        ])
-            ->filter(
-                fn (string $column) => Schema::hasColumn('users', $column)
-            )
-            ->values()
-            ->toArray();
-
-        if (!in_array('id', $columns, true)) {
-            return $this->successResponse(
-                'Listing owner users fetched successfully.',
-                [
-                    'count' => 0,
-                    'options' => [],
-                ]
-            );
-        }
-
-        $query = User::query()
-            ->select($columns);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Optional Role Filter
-        |--------------------------------------------------------------------------
-        |
-        | By default ALL users are returned. role_id is optional and is only
-        | applied if the frontend explicitly requests it.
-        |
-        */
-        if (
-            $request->filled('role_id')
-            && Schema::hasColumn('users', 'role_id')
-        ) {
-            $query->where(
-                'role_id',
-                (int) $request->input('role_id')
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Search
-        |--------------------------------------------------------------------------
-        */
-        if ($request->filled('search')) {
-            $search = trim((string) $request->input('search'));
-
-            $searchableColumns = collect([
-                'user_name',
-                'first_name',
-                'last_name',
-                'name',
-                'email',
-                'phone',
-            ])
-                ->filter(
-                    fn (string $column) => Schema::hasColumn('users', $column)
-                )
-                ->values()
-                ->toArray();
-
-            if ($search !== '' && !empty($searchableColumns)) {
-                $query->where(function ($searchQuery) use (
-                    $search,
-                    $searchableColumns
-                ) {
-                    foreach ($searchableColumns as $index => $column) {
-                        if ($index === 0) {
-                            $searchQuery->where(
-                                $column,
-                                'like',
-                                "%{$search}%"
-                            );
-                        } else {
-                            $searchQuery->orWhere(
-                                $column,
-                                'like',
-                                "%{$search}%"
-                            );
-                        }
-                    }
-                });
-            }
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | No Automatic Role / Status Exclusion
-        |--------------------------------------------------------------------------
-        |
-        | Requirement is to show all users, including Anonymous User.
-        | Therefore we deliberately do NOT:
-        | - exclude admin/super-admin roles
-        | - restrict by post type role
-        | - restrict by status
-        |
-        */
-        $users = $query
-            ->orderBy('id', 'asc')
-            ->limit($limit)
-            ->get();
-
-        /*
-         * Ensure the configured Anonymous User is visible in the unfiltered
-         * dropdown even if the table has more rows than the current limit.
-         */
-        if (
-            !$request->filled('search')
-            && !$request->filled('role_id')
-        ) {
-            $anonymousUser = $this->getAnonymousUser();
-
-            if (
-                $anonymousUser
-                && !$users->contains(
-                    fn (User $user) => (int) $user->id === (int) $anonymousUser->id
-                )
-            ) {
-                $users->prepend($anonymousUser);
-                $users = $users->take($limit)->values();
-            }
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Load Roles In One Query
-        |--------------------------------------------------------------------------
-        */
-        $rolesById = collect();
-
-        if (
-            Schema::hasTable('roles')
-            && Schema::hasColumn('users', 'role_id')
-        ) {
-            $roleIds = $users
-                ->pluck('role_id')
-                ->filter()
-                ->map(fn ($id) => (int) $id)
-                ->unique()
-                ->values()
-                ->toArray();
-
-            if (!empty($roleIds)) {
-                $roleColumns = collect([
-                    'id',
-                    'name',
-                    'slug',
-                    'role_name',
-                ])
-                    ->filter(
-                        fn (string $column) => Schema::hasColumn('roles', $column)
-                    )
-                    ->values()
-                    ->toArray();
-
-                if (!empty($roleColumns)) {
-                    $rolesById = DB::table('roles')
-                        ->select($roleColumns)
-                        ->whereIn('id', $roleIds)
-                        ->get()
-                        ->keyBy(
-                            fn ($role) => (int) $role->id
-                        );
-                }
-            }
-        }
-
-        $options = $users
-            ->map(function (User $user) use ($rolesById) {
-                $fullName = trim(
-                    ($user->first_name ?? '')
-                    . ' '
-                    . ($user->last_name ?? '')
-                );
-
-                $isAnonymous = $this->isAnonymousAssignmentUser($user);
-
-                $label = $isAnonymous
-                    ? 'Anonymous User'
-                    : (
-                        $fullName
-                        ?: ($user->name ?? null)
-                        ?: ($user->user_name ?? null)
-                        ?: ($user->email ?? null)
-                        ?: ('User #' . $user->id)
-                    );
-
-                $roleData = null;
-
-                if (
-                    !empty($user->role_id)
-                    && $rolesById->has((int) $user->role_id)
-                ) {
-                    $role = $rolesById->get((int) $user->role_id);
-
-                    $roleData = [
-                        'id' => (int) $role->id,
-                        'name' => $role->name
-                            ?? $role->role_name
-                            ?? null,
-                        'slug' => $role->slug ?? null,
-                    ];
-                }
-
-                return [
-                    'id' => (int) $user->id,
-                    'value' => (int) $user->id,
-                    'label' => (string) $label,
-                    'name' => (string) $label,
-
-                    'user_name' => $user->user_name ?? null,
-                    'first_name' => $user->first_name ?? null,
-                    'last_name' => $user->last_name ?? null,
-                    'email' => $user->email ?? null,
-                    'phone' => $user->phone ?? null,
-
-                    'role_id' => !empty($user->role_id)
-                        ? (int) $user->role_id
-                        : null,
-
-                    'role' => $roleData,
-                    'status' => $user->status ?? null,
-                    'is_anonymous_user' => $isAnonymous,
-
-                    /*
-                     * Frontend should submit this option ID as author_id.
-                     */
-                    'request_key' => 'author_id',
-                ];
-            })
-            ->sortBy(function (array $option) {
-                return $option['is_anonymous_user']
-                    ? '0-' . str_pad((string) $option['id'], 10, '0', STR_PAD_LEFT)
-                    : '1-' . mb_strtolower((string) $option['label']);
-            })
-            ->values();
-
-        return $this->successResponse(
-            'Listing owner users fetched successfully.',
-            [
-                'mode' => 'listing_owner',
-                'request_key' => 'author_id',
-                'stores_in' => 'dynamic_posts.author_id',
-                'count' => $options->count(),
-                'options' => $options,
-            ]
-        );
-    }
-
     public function assignmentRoleDropdown(Request $request): JsonResponse
     {
         try {

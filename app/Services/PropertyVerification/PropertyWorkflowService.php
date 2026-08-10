@@ -21,7 +21,7 @@ class PropertyWorkflowService
     private const ALLOWED_OWNER_ROLES = [
         'owner',
         'owners',
-        'agent',
+        'property-owner',
         'property-owners',
         'company',
         'companies',
@@ -252,6 +252,7 @@ class PropertyWorkflowService
 
                 $revision = $latestOpenRevision;
 
+                // $this->clearDynamicPostAssignedVerifier($lockedProperty);
             } else {
                 $fromStatus = $context['previous_live_status'] ?? null;
                 $revision = PropertyListingRevision::create([
@@ -373,12 +374,15 @@ class PropertyWorkflowService
             );
 
             /*
-             * IMPORTANT:
-             * Verification assignment is stored only on the revision.
-             *
-             * dynamic_post_user.user_id is the listing owner/customer and must
-             * never be overwritten when a verifier is assigned.
-             */
+         * Existing table:
+         * dynamic_post_user.user_id = verifier id
+         * dynamic_post_user.assigned_by = admin id
+         */
+            $this->syncDynamicPostAssignedVerifier(
+                property: $lockedProperty,
+                actor: $actor,
+                verifier: $verifier
+            );
 
             $this->recordEvent(
                 property: $lockedProperty,
@@ -411,7 +415,8 @@ class PropertyWorkflowService
                 ]
             );
 
-            $this->notifyListingOwnerAfterCommit(
+            $this->notifyOwnerAfterCommit(
+                ownerId: (int) $lockedProperty->author_id,
                 property: $lockedProperty,
                 event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
                     ? 'property_reassigned'
@@ -496,7 +501,8 @@ class PropertyWorkflowService
                 message: 'Property verification started.'
             );
 
-            $this->notifyListingOwnerAfterCommit(
+            $this->notifyOwnerAfterCommit(
+                ownerId: (int) $lockedProperty->author_id,
                 property: $lockedProperty,
                 event: 'verification_started'
             );
@@ -618,7 +624,8 @@ class PropertyWorkflowService
                     : 'Property was published and is now live.'
             );
 
-            $this->notifyListingOwnerAfterCommit(
+            $this->notifyOwnerAfterCommit(
+                ownerId: (int) $lockedProperty->author_id,
                 property: $lockedProperty,
                 event: $wasRepublish ? 'property_republished' : 'property_approved'
             );
@@ -767,7 +774,8 @@ class PropertyWorkflowService
                 ]
             );
 
-            $this->notifyListingOwnerAfterCommit(
+            $this->notifyOwnerAfterCommit(
+                ownerId: (int) $lockedProperty->author_id,
                 property: $lockedProperty,
                 event: 'property_rejected',
                 reason: $reason
@@ -1004,7 +1012,19 @@ class PropertyWorkflowService
     }
 
 
-private function markPropertyReviewed(
+    private function clearDynamicPostAssignedVerifier(
+        DynamicPost $property
+    ): void {
+        if (!Schema::hasTable('dynamic_post_user')) {
+            return;
+        }
+
+        DB::table('dynamic_post_user')
+            ->where('dynamic_post_id', (int) $property->id)
+            ->delete();
+    }
+
+    private function markPropertyReviewed(
         DynamicPost $property,
         User $actor
     ): void {
@@ -1045,38 +1065,11 @@ private function markPropertyReviewed(
             ->max('version')) + 1;
     }
 
-    private function listingOwnerId(DynamicPost $property): ?int
-    {
-        /*
-         * Primary source:
-         * dynamic_post_user.user_id = listing owner / customer.
-         *
-         * Fallback:
-         * Old listings may not yet have a dynamic_post_user row, therefore
-         * author_id remains the backward-compatible owner for those records.
-         */
-        if (Schema::hasTable('dynamic_post_user')) {
-            $ownerId = DB::table('dynamic_post_user')
-                ->where('dynamic_post_id', (int) $property->id)
-                ->value('user_id');
-
-            if (!empty($ownerId)) {
-                return (int) $ownerId;
-            }
-        }
-
-        return !empty($property->author_id)
-            ? (int) $property->author_id
-            : null;
-    }
-
     private function assertOwner(
         DynamicPost $property,
         User $user
     ): void {
-        $ownerId = $this->listingOwnerId($property);
-
-        if (!$ownerId || $ownerId !== (int) $user->id) {
+        if ((int) ($property->author_id ?? 0) !== (int) $user->id) {
             throw ValidationException::withMessages([
                 'property' => [
                     'You are not allowed to manage this property.',
@@ -1264,7 +1257,41 @@ private function markPropertyReviewed(
         }
     }
 
-private function legacyLiveStatus(string $workflowStatus): string
+    private function syncDynamicPostAssignedVerifier(
+        DynamicPost $property,
+        User $actor,
+        User $verifier
+    ): void {
+        if (!Schema::hasTable('dynamic_post_user')) {
+            return;
+        }
+
+        $existing = DB::table('dynamic_post_user')
+            ->where('dynamic_post_id', (int) $property->id)
+            ->first();
+
+        if ($existing) {
+            DB::table('dynamic_post_user')
+                ->where('dynamic_post_id', (int) $property->id)
+                ->update([
+                    'user_id' => (int) $verifier->id,
+                    'assigned_by' => (int) $actor->id,
+                    'updated_at' => now(),
+                ]);
+
+            return;
+        }
+
+        DB::table('dynamic_post_user')->insert([
+            'dynamic_post_id' => (int) $property->id,
+            'user_id' => (int) $verifier->id,
+            'assigned_by' => (int) $actor->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function legacyLiveStatus(string $workflowStatus): string
     {
         $status = strtolower(trim($workflowStatus));
 
@@ -1362,27 +1389,6 @@ private function legacyLiveStatus(string $workflowStatus): string
             'metadata' => empty($metadata) ? null : $metadata,
             'created_at' => now(),
         ]);
-    }
-
-    private function notifyListingOwnerAfterCommit(
-        DynamicPost $property,
-        string $event,
-        ?string $reason = null,
-        array $metadata = []
-    ): void {
-        $ownerId = $this->listingOwnerId($property);
-
-        if (!$ownerId) {
-            return;
-        }
-
-        $this->notifyOwnerAfterCommit(
-            ownerId: $ownerId,
-            property: $property,
-            event: $event,
-            reason: $reason,
-            metadata: $metadata
-        );
     }
 
     private function notifyOwnerAfterCommit(
