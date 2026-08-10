@@ -24,7 +24,8 @@ class FeaturedPropertyController extends Controller
 {
     public function __construct(
         private readonly FeaturedPropertyService $featuredPropertyService
-    ) {}
+    ) {
+    }
 
     /**
      * Admin featured promotion listing.
@@ -254,22 +255,22 @@ class FeaturedPropertyController extends Controller
 
                     'pagination' => [
                         'current_page' =>
-                        $promotions->currentPage(),
+                            $promotions->currentPage(),
 
                         'per_page' =>
-                        $promotions->perPage(),
+                            $promotions->perPage(),
 
                         'total' =>
-                        $promotions->total(),
+                            $promotions->total(),
 
                         'last_page' =>
-                        $promotions->lastPage(),
+                            $promotions->lastPage(),
 
                         'from' =>
-                        $promotions->firstItem(),
+                            $promotions->firstItem(),
 
                         'to' =>
-                        $promotions->lastItem(),
+                            $promotions->lastItem(),
                     ],
                 ]
             );
@@ -304,10 +305,10 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                ->create(
-                    data: $request->validated(),
-                    actor: $actor
-                );
+                    ->create(
+                        data: $request->validated(),
+                        actor: $actor
+                    );
 
             return $this->successResponse(
                 'Property featured successfully.',
@@ -392,11 +393,11 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                ->update(
-                    promotion: $featuredProperty,
-                    data: $request->validated(),
-                    actor: $actor
-                );
+                    ->update(
+                        promotion: $featuredProperty,
+                        data: $request->validated(),
+                        actor: $actor
+                    );
 
             return $this->successResponse(
                 'Featured property updated successfully.',
@@ -445,13 +446,13 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                ->cancel(
-                    promotion: $featuredProperty,
-                    actor: $actor,
-                    reason: $request->validated(
-                        'cancellation_reason'
-                    )
-                );
+                    ->cancel(
+                        promotion: $featuredProperty,
+                        actor: $actor,
+                        reason: $request->validated(
+                            'cancellation_reason'
+                        )
+                    );
 
             return $this->successResponse(
                 'Featured property cancelled successfully.',
@@ -601,11 +602,11 @@ class FeaturedPropertyController extends Controller
             $properties = $query
                 ->with([
                     'featuredPromotions' =>
-                    function ($promotionQuery) {
-                        $promotionQuery
-                            ->openPromotion()
-                            ->orderBy('starts_at');
-                    },
+                        function ($promotionQuery) {
+                            $promotionQuery
+                                ->openPromotion()
+                                ->orderBy('starts_at');
+                        },
                 ])
                 ->orderBy(
                     'dynamic_posts.title'
@@ -626,7 +627,9 @@ class FeaturedPropertyController extends Controller
                         );
 
                     if (
-                        !empty($property->listing_code)
+                        !empty(
+                            $property->listing_code
+                        )
                     ) {
                         $label =
                             $property->listing_code
@@ -642,69 +645,71 @@ class FeaturedPropertyController extends Controller
 
                     return [
                         'id' =>
-                        (int) $property->id,
+                            (int) $property->id,
 
                         'value' =>
-                        (int) $property->id,
+                            (int) $property->id,
 
                         'label' =>
-                        (string) $label,
+                            (string) $label,
 
                         'listing_code' =>
-                        $property->listing_code
+                            $property->listing_code
                             ?? null,
 
                         'title' =>
-                        $property->title
+                            $property->title
                             ?? null,
 
                         'slug' =>
-                        $property->slug
+                            $property->slug
                             ?? null,
 
                         'author_id' =>
-                        !empty($property->author_id)
-                            ? (int) $property->author_id
-                            : null,
+                            !empty(
+                                $property->author_id
+                            )
+                                ? (int) $property->author_id
+                                : null,
 
                         'status' =>
-                        $property->status
+                            $property->status
                             ?? null,
 
                         'live_status' =>
-                        $property->live_status
+                            $property->live_status
                             ?? null,
 
                         'availability_status' =>
-                        $property->availability_status
+                            $property->availability_status
                             ?? null,
 
                         'has_open_featured_promotion' =>
-                        $openPromotions->isNotEmpty(),
+                            $openPromotions->isNotEmpty(),
 
                         'open_promotions_count' =>
-                        $openPromotions->count(),
+                            $openPromotions->count(),
 
                         'next_or_current_promotion' =>
-                        $firstOpenPromotion
-                            ? [
-                                'id' =>
-                                (int) $firstOpenPromotion->id,
+                            $firstOpenPromotion
+                                ? [
+                                    'id' =>
+                                        (int) $firstOpenPromotion->id,
 
-                                'status' =>
-                                $firstOpenPromotion->status,
+                                    'status' =>
+                                        $firstOpenPromotion->status,
 
-                                'starts_at' =>
-                                $firstOpenPromotion
-                                    ->starts_at
-                                    ?->toISOString(),
+                                    'starts_at' =>
+                                        $firstOpenPromotion
+                                            ->starts_at
+                                            ?->toISOString(),
 
-                                'ends_at' =>
-                                $firstOpenPromotion
-                                    ->ends_at
-                                    ?->toISOString(),
-                            ]
-                            : null,
+                                    'ends_at' =>
+                                        $firstOpenPromotion
+                                            ->ends_at
+                                            ?->toISOString(),
+                                ]
+                                : null,
                     ];
                 })
                 ->values();
@@ -713,10 +718,10 @@ class FeaturedPropertyController extends Controller
                 'Property options fetched successfully.',
                 [
                     'count' =>
-                    $options->count(),
+                        $options->count(),
 
                     'options' =>
-                    $options,
+                        $options,
                 ]
             );
         } catch (ValidationException $e) {
@@ -817,49 +822,5 @@ class FeaturedPropertyController extends Controller
         ], 500);
     }
 
-    private function authenticatedActor(
-        Request $request
-    ): User {
-        /*
-     * First use Laravel authenticated user when the middleware
-     * has populated the authentication context.
-     */
-        $user = $request->user();
-
-        if ($user instanceof User) {
-            return $user;
-        }
-
-        /*
-     * Existing project uses users.api_token with Bearer token.
-     *
-     * admin.token middleware remains responsible for deciding
-     * whether the request is allowed to access admin APIs.
-     *
-     * This fallback only resolves the actor for audit fields:
-     * created_by / updated_by / cancelled_by.
-     */
-        $token = $request->bearerToken();
-
-        if (
-            !$token
-            || !Schema::hasColumn('users', 'api_token')
-        ) {
-            throw new AuthenticationException(
-                'Unauthenticated.'
-            );
-        }
-
-        $user = User::query()
-            ->where('api_token', $token)
-            ->first();
-
-        if (!$user instanceof User) {
-            throw new AuthenticationException(
-                'Unauthenticated.'
-            );
-        }
-
-        return $user;
-    }
+    
 }
