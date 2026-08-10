@@ -19,6 +19,7 @@ class TemplateResolveController extends Controller
         protected TemplateResolveService $templateResolveService
     ) {}
 
+
     public function resolve(Request $request): JsonResponse
     {
         $payload = $this->getPayload($request);

@@ -13,6 +13,14 @@ class FeaturedPropertyResource extends JsonResource
         /** @var PropertyFeaturedPromotion $promotion */
         $promotion = $this->resource;
 
+        $dynamicPost = $promotion->relationLoaded('property')
+            ? $promotion->property
+            : null;
+
+        $dynamicPostData = $dynamicPost
+            ? $this->formatDynamicPost($dynamicPost)
+            : null;
+
         return [
             'id' => (int) $promotion->id,
 
@@ -21,13 +29,15 @@ class FeaturedPropertyResource extends JsonResource
 
             /*
             |--------------------------------------------------------------------------
-            | Promotion state
+            | Promotion
             |--------------------------------------------------------------------------
             */
 
-            'source' => $promotion->source,
+            'source' =>
+                $promotion->source,
 
-            'status' => $promotion->status,
+            'status' =>
+                $promotion->status,
 
             'is_currently_featured' =>
                 $promotion->isCurrentlyFeatured(),
@@ -46,77 +56,48 @@ class FeaturedPropertyResource extends JsonResource
 
             /*
             |--------------------------------------------------------------------------
-            | Property
+            | Generic Dynamic Post
             |--------------------------------------------------------------------------
             |
-            | No extra query will run here.
-            | Controller must eager-load "property".
+            | This is now the preferred frontend/admin key.
+            |
+            | Works for:
+            | - property-listing
+            | - project-listing
+            | - developer-listing
+            | - guest-post
+            | - any future DynamicPost type
+            |
+            */
+
+            'dynamic_post' =>
+                $dynamicPostData,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Backward Compatibility
+            |--------------------------------------------------------------------------
+            |
+            | Keep old "property" key so existing frontend does not break.
+            | It points to the exact same DynamicPost data.
             |
             */
 
             'property' =>
-                $this->when(
-                    $promotion->relationLoaded('property'),
-                    function () use ($promotion) {
-                        if (!$promotion->property) {
-                            return null;
-                        }
+                $dynamicPostData,
 
-                        return [
-                            'id' =>
-                                (int) $promotion->property->id,
+            /*
+            |--------------------------------------------------------------------------
+            | Convenient Post Type
+            |--------------------------------------------------------------------------
+            */
 
-                            'post_type_id' =>
-                                (int) $promotion->property->post_type_id,
-
-                            'listing_code' =>
-                                $promotion->property->listing_code
-                                ?? null,
-
-                            'title' =>
-                                $promotion->property->title
-                                ?? null,
-
-                            'slug' =>
-                                $promotion->property->slug
-                                ?? null,
-
-                            'author_id' =>
-                                !empty(
-                                    $promotion->property->author_id
-                                )
-                                    ? (int) $promotion->property->author_id
-                                    : null,
-
-                            'status' =>
-                                $promotion->property->status
-                                ?? null,
-
-                            'live_status' =>
-                                $promotion->property->live_status
-                                ?? null,
-
-                            'availability_status' =>
-                                $promotion->property->availability_status
-                                ?? null,
-
-                            'published_at' =>
-                                $promotion->property->published_at
-                                    ? (
-                                        method_exists(
-                                            $promotion->property->published_at,
-                                            'toISOString'
-                                        )
-                                            ? $promotion->property
-                                                ->published_at
-                                                ->toISOString()
-                                            : $promotion->property
-                                                ->published_at
-                                    )
-                                    : null,
-                        ];
-                    }
-                ),
+            'post_type' =>
+                $dynamicPost
+                    ? $this->formatPostType(
+                        $dynamicPost
+                    )
+                    : null,
 
             /*
             |--------------------------------------------------------------------------
@@ -171,6 +152,147 @@ class FeaturedPropertyResource extends JsonResource
         ];
     }
 
+    /**
+     * Format any DynamicPost.
+     */
+    private function formatDynamicPost(
+        mixed $post
+    ): array {
+        return [
+            'id' =>
+                (int) $post->id,
+
+            'post_type_id' =>
+                !empty($post->post_type_id)
+                    ? (int) $post->post_type_id
+                    : null,
+
+            'post_type' =>
+                $this->formatPostType($post),
+
+            'listing_code' =>
+                $post->listing_code
+                ?? null,
+
+            'title' =>
+                $post->title
+                ?? null,
+
+            'slug' =>
+                $post->slug
+                ?? null,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Owner
+            |--------------------------------------------------------------------------
+            */
+
+            'author_id' =>
+                !empty($post->author_id)
+                    ? (int) $post->author_id
+                    : null,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Publication
+            |--------------------------------------------------------------------------
+            */
+
+            'status' =>
+                $post->status
+                ?? null,
+
+            'live_status' =>
+                $post->live_status
+                ?? null,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Availability
+            |--------------------------------------------------------------------------
+            |
+            | Property listings may use availability_status.
+            | Other DynamicPost types can return null.
+            |
+            */
+
+            'availability_status' =>
+                $post->availability_status
+                ?? null,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Media reference
+            |--------------------------------------------------------------------------
+            */
+
+            'featured_image_id' =>
+                !empty($post->featured_image_id)
+                    ? (int) $post->featured_image_id
+                    : null,
+
+            /*
+            |--------------------------------------------------------------------------
+            | Publication date
+            |--------------------------------------------------------------------------
+            */
+
+            'published_at' =>
+                $this->formatDate(
+                    $post->published_at
+                    ?? null
+                ),
+        ];
+    }
+
+    /**
+     * Format DynamicPost post type.
+     *
+     * Controller/service should eager-load property.postType.
+     */
+    private function formatPostType(
+        mixed $post
+    ): ?array {
+        if (!$post) {
+            return null;
+        }
+
+        if (
+            method_exists($post, 'relationLoaded')
+            && $post->relationLoaded('postType')
+            && $post->postType
+        ) {
+            return [
+                'id' =>
+                    (int) $post->postType->id,
+
+                'name' =>
+                    $post->postType->name,
+
+                'slug' =>
+                    $post->postType->slug,
+            ];
+        }
+
+        /*
+         * Do NOT execute another database query here.
+         * Resource must remain N+1 safe.
+         */
+        return !empty($post->post_type_id)
+            ? [
+                'id' =>
+                    (int) $post->post_type_id,
+
+                'name' =>
+                    null,
+
+                'slug' =>
+                    null,
+            ]
+            : null;
+    }
+
     private function formatUser(
         mixed $user
     ): ?array {
@@ -195,9 +317,35 @@ class FeaturedPropertyResource extends JsonResource
         }
 
         return [
-            'id' => (int) $user->id,
-            'name' => $name,
-            'email' => $user->email ?? null,
+            'id' =>
+                (int) $user->id,
+
+            'name' =>
+                $name,
+
+            'email' =>
+                $user->email
+                ?? null,
         ];
+    }
+
+    private function formatDate(
+        mixed $value
+    ): mixed {
+        if (!$value) {
+            return null;
+        }
+
+        if (
+            is_object($value)
+            && method_exists(
+                $value,
+                'toISOString'
+            )
+        ) {
+            return $value->toISOString();
+        }
+
+        return $value;
     }
 }

@@ -8,42 +8,99 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class FeaturedPropertyService
 {
     /**
-     * Admin creates a featured promotion.
+     * Admin creates featured promotion.
      *
-     * Important:
-     * - Does NOT modify property verification.
-     * - Does NOT modify property publication status.
-     * - Does NOT modify availability.
-     * - Does NOT consume membership credits.
+     * Existing admin controller continues using this method.
      */
     public function create(
         array $data,
         User $actor
     ): PropertyFeaturedPromotion {
+        return $this->createPromotion(
+            data: $data,
+            actor: $actor,
+            source: PropertyFeaturedPromotion::SOURCE_ADMIN,
+            requireOwnership: false
+        );
+    }
+
+    /**
+     * User membership creates featured promotion.
+     *
+     * IMPORTANT:
+     * Credit is NOT consumed here yet.
+     *
+     * Later a membership orchestration service will:
+     * 1. verify credit
+     * 2. consume credit
+     * 3. call this method
+     *
+     * inside one transaction.
+     */
+    public function createForMembership(
+        array $data,
+        User $actor
+    ): PropertyFeaturedPromotion {
+        return $this->createPromotion(
+            data: $data,
+            actor: $actor,
+            source: PropertyFeaturedPromotion::SOURCE_MEMBERSHIP,
+            requireOwnership: true
+        );
+    }
+
+    /**
+     * Shared promotion creation.
+     *
+     * Supports ANY DynamicPost post type.
+     */
+    private function createPromotion(
+        array $data,
+        User $actor,
+        string $source,
+        bool $requireOwnership
+    ): PropertyFeaturedPromotion {
         return DB::transaction(function () use (
             $data,
-            $actor
+            $actor,
+            $source,
+            $requireOwnership
         ) {
-            /*
-             * Locking the property serializes concurrent
-             * featured operations for the same property.
-             */
-            $property = $this->lockProperty(
+            $this->assertValidSource($source);
+
+            $post = $this->lockProperty(
                 (int) $data['dynamic_post_id']
             );
 
-            $this->assertPropertyListing($property);
+            /*
+             * Generic DynamicPost validation.
+             */
+            $this->assertPropertyListing($post);
+
+            /*
+             * Admin can feature any DynamicPost.
+             *
+             * Membership user can feature only own DynamicPost.
+             */
+            if ($requireOwnership) {
+                $this->assertUserOwnsDynamicPost(
+                    post: $post,
+                    user: $actor
+                );
+            }
 
             $now = $this->now();
 
             $startsAt = !empty($data['starts_at'])
-                ? $this->parseDate($data['starts_at'])
+                ? $this->parseDate(
+                    $data['starts_at']
+                )
                 : $now;
 
             $endsAt = $this->parseDate(
@@ -56,14 +113,8 @@ class FeaturedPropertyService
                 now: $now
             );
 
-            /*
-             * Prevent overlapping active/scheduled periods
-             * for the same property.
-             *
-             * Non-overlapping future promotions are allowed.
-             */
             $this->assertNoOverlappingPromotion(
-                propertyId: (int) $property->id,
+                propertyId: (int) $post->id,
                 startsAt: $startsAt,
                 endsAt: $endsAt
             );
@@ -78,10 +129,13 @@ class FeaturedPropertyService
                 PropertyFeaturedPromotion::query()
                     ->create([
                         'dynamic_post_id' =>
-                            (int) $property->id,
+                            (int) $post->id,
 
+                        /*
+                         * admin / membership
+                         */
                         'source' =>
-                            PropertyFeaturedPromotion::SOURCE_ADMIN,
+                            $source,
 
                         'status' =>
                             $status,
@@ -93,14 +147,25 @@ class FeaturedPropertyService
                             $endsAt,
 
                         'priority' =>
-                            (int) ($data['priority'] ?? 0),
+                            (int) (
+                                $data['priority']
+                                ?? 0
+                            ),
 
+                        /*
+                         * User-side APIs should normally
+                         * not expose admin_notes.
+                         */
                         'admin_notes' =>
-                            isset($data['admin_notes'])
-                                ? trim(
-                                    (string) $data['admin_notes']
+                            $source
+                            === PropertyFeaturedPromotion::SOURCE_ADMIN
+                                && isset(
+                                    $data['admin_notes']
                                 )
-                                : null,
+                                    ? trim(
+                                        (string) $data['admin_notes']
+                                    )
+                                    : null,
 
                         'created_by' =>
                             (int) $actor->id,
@@ -118,18 +183,17 @@ class FeaturedPropertyService
                             null,
                     ]);
 
-            return $promotion
-                ->fresh([
-                    'property',
-                    'createdBy',
-                    'updatedBy',
-                    'cancelledBy',
-                ]);
+            return $promotion->fresh([
+                'property.postType',
+                'createdBy',
+                'updatedBy',
+                'cancelledBy',
+            ]);
         }, 3);
     }
 
     /**
-     * Update / extend an active or scheduled promotion.
+     * Update / extend active or scheduled promotion.
      */
     public function update(
         PropertyFeaturedPromotion $promotion,
@@ -141,17 +205,15 @@ class FeaturedPropertyService
             $data,
             $actor
         ) {
-            /*
-             * Always lock property first.
-             * Same locking order is used by create/cancel.
-             */
-            $property = $this->lockProperty(
+            $post = $this->lockProperty(
                 (int) $promotion->dynamic_post_id
             );
 
             $lockedPromotion =
                 PropertyFeaturedPromotion::query()
-                    ->whereKey($promotion->id)
+                    ->whereKey(
+                        $promotion->id
+                    )
                     ->lockForUpdate()
                     ->first();
 
@@ -163,7 +225,9 @@ class FeaturedPropertyService
                 ]);
             }
 
-            $this->assertPropertyListing($property);
+            $this->assertPropertyListing(
+                $post
+            );
 
             $this->assertPromotionEditable(
                 $lockedPromotion
@@ -203,7 +267,8 @@ class FeaturedPropertyService
 
             $this->assertNoOverlappingPromotion(
                 propertyId:
-                    (int) $lockedPromotion->dynamic_post_id,
+                    (int) $lockedPromotion
+                        ->dynamic_post_id,
 
                 startsAt:
                     $startsAt,
@@ -216,14 +281,18 @@ class FeaturedPropertyService
             );
 
             $updateData = [
-                'starts_at' => $startsAt,
-                'ends_at' => $endsAt,
+                'starts_at' =>
+                    $startsAt,
 
-                'status' => $this->resolveStatus(
-                    startsAt: $startsAt,
-                    endsAt: $endsAt,
-                    now: $now
-                ),
+                'ends_at' =>
+                    $endsAt,
+
+                'status' =>
+                    $this->resolveStatus(
+                        startsAt: $startsAt,
+                        endsAt: $endsAt,
+                        now: $now
+                    ),
 
                 'updated_by' =>
                     (int) $actor->id,
@@ -239,8 +308,14 @@ class FeaturedPropertyService
                     (int) $data['priority'];
             }
 
+            /*
+             * admin_notes should only be manageable
+             * for admin-created operations.
+             */
             if (
-                array_key_exists(
+                $lockedPromotion->source
+                    === PropertyFeaturedPromotion::SOURCE_ADMIN
+                && array_key_exists(
                     'admin_notes',
                     $data
                 )
@@ -253,13 +328,15 @@ class FeaturedPropertyService
                         : null;
             }
 
-            $lockedPromotion->forceFill(
-                $updateData
-            )->save();
+            $lockedPromotion
+                ->forceFill(
+                    $updateData
+                )
+                ->save();
 
             return $lockedPromotion
                 ->fresh([
-                    'property',
+                    'property.postType',
                     'createdBy',
                     'updatedBy',
                     'cancelledBy',
@@ -268,9 +345,9 @@ class FeaturedPropertyService
     }
 
     /**
-     * Cancel featured promotion.
+     * Cancel promotion.
      *
-     * We never physically delete the promotion.
+     * Physical delete is never performed.
      */
     public function cancel(
         PropertyFeaturedPromotion $promotion,
@@ -282,17 +359,15 @@ class FeaturedPropertyService
             $actor,
             $reason
         ) {
-            /*
-             * Same lock ordering:
-             * property first, promotion second.
-             */
             $this->lockProperty(
                 (int) $promotion->dynamic_post_id
             );
 
             $lockedPromotion =
                 PropertyFeaturedPromotion::query()
-                    ->whereKey($promotion->id)
+                    ->whereKey(
+                        $promotion->id
+                    )
                     ->lockForUpdate()
                     ->first();
 
@@ -310,29 +385,31 @@ class FeaturedPropertyService
 
             $now = $this->now();
 
-            $lockedPromotion->forceFill([
-                'status' =>
-                    PropertyFeaturedPromotion::STATUS_CANCELLED,
+            $lockedPromotion
+                ->forceFill([
+                    'status' =>
+                        PropertyFeaturedPromotion::STATUS_CANCELLED,
 
-                'cancelled_by' =>
-                    (int) $actor->id,
+                    'cancelled_by' =>
+                        (int) $actor->id,
 
-                'cancelled_at' =>
-                    $now,
+                    'cancelled_at' =>
+                        $now,
 
-                'cancellation_reason' =>
-                    $reason !== null
+                    'cancellation_reason' =>
+                        $reason !== null
                         && trim($reason) !== ''
                             ? trim($reason)
                             : null,
 
-                'updated_by' =>
-                    (int) $actor->id,
-            ])->save();
+                    'updated_by' =>
+                        (int) $actor->id,
+                ])
+                ->save();
 
             return $lockedPromotion
                 ->fresh([
-                    'property',
+                    'property.postType',
                     'createdBy',
                     'updatedBy',
                     'cancelledBy',
@@ -341,7 +418,7 @@ class FeaturedPropertyService
     }
 
     /**
-     * Called later by Laravel Scheduler.
+     * Scheduler helper.
      *
      * scheduled -> active
      * active/scheduled -> expired
@@ -350,9 +427,6 @@ class FeaturedPropertyService
     {
         $now = $this->now();
 
-        /*
-         * Expire first.
-         */
         $expiredCount =
             PropertyFeaturedPromotion::query()
                 ->whereIn('status', [
@@ -372,9 +446,6 @@ class FeaturedPropertyService
                         $now,
                 ]);
 
-        /*
-         * Activate scheduled promotions whose time has arrived.
-         */
         $activatedCount =
             PropertyFeaturedPromotion::query()
                 ->where(
@@ -400,70 +471,132 @@ class FeaturedPropertyService
                 ]);
 
         return [
-            'activated' => $activatedCount,
-            'expired' => $expiredCount,
+            'activated' =>
+                $activatedCount,
+
+            'expired' =>
+                $expiredCount,
         ];
     }
 
     /**
-     * Lock property row.
+     * Lock selected DynamicPost.
      *
-     * This is the main concurrency guard.
+     * Method name retained for backward compatibility.
      */
     private function lockProperty(
         int $propertyId
     ): DynamicPost {
-        $property = DynamicPost::query()
-            ->whereKey($propertyId)
+        $post = DynamicPost::query()
+            ->whereKey(
+                $propertyId
+            )
             ->lockForUpdate()
             ->first();
 
-        if (!$property) {
+        if (!$post) {
             throw ValidationException::withMessages([
                 'dynamic_post_id' => [
-                    'Selected property does not exist.',
+                    'Selected dynamic post does not exist.',
                 ],
             ]);
         }
 
-        return $property;
+        return $post;
     }
 
     /**
-     * Confirm selected DynamicPost is actually
-     * a Property Listing.
+     * Legacy method name retained.
      *
-     * This follows the same pattern already used
-     * by the property verification workflow.
+     * NO property-listing restriction exists anymore.
+     *
+     * Any DynamicPost with a valid PostType can be featured.
      */
     private function assertPropertyListing(
         DynamicPost $property
     ): void {
-        $postTypeSlug = DB::table(
+        if (empty($property->post_type_id)) {
+            throw ValidationException::withMessages([
+                'dynamic_post_id' => [
+                    'Selected dynamic post does not have a valid post type.',
+                ],
+            ]);
+        }
+
+        $postTypeExists = DB::table(
             'post_types'
         )
             ->where(
                 'id',
                 (int) $property->post_type_id
             )
-            ->value('slug');
+            ->exists();
 
-        if (
-            Str::slug(
-                (string) $postTypeSlug
-            ) !== 'property-listing'
-        ) {
+        if (!$postTypeExists) {
             throw ValidationException::withMessages([
                 'dynamic_post_id' => [
-                    'The selected post is not a property listing.',
+                    'Post type for the selected dynamic post does not exist.',
                 ],
             ]);
         }
     }
 
     /**
-     * Validate final effective date range.
+     * Membership users may only feature their own post.
+     *
+     * Ownership remains dynamic_posts.author_id.
      */
+    private function assertUserOwnsDynamicPost(
+        DynamicPost $post,
+        User $user
+    ): void {
+        if (
+            !Schema::hasColumn(
+                'dynamic_posts',
+                'author_id'
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'dynamic_post_id' => [
+                    'Dynamic post ownership is not configured.',
+                ],
+            ]);
+        }
+
+        if (
+            empty($post->author_id)
+            || (int) $post->author_id
+                !== (int) $user->id
+        ) {
+            throw ValidationException::withMessages([
+                'dynamic_post_id' => [
+                    'You can only feature your own listing.',
+                ],
+            ]);
+        }
+    }
+
+    /**
+     * Validate promotion source.
+     */
+    private function assertValidSource(
+        string $source
+    ): void {
+        if (
+            !in_array(
+                $source,
+                PropertyFeaturedPromotion::SOURCES,
+                true
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'source' => [
+                    'Invalid featured promotion source.',
+                ],
+            ]);
+        }
+    }
+
     private function assertValidDateRange(
         CarbonImmutable $startsAt,
         CarbonImmutable $endsAt,
@@ -495,20 +628,7 @@ class FeaturedPropertyService
     }
 
     /**
-     * Prevent overlapping promotions.
-     *
-     * Existing:
-     *      |----------|
-     *
-     * New overlapping:
-     *          |----------|
-     *
-     * Condition:
-     * existing.starts_at < new.ends_at
-     * AND
-     * existing.ends_at > new.starts_at
-     *
-     * Exactly touching periods are allowed.
+     * Prevent overlapping open promotions.
      */
     private function assertNoOverlappingPromotion(
         int $propertyId,
@@ -547,7 +667,9 @@ class FeaturedPropertyService
 
         $conflictingPromotion =
             $query
-                ->orderBy('starts_at')
+                ->orderBy(
+                    'starts_at'
+                )
                 ->first([
                     'id',
                     'starts_at',
@@ -561,31 +683,32 @@ class FeaturedPropertyService
 
         throw ValidationException::withMessages([
             'dynamic_post_id' => [
-                'This property already has an overlapping featured promotion.',
+                'This dynamic post already has an overlapping featured promotion.',
             ],
+
             'featured_period' => [
                 sprintf(
                     'Conflicting promotion #%d runs from %s to %s.',
                     (int) $conflictingPromotion->id,
                     $conflictingPromotion->starts_at
-                        ? $conflictingPromotion->starts_at
-                            ->format('Y-m-d H:i:s')
+                        ? $conflictingPromotion
+                            ->starts_at
+                            ->format(
+                                'Y-m-d H:i:s'
+                            )
                         : '-',
                     $conflictingPromotion->ends_at
-                        ? $conflictingPromotion->ends_at
-                            ->format('Y-m-d H:i:s')
+                        ? $conflictingPromotion
+                            ->ends_at
+                            ->format(
+                                'Y-m-d H:i:s'
+                            )
                         : '-'
                 ),
             ],
         ]);
     }
 
-    /**
-     * An expired/cancelled promotion should not
-     * silently become active again through update.
-     *
-     * Admin should create a new promotion instead.
-     */
     private function assertPromotionEditable(
         PropertyFeaturedPromotion $promotion
     ): void {
@@ -657,9 +780,6 @@ class FeaturedPropertyService
         }
     }
 
-    /**
-     * Decide status from dates.
-     */
     private function resolveStatus(
         CarbonImmutable $startsAt,
         CarbonImmutable $endsAt,
@@ -695,14 +815,20 @@ class FeaturedPropertyService
 
         return CarbonImmutable::parse(
             (string) $value,
-            config('app.timezone', 'UTC')
+            config(
+                'app.timezone',
+                'UTC'
+            )
         );
     }
 
     private function now(): CarbonImmutable
     {
         return CarbonImmutable::now(
-            config('app.timezone', 'UTC')
+            config(
+                'app.timezone',
+                'UTC'
+            )
         );
     }
 }

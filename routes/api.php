@@ -96,6 +96,7 @@ use App\Http\Controllers\Api\DynamicPostCsvController;
 use App\Http\Controllers\Api\DynamicPostFormStepController;
 use App\Http\Controllers\Api\Frontend\PropertySearchController;
 use App\Http\Controllers\Api\FrontendLocationController;
+use App\Http\Controllers\Api\Guest\GuestDynamicPostController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\Kyc\AdminKycController;
@@ -2271,4 +2272,35 @@ Route::middleware([
         'throttle:property-availability-owner'
     );
 });
+Route::middleware([
+    'throttle:120,1',
+])
+    ->prefix('guest/posts')
+    ->group(function () {
+
+        /*
+         * All / Featured listing.
+         */
+        Route::get(
+            '{postType}',
+            [
+                GuestDynamicPostController::class,
+                'index',
+            ]
+        );
+
+        /*
+         * DynamicPost detail.
+         */
+        Route::get(
+            '{postType}/{dynamicPostId}',
+            [
+                GuestDynamicPostController::class,
+                'show',
+            ]
+        )
+            ->whereNumber(
+                'dynamicPostId'
+            );
+    });
 Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);

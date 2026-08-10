@@ -24,8 +24,7 @@ class FeaturedPropertyController extends Controller
 {
     public function __construct(
         private readonly FeaturedPropertyService $featuredPropertyService
-    ) {
-    }
+    ) {}
 
     /**
      * Admin featured promotion listing.
@@ -68,6 +67,30 @@ class FeaturedPropertyController extends Controller
                     'exists:dynamic_posts,id',
                 ],
 
+                /*
+            |--------------------------------------------------------------------------
+            | Generic Post Type Filters
+            |--------------------------------------------------------------------------
+            */
+
+                'post_type_id' => [
+                    'nullable',
+                    'integer',
+                    'exists:post_types,id',
+                ],
+
+                'post_type' => [
+                    'nullable',
+                    'string',
+                    'max:100',
+                ],
+
+                /*
+            |--------------------------------------------------------------------------
+            | Date Filters
+            |--------------------------------------------------------------------------
+            */
+
                 'starts_from' => [
                     'nullable',
                     'date',
@@ -87,6 +110,12 @@ class FeaturedPropertyController extends Controller
                     'nullable',
                     'date',
                 ],
+
+                /*
+            |--------------------------------------------------------------------------
+            | Sorting / Pagination
+            |--------------------------------------------------------------------------
+            */
 
                 'sort_by' => [
                     'nullable',
@@ -113,15 +142,37 @@ class FeaturedPropertyController extends Controller
                     'min:1',
                     'max:100',
                 ],
+
+                'page' => [
+                    'nullable',
+                    'integer',
+                    'min:1',
+                ],
             ]);
+
+            /*
+        |--------------------------------------------------------------------------
+        | Base Query
+        |--------------------------------------------------------------------------
+        |
+        | property relation name is intentionally preserved.
+        | It now represents any DynamicPost.
+        |
+        */
 
             $query = PropertyFeaturedPromotion::query()
                 ->with([
-                    'property',
+                    'property.postType',
                     'createdBy',
                     'updatedBy',
                     'cancelledBy',
                 ]);
+
+            /*
+        |--------------------------------------------------------------------------
+        | Promotion Status
+        |--------------------------------------------------------------------------
+        */
 
             if (!empty($validated['status'])) {
                 $query->where(
@@ -130,6 +181,16 @@ class FeaturedPropertyController extends Controller
                 );
             }
 
+            /*
+        |--------------------------------------------------------------------------
+        | Source
+        |--------------------------------------------------------------------------
+        |
+        | admin
+        | membership
+        |
+        */
+
             if (!empty($validated['source'])) {
                 $query->where(
                     'source',
@@ -137,12 +198,90 @@ class FeaturedPropertyController extends Controller
                 );
             }
 
+            /*
+        |--------------------------------------------------------------------------
+        | Exact DynamicPost
+        |--------------------------------------------------------------------------
+        */
+
             if (!empty($validated['dynamic_post_id'])) {
                 $query->where(
                     'dynamic_post_id',
                     (int) $validated['dynamic_post_id']
                 );
             }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Post Type ID
+        |--------------------------------------------------------------------------
+        */
+
+            if (!empty($validated['post_type_id'])) {
+                $postTypeId =
+                    (int) $validated['post_type_id'];
+
+                $query->whereHas(
+                    'property',
+                    function ($postQuery) use (
+                        $postTypeId
+                    ) {
+                        $postQuery->where(
+                            'post_type_id',
+                            $postTypeId
+                        );
+                    }
+                );
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Post Type Slug / Name
+        |--------------------------------------------------------------------------
+        |
+        | Examples:
+        |
+        | property-listing
+        | project-listing
+        | developer-listing
+        | guest-post
+        |
+        */
+
+            if (!empty($validated['post_type'])) {
+                $postType =
+                    trim(
+                        (string) $validated['post_type']
+                    );
+
+                $query->whereHas(
+                    'property.postType',
+                    function ($postTypeQuery) use (
+                        $postType
+                    ) {
+                        $postTypeQuery->where(
+                            function ($q) use (
+                                $postType
+                            ) {
+                                $q->where(
+                                    'slug',
+                                    $postType
+                                )
+                                    ->orWhere(
+                                        'name',
+                                        $postType
+                                    );
+                            }
+                        );
+                    }
+                );
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Date Filters
+        |--------------------------------------------------------------------------
+        */
 
             if (!empty($validated['starts_from'])) {
                 $query->where(
@@ -176,44 +315,95 @@ class FeaturedPropertyController extends Controller
                 );
             }
 
+            /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        |
+        | Search DynamicPost:
+        | - title
+        | - slug
+        | - listing_code
+        |
+        | Also search PostType:
+        | - name
+        | - slug
+        |
+        */
+
             if (!empty($validated['search'])) {
-                $search = trim(
-                    (string) $validated['search']
-                );
+                $search =
+                    trim(
+                        (string) $validated['search']
+                    );
 
-                $query->whereHas(
-                    'property',
-                    function ($propertyQuery) use ($search) {
-                        $propertyQuery->where(
-                            function ($q) use ($search) {
-                                $q->where(
-                                    'title',
-                                    'like',
-                                    "%{$search}%"
-                                )
-                                    ->orWhere(
-                                        'slug',
-                                        'like',
-                                        "%{$search}%"
-                                    );
+                $query->where(
+                    function ($promotionQuery) use (
+                        $search
+                    ) {
+                        $promotionQuery->whereHas(
+                            'property',
+                            function ($postQuery) use (
+                                $search
+                            ) {
+                                $postQuery->where(
+                                    function ($q) use (
+                                        $search
+                                    ) {
+                                        $q->where(
+                                            'title',
+                                            'like',
+                                            "%{$search}%"
+                                        )
+                                            ->orWhere(
+                                                'slug',
+                                                'like',
+                                                "%{$search}%"
+                                            );
 
-                                if (
-                                    Schema::hasColumn(
-                                        'dynamic_posts',
-                                        'listing_code'
-                                    )
-                                ) {
-                                    $q->orWhere(
-                                        'listing_code',
-                                        'like',
-                                        "%{$search}%"
-                                    );
-                                }
+                                        if (
+                                            Schema::hasColumn(
+                                                'dynamic_posts',
+                                                'listing_code'
+                                            )
+                                        ) {
+                                            $q->orWhere(
+                                                'listing_code',
+                                                'like',
+                                                "%{$search}%"
+                                            );
+                                        }
+                                    }
+                                );
                             }
-                        );
+                        )
+                            ->orWhereHas(
+                                'property.postType',
+                                function ($postTypeQuery) use (
+                                    $search
+                                ) {
+                                    $postTypeQuery
+                                        ->where(
+                                            'name',
+                                            'like',
+                                            "%{$search}%"
+                                        )
+                                        ->orWhere(
+                                            'slug',
+                                            'like',
+                                            "%{$search}%"
+                                        );
+                                }
+                            );
                     }
                 );
             }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Sorting
+        |--------------------------------------------------------------------------
+        */
 
             $sortBy =
                 $validated['sort_by']
@@ -229,63 +419,113 @@ class FeaturedPropertyController extends Controller
             );
 
             /*
-             * Stable ordering when same sort value exists.
-             */
-            if ($sortBy !== 'id') {
-                $query->orderByDesc('id');
-            }
+         * Stable pagination.
+         */
+            $query->orderByDesc('id');
 
-            $perPage = (int) (
-                $validated['per_page']
-                ?? 20
-            );
+            /*
+        |--------------------------------------------------------------------------
+        | Pagination
+        |--------------------------------------------------------------------------
+        */
 
-            $promotions = $query->paginate(
-                $perPage
-            );
+            $perPage =
+                (int) (
+                    $validated['per_page']
+                    ?? 20
+                );
 
-            $items = FeaturedPropertyResource::collection(
-                $promotions->getCollection()
-            )->resolve($request);
+            $promotions =
+                $query->paginate(
+                    $perPage
+                );
+
+            /*
+        |--------------------------------------------------------------------------
+        | Resource
+        |--------------------------------------------------------------------------
+        */
+
+            $items =
+                FeaturedPropertyResource::collection(
+                    $promotions->getCollection()
+                )->resolve($request);
 
             return $this->successResponse(
-                'Featured properties fetched successfully.',
+                'Featured listings fetched successfully.',
                 [
-                    'items' => $items,
+                    'items' =>
+                    $items,
+
+                    'filters' => [
+                        'search' =>
+                        $validated['search']
+                            ?? null,
+
+                        'status' =>
+                        $validated['status']
+                            ?? null,
+
+                        'source' =>
+                        $validated['source']
+                            ?? null,
+
+                        'dynamic_post_id' =>
+                        !empty($validated['dynamic_post_id'])
+                            ? (int) $validated['dynamic_post_id']
+                            : null,
+
+                        'post_type_id' =>
+                        !empty($validated['post_type_id'])
+                            ? (int) $validated['post_type_id']
+                            : null,
+
+                        'post_type' =>
+                        $validated['post_type']
+                            ?? null,
+                    ],
 
                     'pagination' => [
                         'current_page' =>
-                            $promotions->currentPage(),
+                        $promotions
+                            ->currentPage(),
 
                         'per_page' =>
-                            $promotions->perPage(),
+                        $promotions
+                            ->perPage(),
 
                         'total' =>
-                            $promotions->total(),
+                        $promotions
+                            ->total(),
 
                         'last_page' =>
-                            $promotions->lastPage(),
+                        $promotions
+                            ->lastPage(),
 
                         'from' =>
-                            $promotions->firstItem(),
+                        $promotions
+                            ->firstItem(),
 
                         'to' =>
-                            $promotions->lastItem(),
+                        $promotions
+                            ->lastItem(),
                     ],
                 ]
             );
         } catch (ValidationException $e) {
-            return $this->validationErrorResponse(
-                $e
-            );
+            return $this
+                ->validationErrorResponse(
+                    $e
+                );
         } catch (QueryException $e) {
-            return $this->databaseErrorResponse(
-                $e,
-                'Database error while fetching featured properties.'
-            );
+            return $this
+                ->databaseErrorResponse(
+                    $e,
+                    'Database error while fetching featured listings.'
+                );
         } catch (Throwable $e) {
             return $this->errorResponse(
-                'Unable to fetch featured properties.',
+                'Unable to fetch featured listings.',
                 500,
                 $e->getMessage()
             );
@@ -305,10 +545,10 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                    ->create(
-                        data: $request->validated(),
-                        actor: $actor
-                    );
+                ->create(
+                    data: $request->validated(),
+                    actor: $actor
+                );
 
             return $this->successResponse(
                 'Property featured successfully.',
@@ -393,11 +633,11 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                    ->update(
-                        promotion: $featuredProperty,
-                        data: $request->validated(),
-                        actor: $actor
-                    );
+                ->update(
+                    promotion: $featuredProperty,
+                    data: $request->validated(),
+                    actor: $actor
+                );
 
             return $this->successResponse(
                 'Featured property updated successfully.',
@@ -446,13 +686,13 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                    ->cancel(
-                        promotion: $featuredProperty,
-                        actor: $actor,
-                        reason: $request->validated(
-                            'cancellation_reason'
-                        )
-                    );
+                ->cancel(
+                    promotion: $featuredProperty,
+                    actor: $actor,
+                    reason: $request->validated(
+                        'cancellation_reason'
+                    )
+                );
 
             return $this->successResponse(
                 'Featured property cancelled successfully.',
@@ -505,6 +745,18 @@ class FeaturedPropertyController extends Controller
                     'max:255',
                 ],
 
+                'post_type_id' => [
+                    'nullable',
+                    'integer',
+                    'exists:post_types,id',
+                ],
+
+                'post_type' => [
+                    'nullable',
+                    'string',
+                    'max:100',
+                ],
+
                 'limit' => [
                     'nullable',
                     'integer',
@@ -518,6 +770,21 @@ class FeaturedPropertyController extends Controller
                 ?? 50
             );
 
+            /*
+        |--------------------------------------------------------------------------
+        | All Dynamic Post Types
+        |--------------------------------------------------------------------------
+        |
+        | There is intentionally NO property-listing restriction here.
+        |
+        | This can return:
+        | - property-listing
+        | - project-listing
+        | - developer-listing
+        | - guest-post
+        | - any future post type
+        |
+        */
             $query = DynamicPost::query()
                 ->select([
                     'dynamic_posts.id',
@@ -525,19 +792,73 @@ class FeaturedPropertyController extends Controller
                     'dynamic_posts.title',
                     'dynamic_posts.slug',
                 ])
-                ->whereHas(
+                ->with([
+                    'postType:id,name,slug',
+
+                    'featuredPromotions' =>
+                    function ($promotionQuery) {
+                        $promotionQuery
+                            ->openPromotion()
+                            ->orderBy('starts_at');
+                    },
+                ]);
+
+            /*
+        |--------------------------------------------------------------------------
+        | Optional Post Type ID Filter
+        |--------------------------------------------------------------------------
+        */
+            if (!empty($validated['post_type_id'])) {
+                $query->where(
+                    'dynamic_posts.post_type_id',
+                    (int) $validated['post_type_id']
+                );
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Optional Post Type Slug / Name Filter
+        |--------------------------------------------------------------------------
+        |
+        | Examples:
+        | post_type=property-listing
+        | post_type=project-listing
+        | post_type=developer-listing
+        |
+        */
+            if (!empty($validated['post_type'])) {
+                $postTypeValue = trim(
+                    (string) $validated['post_type']
+                );
+
+                $query->whereHas(
                     'postType',
-                    function ($postTypeQuery) {
+                    function ($postTypeQuery) use (
+                        $postTypeValue
+                    ) {
                         $postTypeQuery->where(
-                            'slug',
-                            'property-listing'
+                            function ($q) use (
+                                $postTypeValue
+                            ) {
+                                $q->where(
+                                    'slug',
+                                    $postTypeValue
+                                )
+                                    ->orWhere(
+                                        'name',
+                                        $postTypeValue
+                                    );
+                            }
                         );
                     }
                 );
+            }
 
             /*
-             * Select optional columns only if they exist.
-             */
+        |--------------------------------------------------------------------------
+        | Optional DynamicPost columns
+        |--------------------------------------------------------------------------
+        */
             foreach (
                 [
                     'listing_code',
@@ -545,6 +866,8 @@ class FeaturedPropertyController extends Controller
                     'status',
                     'live_status',
                     'availability_status',
+                    'featured_image_id',
+                    'published_at',
                 ] as $column
             ) {
                 if (
@@ -559,6 +882,11 @@ class FeaturedPropertyController extends Controller
                 }
             }
 
+            /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
             if (!empty($validated['search'])) {
                 $search = trim(
                     (string) $validated['search']
@@ -589,139 +917,253 @@ class FeaturedPropertyController extends Controller
                                 "%{$search}%"
                             );
                         }
+
+                        /*
+                     * Search by Post Type name/slug too.
+                     */
+                        $q->orWhereHas(
+                            'postType',
+                            function ($postTypeQuery) use (
+                                $search
+                            ) {
+                                $postTypeQuery
+                                    ->where(
+                                        'name',
+                                        'like',
+                                        "%{$search}%"
+                                    )
+                                    ->orWhere(
+                                        'slug',
+                                        'like',
+                                        "%{$search}%"
+                                    );
+                            }
+                        );
                     }
                 );
             }
 
             /*
-             * Load all still-open promotions in one additional query.
-             *
-             * This prevents N+1 and lets the admin UI know
-             * whether the property already has a promotion.
-             */
-            $properties = $query
-                ->with([
-                    'featuredPromotions' =>
-                        function ($promotionQuery) {
-                            $promotionQuery
-                                ->openPromotion()
-                                ->orderBy('starts_at');
-                        },
-                ])
+        |--------------------------------------------------------------------------
+        | Fetch
+        |--------------------------------------------------------------------------
+        */
+            $posts = $query
                 ->orderBy(
                     'dynamic_posts.title'
+                )
+                ->orderBy(
+                    'dynamic_posts.id'
                 )
                 ->limit($limit)
                 ->get();
 
-            $options = $properties
+            /*
+        |--------------------------------------------------------------------------
+        | Dropdown Response
+        |--------------------------------------------------------------------------
+        */
+            $options = $posts
                 ->map(function (
-                    DynamicPost $property
+                    DynamicPost $post
                 ) {
                     $label =
-                        $property->title
-                        ?: $property->slug
+                        $post->title
+                        ?: $post->slug
                         ?: (
-                            'Property #'
-                            . $property->id
+                            'Dynamic Post #'
+                            . $post->id
                         );
 
                     if (
-                        !empty(
-                            $property->listing_code
-                        )
+                        !empty($post->listing_code)
                     ) {
                         $label =
-                            $property->listing_code
+                            $post->listing_code
                             . ' - '
                             . $label;
                     }
 
+                    /*
+                 * Helpful for admin when different post types
+                 * have similar titles.
+                 */
+                    if ($post->postType) {
+                        $postTypeLabel =
+                            $post->postType->name
+                            ?: $post->postType->slug;
+
+                        if ($postTypeLabel) {
+                            $label .=
+                                ' ['
+                                . $postTypeLabel
+                                . ']';
+                        }
+                    }
+
                     $openPromotions =
-                        $property->featuredPromotions;
+                        $post->featuredPromotions;
 
                     $firstOpenPromotion =
                         $openPromotions->first();
 
                     return [
                         'id' =>
-                            (int) $property->id,
+                        (int) $post->id,
 
                         'value' =>
-                            (int) $property->id,
+                        (int) $post->id,
 
                         'label' =>
-                            (string) $label,
+                        (string) $label,
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Dynamic Post
+                    |--------------------------------------------------------------------------
+                    */
+                        'dynamic_post_id' =>
+                        (int) $post->id,
 
                         'listing_code' =>
-                            $property->listing_code
+                        $post->listing_code
                             ?? null,
 
                         'title' =>
-                            $property->title
+                        $post->title
                             ?? null,
 
                         'slug' =>
-                            $property->slug
+                        $post->slug
                             ?? null,
 
-                        'author_id' =>
-                            !empty(
-                                $property->author_id
-                            )
-                                ? (int) $property->author_id
-                                : null,
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Post Type
+                    |--------------------------------------------------------------------------
+                    */
+                        'post_type' =>
+                        $post->postType
+                            ? [
+                                'id' =>
+                                (int) $post->postType->id,
 
+                                'name' =>
+                                $post->postType->name,
+
+                                'slug' =>
+                                $post->postType->slug,
+                            ]
+                            : null,
+
+                        'post_type_id' =>
+                        $post->postType
+                            ? (int) $post->postType->id
+                            : (
+                                !empty($post->post_type_id)
+                                ? (int) $post->post_type_id
+                                : null
+                            ),
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Owner
+                    |--------------------------------------------------------------------------
+                    */
+                        'author_id' =>
+                        !empty($post->author_id)
+                            ? (int) $post->author_id
+                            : null,
+
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Current Post Status
+                    |--------------------------------------------------------------------------
+                    */
                         'status' =>
-                            $property->status
+                        $post->status
                             ?? null,
 
                         'live_status' =>
-                            $property->live_status
+                        $post->live_status
                             ?? null,
 
+                        /*
+                     * Property may use this.
+                     * Other post types can simply return null.
+                     */
                         'availability_status' =>
-                            $property->availability_status
+                        $post->availability_status
                             ?? null,
 
+                        /*
+                    |--------------------------------------------------------------------------
+                    | Featured State
+                    |--------------------------------------------------------------------------
+                    */
                         'has_open_featured_promotion' =>
-                            $openPromotions->isNotEmpty(),
+                        $openPromotions->isNotEmpty(),
 
                         'open_promotions_count' =>
-                            $openPromotions->count(),
+                        $openPromotions->count(),
 
                         'next_or_current_promotion' =>
-                            $firstOpenPromotion
-                                ? [
-                                    'id' =>
-                                        (int) $firstOpenPromotion->id,
+                        $firstOpenPromotion
+                            ? [
+                                'id' =>
+                                (int) $firstOpenPromotion->id,
 
-                                    'status' =>
-                                        $firstOpenPromotion->status,
+                                'source' =>
+                                $firstOpenPromotion->source,
 
-                                    'starts_at' =>
-                                        $firstOpenPromotion
-                                            ->starts_at
-                                            ?->toISOString(),
+                                'status' =>
+                                $firstOpenPromotion->status,
 
-                                    'ends_at' =>
-                                        $firstOpenPromotion
-                                            ->ends_at
-                                            ?->toISOString(),
-                                ]
-                                : null,
+                                'priority' =>
+                                (int) $firstOpenPromotion->priority,
+
+                                'starts_at' =>
+                                $firstOpenPromotion
+                                    ->starts_at
+                                    ?->toISOString(),
+
+                                'ends_at' =>
+                                $firstOpenPromotion
+                                    ->ends_at
+                                    ?->toISOString(),
+
+                                'is_currently_featured' =>
+                                $firstOpenPromotion
+                                    ->isCurrentlyFeatured(),
+                            ]
+                            : null,
                     ];
                 })
                 ->values();
 
             return $this->successResponse(
-                'Property options fetched successfully.',
+                'Dynamic post options fetched successfully.',
                 [
                     'count' =>
-                        $options->count(),
+                    $options->count(),
+
+                    'filters' => [
+                        'post_type_id' =>
+                        !empty($validated['post_type_id'])
+                            ? (int) $validated['post_type_id']
+                            : null,
+
+                        'post_type' =>
+                        $validated['post_type']
+                            ?? null,
+
+                        'search' =>
+                        $validated['search']
+                            ?? null,
+                    ],
 
                     'options' =>
-                        $options,
+                    $options,
                 ]
             );
         } catch (ValidationException $e) {
@@ -731,11 +1173,11 @@ class FeaturedPropertyController extends Controller
         } catch (QueryException $e) {
             return $this->databaseErrorResponse(
                 $e,
-                'Database error while fetching property options.'
+                'Database error while fetching dynamic post options.'
             );
         } catch (Throwable $e) {
             return $this->errorResponse(
-                'Unable to fetch property options.',
+                'Unable to fetch dynamic post options.',
                 500,
                 $e->getMessage()
             );
@@ -821,6 +1263,4 @@ class FeaturedPropertyController extends Controller
             'error' => $e->getMessage(),
         ], 500);
     }
-
-    
 }
