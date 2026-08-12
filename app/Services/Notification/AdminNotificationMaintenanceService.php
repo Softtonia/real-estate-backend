@@ -271,6 +271,15 @@ class AdminNotificationMaintenanceService
             ];
         }, 3);
     }
+    public function clearAllLogs(): array
+    {
+        $deletedLogs = NotificationLog::query()->delete();
+
+        return [
+            'deleted_logs' => (int) $deletedLogs,
+        ];
+    }
+
     private function resolveDeviceForeignKey(
         string $table
     ): ?string {

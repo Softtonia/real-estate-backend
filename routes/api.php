@@ -1243,7 +1243,7 @@ Route::prefix('admin/notifications')
         Route::get('devices', [AdminNotificationDeviceController::class, 'index'])
         ->middleware('permission.check:notification_reports,read');
 
-        Route::delete('logs', [AdminNotificationReportController::class, 'clearLogs'])
+        Route::delete('logs/clear-all', [AdminNotificationReportController::class, 'clearAllLogs'])
         ->middleware('permission.check:notification_reports,delete');
 
         Route::delete('batches', [AdminNotificationReportController::class, 'clearAllBatches'])
