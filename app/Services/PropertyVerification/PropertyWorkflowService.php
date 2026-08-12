@@ -34,25 +34,12 @@ class PropertyWorkflowService
         private readonly PropertySnapshotService $snapshots,
         private readonly PropertyAvailabilityService $availability
     ) {}
-
     public function assertCanSubmitProperty(User $user): void
     {
-        $roleSlug = $this->roleSlug($user);
-
-        $allowedRoles = collect(config(
-            'property_verification.submission_roles',
-            self::ALLOWED_OWNER_ROLES
-        ))
-            ->map(fn($role) => Str::slug((string) $role))
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
-
-        if (!in_array($roleSlug, $allowedRoles, true)) {
+        if (!$user->exists || (int) $user->getKey() <= 0) {
             throw ValidationException::withMessages([
-                'role' => [
-                    'Only Property Owner, Company and Consultant roles can submit or resubmit properties.',
+                'user' => [
+                    'A valid authenticated user is required.',
                 ],
             ]);
         }
@@ -449,7 +436,10 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrFail($lockedProperty);
+            $revision = $this->latestRevisionOrCreateForAdmin(
+                $lockedProperty,
+                $actor
+            );
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
@@ -537,7 +527,10 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrFail($lockedProperty);
+            $revision = $this->latestRevisionOrCreateForAdmin(
+                $lockedProperty,
+                $actor
+            );
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
@@ -673,7 +666,10 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrFail($lockedProperty);
+            $revision = $this->latestRevisionOrCreateForAdmin(
+                $lockedProperty,
+                $actor
+            );
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 throw ValidationException::withMessages([
@@ -926,6 +922,58 @@ class PropertyWorkflowService
 
         return $revision;
     }
+    private function latestRevisionOrCreateForAdmin(
+        DynamicPost $property,
+        User $actor
+    ): PropertyListingRevision {
+        $revision = PropertyListingRevision::query()
+            ->where('dynamic_post_id', $property->id)
+            ->latest('version')
+            ->lockForUpdate()
+            ->first();
+
+        if ($revision) {
+            return $revision;
+        }
+
+        if (!$this->isSystemAdmin($actor)) {
+            throw new RuntimeException(
+                'Property verification revision not found.'
+            );
+        }
+
+        $fromStatus = $property->live_status ?? null;
+
+        $revision = PropertyListingRevision::create([
+            'dynamic_post_id' => $property->id,
+            'version' => $this->nextVersion($property),
+            'source' => 'admin_assignment',
+            'status' => PropertyWorkflowStatus::UNDER_REVIEW,
+            'baseline_payload' => null,
+            'submitted_payload' => $this->snapshots->capture($property),
+            'submitted_by' => $property->author_id ?: $actor->id,
+            'submitted_at' => now(),
+        ]);
+
+        $this->setPropertyWorkflowState(
+            $property,
+            status: $property->status ?: 'draft',
+            liveStatus: PropertyWorkflowStatus::UNDER_REVIEW
+        );
+
+        $this->recordEvent(
+            property: $property,
+            revision: $revision,
+            actor: $actor,
+            event: 'property_verification_revision_created',
+            fromStatus: $fromStatus,
+            toStatus: PropertyWorkflowStatus::UNDER_REVIEW,
+            message: 'Verification revision created by admin.'
+        );
+
+        return $revision;
+    }
+
     private function latestRevisionOrFail(
         DynamicPost $property
     ): PropertyListingRevision {
@@ -1077,18 +1125,18 @@ class PropertyWorkflowService
             ]);
         }
     }
-
     private function assertPropertyListing(
         DynamicPost $property
     ): void {
-        $slug = DB::table('post_types')
-            ->where('id', $property->post_type_id)
-            ->value('slug');
+        $postTypeId = (int) ($property->post_type_id ?? 0);
 
-        if (Str::slug((string) $slug) !== 'property-listing') {
+        if (
+            $postTypeId <= 0
+            || !DB::table('post_types')->where('id', $postTypeId)->exists()
+        ) {
             throw ValidationException::withMessages([
                 'property' => [
-                    'The selected post is not a property listing.',
+                    'The selected post has an invalid post type.',
                 ],
             ]);
         }

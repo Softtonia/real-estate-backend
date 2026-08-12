@@ -535,16 +535,8 @@ class DynamicPostController extends Controller
             $workflowReason = null;
             $workflowNotes = null;
 
-            $postTypeSlug = DB::table('post_types')
-                ->where('id', (int) $post->post_type_id)
-                ->value('slug');
-
-            $isPropertyListing =
-                Str::slug((string) $postTypeSlug) === 'property-listing';
-
             $hasPropertyStatusPayload =
-                $isPropertyListing
-                && $request->hasAny([
+                $request->hasAny([
                     'status',
                     'live_status',
                     'rejection_reason',
