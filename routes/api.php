@@ -1246,7 +1246,7 @@ Route::prefix('admin/notifications')
         Route::delete('logs', [AdminNotificationReportController::class, 'clearLogs'])
         ->middleware('permission.check:notification_reports,delete');
 
-        Route::delete('batches/{batch}', [AdminNotificationReportController::class, 'clearBatch'])
+        Route::delete('batches', [AdminNotificationReportController::class, 'clearAllBatches'])
         ->middleware('permission.check:notification_reports,delete')->whereNumber('batch');
         /*
         |--------------------------------------------------------------------------

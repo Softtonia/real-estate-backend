@@ -29,8 +29,8 @@ class AdminNotificationMaintenanceService
                 )
                 ->pluck('id')
                 ->map(
-                    fn ($id) =>
-                        (int) $id
+                    fn($id) =>
+                    (int) $id
                 )
                 ->all();
 
@@ -40,11 +40,11 @@ class AdminNotificationMaintenanceService
 
             $deleted +=
                 NotificationLog::query()
-                    ->whereIn(
-                        'id',
-                        $ids
-                    )
-                    ->delete();
+                ->whereIn(
+                    'id',
+                    $ids
+                )
+                ->delete();
         }
 
         return $deleted;
@@ -57,11 +57,11 @@ class AdminNotificationMaintenanceService
             function () use ($batch) {
                 $lockedBatch =
                     NotificationBatch::query()
-                        ->whereKey(
-                            $batch->getKey()
-                        )
-                        ->lockForUpdate()
-                        ->firstOrFail();
+                    ->whereKey(
+                        $batch->getKey()
+                    )
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
                 $this->assertBatchCanBeCleared(
                     $lockedBatch
@@ -86,24 +86,24 @@ class AdminNotificationMaintenanceService
                 if ($batchForeignKey !== null) {
                     $deletedLogs =
                         NotificationLog::query()
-                            ->where(
-                                $batchForeignKey,
-                                $batchId
-                            )
-                            ->delete();
+                        ->where(
+                            $batchForeignKey,
+                            $batchId
+                        )
+                        ->delete();
                 }
 
                 $lockedBatch->delete();
 
                 return [
                     'batch_id' =>
-                        $batchId,
+                    $batchId,
 
                     'deleted_logs' =>
-                        (int) $deletedLogs,
+                    (int) $deletedLogs,
 
                     'batch_deleted' =>
-                        true,
+                    true,
                 ];
             },
             3
@@ -258,7 +258,19 @@ class AdminNotificationMaintenanceService
 
         return null;
     }
+    public function clearAllBatches(): array
+    {
+        return DB::transaction(function () {
+            $deletedLogs = NotificationLog::query()->delete();
 
+            $deletedBatches = NotificationBatch::query()->delete();
+
+            return [
+                'deleted_logs' => (int) $deletedLogs,
+                'deleted_batches' => (int) $deletedBatches,
+            ];
+        }, 3);
+    }
     private function resolveDeviceForeignKey(
         string $table
     ): ?string {

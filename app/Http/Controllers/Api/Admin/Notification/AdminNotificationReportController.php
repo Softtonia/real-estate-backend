@@ -24,14 +24,14 @@ class AdminNotificationReportController extends Controller
             return response()->json([
                 'status' => true,
                 'message' =>
-                    'Notification dashboard fetched successfully.',
+                'Notification dashboard fetched successfully.',
                 'data' =>
-                    $service->dashboard(
-                        $request->only([
-                            'date_from',
-                            'date_to',
-                        ])
-                    ),
+                $service->dashboard(
+                    $request->only([
+                        'date_from',
+                        'date_to',
+                    ])
+                ),
             ]);
         } catch (Throwable $e) {
             return $this->errorResponse(
@@ -61,25 +61,25 @@ class AdminNotificationReportController extends Controller
             return response()->json([
                 'status' => true,
                 'message' =>
-                    'Notification batches fetched successfully.',
+                'Notification batches fetched successfully.',
 
                 'data' =>
-                    NotificationBatchResource::collection(
-                        $batches
-                    ),
+                NotificationBatchResource::collection(
+                    $batches
+                ),
 
                 'meta' => [
                     'current_page' =>
-                        $batches->currentPage(),
+                    $batches->currentPage(),
 
                     'last_page' =>
-                        $batches->lastPage(),
+                    $batches->lastPage(),
 
                     'per_page' =>
-                        $batches->perPage(),
+                    $batches->perPage(),
 
                     'total' =>
-                        $batches->total(),
+                    $batches->total(),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -103,16 +103,16 @@ class AdminNotificationReportController extends Controller
             return response()->json([
                 'status' => true,
                 'message' =>
-                    'Notification batch fetched successfully.',
+                'Notification batch fetched successfully.',
 
                 'data' => [
                     'batch' =>
-                        new NotificationBatchResource(
-                            $detail['batch']
-                        ),
+                    new NotificationBatchResource(
+                        $detail['batch']
+                    ),
 
                     'live_stats' =>
-                        $detail['live_stats'],
+                    $detail['live_stats'],
                 ],
             ]);
         } catch (Throwable $e) {
@@ -146,25 +146,25 @@ class AdminNotificationReportController extends Controller
             return response()->json([
                 'status' => true,
                 'message' =>
-                    'Notification logs fetched successfully.',
+                'Notification logs fetched successfully.',
 
                 'data' =>
-                    NotificationLogResource::collection(
-                        $logs
-                    ),
+                NotificationLogResource::collection(
+                    $logs
+                ),
 
                 'meta' => [
                     'current_page' =>
-                        $logs->currentPage(),
+                    $logs->currentPage(),
 
                     'last_page' =>
-                        $logs->lastPage(),
+                    $logs->lastPage(),
 
                     'per_page' =>
-                        $logs->perPage(),
+                    $logs->perPage(),
 
                     'total' =>
-                        $logs->total(),
+                    $logs->total(),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -199,25 +199,25 @@ class AdminNotificationReportController extends Controller
             return response()->json([
                 'status' => true,
                 'message' =>
-                    'Notification batch logs fetched successfully.',
+                'Notification batch logs fetched successfully.',
 
                 'data' =>
-                    NotificationLogResource::collection(
-                        $logs
-                    ),
+                NotificationLogResource::collection(
+                    $logs
+                ),
 
                 'meta' => [
                     'current_page' =>
-                        $logs->currentPage(),
+                    $logs->currentPage(),
 
                     'last_page' =>
-                        $logs->lastPage(),
+                    $logs->lastPage(),
 
                     'per_page' =>
-                        $logs->perPage(),
+                    $logs->perPage(),
 
                     'total' =>
-                        $logs->total(),
+                    $logs->total(),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -241,11 +241,11 @@ class AdminNotificationReportController extends Controller
             return response()->json([
                 'status' => true,
                 'message' =>
-                    'Notification logs cleared successfully.',
+                'Notification logs cleared successfully.',
 
                 'data' => [
                     'deleted_count' =>
-                        (int) $deletedCount,
+                    (int) $deletedCount,
                 ],
             ]);
         } catch (ValidationException $e) {
@@ -273,10 +273,10 @@ class AdminNotificationReportController extends Controller
             return response()->json([
                 'status' => true,
                 'message' =>
-                    'Notification batch cleared successfully.',
+                'Notification batch cleared successfully.',
 
                 'data' =>
-                    $result,
+                $result,
             ]);
         } catch (ValidationException $e) {
             return $this->validationError(
@@ -310,9 +310,27 @@ class AdminNotificationReportController extends Controller
             'status' => false,
             'message' => $message,
             'error' =>
-                config('app.debug')
-                    ? $e->getMessage()
-                    : 'Server error',
+            config('app.debug')
+                ? $e->getMessage()
+                : 'Server error',
         ], 500);
+    }
+    public function clearAllBatches(
+        AdminNotificationMaintenanceService $service
+    ): JsonResponse {
+        try {
+            $result = $service->clearAllBatches();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'All notification batches cleared successfully.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->errorResponse(
+                'Unable to clear notification batches.',
+                $e
+            );
+        }
     }
 }
