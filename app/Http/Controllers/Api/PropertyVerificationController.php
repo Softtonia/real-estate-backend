@@ -768,30 +768,145 @@ class PropertyVerificationController extends Controller
     }
 
     public function startVerification(
-        Request $request,
-        DynamicPost $property
-    ): JsonResponse {
-        try {
-            $revision = $this->workflow->startVerification(
-                property: $property,
-                actor: $this->actor($request)
+        DynamicPost $property,
+        User $actor
+    ): PropertyListingRevision {
+        $this->assertCanActOnVerification($actor);
+
+        $revision = DB::transaction(function () use (
+            $property,
+            $actor
+        ) {
+            $lockedProperty = DynamicPost::query()
+                ->lockForUpdate()
+                ->findOrFail($property->id);
+
+            $this->assertPropertyListing(
+                $lockedProperty
             );
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Property verification started.',
-                'data' => $this->formatRevision($revision),
-            ]);
-        } catch (ValidationException $e) {
-            return $this->validationError($e);
-        } catch (Throwable $e) {
-            return $this->error(
-                'Unable to start property verification.',
-                $e
+            $revision = $this->latestRevisionOrCreateForAdmin(
+                $lockedProperty,
+                $actor
             );
+
+            if (
+                $revision->status ===
+                PropertyWorkflowStatus::APPROVED
+            ) {
+                return $revision;
+            }
+
+            $allowedStatuses = [
+                PropertyWorkflowStatus::UNDER_REVIEW,
+                PropertyWorkflowStatus::RESUBMISSION,
+                PropertyWorkflowStatus::ASSIGNED,
+                PropertyWorkflowStatus::IN_VERIFICATION,
+            ];
+
+            if (
+                !in_array(
+                    $revision->status,
+                    $allowedStatuses,
+                    true
+                )
+            ) {
+                throw ValidationException::withMessages([
+                    'status' => [
+                        'This action is not allowed while the verification status is '
+                            . $revision->status
+                            . '.',
+                    ],
+                ]);
+            }
+
+            $this->ensureActorCanWorkOnRevision(
+                $revision,
+                $actor
+            );
+
+            if (
+                $revision->status ===
+                PropertyWorkflowStatus::IN_VERIFICATION
+            ) {
+                return $revision;
+            }
+
+            $fromStatus = $revision->status;
+
+            $revision->forceFill([
+                'status' =>
+                PropertyWorkflowStatus::IN_VERIFICATION,
+
+                'verification_started_at' =>
+                $revision->verification_started_at
+                    ?: now(),
+            ])->save();
+
+            $this->setPropertyWorkflowState(
+                $lockedProperty,
+                status: $lockedProperty->status
+                    ?: 'draft',
+                liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
+            );
+
+            $this->recordEvent(
+                property: $lockedProperty,
+                revision: $revision,
+                actor: $actor,
+                event: 'verification_started',
+                fromStatus: $fromStatus,
+                toStatus: PropertyWorkflowStatus::IN_VERIFICATION,
+                message: 'Verification started.'
+            );
+
+            if (!empty($lockedProperty->author_id)) {
+                $this->notifyOwnerAfterCommit(
+                    ownerId: (int) $lockedProperty->author_id,
+
+                    property: $lockedProperty,
+                    event: 'verification_started'
+                );
+            }
+
+            return $revision;
+        });
+
+        return $revision->fresh([
+            'property:id,title,slug,status,live_status,author_id,post_type_id',
+            'assignedVerifier:id,first_name,last_name,email',
+            'assigner:id,first_name,last_name,email',
+            'decider:id,first_name,last_name,email',
+        ]);
+    }
+    private function assertPropertyListing(
+        DynamicPost $property
+    ): void {
+        $postTypeId = (int) (
+            $property->post_type_id
+            ?? 0
+        );
+
+        if ($postTypeId <= 0) {
+            throw ValidationException::withMessages([
+                'post_type_id' => [
+                    'The selected DynamicPost does not have a valid post type.',
+                ],
+            ]);
+        }
+
+        $postTypeExists = DB::table('post_types')
+            ->where('id', $postTypeId)
+            ->exists();
+
+        if (!$postTypeExists) {
+            throw ValidationException::withMessages([
+                'post_type_id' => [
+                    'The selected DynamicPost post type does not exist.',
+                ],
+            ]);
         }
     }
-
     public function approve(
         Request $request,
         DynamicPost $property
@@ -1243,7 +1358,64 @@ class PropertyVerificationController extends Controller
             )->toDateTimeString(),
         ];
     }
+    private function latestRevisionOrCreateForAdmin(
+        DynamicPost $property,
+        User $actor
+    ): PropertyListingRevision {
+        $revision = PropertyListingRevision::query()
+            ->where('dynamic_post_id', $property->id)
+            ->latest('version')
+            ->lockForUpdate()
+            ->first();
 
+        if ($revision) {
+            return $revision;
+        }
+
+        if (!$this->isSystemAdmin($actor)) {
+            throw ValidationException::withMessages([
+                'verification' => [
+                    'Verification revision does not exist for this DynamicPost.',
+                ],
+            ]);
+        }
+
+        $fromStatus = $property->live_status ?? null;
+
+        $revision = PropertyListingRevision::create([
+            'dynamic_post_id' => (int) $property->id,
+            'version' => $this->nextVersion($property),
+            'source' => 'admin_assignment',
+            'status' => PropertyWorkflowStatus::UNDER_REVIEW,
+            'baseline_payload' => null,
+            'submitted_payload' => $this->snapshots->capture($property),
+            'submitted_by' => !empty($property->author_id)
+                ? (int) $property->author_id
+                : (int) $actor->id,
+            'submitted_at' => now(),
+            'assigned_to' => null,
+            'assigned_by' => null,
+            'assigned_at' => null,
+        ]);
+
+        $this->setPropertyWorkflowState(
+            $property,
+            status: $property->status ?: 'draft',
+            liveStatus: PropertyWorkflowStatus::UNDER_REVIEW
+        );
+
+        $this->recordEvent(
+            property: $property,
+            revision: $revision,
+            actor: $actor,
+            event: 'property_verification_revision_created',
+            fromStatus: $fromStatus,
+            toStatus: PropertyWorkflowStatus::UNDER_REVIEW,
+            message: 'Verification revision created by admin.'
+        );
+
+        return $revision;
+    }
     private function formatTimeline($events): array
     {
         return collect($events)
