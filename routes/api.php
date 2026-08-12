@@ -20,7 +20,6 @@ use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SearchEngine\SearchEngineController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
 use App\Http\Controllers\Subscribe\SubscribeController;
-use App\Http\Controllers\TopFeature\TopFeatureController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
@@ -58,6 +57,7 @@ use App\Http\Controllers\Help\HelpArticleController;
 use App\Http\Controllers\Admin\MailConfigController;
 use App\Http\Controllers\Admin\SystemController;
 use App\Http\Controllers\Api\Admin\FeaturedPropertyController;
+use App\Http\Controllers\Api\Admin\Notification\AdminNotificationDeviceController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationReportController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationRetryController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationSendController;
@@ -761,21 +761,6 @@ Route::middleware(['validate.api.client'])->group(function () {
 
     Route::middleware(['throttle:60,1', 'allrole.token'])->post('business-role-update-profile', [UserController::class, 'updateProfile']);
 
-
-
-
-
-
-    // Template  Id
-
-
-
-
-    // Top Features for project developer and listings
-    Route::get('top-features-list', [TopFeatureController::class, 'index'])->middleware(['throttle:60,1']);
-    Route::get('/get-top-features-by-id', [TopFeatureController::class, 'getTopFeaturesById'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('create-or-update-top-feature/{id?}', [TopFeatureController::class, 'createOrUpdateTopFeature']);
-
     // Menu Managements
 
     Route::prefix('menus')->group(function () {
@@ -836,11 +821,6 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::middleware(['throttle:60,1', 'admin.token'])->post('contact-us-leads/search', [ContactUsLeadController::class, 'contactUsLeadSearch']);
 });
 
-
-
-Route::get('/developer-listings-by-featured-type', [TopFeatureController::class, 'getDevelopersByFeaturedType'])->middleware(['throttle:60,1']);
-Route::get('/properties-listing-by-featured-type', [TopFeatureController::class, 'getPropertiesByFeaturedType'])->middleware(['throttle:60,1']);
-Route::get('/project-listings-by-featured-type', [TopFeatureController::class, 'getProjectsByFeaturedType'])->middleware(['throttle:60,1']);
 
 // API Client
 
@@ -1260,7 +1240,14 @@ Route::prefix('admin/notifications')
         Route::get('logs', [AdminNotificationReportController::class, 'logs'])
             ->middleware('permission.check:notification_reports,read');
 
+        Route::get('devices', [AdminNotificationDeviceController::class, 'index'])
+        ->middleware('permission.check:notification_reports,read');
 
+        Route::delete('logs', [AdminNotificationReportController::class, 'clearLogs'])
+        ->middleware('permission.check:notification_reports,delete');
+
+        Route::delete('batches/{batch}', [AdminNotificationReportController::class, 'clearBatch'])
+        ->middleware('permission.check:notification_reports,delete')->whereNumber('batch');
         /*
         |--------------------------------------------------------------------------
         | Notification Topics

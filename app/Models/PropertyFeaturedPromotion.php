@@ -209,15 +209,23 @@ class PropertyFeaturedPromotion extends Model
             return false;
         }
 
+        $now = now();
+
         if (
-            !$this->starts_at
-            || !$this->ends_at
+            $this->starts_at
+            && $this->starts_at->gt($now)
         ) {
             return false;
         }
 
-        return $this->starts_at->lte(now())
-            && $this->ends_at->gt(now());
+        if (
+            $this->ends_at
+            && $this->ends_at->lt($now)
+        ) {
+            return false;
+        }
+
+        return true;
     }
 
     public function isScheduled(): bool

@@ -17,6 +17,7 @@ use Illuminate\Validation\ValidationException;
 
 class MembershipAddonOrderService
 {
+
     public function __construct(
         private readonly MembershipCouponService $couponService,
         private readonly MembershipCreditService $creditService,

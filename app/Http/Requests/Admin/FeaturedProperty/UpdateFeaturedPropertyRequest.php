@@ -14,28 +14,27 @@ class UpdateFeaturedPropertyRequest extends FormRequest
     public function rules(): array
     {
         return [
-            /*
-             * Property cannot be changed after promotion creation.
-             */
             'dynamic_post_id' => [
-                'prohibited',
+                'required',
+                'integer',
+                'exists:dynamic_posts,id',
             ],
 
             'starts_at' => [
                 'sometimes',
-                'required',
+                'nullable',
                 'date',
             ],
 
             'ends_at' => [
                 'sometimes',
-                'required',
+                'nullable',
                 'date',
             ],
 
             'priority' => [
                 'sometimes',
-                'required',
+                'nullable',
                 'integer',
                 'min:0',
                 'max:100000',
@@ -48,9 +47,6 @@ class UpdateFeaturedPropertyRequest extends FormRequest
                 'max:1000',
             ],
 
-            /*
-             * Backend-controlled fields.
-             */
             'source' => [
                 'prohibited',
             ],
@@ -84,8 +80,11 @@ class UpdateFeaturedPropertyRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'dynamic_post_id.prohibited' =>
-                'The property of an existing featured promotion cannot be changed.',
+            'dynamic_post_id.required' =>
+                'Listing ID is required.',
+
+            'dynamic_post_id.exists' =>
+                'Selected listing does not exist.',
 
             'priority.min' =>
                 'Priority cannot be negative.',

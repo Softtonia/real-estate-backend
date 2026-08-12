@@ -14,6 +14,7 @@ use Throwable;
 
 class MembershipCreditService
 {
+
     public function __construct(
         private readonly MembershipAccessService $accessService
     ) {}
