@@ -37,10 +37,22 @@ class PropertyWorkflowService
 
     public function assertCanSubmitProperty(User $user): void
     {
-        if (!$user->exists || (int) $user->getKey() <= 0) {
+        $roleSlug = $this->roleSlug($user);
+
+        $allowedRoles = collect(config(
+            'property_verification.submission_roles',
+            self::ALLOWED_OWNER_ROLES
+        ))
+            ->map(fn($role) => Str::slug((string) $role))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (!in_array($roleSlug, $allowedRoles, true)) {
             throw ValidationException::withMessages([
-                'user' => [
-                    'A valid authenticated user is required.',
+                'role' => [
+                    'Only Property Owner, Company and Consultant roles can submit or resubmit properties.',
                 ],
             ]);
         }
@@ -437,10 +449,7 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrCreateForAdminAction(
-                $lockedProperty,
-                $actor
-            );
+            $revision = $this->latestRevisionOrFail($lockedProperty);
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
@@ -510,8 +519,6 @@ class PropertyWorkflowService
     }
 
 
-
-
     public function approve(
         DynamicPost $property,
         User $actor,
@@ -530,10 +537,7 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrCreateForAdminAction(
-                $lockedProperty,
-                $actor
-            );
+            $revision = $this->latestRevisionOrFail($lockedProperty);
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
@@ -637,7 +641,6 @@ class PropertyWorkflowService
         ]);
     }
 
-
     public function reject(
         DynamicPost $property,
         User $actor,
@@ -670,10 +673,7 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrCreateForAdminAction(
-                $lockedProperty,
-                $actor
-            );
+            $revision = $this->latestRevisionOrFail($lockedProperty);
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 throw ValidationException::withMessages([
@@ -926,61 +926,6 @@ class PropertyWorkflowService
 
         return $revision;
     }
-
-    private function latestRevisionOrCreateForAdminAction(
-        DynamicPost $property,
-        User $actor
-    ): PropertyListingRevision {
-        $revision = PropertyListingRevision::query()
-            ->where('dynamic_post_id', $property->id)
-            ->latest('version')
-            ->lockForUpdate()
-            ->first();
-
-        if ($revision) {
-            return $revision;
-        }
-
-        if (!$this->isSystemAdmin($actor)) {
-            throw ValidationException::withMessages([
-                'verification' => [
-                    'Verification revision not found for this DynamicPost.',
-                ],
-            ]);
-        }
-
-        $fromStatus = $property->live_status ?? null;
-
-        $revision = PropertyListingRevision::create([
-            'dynamic_post_id' => (int) $property->id,
-            'version' => 1,
-            'source' => 'admin_assignment',
-            'status' => PropertyWorkflowStatus::UNDER_REVIEW,
-            'baseline_payload' => null,
-            'submitted_payload' => $this->snapshots->capture($property),
-            'submitted_by' => (int) ($property->author_id ?: $actor->id),
-            'submitted_at' => now(),
-        ]);
-
-        $this->setPropertyWorkflowState(
-            $property,
-            status: $property->status ?: 'draft',
-            liveStatus: PropertyWorkflowStatus::UNDER_REVIEW
-        );
-
-        $this->recordEvent(
-            property: $property,
-            revision: $revision,
-            actor: $actor,
-            event: 'property_verification_revision_created',
-            fromStatus: $fromStatus,
-            toStatus: PropertyWorkflowStatus::UNDER_REVIEW,
-            message: 'Verification revision created by admin.'
-        );
-
-        return $revision;
-    }
-
     private function latestRevisionOrFail(
         DynamicPost $property
     ): PropertyListingRevision {
@@ -1126,8 +1071,8 @@ class PropertyWorkflowService
     ): void {
         if ((int) ($property->author_id ?? 0) !== (int) $user->id) {
             throw ValidationException::withMessages([
-                'dynamic_post' => [
-                    'You are not allowed to manage this DynamicPost.',
+                'property' => [
+                    'You are not allowed to manage this property.',
                 ],
             ]);
         }
@@ -1136,24 +1081,14 @@ class PropertyWorkflowService
     private function assertPropertyListing(
         DynamicPost $property
     ): void {
-        $postTypeId = (int) ($property->post_type_id ?? 0);
+        $slug = DB::table('post_types')
+            ->where('id', $property->post_type_id)
+            ->value('slug');
 
-        if ($postTypeId <= 0) {
+        if (Str::slug((string) $slug) !== 'property-listing') {
             throw ValidationException::withMessages([
-                'post_type_id' => [
-                    'The selected DynamicPost does not have a valid post type.',
-                ],
-            ]);
-        }
-
-        $postTypeExists = DB::table('post_types')
-            ->where('id', $postTypeId)
-            ->exists();
-
-        if (!$postTypeExists) {
-            throw ValidationException::withMessages([
-                'post_type_id' => [
-                    'The selected DynamicPost post type does not exist.',
+                'property' => [
+                    'The selected post is not a property listing.',
                 ],
             ]);
         }

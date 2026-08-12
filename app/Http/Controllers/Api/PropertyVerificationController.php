@@ -47,8 +47,6 @@ class PropertyVerificationController extends Controller
                     ]),
                 ],
                 'assigned_to' => ['nullable', 'string'],
-                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
-                'post_type' => ['nullable', 'string', 'max:255'],
                 'search' => ['nullable', 'string', 'max:255'],
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
                 'page' => ['nullable', 'integer', 'min:1'],
@@ -62,7 +60,7 @@ class PropertyVerificationController extends Controller
 
             $query = PropertyListingRevision::query()
                 ->with([
-                    'property.postType:id,name,slug',
+                    'property',
                     'submitter:id,first_name,last_name,email',
                     'assignedVerifier:id,first_name,last_name,email',
                     'assigner:id,first_name,last_name,email',
@@ -82,37 +80,13 @@ class PropertyVerificationController extends Controller
                 );
             }
 
-            if ($request->filled('post_type_id')) {
-                $postTypeId = (int) $request->post_type_id;
-
-                $query->whereHas(
-                    'property',
-                    fn(Builder $propertyQuery) =>
-                    $propertyQuery->where('post_type_id', $postTypeId)
-                );
-            }
-
-            if ($request->filled('post_type')) {
-                $postType = trim((string) $request->post_type);
-
-                $query->whereHas(
-                    'property.postType',
-                    function (Builder $postTypeQuery) use ($postType) {
-                        $postTypeQuery->where(function (Builder $subQuery) use ($postType) {
-                            $subQuery
-                                ->where('slug', $postType)
-                                ->orWhere('name', $postType);
-                        });
-                    }
-                );
-            }
-
             $canAssign = $this->userHasPermission(
                 $actor,
                 'property_verifications.assign'
             );
 
             if (!$canAssign) {
+                // A reviewer can only see listings assigned to that exact user.
                 $query->where('assigned_to', (int) $actor->id);
             } elseif ($request->filled('assigned_to')) {
                 if ($request->assigned_to === 'me') {
@@ -977,18 +951,8 @@ class PropertyVerificationController extends Controller
             return null;
         }
 
-        $property->loadMissing('postType:id,name,slug');
-
         return [
             'id' => (int) $property->id,
-            'post_type_id' => (int) $property->post_type_id,
-            'post_type' => $property->postType
-                ? [
-                    'id' => (int) $property->postType->id,
-                    'name' => $property->postType->name,
-                    'slug' => $property->postType->slug,
-                ]
-                : null,
             'title' => $property->title ?? null,
             'slug' => $property->slug ?? null,
             'listing_code' => $property->listing_code ?? null,
