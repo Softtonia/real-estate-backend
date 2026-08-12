@@ -517,42 +517,32 @@ class DynamicPostController extends Controller
                 );
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Property admin status override
-            |--------------------------------------------------------------------------
-            |
-            | Requirement:
-            | - Admin does NOT need verifier assignment.
-            | - Existing assigned user/verifier must remain unchanged.
-            | - Admin must NEVER become assigned_to / assigned user automatically.
-            | - Approve/reject still goes through PropertyWorkflowService so the
-            |   latest verification revision and dynamic_posts stay in sync.
-            |
-            */
             $workflowAction = null;
             $workflowActor = null;
             $workflowReason = null;
             $workflowNotes = null;
 
-            $postTypeSlug = DB::table('post_types')
-                ->where('id', (int) $post->post_type_id)
-                ->value('slug');
+            $hasVerificationStatusPayload = $request->hasAny([
+                'status',
+                'live_status',
+                'rejection_reason',
+                'rejected_by',
+                'rejected_at',
+            ]);
 
-            $isPropertyListing =
-                Str::slug((string) $postTypeSlug) === 'property-listing';
+            if ($hasVerificationStatusPayload) {
+                $postTypeExists = DB::table('post_types')
+                    ->where('id', (int) $post->post_type_id)
+                    ->exists();
 
-            $hasPropertyStatusPayload =
-                $isPropertyListing
-                && $request->hasAny([
-                    'status',
-                    'live_status',
-                    'rejection_reason',
-                    'rejected_by',
-                    'rejected_at',
-                ]);
+                if (!$postTypeExists) {
+                    throw ValidationException::withMessages([
+                        'post_type_id' => [
+                            'The selected DynamicPost has an invalid post type.',
+                        ],
+                    ]);
+                }
 
-            if ($hasPropertyStatusPayload) {
                 $workflowActor = $this->resolveDynamicPostActor($request);
 
                 if (
@@ -561,7 +551,7 @@ class DynamicPostController extends Controller
                 ) {
                     throw ValidationException::withMessages([
                         'verification' => [
-                            'Use the property verification APIs to approve, reject or publish a property.',
+                            'Use the verification APIs to approve, reject or publish this DynamicPost.',
                         ],
                     ]);
                 }
@@ -584,7 +574,7 @@ class DynamicPostController extends Controller
                 ) {
                     throw ValidationException::withMessages([
                         'verification' => [
-                            'A property cannot be published and rejected in the same request.',
+                            'A DynamicPost cannot be published and rejected in the same request.',
                         ],
                     ]);
                 }
@@ -599,27 +589,22 @@ class DynamicPostController extends Controller
                 ) {
                     throw ValidationException::withMessages([
                         'verification' => [
-                            'A property cannot be approved with a non-published status in the same request.',
+                            'A DynamicPost cannot be approved with a non-published status in the same request.',
                         ],
                     ]);
                 }
 
-                /*
-                 * Publish / Approve
-                 */
                 if (
                     $requestedStatus === 'published'
                     || $requestedLiveStatus === 'approve'
                 ) {
                     $workflowAction = 'approve';
+
                     $workflowNotes = $request->filled('notes')
                         ? trim((string) $request->input('notes'))
                         : null;
                 }
 
-                /*
-                 * Reject / Disapprove
-                 */
                 if (
                     in_array(
                         $requestedLiveStatus,
@@ -634,7 +619,7 @@ class DynamicPostController extends Controller
                     if ($workflowReason === '') {
                         throw ValidationException::withMessages([
                             'rejection_reason' => [
-                                'Rejection reason is required when property is rejected.',
+                                'Rejection reason is required when a DynamicPost is rejected.',
                             ],
                         ]);
                     }
@@ -642,9 +627,6 @@ class DynamicPostController extends Controller
                     $workflowAction = 'reject';
                 }
 
-                /*
-                 * These are workflow states, not direct admin CRUD statuses.
-                 */
                 if (
                     in_array(
                         $requestedLiveStatus,
@@ -654,22 +636,14 @@ class DynamicPostController extends Controller
                 ) {
                     throw ValidationException::withMessages([
                         'live_status' => [
-                            'Use the property verification workflow to change this verification status.',
+                            'Use the verification workflow to change this verification status.',
                         ],
                     ]);
                 }
 
-                /*
-                 * Client is not allowed to set audit fields.
-                 */
                 $request->request->remove('rejected_by');
                 $request->request->remove('rejected_at');
 
-                /*
-                 * For approve/reject, PropertyWorkflowService owns these fields.
-                 * Remove them before normal DynamicPost validation/save so there
-                 * is only one source of truth.
-                 */
                 if ($workflowAction !== null) {
                     $request->replace(
                         $request->except([
@@ -679,11 +653,6 @@ class DynamicPostController extends Controller
                             'rejected_by',
                             'rejected_at',
                             'published_at',
-
-                            /*
-                             * Listing owner changes are normal edit operations.
-                             * Approve/reject must not silently change author_id.
-                             */
                             'author_id',
                         ])
                     );
@@ -692,9 +661,6 @@ class DynamicPostController extends Controller
 
             $validated = $this->validatePost($request, true);
 
-            /*
-             * Non-workflow updates keep the existing normal visibility logic.
-             */
             if ($workflowAction === null) {
                 $validated = $this->normalizeLiveVisibilityStatus(
                     $validated,
@@ -730,14 +696,12 @@ class DynamicPostController extends Controller
                 );
             }
 
-            $hasLocationPayload =
-                $this->hasLocationPayload($validated);
+            $hasLocationPayload = $this->hasLocationPayload($validated);
 
             if ($hasLocationPayload) {
                 $this->validatePostTypeLocationSupport($postType);
 
-                $validated =
-                    $this->prepareLocationForSave($validated);
+                $validated = $this->prepareLocationForSave($validated);
             }
 
             $hasBaseMediaPayload =
@@ -771,27 +735,27 @@ class DynamicPostController extends Controller
 
             $relationshipPostTypes =
                 $hasRelationshipPayload
-                    ? $this->normalizeRelationshipPostTypeInputs(
-                        $rawRequestData
-                    )
-                    : null;
+                ? $this->normalizeRelationshipPostTypeInputs(
+                    $rawRequestData
+                )
+                : null;
 
             $taxonomyTermIds =
                 $hasTaxonomyPayload
-                    ? $this->normalizeSubmittedTaxonomyTermIds(
-                        $validated
-                    )
-                    : null;
+                ? $this->normalizeSubmittedTaxonomyTermIds(
+                    $validated
+                )
+                : null;
 
             $customFields =
                 array_key_exists('custom_fields', $validated)
-                    ? $this->prepareCustomFieldsForSave(
-                        $request,
-                        $validated,
-                        $postType,
-                        $post
-                    )
-                    : null;
+                ? $this->prepareCustomFieldsForSave(
+                    $request,
+                    $validated,
+                    $postType,
+                    $post
+                )
+                : null;
 
             if (is_array($customFields)) {
                 $customFields =
@@ -820,11 +784,11 @@ class DynamicPostController extends Controller
             if (is_array($customFields)) {
                 $effectiveTermIds =
                     is_array($taxonomyTermIds)
-                        ? $taxonomyTermIds
-                        : $post->taxonomyTerms()
-                            ->pluck('taxonomy_terms.id')
-                            ->map(fn ($id) => (int) $id)
-                            ->toArray();
+                    ? $taxonomyTermIds
+                    : $post->taxonomyTerms()
+                    ->pluck('taxonomy_terms.id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
 
                 $this->validateSubmittedCustomFieldsForPostType(
                     $postType,
@@ -887,15 +851,10 @@ class DynamicPostController extends Controller
                 );
             }
 
-            /*
-             * Critical:
-             * Approve/reject must never change listing assignment even when
-             * the frontend sends user_id / assigned_user_id in the full form.
-             */
             $hasAssignedUserPayload =
                 $workflowAction === null
-                    ? $this->hasAssignedUserPayload($request->all())
-                    : false;
+                ? $this->hasAssignedUserPayload($request->all())
+                : false;
 
             DB::transaction(function () use (
                 $post,
@@ -1013,10 +972,6 @@ class DynamicPostController extends Controller
                     );
                 }
 
-                /*
-                 * Workflow decision is deliberately last.
-                 * It updates publication + revision status but never assignment.
-                 */
                 if ($workflowAction === 'approve') {
                     app(PropertyWorkflowService::class)->approve(
                         property: $post->fresh(),
@@ -6523,7 +6478,7 @@ class DynamicPostController extends Controller
             'status',
         ])
             ->filter(
-                fn (string $column) => Schema::hasColumn('users', $column)
+                fn(string $column) => Schema::hasColumn('users', $column)
             )
             ->values()
             ->toArray();
@@ -6577,7 +6532,7 @@ class DynamicPostController extends Controller
                 'phone',
             ])
                 ->filter(
-                    fn (string $column) => Schema::hasColumn('users', $column)
+                    fn(string $column) => Schema::hasColumn('users', $column)
                 )
                 ->values()
                 ->toArray();
@@ -6636,7 +6591,7 @@ class DynamicPostController extends Controller
             if (
                 $anonymousUser
                 && !$users->contains(
-                    fn (User $user) => (int) $user->id === (int) $anonymousUser->id
+                    fn(User $user) => (int) $user->id === (int) $anonymousUser->id
                 )
             ) {
                 $users->prepend($anonymousUser);
@@ -6658,7 +6613,7 @@ class DynamicPostController extends Controller
             $roleIds = $users
                 ->pluck('role_id')
                 ->filter()
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->unique()
                 ->values()
                 ->toArray();
@@ -6671,7 +6626,7 @@ class DynamicPostController extends Controller
                     'role_name',
                 ])
                     ->filter(
-                        fn (string $column) => Schema::hasColumn('roles', $column)
+                        fn(string $column) => Schema::hasColumn('roles', $column)
                     )
                     ->values()
                     ->toArray();
@@ -6682,7 +6637,7 @@ class DynamicPostController extends Controller
                         ->whereIn('id', $roleIds)
                         ->get()
                         ->keyBy(
-                            fn ($role) => (int) $role->id
+                            fn($role) => (int) $role->id
                         );
                 }
             }
@@ -6692,8 +6647,8 @@ class DynamicPostController extends Controller
             ->map(function (User $user) use ($rolesById) {
                 $fullName = trim(
                     ($user->first_name ?? '')
-                    . ' '
-                    . ($user->last_name ?? '')
+                        . ' '
+                        . ($user->last_name ?? '')
                 );
 
                 $isAnonymous = $this->isAnonymousAssignmentUser($user);

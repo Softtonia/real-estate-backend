@@ -37,22 +37,29 @@ class PropertyWorkflowService
 
     public function assertCanSubmitProperty(User $user): void
     {
-        $roleSlug = $this->roleSlug($user);
+        /*
+    |--------------------------------------------------------------------------
+    | Generic DynamicPost verification submission
+    |--------------------------------------------------------------------------
+    |
+    | Verification workflow itself must not hardcode owner/company/developer/
+    | consultant roles.
+    |
+    | Which post type a user is allowed to CREATE belongs to the listing /
+    | post-type authorization layer.
+    |
+    | Verification authorization is enforced using dynamic_posts.author_id
+    | inside assertOwner().
+    |
+    */
 
-        $allowedRoles = collect(config(
-            'property_verification.submission_roles',
-            self::ALLOWED_OWNER_ROLES
-        ))
-            ->map(fn($role) => Str::slug((string) $role))
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
-
-        if (!in_array($roleSlug, $allowedRoles, true)) {
+        if (
+            !$user->exists
+            || (int) $user->getKey() <= 0
+        ) {
             throw ValidationException::withMessages([
-                'role' => [
-                    'Only Property Owner, Company and Consultant roles can submit or resubmit properties.',
+                'user' => [
+                    'A valid authenticated user is required.',
                 ],
             ]);
         }
@@ -1069,10 +1076,18 @@ class PropertyWorkflowService
         DynamicPost $property,
         User $user
     ): void {
-        if ((int) ($property->author_id ?? 0) !== (int) $user->id) {
+        $authorId = (int) (
+            $property->author_id
+            ?? 0
+        );
+
+        if (
+            $authorId <= 0
+            || $authorId !== (int) $user->id
+        ) {
             throw ValidationException::withMessages([
-                'property' => [
-                    'You are not allowed to manage this property.',
+                'dynamic_post' => [
+                    'You are not allowed to manage this DynamicPost.',
                 ],
             ]);
         }
@@ -1081,14 +1096,39 @@ class PropertyWorkflowService
     private function assertPropertyListing(
         DynamicPost $property
     ): void {
-        $slug = DB::table('post_types')
-            ->where('id', $property->post_type_id)
-            ->value('slug');
+        /*
+    |--------------------------------------------------------------------------
+    | Legacy method name - generic behaviour
+    |--------------------------------------------------------------------------
+    |
+    | Do NOT rename this method because it is already called throughout the
+    | existing verification workflow.
+    |
+    | Verification now accepts ANY valid DynamicPost post type.
+    |
+    */
 
-        if (Str::slug((string) $slug) !== 'property-listing') {
+        $postTypeId = (int) (
+            $property->post_type_id
+            ?? 0
+        );
+
+        if ($postTypeId <= 0) {
             throw ValidationException::withMessages([
-                'property' => [
-                    'The selected post is not a property listing.',
+                'post_type_id' => [
+                    'The selected DynamicPost does not have a valid post type.',
+                ],
+            ]);
+        }
+
+        $postTypeExists = DB::table('post_types')
+            ->where('id', $postTypeId)
+            ->exists();
+
+        if (!$postTypeExists) {
+            throw ValidationException::withMessages([
+                'post_type_id' => [
+                    'The selected DynamicPost post type does not exist.',
                 ],
             ]);
         }

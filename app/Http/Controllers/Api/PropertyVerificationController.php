@@ -46,13 +46,57 @@ class PropertyVerificationController extends Controller
                         PropertyWorkflowStatus::REJECTED,
                     ]),
                 ],
-                'assigned_to' => ['nullable', 'string'],
-                'search' => ['nullable', 'string', 'max:255'],
-                'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-                'page' => ['nullable', 'integer', 'min:1'],
+
+                'assigned_to' => [
+                    'nullable',
+                    'string',
+                ],
+
+                /*
+            |--------------------------------------------------------------------------
+            | Generic PostType filters
+            |--------------------------------------------------------------------------
+            */
+
+                'post_type_id' => [
+                    'nullable',
+                    'integer',
+                    'exists:post_types,id',
+                ],
+
+                'post_type' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+
+                'search' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+
+                'per_page' => [
+                    'nullable',
+                    'integer',
+                    'min:1',
+                    'max:100',
+                ],
+
+                'page' => [
+                    'nullable',
+                    'integer',
+                    'min:1',
+                ],
             ]);
 
             $actor = $this->actor($request);
+
+            /*
+        |--------------------------------------------------------------------------
+        | Only latest verification revision of each DynamicPost
+        |--------------------------------------------------------------------------
+        */
 
             $latestRevisionIds = PropertyListingRevision::query()
                 ->selectRaw('MAX(id)')
@@ -60,19 +104,37 @@ class PropertyVerificationController extends Controller
 
             $query = PropertyListingRevision::query()
                 ->with([
-                    'property',
+                    /*
+                 * Important:
+                 * PostType eager loaded so formatProperty()
+                 * does not create N+1 queries.
+                 */
+                    'property.postType:id,name,slug',
+
                     'submitter:id,first_name,last_name,email',
                     'assignedVerifier:id,first_name,last_name,email',
                     'assigner:id,first_name,last_name,email',
                     'decider:id,first_name,last_name,email',
                 ])
-                ->whereIn('id', $latestRevisionIds);
+                ->whereIn(
+                    'id',
+                    $latestRevisionIds
+                );
+
+            /*
+        |--------------------------------------------------------------------------
+        | Verification status
+        |--------------------------------------------------------------------------
+        */
 
             if (
                 $request->filled('status')
                 && $request->status !== 'all'
             ) {
-                $query->where('status', $request->status);
+                $query->where(
+                    'status',
+                    $request->status
+                );
             } else {
                 $query->whereIn(
                     'status',
@@ -80,18 +142,111 @@ class PropertyVerificationController extends Controller
                 );
             }
 
-            $canAssign = $this->userHasPermission(
-                $actor,
-                'property_verifications.assign'
-            );
+            /*
+        |--------------------------------------------------------------------------
+        | Dynamic PostType ID filter
+        |--------------------------------------------------------------------------
+        */
+
+            if ($request->filled('post_type_id')) {
+                $postTypeId =
+                    (int) $request->post_type_id;
+
+                $query->whereHas(
+                    'property',
+                    function ($postQuery) use (
+                        $postTypeId
+                    ) {
+                        $postQuery->where(
+                            'post_type_id',
+                            $postTypeId
+                        );
+                    }
+                );
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Dynamic PostType slug/name filter
+        |--------------------------------------------------------------------------
+        |
+        | Examples:
+        |
+        | ?post_type=property-listing
+        | ?post_type=project-listing
+        | ?post_type=developer-listing
+        | ?post_type=guest-post
+        |
+        | Future PostTypes automatically work.
+        |
+        */
+
+            if ($request->filled('post_type')) {
+                $postTypeValue = trim(
+                    (string) $request->post_type
+                );
+
+                $query->whereHas(
+                    'property.postType',
+                    function ($postTypeQuery) use (
+                        $postTypeValue
+                    ) {
+                        $postTypeQuery->where(
+                            function ($q) use (
+                                $postTypeValue
+                            ) {
+                                $q
+                                    ->where(
+                                        'slug',
+                                        $postTypeValue
+                                    )
+                                    ->orWhere(
+                                        'name',
+                                        $postTypeValue
+                                    );
+                            }
+                        );
+                    }
+                );
+            }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Assignment visibility
+        |--------------------------------------------------------------------------
+        |
+        | Existing behavior preserved:
+        |
+        | Admin/assign permission:
+        |   can see all.
+        |
+        | Reviewer:
+        |   only assigned revisions.
+        |
+        */
+
+            $canAssign =
+                $this->userHasPermission(
+                    $actor,
+                    'property_verifications.assign'
+                );
 
             if (!$canAssign) {
-                // A reviewer can only see listings assigned to that exact user.
-                $query->where('assigned_to', (int) $actor->id);
+                $query->where(
+                    'assigned_to',
+                    (int) $actor->id
+                );
             } elseif ($request->filled('assigned_to')) {
                 if ($request->assigned_to === 'me') {
-                    $query->where('assigned_to', (int) $actor->id);
-                } elseif (is_numeric($request->assigned_to)) {
+                    $query->where(
+                        'assigned_to',
+                        (int) $actor->id
+                    );
+                } elseif (
+                    is_numeric(
+                        $request->assigned_to
+                    )
+                ) {
                     $query->where(
                         'assigned_to',
                         (int) $request->assigned_to
@@ -99,62 +254,117 @@ class PropertyVerificationController extends Controller
                 }
             }
 
+            /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
+
             if ($request->filled('search')) {
-                $search = trim((string) $request->search);
+                $search = trim(
+                    (string) $request->search
+                );
 
-                $query->whereHas('property', function ($propertyQuery) use ($search) {
-                    $propertyQuery->where(function ($subQuery) use ($search) {
-                        if (Schema::hasColumn('dynamic_posts', 'title')) {
-                            $subQuery->where(
-                                'title',
-                                'like',
-                                "%{$search}%"
-                            );
-                        }
+                $query->whereHas(
+                    'property',
+                    function ($propertyQuery) use (
+                        $search
+                    ) {
+                        $propertyQuery->where(
+                            function ($subQuery) use (
+                                $search
+                            ) {
+                                if (
+                                    Schema::hasColumn(
+                                        'dynamic_posts',
+                                        'title'
+                                    )
+                                ) {
+                                    $subQuery->where(
+                                        'title',
+                                        'like',
+                                        "%{$search}%"
+                                    );
+                                }
 
-                        if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
-                            $subQuery->orWhere(
-                                'listing_code',
-                                'like',
-                                "%{$search}%"
-                            );
-                        }
+                                if (
+                                    Schema::hasColumn(
+                                        'dynamic_posts',
+                                        'listing_code'
+                                    )
+                                ) {
+                                    $subQuery->orWhere(
+                                        'listing_code',
+                                        'like',
+                                        "%{$search}%"
+                                    );
+                                }
 
-                        if (Schema::hasColumn('dynamic_posts', 'slug')) {
-                            $subQuery->orWhere(
-                                'slug',
-                                'like',
-                                "%{$search}%"
-                            );
-                        }
-                    });
-                });
+                                if (
+                                    Schema::hasColumn(
+                                        'dynamic_posts',
+                                        'slug'
+                                    )
+                                ) {
+                                    $subQuery->orWhere(
+                                        'slug',
+                                        'like',
+                                        "%{$search}%"
+                                    );
+                                }
+                            }
+                        );
+                    }
+                );
             }
+
+            /*
+        |--------------------------------------------------------------------------
+        | Pagination
+        |--------------------------------------------------------------------------
+        */
+
+            $perPage = min(
+                100,
+                max(
+                    1,
+                    (int) $request->get(
+                        'per_page',
+                        20
+                    )
+                )
+            );
 
             $items = $query
                 ->latest('submitted_at')
-                ->paginate((int) $request->get('per_page', 20));
+                ->latest('id')
+                ->paginate($perPage);
 
-            $items->getCollection()->transform(
-                fn(PropertyListingRevision $revision) =>
-                $this->formatRevision($revision)
-            );
+            $items
+                ->getCollection()
+                ->transform(
+                    fn(
+                        PropertyListingRevision $revision
+                    ) => $this->formatRevision(
+                        $revision
+                    )
+                );
 
             return response()->json([
                 'status' => true,
-                'message' => 'Property verification requests fetched successfully.',
+                'message' =>
+                'Verification requests fetched successfully.',
                 'data' => $items,
             ]);
         } catch (ValidationException $e) {
             return $this->validationError($e);
         } catch (Throwable $e) {
             return $this->error(
-                'Unable to fetch property verification requests.',
+                'Unable to fetch verification requests.',
                 $e
             );
         }
     }
-
     public function verifiers(Request $request): JsonResponse
     {
         try {
@@ -945,30 +1155,91 @@ class PropertyVerificationController extends Controller
         ];
     }
 
-    private function formatProperty(?DynamicPost $property): ?array
-    {
+    private function formatProperty(
+        ?DynamicPost $property
+    ): ?array {
         if (!$property) {
             return null;
         }
 
+        /*
+     * Index() already eager-loads this.
+     *
+     * Single show/approve/reject endpoints ke case me
+     * relation missing ho to only one extra query hogi.
+     */
+        $property->loadMissing(
+            'postType:id,name,slug'
+        );
+
         return [
-            'id' => (int) $property->id,
-            'title' => $property->title ?? null,
-            'slug' => $property->slug ?? null,
-            'listing_code' => $property->listing_code ?? null,
-            'author_id' => isset($property->author_id)
+            'id' =>
+            (int) $property->id,
+
+            'post_type_id' =>
+            (int) $property->post_type_id,
+
+            'post_type' =>
+            $property->postType
+                ? [
+                    'id' =>
+                    (int) $property
+                        ->postType
+                        ->id,
+
+                    'name' =>
+                    $property
+                        ->postType
+                        ->name,
+
+                    'slug' =>
+                    $property
+                        ->postType
+                        ->slug,
+                ]
+                : null,
+
+            'title' =>
+            $property->title
+                ?? null,
+
+            'slug' =>
+            $property->slug
+                ?? null,
+
+            'listing_code' =>
+            $property->listing_code
+                ?? null,
+
+            'author_id' =>
+            isset($property->author_id)
                 ? (int) $property->author_id
                 : null,
-            'status' => $property->status ?? null,
-            'live_status' => $property->live_status ?? null,
-            'published_at' => optional(
-                $property->published_at ?? null
+
+            'status' =>
+            $property->status
+                ?? null,
+
+            'live_status' =>
+            $property->live_status
+                ?? null,
+
+            'published_at' =>
+            optional(
+                $property->published_at
+                    ?? null
             )->toDateTimeString(),
-            'created_at' => optional(
-                $property->created_at ?? null
+
+            'created_at' =>
+            optional(
+                $property->created_at
+                    ?? null
             )->toDateTimeString(),
-            'updated_at' => optional(
-                $property->updated_at ?? null
+
+            'updated_at' =>
+            optional(
+                $property->updated_at
+                    ?? null
             )->toDateTimeString(),
         ];
     }
