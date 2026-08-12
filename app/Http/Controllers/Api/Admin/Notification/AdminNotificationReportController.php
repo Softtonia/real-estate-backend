@@ -181,6 +181,12 @@ class AdminNotificationReportController extends Controller
     public function clearLogs(
         AdminNotificationMaintenanceService $service
     ): JsonResponse {
+        return $this->clearAllLogs($service);
+    }
+
+    public function clearAllLogs(
+        AdminNotificationMaintenanceService $service
+    ): JsonResponse {
         try {
             $result = $service->clearAllLogs();
 
