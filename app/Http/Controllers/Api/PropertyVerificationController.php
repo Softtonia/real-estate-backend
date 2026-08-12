@@ -46,57 +46,15 @@ class PropertyVerificationController extends Controller
                         PropertyWorkflowStatus::REJECTED,
                     ]),
                 ],
-
-                'assigned_to' => [
-                    'nullable',
-                    'string',
-                ],
-
-                /*
-            |--------------------------------------------------------------------------
-            | Generic PostType filters
-            |--------------------------------------------------------------------------
-            */
-
-                'post_type_id' => [
-                    'nullable',
-                    'integer',
-                    'exists:post_types,id',
-                ],
-
-                'post_type' => [
-                    'nullable',
-                    'string',
-                    'max:255',
-                ],
-
-                'search' => [
-                    'nullable',
-                    'string',
-                    'max:255',
-                ],
-
-                'per_page' => [
-                    'nullable',
-                    'integer',
-                    'min:1',
-                    'max:100',
-                ],
-
-                'page' => [
-                    'nullable',
-                    'integer',
-                    'min:1',
-                ],
+                'assigned_to' => ['nullable', 'string'],
+                'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
+                'post_type' => ['nullable', 'string', 'max:255'],
+                'search' => ['nullable', 'string', 'max:255'],
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+                'page' => ['nullable', 'integer', 'min:1'],
             ]);
 
             $actor = $this->actor($request);
-
-            /*
-        |--------------------------------------------------------------------------
-        | Only latest verification revision of each DynamicPost
-        |--------------------------------------------------------------------------
-        */
 
             $latestRevisionIds = PropertyListingRevision::query()
                 ->selectRaw('MAX(id)')
@@ -104,37 +62,19 @@ class PropertyVerificationController extends Controller
 
             $query = PropertyListingRevision::query()
                 ->with([
-                    /*
-                 * Important:
-                 * PostType eager loaded so formatProperty()
-                 * does not create N+1 queries.
-                 */
                     'property.postType:id,name,slug',
-
                     'submitter:id,first_name,last_name,email',
                     'assignedVerifier:id,first_name,last_name,email',
                     'assigner:id,first_name,last_name,email',
                     'decider:id,first_name,last_name,email',
                 ])
-                ->whereIn(
-                    'id',
-                    $latestRevisionIds
-                );
-
-            /*
-        |--------------------------------------------------------------------------
-        | Verification status
-        |--------------------------------------------------------------------------
-        */
+                ->whereIn('id', $latestRevisionIds);
 
             if (
                 $request->filled('status')
                 && $request->status !== 'all'
             ) {
-                $query->where(
-                    'status',
-                    $request->status
-                );
+                $query->where('status', $request->status);
             } else {
                 $query->whereIn(
                     'status',
@@ -142,111 +82,42 @@ class PropertyVerificationController extends Controller
                 );
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | Dynamic PostType ID filter
-        |--------------------------------------------------------------------------
-        */
-
             if ($request->filled('post_type_id')) {
-                $postTypeId =
-                    (int) $request->post_type_id;
+                $postTypeId = (int) $request->post_type_id;
 
                 $query->whereHas(
                     'property',
-                    function ($postQuery) use (
-                        $postTypeId
-                    ) {
-                        $postQuery->where(
-                            'post_type_id',
-                            $postTypeId
-                        );
-                    }
+                    fn(Builder $propertyQuery) =>
+                    $propertyQuery->where('post_type_id', $postTypeId)
                 );
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | Dynamic PostType slug/name filter
-        |--------------------------------------------------------------------------
-        |
-        | Examples:
-        |
-        | ?post_type=property-listing
-        | ?post_type=project-listing
-        | ?post_type=developer-listing
-        | ?post_type=guest-post
-        |
-        | Future PostTypes automatically work.
-        |
-        */
-
             if ($request->filled('post_type')) {
-                $postTypeValue = trim(
-                    (string) $request->post_type
-                );
+                $postType = trim((string) $request->post_type);
 
                 $query->whereHas(
                     'property.postType',
-                    function ($postTypeQuery) use (
-                        $postTypeValue
-                    ) {
-                        $postTypeQuery->where(
-                            function ($q) use (
-                                $postTypeValue
-                            ) {
-                                $q
-                                    ->where(
-                                        'slug',
-                                        $postTypeValue
-                                    )
-                                    ->orWhere(
-                                        'name',
-                                        $postTypeValue
-                                    );
-                            }
-                        );
+                    function (Builder $postTypeQuery) use ($postType) {
+                        $postTypeQuery->where(function (Builder $subQuery) use ($postType) {
+                            $subQuery
+                                ->where('slug', $postType)
+                                ->orWhere('name', $postType);
+                        });
                     }
                 );
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | Assignment visibility
-        |--------------------------------------------------------------------------
-        |
-        | Existing behavior preserved:
-        |
-        | Admin/assign permission:
-        |   can see all.
-        |
-        | Reviewer:
-        |   only assigned revisions.
-        |
-        */
-
-            $canAssign =
-                $this->userHasPermission(
-                    $actor,
-                    'property_verifications.assign'
-                );
+            $canAssign = $this->userHasPermission(
+                $actor,
+                'property_verifications.assign'
+            );
 
             if (!$canAssign) {
-                $query->where(
-                    'assigned_to',
-                    (int) $actor->id
-                );
+                $query->where('assigned_to', (int) $actor->id);
             } elseif ($request->filled('assigned_to')) {
                 if ($request->assigned_to === 'me') {
-                    $query->where(
-                        'assigned_to',
-                        (int) $actor->id
-                    );
-                } elseif (
-                    is_numeric(
-                        $request->assigned_to
-                    )
-                ) {
+                    $query->where('assigned_to', (int) $actor->id);
+                } elseif (is_numeric($request->assigned_to)) {
                     $query->where(
                         'assigned_to',
                         (int) $request->assigned_to
@@ -254,117 +125,62 @@ class PropertyVerificationController extends Controller
                 }
             }
 
-            /*
-        |--------------------------------------------------------------------------
-        | Search
-        |--------------------------------------------------------------------------
-        */
-
             if ($request->filled('search')) {
-                $search = trim(
-                    (string) $request->search
-                );
+                $search = trim((string) $request->search);
 
-                $query->whereHas(
-                    'property',
-                    function ($propertyQuery) use (
-                        $search
-                    ) {
-                        $propertyQuery->where(
-                            function ($subQuery) use (
-                                $search
-                            ) {
-                                if (
-                                    Schema::hasColumn(
-                                        'dynamic_posts',
-                                        'title'
-                                    )
-                                ) {
-                                    $subQuery->where(
-                                        'title',
-                                        'like',
-                                        "%{$search}%"
-                                    );
-                                }
+                $query->whereHas('property', function ($propertyQuery) use ($search) {
+                    $propertyQuery->where(function ($subQuery) use ($search) {
+                        if (Schema::hasColumn('dynamic_posts', 'title')) {
+                            $subQuery->where(
+                                'title',
+                                'like',
+                                "%{$search}%"
+                            );
+                        }
 
-                                if (
-                                    Schema::hasColumn(
-                                        'dynamic_posts',
-                                        'listing_code'
-                                    )
-                                ) {
-                                    $subQuery->orWhere(
-                                        'listing_code',
-                                        'like',
-                                        "%{$search}%"
-                                    );
-                                }
+                        if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
+                            $subQuery->orWhere(
+                                'listing_code',
+                                'like',
+                                "%{$search}%"
+                            );
+                        }
 
-                                if (
-                                    Schema::hasColumn(
-                                        'dynamic_posts',
-                                        'slug'
-                                    )
-                                ) {
-                                    $subQuery->orWhere(
-                                        'slug',
-                                        'like',
-                                        "%{$search}%"
-                                    );
-                                }
-                            }
-                        );
-                    }
-                );
+                        if (Schema::hasColumn('dynamic_posts', 'slug')) {
+                            $subQuery->orWhere(
+                                'slug',
+                                'like',
+                                "%{$search}%"
+                            );
+                        }
+                    });
+                });
             }
-
-            /*
-        |--------------------------------------------------------------------------
-        | Pagination
-        |--------------------------------------------------------------------------
-        */
-
-            $perPage = min(
-                100,
-                max(
-                    1,
-                    (int) $request->get(
-                        'per_page',
-                        20
-                    )
-                )
-            );
 
             $items = $query
                 ->latest('submitted_at')
-                ->latest('id')
-                ->paginate($perPage);
+                ->paginate((int) $request->get('per_page', 20));
 
-            $items
-                ->getCollection()
-                ->transform(
-                    fn(
-                        PropertyListingRevision $revision
-                    ) => $this->formatRevision(
-                        $revision
-                    )
-                );
+            $items->getCollection()->transform(
+                fn(PropertyListingRevision $revision) =>
+                $this->formatRevision($revision)
+            );
 
             return response()->json([
                 'status' => true,
-                'message' =>
-                'Verification requests fetched successfully.',
+                'message' => 'Property verification requests fetched successfully.',
                 'data' => $items,
             ]);
         } catch (ValidationException $e) {
             return $this->validationError($e);
         } catch (Throwable $e) {
             return $this->error(
-                'Unable to fetch verification requests.',
+                'Unable to fetch property verification requests.',
                 $e
             );
         }
     }
+
     public function verifiers(Request $request): JsonResponse
     {
         try {
@@ -768,145 +584,30 @@ class PropertyVerificationController extends Controller
     }
 
     public function startVerification(
-        DynamicPost $property,
-        User $actor
-    ): PropertyListingRevision {
-        $this->assertCanActOnVerification($actor);
-
-        $revision = DB::transaction(function () use (
-            $property,
-            $actor
-        ) {
-            $lockedProperty = DynamicPost::query()
-                ->lockForUpdate()
-                ->findOrFail($property->id);
-
-            $this->assertPropertyListing(
-                $lockedProperty
-            );
-
-            $revision = $this->latestRevisionOrCreateForAdmin(
-                $lockedProperty,
-                $actor
-            );
-
-            if (
-                $revision->status ===
-                PropertyWorkflowStatus::APPROVED
-            ) {
-                return $revision;
-            }
-
-            $allowedStatuses = [
-                PropertyWorkflowStatus::UNDER_REVIEW,
-                PropertyWorkflowStatus::RESUBMISSION,
-                PropertyWorkflowStatus::ASSIGNED,
-                PropertyWorkflowStatus::IN_VERIFICATION,
-            ];
-
-            if (
-                !in_array(
-                    $revision->status,
-                    $allowedStatuses,
-                    true
-                )
-            ) {
-                throw ValidationException::withMessages([
-                    'status' => [
-                        'This action is not allowed while the verification status is '
-                            . $revision->status
-                            . '.',
-                    ],
-                ]);
-            }
-
-            $this->ensureActorCanWorkOnRevision(
-                $revision,
-                $actor
-            );
-
-            if (
-                $revision->status ===
-                PropertyWorkflowStatus::IN_VERIFICATION
-            ) {
-                return $revision;
-            }
-
-            $fromStatus = $revision->status;
-
-            $revision->forceFill([
-                'status' =>
-                PropertyWorkflowStatus::IN_VERIFICATION,
-
-                'verification_started_at' =>
-                $revision->verification_started_at
-                    ?: now(),
-            ])->save();
-
-            $this->setPropertyWorkflowState(
-                $lockedProperty,
-                status: $lockedProperty->status
-                    ?: 'draft',
-                liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
-            );
-
-            $this->recordEvent(
-                property: $lockedProperty,
-                revision: $revision,
-                actor: $actor,
-                event: 'verification_started',
-                fromStatus: $fromStatus,
-                toStatus: PropertyWorkflowStatus::IN_VERIFICATION,
-                message: 'Verification started.'
-            );
-
-            if (!empty($lockedProperty->author_id)) {
-                $this->notifyOwnerAfterCommit(
-                    ownerId: (int) $lockedProperty->author_id,
-
-                    property: $lockedProperty,
-                    event: 'verification_started'
-                );
-            }
-
-            return $revision;
-        });
-
-        return $revision->fresh([
-            'property:id,title,slug,status,live_status,author_id,post_type_id',
-            'assignedVerifier:id,first_name,last_name,email',
-            'assigner:id,first_name,last_name,email',
-            'decider:id,first_name,last_name,email',
-        ]);
-    }
-    private function assertPropertyListing(
+        Request $request,
         DynamicPost $property
-    ): void {
-        $postTypeId = (int) (
-            $property->post_type_id
-            ?? 0
-        );
+    ): JsonResponse {
+        try {
+            $revision = $this->workflow->startVerification(
+                property: $property,
+                actor: $this->actor($request)
+            );
 
-        if ($postTypeId <= 0) {
-            throw ValidationException::withMessages([
-                'post_type_id' => [
-                    'The selected DynamicPost does not have a valid post type.',
-                ],
+            return response()->json([
+                'status' => true,
+                'message' => 'Property verification started.',
+                'data' => $this->formatRevision($revision),
             ]);
-        }
-
-        $postTypeExists = DB::table('post_types')
-            ->where('id', $postTypeId)
-            ->exists();
-
-        if (!$postTypeExists) {
-            throw ValidationException::withMessages([
-                'post_type_id' => [
-                    'The selected DynamicPost post type does not exist.',
-                ],
-            ]);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->error(
+                'Unable to start property verification.',
+                $e
+            );
         }
     }
+
     public function approve(
         Request $request,
         DynamicPost $property
@@ -1270,152 +971,44 @@ class PropertyVerificationController extends Controller
         ];
     }
 
-    private function formatProperty(
-        ?DynamicPost $property
-    ): ?array {
+    private function formatProperty(?DynamicPost $property): ?array
+    {
         if (!$property) {
             return null;
         }
 
-        /*
-     * Index() already eager-loads this.
-     *
-     * Single show/approve/reject endpoints ke case me
-     * relation missing ho to only one extra query hogi.
-     */
-        $property->loadMissing(
-            'postType:id,name,slug'
-        );
+        $property->loadMissing('postType:id,name,slug');
 
         return [
-            'id' =>
-            (int) $property->id,
-
-            'post_type_id' =>
-            (int) $property->post_type_id,
-
-            'post_type' =>
-            $property->postType
+            'id' => (int) $property->id,
+            'post_type_id' => (int) $property->post_type_id,
+            'post_type' => $property->postType
                 ? [
-                    'id' =>
-                    (int) $property
-                        ->postType
-                        ->id,
-
-                    'name' =>
-                    $property
-                        ->postType
-                        ->name,
-
-                    'slug' =>
-                    $property
-                        ->postType
-                        ->slug,
+                    'id' => (int) $property->postType->id,
+                    'name' => $property->postType->name,
+                    'slug' => $property->postType->slug,
                 ]
                 : null,
-
-            'title' =>
-            $property->title
-                ?? null,
-
-            'slug' =>
-            $property->slug
-                ?? null,
-
-            'listing_code' =>
-            $property->listing_code
-                ?? null,
-
-            'author_id' =>
-            isset($property->author_id)
+            'title' => $property->title ?? null,
+            'slug' => $property->slug ?? null,
+            'listing_code' => $property->listing_code ?? null,
+            'author_id' => isset($property->author_id)
                 ? (int) $property->author_id
                 : null,
-
-            'status' =>
-            $property->status
-                ?? null,
-
-            'live_status' =>
-            $property->live_status
-                ?? null,
-
-            'published_at' =>
-            optional(
-                $property->published_at
-                    ?? null
+            'status' => $property->status ?? null,
+            'live_status' => $property->live_status ?? null,
+            'published_at' => optional(
+                $property->published_at ?? null
             )->toDateTimeString(),
-
-            'created_at' =>
-            optional(
-                $property->created_at
-                    ?? null
+            'created_at' => optional(
+                $property->created_at ?? null
             )->toDateTimeString(),
-
-            'updated_at' =>
-            optional(
-                $property->updated_at
-                    ?? null
+            'updated_at' => optional(
+                $property->updated_at ?? null
             )->toDateTimeString(),
         ];
     }
-    private function latestRevisionOrCreateForAdmin(
-        DynamicPost $property,
-        User $actor
-    ): PropertyListingRevision {
-        $revision = PropertyListingRevision::query()
-            ->where('dynamic_post_id', $property->id)
-            ->latest('version')
-            ->lockForUpdate()
-            ->first();
 
-        if ($revision) {
-            return $revision;
-        }
-
-        if (!$this->isSystemAdmin($actor)) {
-            throw ValidationException::withMessages([
-                'verification' => [
-                    'Verification revision does not exist for this DynamicPost.',
-                ],
-            ]);
-        }
-
-        $fromStatus = $property->live_status ?? null;
-
-        $revision = PropertyListingRevision::create([
-            'dynamic_post_id' => (int) $property->id,
-            'version' => $this->nextVersion($property),
-            'source' => 'admin_assignment',
-            'status' => PropertyWorkflowStatus::UNDER_REVIEW,
-            'baseline_payload' => null,
-            'submitted_payload' => $this->snapshots->capture($property),
-            'submitted_by' => !empty($property->author_id)
-                ? (int) $property->author_id
-                : (int) $actor->id,
-            'submitted_at' => now(),
-            'assigned_to' => null,
-            'assigned_by' => null,
-            'assigned_at' => null,
-        ]);
-
-        $this->setPropertyWorkflowState(
-            $property,
-            status: $property->status ?: 'draft',
-            liveStatus: PropertyWorkflowStatus::UNDER_REVIEW
-        );
-
-        $this->recordEvent(
-            property: $property,
-            revision: $revision,
-            actor: $actor,
-            event: 'property_verification_revision_created',
-            fromStatus: $fromStatus,
-            toStatus: PropertyWorkflowStatus::UNDER_REVIEW,
-            message: 'Verification revision created by admin.'
-        );
-
-        return $revision;
-    }
     private function formatTimeline($events): array
     {
         return collect($events)

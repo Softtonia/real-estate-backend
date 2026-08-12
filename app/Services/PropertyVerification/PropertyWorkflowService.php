@@ -37,26 +37,7 @@ class PropertyWorkflowService
 
     public function assertCanSubmitProperty(User $user): void
     {
-        /*
-    |--------------------------------------------------------------------------
-    | Generic DynamicPost verification submission
-    |--------------------------------------------------------------------------
-    |
-    | Verification workflow itself must not hardcode owner/company/developer/
-    | consultant roles.
-    |
-    | Which post type a user is allowed to CREATE belongs to the listing /
-    | post-type authorization layer.
-    |
-    | Verification authorization is enforced using dynamic_posts.author_id
-    | inside assertOwner().
-    |
-    */
-
-        if (
-            !$user->exists
-            || (int) $user->getKey() <= 0
-        ) {
+        if (!$user->exists || (int) $user->getKey() <= 0) {
             throw ValidationException::withMessages([
                 'user' => [
                     'A valid authenticated user is required.',
@@ -456,7 +437,10 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrFail($lockedProperty);
+            $revision = $this->latestRevisionOrCreateForAdminAction(
+                $lockedProperty,
+                $actor
+            );
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
@@ -526,6 +510,8 @@ class PropertyWorkflowService
     }
 
 
+
+
     public function approve(
         DynamicPost $property,
         User $actor,
@@ -544,7 +530,10 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrFail($lockedProperty);
+            $revision = $this->latestRevisionOrCreateForAdminAction(
+                $lockedProperty,
+                $actor
+            );
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 return $revision;
@@ -648,6 +637,7 @@ class PropertyWorkflowService
         ]);
     }
 
+
     public function reject(
         DynamicPost $property,
         User $actor,
@@ -680,7 +670,10 @@ class PropertyWorkflowService
 
             $this->assertPropertyListing($lockedProperty);
 
-            $revision = $this->latestRevisionOrFail($lockedProperty);
+            $revision = $this->latestRevisionOrCreateForAdminAction(
+                $lockedProperty,
+                $actor
+            );
 
             if ($revision->status === PropertyWorkflowStatus::APPROVED) {
                 throw ValidationException::withMessages([
@@ -933,6 +926,61 @@ class PropertyWorkflowService
 
         return $revision;
     }
+
+    private function latestRevisionOrCreateForAdminAction(
+        DynamicPost $property,
+        User $actor
+    ): PropertyListingRevision {
+        $revision = PropertyListingRevision::query()
+            ->where('dynamic_post_id', $property->id)
+            ->latest('version')
+            ->lockForUpdate()
+            ->first();
+
+        if ($revision) {
+            return $revision;
+        }
+
+        if (!$this->isSystemAdmin($actor)) {
+            throw ValidationException::withMessages([
+                'verification' => [
+                    'Verification revision not found for this DynamicPost.',
+                ],
+            ]);
+        }
+
+        $fromStatus = $property->live_status ?? null;
+
+        $revision = PropertyListingRevision::create([
+            'dynamic_post_id' => (int) $property->id,
+            'version' => 1,
+            'source' => 'admin_assignment',
+            'status' => PropertyWorkflowStatus::UNDER_REVIEW,
+            'baseline_payload' => null,
+            'submitted_payload' => $this->snapshots->capture($property),
+            'submitted_by' => (int) ($property->author_id ?: $actor->id),
+            'submitted_at' => now(),
+        ]);
+
+        $this->setPropertyWorkflowState(
+            $property,
+            status: $property->status ?: 'draft',
+            liveStatus: PropertyWorkflowStatus::UNDER_REVIEW
+        );
+
+        $this->recordEvent(
+            property: $property,
+            revision: $revision,
+            actor: $actor,
+            event: 'property_verification_revision_created',
+            fromStatus: $fromStatus,
+            toStatus: PropertyWorkflowStatus::UNDER_REVIEW,
+            message: 'Verification revision created by admin.'
+        );
+
+        return $revision;
+    }
+
     private function latestRevisionOrFail(
         DynamicPost $property
     ): PropertyListingRevision {
@@ -1076,15 +1124,7 @@ class PropertyWorkflowService
         DynamicPost $property,
         User $user
     ): void {
-        $authorId = (int) (
-            $property->author_id
-            ?? 0
-        );
-
-        if (
-            $authorId <= 0
-            || $authorId !== (int) $user->id
-        ) {
+        if ((int) ($property->author_id ?? 0) !== (int) $user->id) {
             throw ValidationException::withMessages([
                 'dynamic_post' => [
                     'You are not allowed to manage this DynamicPost.',
@@ -1096,22 +1136,7 @@ class PropertyWorkflowService
     private function assertPropertyListing(
         DynamicPost $property
     ): void {
-        /*
-    |--------------------------------------------------------------------------
-    | Legacy method name - generic behaviour
-    |--------------------------------------------------------------------------
-    |
-    | Do NOT rename this method because it is already called throughout the
-    | existing verification workflow.
-    |
-    | Verification now accepts ANY valid DynamicPost post type.
-    |
-    */
-
-        $postTypeId = (int) (
-            $property->post_type_id
-            ?? 0
-        );
+        $postTypeId = (int) ($property->post_type_id ?? 0);
 
         if ($postTypeId <= 0) {
             throw ValidationException::withMessages([
