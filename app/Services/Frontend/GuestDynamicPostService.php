@@ -19,8 +19,7 @@ class GuestDynamicPostService
 {
     public function __construct(
         private TemplateResolveService $templateResolveService
-    ) {
-    }
+    ) {}
 
     /*
     |--------------------------------------------------------------------------
@@ -161,44 +160,44 @@ class GuestDynamicPostService
 
         match ($sortBy) {
             'oldest' =>
-                $query
-                    ->orderBy(
-                        'dynamic_posts.published_at',
-                        'asc'
-                    )
-                    ->orderBy(
-                        'dynamic_posts.id',
-                        'asc'
-                    ),
+            $query
+                ->orderBy(
+                    'dynamic_posts.published_at',
+                    'asc'
+                )
+                ->orderBy(
+                    'dynamic_posts.id',
+                    'asc'
+                ),
 
             'title_asc' =>
-                $query
-                    ->orderBy(
-                        'dynamic_posts.title',
-                        'asc'
-                    )
-                    ->orderByDesc(
-                        'dynamic_posts.id'
-                    ),
+            $query
+                ->orderBy(
+                    'dynamic_posts.title',
+                    'asc'
+                )
+                ->orderByDesc(
+                    'dynamic_posts.id'
+                ),
 
             'title_desc' =>
-                $query
-                    ->orderBy(
-                        'dynamic_posts.title',
-                        'desc'
-                    )
-                    ->orderByDesc(
-                        'dynamic_posts.id'
-                    ),
+            $query
+                ->orderBy(
+                    'dynamic_posts.title',
+                    'desc'
+                )
+                ->orderByDesc(
+                    'dynamic_posts.id'
+                ),
 
             default =>
-                $query
-                    ->orderByDesc(
-                        'dynamic_posts.published_at'
-                    )
-                    ->orderByDesc(
-                        'dynamic_posts.id'
-                    ),
+            $query
+                ->orderByDesc(
+                    'dynamic_posts.published_at'
+                )
+                ->orderByDesc(
+                    'dynamic_posts.id'
+                ),
         };
 
         /*
@@ -258,13 +257,13 @@ class GuestDynamicPostService
 
         return [
             'post_type' =>
-                $postType,
+            $postType,
 
             'featured_only' =>
-                $featuredOnly,
+            $featuredOnly,
 
             'paginator' =>
-                $paginator,
+            $paginator,
         ];
     }
 
@@ -393,9 +392,9 @@ class GuestDynamicPostService
             && $post->parent
             && (
                 ($post->parent->status ?? null)
-                    !== 'published'
+                !== 'published'
                 || ($post->parent->live_status ?? null)
-                    !== 'approve'
+                !== 'approve'
             )
         ) {
             $post->setRelation(
@@ -446,10 +445,10 @@ class GuestDynamicPostService
 
         return [
             'post' =>
-                $post,
+            $post,
 
             'template' =>
-                $template,
+            $template,
         ];
     }
 
@@ -789,34 +788,31 @@ class GuestDynamicPostService
         $now = now();
 
         $query->whereExists(
-            function (
-                $promotionQuery
-            ) use (
-                $now
-            ) {
+            function ($promotionQuery) use ($now) {
                 $promotionQuery
                     ->selectRaw('1')
-                    ->from(
-                        'property_featured_promotions as guest_featured'
-                    )
+                    ->from('property_featured_promotions as pfp')
                     ->whereColumn(
-                        'guest_featured.dynamic_post_id',
+                        'pfp.dynamic_post_id',
                         'dynamic_posts.id'
                     )
+                    ->whereNull(
+                        'pfp.cancelled_at'
+                    )
                     ->whereIn(
-                        'guest_featured.status',
+                        'pfp.status',
                         [
                             PropertyFeaturedPromotion::STATUS_ACTIVE,
                             PropertyFeaturedPromotion::STATUS_SCHEDULED,
                         ]
                     )
                     ->where(
-                        'guest_featured.starts_at',
+                        'pfp.starts_at',
                         '<=',
                         $now
                     )
                     ->where(
-                        'guest_featured.ends_at',
+                        'pfp.ends_at',
                         '>',
                         $now
                     );
@@ -837,41 +833,38 @@ class GuestDynamicPostService
 
         $priorityQuery =
             PropertyFeaturedPromotion::query()
-                ->select(
-                    'priority'
-                )
-                ->whereColumn(
-                    'dynamic_post_id',
-                    'dynamic_posts.id'
-                )
-                ->whereIn(
-                    'status',
-                    [
-                        PropertyFeaturedPromotion::STATUS_ACTIVE,
-                        PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                    ]
-                )
-                ->where(
-                    'starts_at',
-                    '<=',
-                    $now
-                )
-                ->where(
-                    'ends_at',
-                    '>',
-                    $now
-                )
-                ->orderByDesc(
-                    'priority'
-                )
-                ->orderByDesc(
-                    'id'
-                )
-                ->limit(1);
+            ->select('priority')
+            ->whereColumn(
+                'dynamic_post_id',
+                'dynamic_posts.id'
+            )
+            ->whereNull(
+                'cancelled_at'
+            )
+            ->whereIn(
+                'status',
+                [
+                    PropertyFeaturedPromotion::STATUS_ACTIVE,
+                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
+                ]
+            )
+            ->where(
+                'starts_at',
+                '<=',
+                $now
+            )
+            ->where(
+                'ends_at',
+                '>',
+                $now
+            )
+            ->orderByDesc('priority')
+            ->orderByDesc('id')
+            ->limit(1);
 
         $query->addSelect([
             'guest_featured_priority' =>
-                $priorityQuery,
+            $priorityQuery,
         ]);
     }
 
@@ -884,8 +877,7 @@ class GuestDynamicPostService
     private function attachCurrentFeaturedPromotions(
         LengthAwarePaginator $paginator
     ): void {
-        $posts =
-            $paginator->getCollection();
+        $posts = $paginator->getCollection();
 
         if ($posts->isEmpty()) {
             return;
@@ -894,8 +886,7 @@ class GuestDynamicPostService
         $postIds = $posts
             ->pluck('id')
             ->map(
-                fn ($id) =>
-                    (int) $id
+                fn($id) => (int) $id
             )
             ->values()
             ->all();
@@ -904,59 +895,50 @@ class GuestDynamicPostService
 
         $promotions =
             PropertyFeaturedPromotion::query()
-                ->whereIn(
-                    'dynamic_post_id',
-                    $postIds
-                )
-                ->whereIn(
-                    'status',
-                    [
-                        PropertyFeaturedPromotion::STATUS_ACTIVE,
-                        PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                    ]
-                )
-                ->where(
-                    'starts_at',
-                    '<=',
-                    $now
-                )
-                ->where(
-                    'ends_at',
-                    '>',
-                    $now
-                )
-                ->orderByDesc(
-                    'priority'
-                )
-                ->orderByDesc(
-                    'starts_at'
-                )
-                ->orderByDesc(
-                    'id'
-                )
-                ->get([
-                    'id',
-                    'dynamic_post_id',
-                    'source',
-                    'status',
-                    'starts_at',
-                    'ends_at',
-                    'priority',
-                ])
-                ->groupBy(
-                    'dynamic_post_id'
-                )
-                ->map(
-                    fn ($items) =>
-                        $items->first()
-                );
+            ->whereIn(
+                'dynamic_post_id',
+                $postIds
+            )
+            ->whereNull(
+                'cancelled_at'
+            )
+            ->whereIn(
+                'status',
+                [
+                    PropertyFeaturedPromotion::STATUS_ACTIVE,
+                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
+                ]
+            )
+            ->where(
+                'starts_at',
+                '<=',
+                $now
+            )
+            ->where(
+                'ends_at',
+                '>',
+                $now
+            )
+            ->orderByDesc('priority')
+            ->orderByDesc('id')
+            ->get([
+                'id',
+                'dynamic_post_id',
+                'source',
+                'status',
+                'starts_at',
+                'ends_at',
+                'priority',
+            ])
+            ->groupBy('dynamic_post_id')
+            ->map(
+                fn($items) => $items->first()
+            );
 
         $posts->each(
             function (
                 DynamicPost $post
-            ) use (
-                $promotions
-            ) {
+            ) use ($promotions) {
                 $post->setAttribute(
                     '_guest_featured_promotion',
                     $promotions->get(
@@ -980,45 +962,45 @@ class GuestDynamicPostService
 
         $promotion =
             PropertyFeaturedPromotion::query()
-                ->where(
-                    'dynamic_post_id',
-                    (int) $post->id
-                )
-                ->whereIn(
-                    'status',
-                    [
-                        PropertyFeaturedPromotion::STATUS_ACTIVE,
-                        PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                    ]
-                )
-                ->where(
-                    'starts_at',
-                    '<=',
-                    $now
-                )
-                ->where(
-                    'ends_at',
-                    '>',
-                    $now
-                )
-                ->orderByDesc(
-                    'priority'
-                )
-                ->orderByDesc(
-                    'starts_at'
-                )
-                ->orderByDesc(
-                    'id'
-                )
-                ->first([
-                    'id',
-                    'dynamic_post_id',
-                    'source',
-                    'status',
-                    'starts_at',
-                    'ends_at',
-                    'priority',
-                ]);
+            ->where(
+                'dynamic_post_id',
+                (int) $post->id
+            )
+            ->whereIn(
+                'status',
+                [
+                    PropertyFeaturedPromotion::STATUS_ACTIVE,
+                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
+                ]
+            )
+            ->where(
+                'starts_at',
+                '<=',
+                $now
+            )
+            ->where(
+                'ends_at',
+                '>',
+                $now
+            )
+            ->orderByDesc(
+                'priority'
+            )
+            ->orderByDesc(
+                'starts_at'
+            )
+            ->orderByDesc(
+                'id'
+            )
+            ->first([
+                'id',
+                'dynamic_post_id',
+                'source',
+                'status',
+                'starts_at',
+                'ends_at',
+                'priority',
+            ]);
 
         $post->setAttribute(
             '_guest_featured_promotion',
@@ -1048,8 +1030,8 @@ class GuestDynamicPostService
             )
             ->filter()
             ->map(
-                fn ($id) =>
-                    (int) $id
+                fn($id) =>
+                (int) $id
             )
             ->unique()
             ->values()
@@ -1058,14 +1040,14 @@ class GuestDynamicPostService
         $mediaMap = empty($mediaIds)
             ? collect()
             : MediaFile::query()
-                ->whereIn(
-                    'id',
-                    $mediaIds
-                )
-                ->get()
-                ->keyBy(
-                    'id'
-                );
+            ->whereIn(
+                'id',
+                $mediaIds
+            )
+            ->get()
+            ->keyBy(
+                'id'
+            );
 
         $posts->each(
             function (
@@ -1075,9 +1057,7 @@ class GuestDynamicPostService
             ) {
                 $post->setAttribute(
                     '_guest_featured_media',
-                    !empty(
-                        $post->featured_image_id
-                    )
+                    !empty($post->featured_image_id)
                         ? $mediaMap->get(
                             (int) $post
                                 ->featured_image_id
@@ -1098,11 +1078,9 @@ class GuestDynamicPostService
         DynamicPost $post
     ): void {
         $featuredImageId =
-            !empty(
-                $post->featured_image_id
-            )
-                ? (int) $post->featured_image_id
-                : null;
+            !empty($post->featured_image_id)
+            ? (int) $post->featured_image_id
+            : null;
 
         $galleryIds =
             $this->normalizeMediaIds(
@@ -1118,7 +1096,7 @@ class GuestDynamicPostService
         ) {
             $fieldType =
                 $meta->customField
-                    ?->field_type;
+                ?->field_type;
 
             if (
                 !in_array(
@@ -1153,27 +1131,27 @@ class GuestDynamicPostService
                     $customFieldMediaIds
                 )
             )
-                ->filter()
-                ->map(
-                    fn ($id) =>
-                        (int) $id
-                )
-                ->unique()
-                ->values()
-                ->all();
+            ->filter()
+            ->map(
+                fn($id) =>
+                (int) $id
+            )
+            ->unique()
+            ->values()
+            ->all();
 
         $mediaMap =
             empty($allMediaIds)
-                ? collect()
-                : MediaFile::query()
-                    ->whereIn(
-                        'id',
-                        $allMediaIds
-                    )
-                    ->get()
-                    ->keyBy(
-                        'id'
-                    );
+            ? collect()
+            : MediaFile::query()
+            ->whereIn(
+                'id',
+                $allMediaIds
+            )
+            ->get()
+            ->keyBy(
+                'id'
+            );
 
         $post->setAttribute(
             '_guest_media_map',
@@ -1195,10 +1173,10 @@ class GuestDynamicPostService
                 $galleryIds
             )
                 ->map(
-                    fn ($id) =>
-                        $mediaMap->get(
-                            (int) $id
-                        )
+                    fn($id) =>
+                    $mediaMap->get(
+                        (int) $id
+                    )
                 )
                 ->filter()
                 ->values()
@@ -1240,11 +1218,11 @@ class GuestDynamicPostService
                         $value,
                         ','
                     )
-                        ? explode(
-                            ',',
-                            $value
-                        )
-                        : [$value];
+                    ? explode(
+                        ',',
+                        $value
+                    )
+                    : [$value];
             }
         }
 
@@ -1255,12 +1233,12 @@ class GuestDynamicPostService
         return collect($value)
             ->flatten()
             ->filter(
-                fn ($id) =>
-                    is_numeric($id)
+                fn($id) =>
+                is_numeric($id)
             )
             ->map(
-                fn ($id) =>
-                    (int) $id
+                fn($id) =>
+                (int) $id
             )
             ->unique()
             ->values()
@@ -1473,13 +1451,7 @@ class GuestDynamicPostService
                 ?? $row->value_json
                 ?? null;
 
-            $grouped[
-                $customFieldId
-            ][
-                $rowIndex
-            ][
-                $fieldSlug
-            ] =
+            $grouped[$customFieldId][$rowIndex][$fieldSlug] =
                 $this->decodeDatabaseValue(
                     $fieldValue
                 );
@@ -1530,8 +1502,8 @@ class GuestDynamicPostService
 
         return json_last_error()
             === JSON_ERROR_NONE
-                ? $decoded
-                : $value;
+            ? $decoded
+            : $value;
     }
 
     /*
@@ -1548,47 +1520,47 @@ class GuestDynamicPostService
                 ->templateResolveService
                 ->resolve([
                     'template_type' =>
-                        'single_post',
+                    'single_post',
 
                     'post_type_id' =>
-                        (int) $post->post_type_id,
+                    (int) $post->post_type_id,
 
                     'post_type' =>
-                        $post->postType?->slug,
+                    $post->postType?->slug,
 
                     'post_id' =>
-                        (int) $post->id,
+                    (int) $post->id,
 
                     'dynamic_post_id' =>
-                        (int) $post->id,
+                    (int) $post->id,
 
                     'id' =>
-                        (int) $post->id,
+                    (int) $post->id,
 
                     'title' =>
-                        $post->title
+                    $post->title
                         ?? null,
 
                     'slug' =>
-                        $post->slug
+                    $post->slug
                         ?? null,
 
                     'status' =>
-                        $post->status
+                    $post->status
                         ?? null,
 
                     'taxonomy_term_ids' =>
-                        $post->taxonomyTerms
-                            ->pluck('id')
-                            ->map(
-                                fn ($id) =>
-                                    (int) $id
-                            )
-                            ->values()
-                            ->all(),
+                    $post->taxonomyTerms
+                        ->pluck('id')
+                        ->map(
+                            fn($id) =>
+                            (int) $id
+                        )
+                        ->values()
+                        ->all(),
 
                     'render_for' =>
-                        'frontend',
+                    'frontend',
                 ]);
         } catch (Throwable $e) {
             /*
@@ -1599,13 +1571,13 @@ class GuestDynamicPostService
                 'Guest DynamicPost template resolution failed.',
                 [
                     'dynamic_post_id' =>
-                        (int) $post->id,
+                    (int) $post->id,
 
                     'post_type_id' =>
-                        (int) $post->post_type_id,
+                    (int) $post->post_type_id,
 
                     'error' =>
-                        $e->getMessage(),
+                    $e->getMessage(),
                 ]
             );
 
