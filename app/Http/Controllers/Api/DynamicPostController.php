@@ -23,7 +23,6 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
-use Throwable;
 use App\Models\SiteSetting;
 use App\Models\Keyword;
 use App\Models\User;
@@ -37,6 +36,8 @@ use App\Models\City;
 use App\Services\Membership\MembershipCreditService;
 use App\Models\PropertyListingRevision;
 use App\Services\PropertyVerification\PropertyWorkflowService;
+use App\Models\PropertyFeaturedPromotion;
+use Throwable;
 
 class DynamicPostController extends Controller
 {
@@ -47,6 +48,7 @@ class DynamicPostController extends Controller
         'meta.customField.options',
         'meta.customField.repeaters.options',
         'latestVerificationRevision',
+        'currentFeaturedPromotion',
     ];
 
     private array $singlePostRelations = [
@@ -57,6 +59,7 @@ class DynamicPostController extends Controller
         'meta.customField.options',
         'meta.customField.repeaters.options',
         'latestVerificationRevision',
+        'currentFeaturedPromotion',
     ];
 
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
@@ -763,27 +766,27 @@ class DynamicPostController extends Controller
 
             $relationshipPostTypes =
                 $hasRelationshipPayload
-                    ? $this->normalizeRelationshipPostTypeInputs(
-                        $rawRequestData
-                    )
-                    : null;
+                ? $this->normalizeRelationshipPostTypeInputs(
+                    $rawRequestData
+                )
+                : null;
 
             $taxonomyTermIds =
                 $hasTaxonomyPayload
-                    ? $this->normalizeSubmittedTaxonomyTermIds(
-                        $validated
-                    )
-                    : null;
+                ? $this->normalizeSubmittedTaxonomyTermIds(
+                    $validated
+                )
+                : null;
 
             $customFields =
                 array_key_exists('custom_fields', $validated)
-                    ? $this->prepareCustomFieldsForSave(
-                        $request,
-                        $validated,
-                        $postType,
-                        $post
-                    )
-                    : null;
+                ? $this->prepareCustomFieldsForSave(
+                    $request,
+                    $validated,
+                    $postType,
+                    $post
+                )
+                : null;
 
             if (is_array($customFields)) {
                 $customFields =
@@ -812,11 +815,11 @@ class DynamicPostController extends Controller
             if (is_array($customFields)) {
                 $effectiveTermIds =
                     is_array($taxonomyTermIds)
-                        ? $taxonomyTermIds
-                        : $post->taxonomyTerms()
-                            ->pluck('taxonomy_terms.id')
-                            ->map(fn ($id) => (int) $id)
-                            ->toArray();
+                    ? $taxonomyTermIds
+                    : $post->taxonomyTerms()
+                    ->pluck('taxonomy_terms.id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
 
                 $this->validateSubmittedCustomFieldsForPostType(
                     $postType,
@@ -886,8 +889,8 @@ class DynamicPostController extends Controller
              */
             $hasAssignedUserPayload =
                 $workflowAction === null
-                    ? $this->hasAssignedUserPayload($request->all())
-                    : false;
+                ? $this->hasAssignedUserPayload($request->all())
+                : false;
 
             DB::transaction(function () use (
                 $post,
@@ -5065,8 +5068,9 @@ class DynamicPostController extends Controller
         ];
     }
 
-    private function formatDynamicPostResponse(DynamicPost $post): array
-    {
+    private function formatDynamicPostResponse(
+        DynamicPost $post
+    ): array {
         $post->loadMissing([
             'postType',
             'parent:id,post_type_id,title,slug,status,live_status',
@@ -5074,10 +5078,13 @@ class DynamicPostController extends Controller
             'meta.customField.options',
             'meta.customField.repeaters.options',
             'latestVerificationRevision',
+            'currentFeaturedPromotion',
         ]);
 
         $data = $post->toArray();
-        $latestRevision = $post->latestVerificationRevision;
+
+        $latestRevision =
+            $post->latestVerificationRevision;
 
         $workflowStatus = $latestRevision?->status
             ?: $this->workflowStatusFromLegacy(
@@ -5085,12 +5092,16 @@ class DynamicPostController extends Controller
                 $post->live_status ?? null
             );
 
-        $data['workflow_status'] = $workflowStatus;
-        $data['verification_status'] = $workflowStatus;
+        $data['workflow_status'] =
+            $workflowStatus;
 
-        $data['review_status_label'] = $this->reviewStatusLabel(
-            $workflowStatus
-        );
+        $data['verification_status'] =
+            $workflowStatus;
+
+        $data['review_status_label'] =
+            $this->reviewStatusLabel(
+                $workflowStatus
+            );
 
         $data['is_under_review'] = in_array(
             $workflowStatus,
@@ -5107,103 +5118,300 @@ class DynamicPostController extends Controller
         $data['is_active'] =
             ($post->status ?? null) === 'published'
             && ($post->live_status ?? null) === 'approve'
-            && in_array($workflowStatus, ['approved', 'approve'], true);
+            && in_array(
+                $workflowStatus,
+                [
+                    'approved',
+                    'approve',
+                ],
+                true
+            );
 
         $data['is_rejected'] = in_array(
             $workflowStatus,
-            ['rejected', 'reject', 'disapprove'],
+            [
+                'rejected',
+                'reject',
+                'disapprove',
+            ],
             true
         );
 
-        $data['latest_verification_revision'] = $latestRevision
+        $data['latest_verification_revision'] =
+            $latestRevision
             ? [
-                'id' => (int) $latestRevision->id,
-                'dynamic_post_id' => (int) $latestRevision->dynamic_post_id,
-                'version' => (int) $latestRevision->version,
-                'source' => $latestRevision->source,
-                'status' => $latestRevision->status,
+                'id' =>
+                (int) $latestRevision->id,
 
-                'submitted_by' => $latestRevision->submitted_by
+                'dynamic_post_id' =>
+                (int) $latestRevision->dynamic_post_id,
+
+                'version' =>
+                (int) $latestRevision->version,
+
+                'source' =>
+                $latestRevision->source,
+
+                'status' =>
+                $latestRevision->status,
+
+                'submitted_by' =>
+                $latestRevision->submitted_by
                     ? (int) $latestRevision->submitted_by
                     : null,
 
-                'assigned_to' => $latestRevision->assigned_to
+                'assigned_to' =>
+                $latestRevision->assigned_to
                     ? (int) $latestRevision->assigned_to
                     : null,
 
-                'assigned_by' => $latestRevision->assigned_by
+                'assigned_by' =>
+                $latestRevision->assigned_by
                     ? (int) $latestRevision->assigned_by
                     : null,
 
-                'decided_by' => $latestRevision->decided_by
+                'decided_by' =>
+                $latestRevision->decided_by
                     ? (int) $latestRevision->decided_by
                     : null,
 
-                'submitted_at' => optional(
+                'submitted_at' =>
+                optional(
                     $latestRevision->submitted_at
                 )->toISOString(),
 
-                'assigned_at' => optional(
+                'assigned_at' =>
+                optional(
                     $latestRevision->assigned_at
                 )->toISOString(),
 
-                'verification_started_at' => optional(
+                'verification_started_at' =>
+                optional(
                     $latestRevision->verification_started_at
                 )->toISOString(),
 
-                'decided_at' => optional(
+                'decided_at' =>
+                optional(
                     $latestRevision->decided_at
                 )->toISOString(),
 
-                'rejection_reason' => $latestRevision->rejection_reason,
+                'rejection_reason' =>
+                $latestRevision->rejection_reason,
             ]
             : null;
-        $data['selected_taxonomies'] = $this->formatSelectedTaxonomies($post);
-        $data['display_id'] = $post->listing_code ?? null;
 
-        /*
-         * Listing owner/customer is dynamic_posts.author_id.
-         * Verification assignment remains separate.
-         */
-        $data['listing_owner_id'] = !empty($post->author_id)
-            ? (int) $post->author_id
+        $featuredPromotion =
+            $post->currentFeaturedPromotion;
+
+        $isFeatured =
+            $featuredPromotion !== null
+            && $featuredPromotion->isCurrentlyFeatured();
+
+        $data['featured_id'] =
+            $featuredPromotion
+            ? (int) $featuredPromotion->id
             : null;
 
-        $featuredMedia = $this->formatMediaFileById($post->featured_image_id ?? null);
-        $galleryMedia = $this->formatMediaFilesByIds($post->gallery_image_ids ?? []);
+        $data['featured_promotion_id'] =
+            $featuredPromotion
+            ? (int) $featuredPromotion->id
+            : null;
 
-        $data['featured_image'] = $featuredMedia['url'] ?? null;
-        $data['featured_image_media'] = $featuredMedia;
+        $data['is_featured'] =
+            $isFeatured;
 
-        $data['gallery_images'] = collect($galleryMedia)
+        $data['featured_via'] =
+            $featuredPromotion?->source;
+
+        $data['promotion_type'] =
+            $featuredPromotion?->promotion_type;
+
+        $data['featured_display_label'] =
+            $featuredPromotion
+            ? (
+                $featuredPromotion->promotion_type
+                === PropertyFeaturedPromotion::TYPE_SPONSORED
+                ? 'Sponsored'
+                : 'Featured'
+            )
+            : null;
+
+        $data['featured'] = [
+            'id' =>
+            $featuredPromotion
+                ? (int) $featuredPromotion->id
+                : null,
+
+            'promotion_id' =>
+            $featuredPromotion
+                ? (int) $featuredPromotion->id
+                : null,
+
+            'dynamic_post_id' =>
+            (int) $post->id,
+
+            'is_featured' =>
+            $isFeatured,
+
+            'source' =>
+            $featuredPromotion?->source,
+
+            'featured_via' =>
+            $featuredPromotion?->source,
+
+            'promotion_type' =>
+            $featuredPromotion?->promotion_type,
+
+            'display_label' =>
+            $featuredPromotion
+                ? (
+                    $featuredPromotion->promotion_type
+                    === PropertyFeaturedPromotion::TYPE_SPONSORED
+                    ? 'Sponsored'
+                    : 'Featured'
+                )
+                : null,
+
+            'status' =>
+            $featuredPromotion?->status,
+
+            'priority' =>
+            $featuredPromotion
+                ? (int) $featuredPromotion->priority
+                : null,
+
+            'placements' => [
+                'home' =>
+                $featuredPromotion
+                    ? (bool) $featuredPromotion->show_on_home
+                    : false,
+
+                'search' =>
+                $featuredPromotion
+                    ? (bool) $featuredPromotion->show_on_search
+                    : false,
+
+                'property_detail' =>
+                $featuredPromotion
+                    ? (bool) $featuredPromotion->show_on_detail
+                    : false,
+            ],
+
+            'starts_at' =>
+            $featuredPromotion
+                ? $featuredPromotion
+                ->starts_at
+                ?->toISOString()
+                : null,
+
+            'ends_at' =>
+            $featuredPromotion
+                ? $featuredPromotion
+                ->ends_at
+                ?->toISOString()
+                : null,
+        ];
+
+        $data['selected_taxonomies'] =
+            $this->formatSelectedTaxonomies(
+                $post
+            );
+
+        $data['display_id'] =
+            $post->listing_code
+            ?? null;
+
+        $featuredMedia =
+            $this->formatMediaFileById(
+                $post->featured_image_id
+                    ?? null
+            );
+
+        $galleryMedia =
+            $this->formatMediaFilesByIds(
+                $post->gallery_image_ids
+                    ?? []
+            );
+
+        $data['featured_image'] =
+            $featuredMedia['url']
+            ?? null;
+
+        $data['featured_image_media'] =
+            $featuredMedia;
+
+        $data['gallery_images'] =
+            collect($galleryMedia)
             ->pluck('url')
             ->filter()
             ->values()
             ->toArray();
 
-        $data['gallery_image_files'] = $galleryMedia;
+        $data['gallery_image_files'] =
+            $galleryMedia;
 
-        $data['meta'] = $this->formatMetaForFrontend($data['meta'] ?? []);
+        $data['meta'] =
+            $this->formatMetaForFrontend(
+                $data['meta']
+                    ?? []
+            );
 
-        $data['selected_relationship_post_types'] = $this->formatRelationshipPostTypesForFrontend($post);
+        $data['selected_relationship_post_types'] =
+            $this->formatRelationshipPostTypesForFrontend(
+                $post
+            );
 
-        $data['selected_keywords'] = $this->formatSelectedKeywords($post);
-        $data['keywords'] = $data['selected_keywords'];
+        $data['selected_keywords'] =
+            $this->formatSelectedKeywords(
+                $post
+            );
 
-        $assignedUser = $this->formatAssignedUser($post);
+        $data['keywords'] =
+            $data['selected_keywords'];
 
-        $data['assigned_user'] = $assignedUser;
-        $data['assigned_user_id'] = $assignedUser['id'] ?? null;
+        $assignedUser =
+            $this->formatAssignedUser(
+                $post
+            );
 
-        // Keep user_id as integer for frontend edit form
-        $data['user_id'] = $assignedUser['id'] ?? ($post->author_id ? (int) $post->author_id : null);
+        $data['assigned_user'] =
+            $assignedUser;
 
-        $data['country_id'] = $post->country_id ? (int) $post->country_id : null;
-        $data['state_id'] = $post->state_id ? (int) $post->state_id : null;
-        $data['city_id'] = $post->city_id ? (int) $post->city_id : null;
-        $data['area_locality'] = $post->area_locality ?? null;
+        $data['assigned_user_id'] =
+            $assignedUser['id']
+            ?? null;
 
-        $data['location'] = $this->formatLocationForDynamicPost($post);
+        $data['user_id'] =
+            $assignedUser['id']
+            ?? (
+                $post->author_id
+                ? (int) $post->author_id
+                : null
+            );
+
+        $data['country_id'] =
+            $post->country_id
+            ? (int) $post->country_id
+            : null;
+
+        $data['state_id'] =
+            $post->state_id
+            ? (int) $post->state_id
+            : null;
+
+        $data['city_id'] =
+            $post->city_id
+            ? (int) $post->city_id
+            : null;
+
+        $data['area_locality'] =
+            $post->area_locality
+            ?? null;
+
+        $data['location'] =
+            $this->formatLocationForDynamicPost(
+                $post
+            );
 
         return $data;
     }
@@ -6515,7 +6723,7 @@ class DynamicPostController extends Controller
             'status',
         ])
             ->filter(
-                fn (string $column) => Schema::hasColumn('users', $column)
+                fn(string $column) => Schema::hasColumn('users', $column)
             )
             ->values()
             ->toArray();
@@ -6569,7 +6777,7 @@ class DynamicPostController extends Controller
                 'phone',
             ])
                 ->filter(
-                    fn (string $column) => Schema::hasColumn('users', $column)
+                    fn(string $column) => Schema::hasColumn('users', $column)
                 )
                 ->values()
                 ->toArray();
@@ -6628,7 +6836,7 @@ class DynamicPostController extends Controller
             if (
                 $anonymousUser
                 && !$users->contains(
-                    fn (User $user) => (int) $user->id === (int) $anonymousUser->id
+                    fn(User $user) => (int) $user->id === (int) $anonymousUser->id
                 )
             ) {
                 $users->prepend($anonymousUser);
@@ -6650,7 +6858,7 @@ class DynamicPostController extends Controller
             $roleIds = $users
                 ->pluck('role_id')
                 ->filter()
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->unique()
                 ->values()
                 ->toArray();
@@ -6663,7 +6871,7 @@ class DynamicPostController extends Controller
                     'role_name',
                 ])
                     ->filter(
-                        fn (string $column) => Schema::hasColumn('roles', $column)
+                        fn(string $column) => Schema::hasColumn('roles', $column)
                     )
                     ->values()
                     ->toArray();
@@ -6674,7 +6882,7 @@ class DynamicPostController extends Controller
                         ->whereIn('id', $roleIds)
                         ->get()
                         ->keyBy(
-                            fn ($role) => (int) $role->id
+                            fn($role) => (int) $role->id
                         );
                 }
             }
@@ -6684,8 +6892,8 @@ class DynamicPostController extends Controller
             ->map(function (User $user) use ($rolesById) {
                 $fullName = trim(
                     ($user->first_name ?? '')
-                    . ' '
-                    . ($user->last_name ?? '')
+                        . ' '
+                        . ($user->last_name ?? '')
                 );
 
                 $isAnonymous = $this->isAnonymousAssignmentUser($user);
