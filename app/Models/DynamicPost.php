@@ -429,35 +429,29 @@ class DynamicPost extends Model
         return $this->hasOne(
             PropertyFeaturedPromotion::class,
             'dynamic_post_id'
-        )->ofMany(
-            [
-                'id' => 'max',
-            ],
-            function (Builder $query) {
+        )
+            ->where(
+                'status',
+                PropertyFeaturedPromotion::STATUS_ACTIVE
+            )
+            ->where(function (Builder $query) {
                 $query
-                    ->where(
-                        'status',
-                        PropertyFeaturedPromotion::STATUS_ACTIVE
-                    )
-                    ->where(function (Builder $query) {
-                        $query
-                            ->whereNull('starts_at')
-                            ->orWhere(
-                                'starts_at',
-                                '<=',
-                                now()
-                            );
-                    })
-                    ->where(function (Builder $query) {
-                        $query
-                            ->whereNull('ends_at')
-                            ->orWhere(
-                                'ends_at',
-                                '>',
-                                now()
-                            );
-                    });
-            }
-        );
+                    ->whereNull('starts_at')
+                    ->orWhere(
+                        'starts_at',
+                        '<=',
+                        now()
+                    );
+            })
+            ->where(function (Builder $query) {
+                $query
+                    ->whereNull('ends_at')
+                    ->orWhere(
+                        'ends_at',
+                        '>',
+                        now()
+                    );
+            })
+            ->latestOfMany('id');
     }
 }
