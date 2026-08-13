@@ -23,7 +23,6 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
-use Throwable;
 use App\Models\SiteSetting;
 use App\Models\Keyword;
 use App\Models\User;
@@ -38,6 +37,7 @@ use App\Services\Membership\MembershipCreditService;
 use App\Models\PropertyListingRevision;
 use App\Services\PropertyVerification\PropertyWorkflowService;
 use App\Models\PropertyFeaturedPromotion;
+use Throwable;
 
 class DynamicPostController extends Controller
 {
