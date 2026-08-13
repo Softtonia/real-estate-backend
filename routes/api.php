@@ -1219,6 +1219,9 @@ Route::prefix('admin/notifications')
         Route::get('dashboard', [AdminNotificationReportController::class, 'dashboard'])
             ->middleware('permission.check:notification_reports,read');
 
+        Route::get('in-app',[AdminNotificationReportController::class, 'inAppNotifications'])
+        ->middleware('permission.check:notification_reports,read');
+        
         Route::get('batches', [AdminNotificationReportController::class, 'batches'])
             ->middleware('permission.check:notification_reports,read');
 
@@ -1241,13 +1244,14 @@ Route::prefix('admin/notifications')
             ->middleware('permission.check:notification_reports,read');
 
         Route::get('devices', [AdminNotificationDeviceController::class, 'index'])
-        ->middleware('permission.check:notification_reports,read');
+            ->middleware('permission.check:notification_reports,read');
 
         Route::delete('logs', [AdminNotificationReportController::class, 'clearLogs'])
-        ->middleware('permission.check:notification_reports,delete');
+            ->middleware('permission.check:notification_reports,delete');
 
         Route::delete('batches', [AdminNotificationReportController::class, 'clearAllBatches'])
-        ->middleware('permission.check:notification_reports,delete')->whereNumber('batch');
+            ->middleware('permission.check:notification_reports,delete')->whereNumber('batch');
+
         /*
         |--------------------------------------------------------------------------
         | Notification Topics

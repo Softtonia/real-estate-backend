@@ -12,6 +12,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
+use App\Http\Requests\Admin\Notification\AdminInAppNotificationListRequest;
+use App\Http\Resources\Notification\AdminInAppNotificationResource;
 
 class AdminNotificationReportController extends Controller
 {
@@ -267,5 +269,56 @@ class AdminNotificationReportController extends Controller
                 ? $e->getMessage()
                 : 'Server error',
         ], 500);
+    }
+    public function inAppNotifications(
+        AdminInAppNotificationListRequest $request,
+        AdminNotificationReportService $service
+    ): JsonResponse {
+        try {
+            $notifications =
+                $service->inAppNotifications(
+                    $request->validated()
+                );
+
+            return response()->json([
+                'status' => true,
+
+                'message' =>
+                'In-app notifications fetched successfully.',
+
+                'data' =>
+                AdminInAppNotificationResource::collection(
+                    $notifications->getCollection()
+                )->resolve($request),
+
+                'meta' => [
+                    'current_page' =>
+                    $notifications->currentPage(),
+
+                    'last_page' =>
+                    $notifications->lastPage(),
+
+                    'per_page' =>
+                    $notifications->perPage(),
+
+                    'total' =>
+                    $notifications->total(),
+
+                    'from' =>
+                    $notifications->firstItem(),
+
+                    'to' =>
+                    $notifications->lastItem(),
+
+                    'has_more_pages' =>
+                    $notifications->hasMorePages(),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return $this->errorResponse(
+                'Unable to fetch in-app notifications.',
+                $e
+            );
+        }
     }
 }

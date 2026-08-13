@@ -9,7 +9,7 @@ use App\Models\Notification\UserNotification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
-
+use Illuminate\Support\Facades\DB;
 class AdminNotificationReportService
 {
     public function dashboard(array $filters = []): array
@@ -300,5 +300,175 @@ class AdminNotificationReportService
         if ($to) {
             $query->where($column, '<=', $to);
         }
+    }
+    public function inAppNotifications(
+        array $filters = []
+    ): LengthAwarePaginator {
+        $userMorphClass =
+            (new User())->getMorphClass();
+
+        $query = DB::table(
+            'notifications as n'
+        )
+            ->leftJoin(
+                'users as u',
+                'u.id',
+                '=',
+                'n.notifiable_id'
+            )
+            ->where(
+                'n.notifiable_type',
+                $userMorphClass
+            )
+            ->select([
+                'n.id',
+                'n.type',
+                'n.notifiable_type',
+                'n.notifiable_id as user_id',
+                'n.data',
+                'n.read_at',
+                'n.created_at',
+                'n.updated_at',
+
+                'u.first_name',
+                'u.last_name',
+                'u.email',
+            ]);
+
+        if (!empty($filters['user_id'])) {
+            $query->where(
+                'n.notifiable_id',
+                (int) $filters['user_id']
+            );
+        }
+
+        $readStatus = strtolower(
+            trim(
+                (string) (
+                    $filters['read_status']
+                    ?? 'all'
+                )
+            )
+        );
+
+        if ($readStatus === 'read') {
+            $query->whereNotNull(
+                'n.read_at'
+            );
+        }
+
+        if ($readStatus === 'unread') {
+            $query->whereNull(
+                'n.read_at'
+            );
+        }
+
+        if (!empty($filters['type'])) {
+            $type = trim(
+                (string) $filters['type']
+            );
+
+            $query->where(
+                'n.type',
+                'like',
+                '%' . $type . '%'
+            );
+        }
+
+        if (!empty($filters['search'])) {
+            $search = trim(
+                (string) $filters['search']
+            );
+
+            $query->where(
+                function ($searchQuery) use (
+                    $search
+                ) {
+                    $searchQuery
+                        ->where(
+                            'u.first_name',
+                            'like',
+                            "%{$search}%"
+                        )
+                        ->orWhere(
+                            'u.last_name',
+                            'like',
+                            "%{$search}%"
+                        )
+                        ->orWhere(
+                            'u.email',
+                            'like',
+                            "%{$search}%"
+                        )
+                        ->orWhere(
+                            'n.type',
+                            'like',
+                            "%{$search}%"
+                        )
+                        ->orWhere(
+                            'n.data',
+                            'like',
+                            "%{$search}%"
+                        );
+                }
+            );
+        }
+
+        if (!empty($filters['date_from'])) {
+            $dateFrom = Carbon::parse(
+                $filters['date_from']
+            )->startOfDay();
+
+            $query->where(
+                'n.created_at',
+                '>=',
+                $dateFrom
+            );
+        }
+
+        if (!empty($filters['date_to'])) {
+            $dateTo = Carbon::parse(
+                $filters['date_to']
+            )->endOfDay();
+
+            $query->where(
+                'n.created_at',
+                '<=',
+                $dateTo
+            );
+        }
+
+        $perPage = min(
+            100,
+            max(
+                1,
+                (int) (
+                    $filters['per_page']
+                    ?? 20
+                )
+            )
+        );
+
+        $page = max(
+            1,
+            (int) (
+                $filters['page']
+                ?? 1
+            )
+        );
+
+        return $query
+            ->orderByDesc(
+                'n.created_at'
+            )
+            ->orderByDesc(
+                'n.id'
+            )
+            ->paginate(
+                $perPage,
+                ['*'],
+                'page',
+                $page
+            );
     }
 }
