@@ -415,6 +415,7 @@ class DynamicPost extends Model
             'dynamic_post_id'
         );
     }
+
     public function featuredPromotions(): HasMany
     {
         return $this->hasMany(
@@ -422,27 +423,41 @@ class DynamicPost extends Model
             'dynamic_post_id'
         );
     }
+
     public function currentFeaturedPromotion(): HasOne
     {
         return $this->hasOne(
             PropertyFeaturedPromotion::class,
             'dynamic_post_id'
-        )
-            ->where(
-                'status',
-                PropertyFeaturedPromotion::STATUS_ACTIVE
-            )
-            ->where(
-                'starts_at',
-                '<=',
-                now()
-            )
-            ->where(
-                'ends_at',
-                '>',
-                now()
-            )
-            ->orderByDesc('priority')
-            ->orderByDesc('id');
+        )->ofMany(
+            [
+                'id' => 'max',
+            ],
+            function (Builder $query) {
+                $query
+                    ->where(
+                        'status',
+                        PropertyFeaturedPromotion::STATUS_ACTIVE
+                    )
+                    ->where(function (Builder $query) {
+                        $query
+                            ->whereNull('starts_at')
+                            ->orWhere(
+                                'starts_at',
+                                '<=',
+                                now()
+                            );
+                    })
+                    ->where(function (Builder $query) {
+                        $query
+                            ->whereNull('ends_at')
+                            ->orWhere(
+                                'ends_at',
+                                '>',
+                                now()
+                            );
+                    });
+            }
+        );
     }
 }
