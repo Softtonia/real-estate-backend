@@ -2500,28 +2500,84 @@ class UserController extends Controller
 
     public function searchUser(Request $request)
     {
-        $search = $request->search;
+        $search = trim((string) $request->search);
         $searchByRelated = $request->search_by_related;
 
-        $query = User::join('roles', 'roles.id', '=', 'users.role_id');
+        $query = User::join(
+            'roles',
+            'roles.id',
+            '=',
+            'users.role_id'
+        );
 
-        if ($request->search_by_related == 0) {
-            $query->where('roles.name', '!=', 'admin');
+        if (
+            $request->has('search_by_related')
+            && (string) $searchByRelated === '0'
+        ) {
+            $query->where(
+                'roles.name',
+                '!=',
+                'admin'
+            );
         }
 
-        $query->where(function ($query) use ($search, $searchByRelated) {
+        if (
+            $searchByRelated !== null
+            && $searchByRelated !== ''
+            && (string) $searchByRelated !== '0'
+        ) {
+            $query->where(
+                'roles.name',
+                'LIKE',
+                '%' . trim((string) $searchByRelated) . '%'
+            );
+        }
 
-            if ($searchByRelated) {
-                $query->where('roles.name', 'LIKE', '%' . $searchByRelated . '%');
-            }
+        if ($search !== '') {
+            $like = '%' . $search . '%';
 
-            $query->where(function ($q) use ($search) {
-                $q->where('users.unique_id', 'LIKE', '%' . $search . '%')
-                    ->orWhere('users.email', 'LIKE', '%' . $search . '%')
-                    ->orWhere('users.phone', 'LIKE', '%' . $search . '%')
-                    ->orWhere('roles.name', 'LIKE', '%' . $search . '%');
+            $query->where(function ($q) use ($like) {
+                $q->where(
+                    'users.unique_id',
+                    'LIKE',
+                    $like
+                )
+                    ->orWhere(
+                        'users.first_name',
+                        'LIKE',
+                        $like
+                    )
+                    ->orWhere(
+                        'users.last_name',
+                        'LIKE',
+                        $like
+                    )
+                    ->orWhereRaw(
+                        "CONCAT_WS(' ', users.first_name, users.last_name) LIKE ?",
+                        [$like]
+                    )
+                    ->orWhere(
+                        'users.user_name',
+                        'LIKE',
+                        $like
+                    )
+                    ->orWhere(
+                        'users.email',
+                        'LIKE',
+                        $like
+                    )
+                    ->orWhere(
+                        'users.phone',
+                        'LIKE',
+                        $like
+                    )
+                    ->orWhere(
+                        'roles.name',
+                        'LIKE',
+                        $like
+                    );
             });
-        });
+        }
 
         $users = $query
             ->select(
@@ -2545,11 +2601,12 @@ class UserController extends Controller
                 'users.updated_at',
                 'roles.name as role_name'
             )
+            ->orderByDesc('users.id')
             ->get();
 
         return response()->json([
             'status' => true,
-            'data' => $users
+            'data' => $users,
         ], 200);
     }
 
