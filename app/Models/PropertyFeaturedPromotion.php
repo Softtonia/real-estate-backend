@@ -19,6 +19,14 @@ class PropertyFeaturedPromotion extends Model
         self::SOURCE_MEMBERSHIP,
     ];
 
+    public const TYPE_FEATURED = 'featured';
+    public const TYPE_SPONSORED = 'sponsored';
+
+    public const TYPES = [
+        self::TYPE_FEATURED,
+        self::TYPE_SPONSORED,
+    ];
+
     public const STATUS_SCHEDULED = 'scheduled';
     public const STATUS_ACTIVE = 'active';
     public const STATUS_EXPIRED = 'expired';
@@ -36,6 +44,10 @@ class PropertyFeaturedPromotion extends Model
     protected $fillable = [
         'dynamic_post_id',
         'source',
+        'promotion_type',
+        'show_on_home',
+        'show_on_search',
+        'show_on_detail',
         'status',
         'starts_at',
         'ends_at',
@@ -51,6 +63,10 @@ class PropertyFeaturedPromotion extends Model
     protected $casts = [
         'dynamic_post_id' => 'integer',
         'priority' => 'integer',
+
+        'show_on_home' => 'boolean',
+        'show_on_search' => 'boolean',
+        'show_on_detail' => 'boolean',
 
         'starts_at' => 'datetime',
         'ends_at' => 'datetime',
@@ -111,6 +127,24 @@ class PropertyFeaturedPromotion extends Model
         );
     }
 
+    public function scopeFeaturedType(
+        Builder $query
+    ): Builder {
+        return $query->where(
+            'promotion_type',
+            self::TYPE_FEATURED
+        );
+    }
+
+    public function scopeSponsoredType(
+        Builder $query
+    ): Builder {
+        return $query->where(
+            'promotion_type',
+            self::TYPE_SPONSORED
+        );
+    }
+
     public function scopeScheduled(
         Builder $query
     ): Builder {
@@ -155,16 +189,24 @@ class PropertyFeaturedPromotion extends Model
                 'status',
                 self::STATUS_ACTIVE
             )
-            ->where(
-                'starts_at',
-                '<=',
-                now()
-            )
-            ->where(
-                'ends_at',
-                '>',
-                now()
-            );
+            ->where(function (Builder $query) {
+                $query
+                    ->whereNull('starts_at')
+                    ->orWhere(
+                        'starts_at',
+                        '<=',
+                        now()
+                    );
+            })
+            ->where(function (Builder $query) {
+                $query
+                    ->whereNull('ends_at')
+                    ->orWhere(
+                        'ends_at',
+                        '>',
+                        now()
+                    );
+            });
     }
 
     public function scopeOpenPromotion(
@@ -175,11 +217,15 @@ class PropertyFeaturedPromotion extends Model
                 self::STATUS_SCHEDULED,
                 self::STATUS_ACTIVE,
             ])
-            ->where(
-                'ends_at',
-                '>',
-                now()
-            );
+            ->where(function (Builder $query) {
+                $query
+                    ->whereNull('ends_at')
+                    ->orWhere(
+                        'ends_at',
+                        '>',
+                        now()
+                    );
+            });
     }
 
     public function scopeForProperty(
@@ -189,6 +235,33 @@ class PropertyFeaturedPromotion extends Model
         return $query->where(
             'dynamic_post_id',
             $dynamicPostId
+        );
+    }
+
+    public function scopeForHome(
+        Builder $query
+    ): Builder {
+        return $query->where(
+            'show_on_home',
+            true
+        );
+    }
+
+    public function scopeForSearch(
+        Builder $query
+    ): Builder {
+        return $query->where(
+            'show_on_search',
+            true
+        );
+    }
+
+    public function scopeForDetail(
+        Builder $query
+    ): Builder {
+        return $query->where(
+            'show_on_detail',
+            true
         );
     }
 
@@ -220,7 +293,7 @@ class PropertyFeaturedPromotion extends Model
 
         if (
             $this->ends_at
-            && $this->ends_at->lt($now)
+            && $this->ends_at->lte($now)
         ) {
             return false;
         }
@@ -254,5 +327,44 @@ class PropertyFeaturedPromotion extends Model
     {
         return $this->status
             === self::STATUS_CANCELLED;
+    }
+
+    public function isAdminFeatured(): bool
+    {
+        return $this->source
+            === self::SOURCE_ADMIN;
+    }
+
+    public function isMembershipFeatured(): bool
+    {
+        return $this->source
+            === self::SOURCE_MEMBERSHIP;
+    }
+
+    public function isFeaturedType(): bool
+    {
+        return $this->promotion_type
+            === self::TYPE_FEATURED;
+    }
+
+    public function isSponsoredType(): bool
+    {
+        return $this->promotion_type
+            === self::TYPE_SPONSORED;
+    }
+
+    public function shouldShowOnHome(): bool
+    {
+        return (bool) $this->show_on_home;
+    }
+
+    public function shouldShowOnSearch(): bool
+    {
+        return (bool) $this->show_on_search;
+    }
+
+    public function shouldShowOnDetail(): bool
+    {
+        return (bool) $this->show_on_detail;
     }
 }

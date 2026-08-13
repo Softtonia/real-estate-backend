@@ -27,20 +27,49 @@ class FeaturedPropertyResource extends JsonResource
             'dynamic_post_id' =>
                 (int) $promotion->dynamic_post_id,
 
-            /*
-            |--------------------------------------------------------------------------
-            | Promotion
-            |--------------------------------------------------------------------------
-            */
+            'listing_id' =>
+                (int) $promotion->dynamic_post_id,
+
+            'is_featured' =>
+                $promotion->isCurrentlyFeatured(),
 
             'source' =>
                 $promotion->source,
+
+            'featured_via' =>
+                $this->featuredVia($promotion),
+
+            'promotion_type' =>
+                $promotion->promotion_type,
+
+            'display_label' =>
+                $this->displayLabel($promotion),
 
             'status' =>
                 $promotion->status,
 
             'is_currently_featured' =>
                 $promotion->isCurrentlyFeatured(),
+
+            'placements' => [
+                'home' =>
+                    (bool) $promotion->show_on_home,
+
+                'search' =>
+                    (bool) $promotion->show_on_search,
+
+                'property_detail' =>
+                    (bool) $promotion->show_on_detail,
+            ],
+
+            'show_on_home' =>
+                (bool) $promotion->show_on_home,
+
+            'show_on_search' =>
+                (bool) $promotion->show_on_search,
+
+            'show_on_detail' =>
+                (bool) $promotion->show_on_detail,
 
             'starts_at' =>
                 $promotion->starts_at?->toISOString(),
@@ -54,43 +83,11 @@ class FeaturedPropertyResource extends JsonResource
             'admin_notes' =>
                 $promotion->admin_notes,
 
-            /*
-            |--------------------------------------------------------------------------
-            | Generic Dynamic Post
-            |--------------------------------------------------------------------------
-            |
-            | This is now the preferred frontend/admin key.
-            |
-            | Works for:
-            | - property-listing
-            | - project-listing
-            | - developer-listing
-            | - guest-post
-            | - any future DynamicPost type
-            |
-            */
-
             'dynamic_post' =>
                 $dynamicPostData,
 
-            /*
-            |--------------------------------------------------------------------------
-            | Backward Compatibility
-            |--------------------------------------------------------------------------
-            |
-            | Keep old "property" key so existing frontend does not break.
-            | It points to the exact same DynamicPost data.
-            |
-            */
-
             'property' =>
                 $dynamicPostData,
-
-            /*
-            |--------------------------------------------------------------------------
-            | Convenient Post Type
-            |--------------------------------------------------------------------------
-            */
 
             'post_type' =>
                 $dynamicPost
@@ -98,12 +95,6 @@ class FeaturedPropertyResource extends JsonResource
                         $dynamicPost
                     )
                     : null,
-
-            /*
-            |--------------------------------------------------------------------------
-            | Audit
-            |--------------------------------------------------------------------------
-            */
 
             'created_by' =>
                 $promotion->relationLoaded('createdBy')
@@ -119,12 +110,6 @@ class FeaturedPropertyResource extends JsonResource
                     )
                     : null,
 
-            /*
-            |--------------------------------------------------------------------------
-            | Cancellation
-            |--------------------------------------------------------------------------
-            */
-
             'cancelled_by' =>
                 $promotion->relationLoaded('cancelledBy')
                     ? $this->formatUser(
@@ -138,12 +123,6 @@ class FeaturedPropertyResource extends JsonResource
             'cancellation_reason' =>
                 $promotion->cancellation_reason,
 
-            /*
-            |--------------------------------------------------------------------------
-            | Record timestamps
-            |--------------------------------------------------------------------------
-            */
-
             'created_at' =>
                 $promotion->created_at?->toISOString(),
 
@@ -152,9 +131,6 @@ class FeaturedPropertyResource extends JsonResource
         ];
     }
 
-    /**
-     * Format any DynamicPost.
-     */
     private function formatDynamicPost(
         mixed $post
     ): array {
@@ -182,22 +158,10 @@ class FeaturedPropertyResource extends JsonResource
                 $post->slug
                 ?? null,
 
-            /*
-            |--------------------------------------------------------------------------
-            | Owner
-            |--------------------------------------------------------------------------
-            */
-
             'author_id' =>
                 !empty($post->author_id)
                     ? (int) $post->author_id
                     : null,
-
-            /*
-            |--------------------------------------------------------------------------
-            | Publication
-            |--------------------------------------------------------------------------
-            */
 
             'status' =>
                 $post->status
@@ -207,36 +171,14 @@ class FeaturedPropertyResource extends JsonResource
                 $post->live_status
                 ?? null,
 
-            /*
-            |--------------------------------------------------------------------------
-            | Availability
-            |--------------------------------------------------------------------------
-            |
-            | Property listings may use availability_status.
-            | Other DynamicPost types can return null.
-            |
-            */
-
             'availability_status' =>
                 $post->availability_status
                 ?? null,
-
-            /*
-            |--------------------------------------------------------------------------
-            | Media reference
-            |--------------------------------------------------------------------------
-            */
 
             'featured_image_id' =>
                 !empty($post->featured_image_id)
                     ? (int) $post->featured_image_id
                     : null,
-
-            /*
-            |--------------------------------------------------------------------------
-            | Publication date
-            |--------------------------------------------------------------------------
-            */
 
             'published_at' =>
                 $this->formatDate(
@@ -246,11 +188,6 @@ class FeaturedPropertyResource extends JsonResource
         ];
     }
 
-    /**
-     * Format DynamicPost post type.
-     *
-     * Controller/service should eager-load property.postType.
-     */
     private function formatPostType(
         mixed $post
     ): ?array {
@@ -275,10 +212,6 @@ class FeaturedPropertyResource extends JsonResource
             ];
         }
 
-        /*
-         * Do NOT execute another database query here.
-         * Resource must remain N+1 safe.
-         */
         return !empty($post->post_type_id)
             ? [
                 'id' =>
@@ -327,6 +260,36 @@ class FeaturedPropertyResource extends JsonResource
                 $user->email
                 ?? null,
         ];
+    }
+
+    private function featuredVia(
+        PropertyFeaturedPromotion $promotion
+    ): string {
+        return match ($promotion->source) {
+            PropertyFeaturedPromotion::SOURCE_ADMIN =>
+                'admin',
+
+            PropertyFeaturedPromotion::SOURCE_MEMBERSHIP =>
+                'membership',
+
+            default =>
+                (string) $promotion->source,
+        };
+    }
+
+    private function displayLabel(
+        PropertyFeaturedPromotion $promotion
+    ): string {
+        return match ($promotion->promotion_type) {
+            PropertyFeaturedPromotion::TYPE_SPONSORED =>
+                'Sponsored',
+
+            PropertyFeaturedPromotion::TYPE_FEATURED =>
+                'Featured',
+
+            default =>
+                'Featured',
+        };
     }
 
     private function formatDate(
