@@ -384,6 +384,16 @@ return [
             'actions' => ['read', 'create', 'edit', 'delete'],
         ],
 
+        'page_builder' => [
+            'label' => 'Page Builder',
+            'actions' => ['read'],
+        ],
+
+        'property_availability' => [
+            'label' => 'Property Availability',
+            'actions' => ['update', 'history'],
+        ],
+
         'notification_dashboard' => [
             'label' => 'Notification Dashboard',
             'actions' => ['read'],
