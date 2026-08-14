@@ -321,4 +321,22 @@ class AdminNotificationReportController extends Controller
             );
         }
     }
+    public function clearAllInAppNotifications(
+        AdminNotificationReportService $service
+    ): JsonResponse {
+        try {
+            $result = $service->clearAllInAppNotifications();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'All in-app notifications cleared successfully.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return $this->errorResponse(
+                'Unable to clear in-app notifications.',
+                $e
+            );
+        }
+    }
 }

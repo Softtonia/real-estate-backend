@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
+
 class AdminNotificationReportService
 {
     public function dashboard(array $filters = []): array
@@ -471,5 +472,17 @@ class AdminNotificationReportService
                 'page',
                 $page
             );
+    }
+    public function clearAllInAppNotifications(): array
+    {
+        $userMorphClass = (new User())->getMorphClass();
+
+        $deletedNotifications = DB::table('notifications')
+            ->where('notifiable_type', $userMorphClass)
+            ->delete();
+
+        return [
+            'deleted_notifications' => (int) $deletedNotifications,
+        ];
     }
 }

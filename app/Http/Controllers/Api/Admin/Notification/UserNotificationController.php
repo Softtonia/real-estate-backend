@@ -202,4 +202,5 @@ class UserNotificationController extends Controller
             'error' => config('app.debug') ? $e->getMessage() : 'Server error',
         ], 500);
     }
+    
 }
