@@ -10,7 +10,6 @@ use App\Services\Notification\UserNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -23,13 +22,12 @@ class UserNotificationController extends Controller
         try {
             $user = $this->currentUser($request);
 
-            $notifications = $service->list($user, [
-                'type' => $request->query('type'),
-                'is_read' => $request->query('is_read'),
-                'status' => $request->query('status'),
-                'search' => $request->query('search'),
-                'per_page' => $request->query('per_page'),
-            ]);
+            $notifications = $service->list($user, $request->only([
+                'type',
+                'is_read',
+                'search',
+                'per_page',
+            ]));
 
             return response()->json([
                 'status' => true,
@@ -162,19 +160,19 @@ class UserNotificationController extends Controller
 
     private function currentUser(Request $request): User
     {
-        $token = $this->extractBearerToken($request);
+        $token = $request->bearerToken();
 
-        if ($token && Schema::hasColumn('users', 'api_token')) {
+        if ($token) {
             $user = User::query()
                 ->where('api_token', $token)
                 ->first();
 
-            if ($user instanceof User) {
+            if ($user) {
                 return $user;
             }
         }
 
-        $user = $request->user() ?: Auth::user();
+        $user = Auth::user();
 
         if ($user instanceof User) {
             return $user;
@@ -183,35 +181,6 @@ class UserNotificationController extends Controller
         throw ValidationException::withMessages([
             'auth' => ['Authenticated user not found.'],
         ]);
-    }
-
-    private function extractBearerToken(Request $request): ?string
-    {
-        $authorization = (string) $request->header('Authorization');
-
-        if ($authorization !== '' && preg_match('/Bearer\s+(.+)/i', $authorization, $matches)) {
-            return trim($matches[1]);
-        }
-
-        $token = $request->bearerToken()
-            ?: $request->header('X-User-Token')
-            ?: $request->header('X-Api-Token')
-            ?: $request->header('Api-Token')
-            ?: $request->header('api-token')
-            ?: $request->header('api_token')
-            ?: $request->input('api_token');
-
-        if (! is_string($token)) {
-            return null;
-        }
-
-        $token = trim($token);
-
-        if (str_starts_with(strtolower($token), 'bearer ')) {
-            $token = trim(substr($token, 7));
-        }
-
-        return $token !== '' ? $token : null;
     }
 
     private function validationError(ValidationException $e): JsonResponse
@@ -233,4 +202,5 @@ class UserNotificationController extends Controller
             'error' => config('app.debug') ? $e->getMessage() : 'Server error',
         ], 500);
     }
+    
 }

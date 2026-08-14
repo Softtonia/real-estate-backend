@@ -40,8 +40,6 @@ class UserNotificationDeviceController extends Controller
                     'total' => $devices->total(),
                 ],
             ]);
-        } catch (ValidationException $e) {
-            return $this->validationError($e);
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to fetch notification devices.', $e);
         }
@@ -66,7 +64,11 @@ class UserNotificationDeviceController extends Controller
                 'data' => new NotificationDeviceResource($device),
             ]);
         } catch (ValidationException $e) {
-            return $this->validationError($e);
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'error' => $e->errors(),
+            ], 422);
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to register notification device.', $e);
         }
@@ -92,7 +94,11 @@ class UserNotificationDeviceController extends Controller
                 ],
             ]);
         } catch (ValidationException $e) {
-            return $this->validationError($e);
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed.',
+                'error' => $e->errors(),
+            ], 422);
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to revoke notification device.', $e);
         }
@@ -119,17 +125,8 @@ class UserNotificationDeviceController extends Controller
         }
 
         throw ValidationException::withMessages([
-            'auth' => ['Unauthenticated user.'],
+            'auth' => ['Authenticated user not found.'],
         ]);
-    }
-
-    private function validationError(ValidationException $e): JsonResponse
-    {
-        return response()->json([
-            'status' => false,
-            'message' => 'Validation failed.',
-            'error' => $e->errors(),
-        ], 422);
     }
 
     private function errorResponse(string $message, Throwable $e): JsonResponse
