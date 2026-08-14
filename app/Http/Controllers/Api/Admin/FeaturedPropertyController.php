@@ -18,6 +18,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Models\MediaFile;
+use Illuminate\Support\Collection;
 use Throwable;
 
 class FeaturedPropertyController extends Controller
@@ -384,7 +386,9 @@ class FeaturedPropertyController extends Controller
             $promotions = $query->paginate(
                 $perPage
             );
-
+            $this->attachGalleryMedia(
+                $promotions->getCollection()
+            );
             $items =
                 FeaturedPropertyResource::collection(
                     $promotions->getCollection()
@@ -394,86 +398,82 @@ class FeaturedPropertyController extends Controller
                 'Featured listings fetched successfully.',
                 [
                     'items' =>
-                        $items,
+                    $items,
 
                     'filters' => [
                         'search' =>
-                            $validated['search']
+                        $validated['search']
                             ?? null,
 
                         'status' =>
-                            $validated['status']
+                        $validated['status']
                             ?? null,
 
                         'source' =>
-                            $validated['source']
+                        $validated['source']
                             ?? null,
 
                         'promotion_type' =>
-                            $validated['promotion_type']
+                        $validated['promotion_type']
                             ?? null,
 
                         'show_on_home' =>
-                            array_key_exists(
-                                'show_on_home',
-                                $validated
-                            )
-                                ? (bool) $validated['show_on_home']
-                                : null,
+                        array_key_exists(
+                            'show_on_home',
+                            $validated
+                        )
+                            ? (bool) $validated['show_on_home']
+                            : null,
 
                         'show_on_search' =>
-                            array_key_exists(
-                                'show_on_search',
-                                $validated
-                            )
-                                ? (bool) $validated['show_on_search']
-                                : null,
+                        array_key_exists(
+                            'show_on_search',
+                            $validated
+                        )
+                            ? (bool) $validated['show_on_search']
+                            : null,
 
                         'show_on_detail' =>
-                            array_key_exists(
-                                'show_on_detail',
-                                $validated
-                            )
-                                ? (bool) $validated['show_on_detail']
-                                : null,
+                        array_key_exists(
+                            'show_on_detail',
+                            $validated
+                        )
+                            ? (bool) $validated['show_on_detail']
+                            : null,
 
                         'dynamic_post_id' =>
-                            !empty(
-                                $validated['dynamic_post_id']
-                            )
-                                ? (int) $validated['dynamic_post_id']
-                                : null,
+                        !empty($validated['dynamic_post_id'])
+                            ? (int) $validated['dynamic_post_id']
+                            : null,
 
                         'post_type_id' =>
-                            !empty(
-                                $validated['post_type_id']
-                            )
-                                ? (int) $validated['post_type_id']
-                                : null,
+                        !empty($validated['post_type_id'])
+                            ? (int) $validated['post_type_id']
+                            : null,
 
                         'post_type' =>
-                            $validated['post_type']
+                        $validated['post_type']
                             ?? null,
                     ],
 
                     'pagination' => [
                         'current_page' =>
-                            $promotions->currentPage(),
+                        $promotions->currentPage(),
 
                         'per_page' =>
-                            $promotions->perPage(),
+                        $promotions->perPage(),
 
                         'total' =>
-                            $promotions->total(),
+                        $promotions->total(),
 
                         'last_page' =>
-                            $promotions->lastPage(),
+                        $promotions->lastPage(),
 
                         'from' =>
-                            $promotions->firstItem(),
+                        $promotions->firstItem(),
 
                         'to' =>
-                            $promotions->lastItem(),
+                        $promotions->lastItem(),
                     ],
                 ]
             );
@@ -505,10 +505,10 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                    ->create(
-                        data: $request->validated(),
-                        actor: $actor
-                    );
+                ->create(
+                    data: $request->validated(),
+                    actor: $actor
+                );
 
             return $this->successResponse(
                 'Property featured successfully.',
@@ -547,12 +547,13 @@ class FeaturedPropertyController extends Controller
         PropertyFeaturedPromotion $featuredProperty
     ): JsonResponse {
         try {
-            $featuredProperty->load([
-                'property.postType',
-                'createdBy',
-                'updatedBy',
-                'cancelledBy',
-            ]);
+            $featuredProperty->load(
+                $this->featuredListingRelations()
+            );
+
+            $this->attachGalleryMedia(
+                collect([$featuredProperty])
+            );
 
             return $this->successResponse(
                 'Featured property fetched successfully.',
@@ -587,11 +588,11 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                    ->update(
-                        promotion: $featuredProperty,
-                        data: $request->validated(),
-                        actor: $actor
-                    );
+                ->update(
+                    promotion: $featuredProperty,
+                    data: $request->validated(),
+                    actor: $actor
+                );
 
             return $this->successResponse(
                 'Featured property updated successfully.',
@@ -635,13 +636,13 @@ class FeaturedPropertyController extends Controller
 
             $promotion =
                 $this->featuredPropertyService
-                    ->cancel(
-                        promotion: $featuredProperty,
-                        actor: $actor,
-                        reason: $request->validated(
-                            'cancellation_reason'
-                        )
-                    );
+                ->cancel(
+                    promotion: $featuredProperty,
+                    actor: $actor,
+                    reason: $request->validated(
+                        'cancellation_reason'
+                    )
+                );
 
             return $this->successResponse(
                 'Featured property cancelled successfully.',
@@ -722,11 +723,11 @@ class FeaturedPropertyController extends Controller
                     'postType:id,name,slug',
 
                     'featuredPromotions' =>
-                        function ($promotionQuery) {
-                            $promotionQuery
-                                ->openPromotion()
-                                ->featuredOrder();
-                        },
+                    function ($promotionQuery) {
+                        $promotionQuery
+                            ->openPromotion()
+                            ->featuredOrder();
+                    },
                 ]);
 
             if (!empty($validated['post_type_id'])) {
@@ -890,159 +891,159 @@ class FeaturedPropertyController extends Controller
 
                     return [
                         'id' =>
-                            (int) $post->id,
+                        (int) $post->id,
 
                         'value' =>
-                            (int) $post->id,
+                        (int) $post->id,
 
                         'label' =>
-                            (string) $label,
+                        (string) $label,
 
                         'dynamic_post_id' =>
-                            (int) $post->id,
+                        (int) $post->id,
 
                         'listing_code' =>
-                            $post->listing_code
+                        $post->listing_code
                             ?? null,
 
                         'title' =>
-                            $post->title
+                        $post->title
                             ?? null,
 
                         'slug' =>
-                            $post->slug
+                        $post->slug
                             ?? null,
 
                         'post_type' =>
-                            $post->postType
-                                ? [
-                                    'id' =>
-                                        (int) $post->postType->id,
+                        $post->postType
+                            ? [
+                                'id' =>
+                                (int) $post->postType->id,
 
-                                    'name' =>
-                                        $post->postType->name,
+                                'name' =>
+                                $post->postType->name,
 
-                                    'slug' =>
-                                        $post->postType->slug,
-                                ]
-                                : null,
+                                'slug' =>
+                                $post->postType->slug,
+                            ]
+                            : null,
 
                         'post_type_id' =>
-                            $post->postType
-                                ? (int) $post->postType->id
-                                : (
-                                    !empty($post->post_type_id)
-                                        ? (int) $post->post_type_id
-                                        : null
-                                ),
+                        $post->postType
+                            ? (int) $post->postType->id
+                            : (
+                                !empty($post->post_type_id)
+                                ? (int) $post->post_type_id
+                                : null
+                            ),
 
                         'author_id' =>
-                            !empty($post->author_id)
-                                ? (int) $post->author_id
-                                : null,
+                        !empty($post->author_id)
+                            ? (int) $post->author_id
+                            : null,
 
                         'status' =>
-                            $post->status
+                        $post->status
                             ?? null,
 
                         'live_status' =>
-                            $post->live_status
+                        $post->live_status
                             ?? null,
 
                         'availability_status' =>
-                            $post->availability_status
+                        $post->availability_status
                             ?? null,
 
                         'has_open_featured_promotion' =>
-                            $openPromotions->isNotEmpty(),
+                        $openPromotions->isNotEmpty(),
 
                         'open_promotions_count' =>
-                            $openPromotions->count(),
+                        $openPromotions->count(),
 
                         'is_featured' =>
-                            $firstOpenPromotion
-                                ? $firstOpenPromotion
-                                    ->isCurrentlyFeatured()
-                                : false,
+                        $firstOpenPromotion
+                            ? $firstOpenPromotion
+                            ->isCurrentlyFeatured()
+                            : false,
 
                         'featured_promotion_id' =>
-                            $firstOpenPromotion
-                                ? (int) $firstOpenPromotion->id
-                                : null,
+                        $firstOpenPromotion
+                            ? (int) $firstOpenPromotion->id
+                            : null,
 
                         'featured_via' =>
-                            $firstOpenPromotion
-                                ? $firstOpenPromotion->source
-                                : null,
+                        $firstOpenPromotion
+                            ? $firstOpenPromotion->source
+                            : null,
 
                         'promotion_type' =>
-                            $firstOpenPromotion
-                                ? $firstOpenPromotion->promotion_type
-                                : null,
+                        $firstOpenPromotion
+                            ? $firstOpenPromotion->promotion_type
+                            : null,
 
                         'next_or_current_promotion' =>
-                            $firstOpenPromotion
-                                ? [
-                                    'id' =>
-                                        (int) $firstOpenPromotion->id,
+                        $firstOpenPromotion
+                            ? [
+                                'id' =>
+                                (int) $firstOpenPromotion->id,
 
-                                    'dynamic_post_id' =>
-                                        (int) $firstOpenPromotion
-                                            ->dynamic_post_id,
+                                'dynamic_post_id' =>
+                                (int) $firstOpenPromotion
+                                    ->dynamic_post_id,
 
-                                    'source' =>
-                                        $firstOpenPromotion->source,
+                                'source' =>
+                                $firstOpenPromotion->source,
 
-                                    'featured_via' =>
-                                        $firstOpenPromotion->source,
+                                'featured_via' =>
+                                $firstOpenPromotion->source,
 
-                                    'promotion_type' =>
-                                        $firstOpenPromotion
-                                            ->promotion_type,
+                                'promotion_type' =>
+                                $firstOpenPromotion
+                                    ->promotion_type,
 
-                                    'display_label' =>
-                                        $firstOpenPromotion
-                                            ->promotion_type
-                                        === PropertyFeaturedPromotion::TYPE_SPONSORED
-                                            ? 'Sponsored'
-                                            : 'Featured',
+                                'display_label' =>
+                                $firstOpenPromotion
+                                    ->promotion_type
+                                    === PropertyFeaturedPromotion::TYPE_SPONSORED
+                                    ? 'Sponsored'
+                                    : 'Featured',
 
-                                    'status' =>
-                                        $firstOpenPromotion->status,
+                                'status' =>
+                                $firstOpenPromotion->status,
 
-                                    'priority' =>
-                                        (int) $firstOpenPromotion
-                                            ->priority,
+                                'priority' =>
+                                (int) $firstOpenPromotion
+                                    ->priority,
 
-                                    'placements' => [
-                                        'home' =>
-                                            (bool) $firstOpenPromotion
-                                                ->show_on_home,
+                                'placements' => [
+                                    'home' =>
+                                    (bool) $firstOpenPromotion
+                                        ->show_on_home,
 
-                                        'search' =>
-                                            (bool) $firstOpenPromotion
-                                                ->show_on_search,
+                                    'search' =>
+                                    (bool) $firstOpenPromotion
+                                        ->show_on_search,
 
-                                        'property_detail' =>
-                                            (bool) $firstOpenPromotion
-                                                ->show_on_detail,
-                                    ],
+                                    'property_detail' =>
+                                    (bool) $firstOpenPromotion
+                                        ->show_on_detail,
+                                ],
 
-                                    'starts_at' =>
-                                        $firstOpenPromotion
-                                            ->starts_at
-                                            ?->toISOString(),
+                                'starts_at' =>
+                                $firstOpenPromotion
+                                    ->starts_at
+                                    ?->toISOString(),
 
-                                    'ends_at' =>
-                                        $firstOpenPromotion
-                                            ->ends_at
-                                            ?->toISOString(),
+                                'ends_at' =>
+                                $firstOpenPromotion
+                                    ->ends_at
+                                    ?->toISOString(),
 
-                                    'is_currently_featured' =>
-                                        $firstOpenPromotion
-                                            ->isCurrentlyFeatured(),
-                                ]
-                                : null,
+                                'is_currently_featured' =>
+                                $firstOpenPromotion
+                                    ->isCurrentlyFeatured(),
+                            ]
+                            : null,
                     ];
                 })
                 ->values();
@@ -1051,27 +1052,25 @@ class FeaturedPropertyController extends Controller
                 'Dynamic post options fetched successfully.',
                 [
                     'count' =>
-                        $options->count(),
+                    $options->count(),
 
                     'filters' => [
                         'post_type_id' =>
-                            !empty(
-                                $validated['post_type_id']
-                            )
-                                ? (int) $validated['post_type_id']
-                                : null,
+                        !empty($validated['post_type_id'])
+                            ? (int) $validated['post_type_id']
+                            : null,
 
                         'post_type' =>
-                            $validated['post_type']
+                        $validated['post_type']
                             ?? null,
 
                         'search' =>
-                            $validated['search']
+                        $validated['search']
                             ?? null,
                     ],
 
                     'options' =>
-                        $options,
+                    $options,
                 ]
             );
         } catch (ValidationException $e) {
@@ -1158,5 +1157,101 @@ class FeaturedPropertyController extends Controller
             'message' => $message,
             'error' => $e->getMessage(),
         ], 500);
+    }
+    private function featuredListingRelations(): array
+    {
+        return [
+            'property.postType:id,name,slug',
+
+            'property.country:id,name',
+
+            'property.state:id,name,country_id',
+
+            'property.city:id,name,state_id',
+
+            'property.author:id,first_name,last_name,email,phone,role_id',
+
+            'property.parent:id,post_type_id,title,slug,status,live_status,listing_code',
+
+            'property.featuredImage',
+
+            'property.taxonomyTerms.taxonomy:id,name,slug',
+
+            'property.meta.customField.options',
+
+            'property.meta.customField.repeaters.options',
+
+            'property.keywords',
+
+            'property.assignedUsers:id,first_name,last_name,email,phone,role_id',
+
+            'property.relationships.relatedPostType:id,name,slug',
+
+            'property.relationships.relatedPost:id,post_type_id,title,slug,status,live_status,listing_code',
+
+            'createdBy:id,first_name,last_name,email',
+
+            'updatedBy:id,first_name,last_name,email',
+
+            'cancelledBy:id,first_name,last_name,email',
+        ];
+    }
+    private function attachGalleryMedia(
+        Collection $promotions
+    ): void {
+        $galleryIds = $promotions
+            ->pluck('property.gallery_image_ids')
+            ->filter()
+            ->flatten()
+            ->map(fn($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($galleryIds->isEmpty()) {
+            $promotions->each(function ($promotion) {
+                if ($promotion->property) {
+                    $promotion->property->setRelation(
+                        'galleryMediaFiles',
+                        collect()
+                    );
+                }
+            });
+
+            return;
+        }
+
+        $media = MediaFile::query()
+            ->whereIn(
+                'id',
+                $galleryIds->all()
+            )
+            ->get()
+            ->keyBy('id');
+
+        $promotions->each(
+            function ($promotion) use ($media) {
+                $property = $promotion->property;
+
+                if (!$property) {
+                    return;
+                }
+
+                $gallery = collect(
+                    $property->gallery_image_ids ?? []
+                )
+                    ->map(
+                        fn($id) =>
+                        $media->get((int) $id)
+                    )
+                    ->filter()
+                    ->values();
+
+                $property->setRelation(
+                    'galleryMediaFiles',
+                    $gallery
+                );
+            }
+        );
     }
 }

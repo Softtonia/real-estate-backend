@@ -18,6 +18,8 @@ return [
         'send',
         'retry',
         'export',
+        'update',
+        'history',
     ],
 
     'modules' => [
@@ -413,7 +415,11 @@ return [
         ],
         'featured_posts' => [
             'label' => 'Featured Post',
-            'actions' => ['read','create','edit','delete',
+            'actions' => [
+                'read',
+                'create',
+                'edit',
+                'delete',
             ],
         ],
     ],

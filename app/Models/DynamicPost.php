@@ -11,6 +11,7 @@ use App\Enums\PropertyAvailabilityStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\MediaFile;
 
 class DynamicPost extends Model
 {
@@ -453,5 +454,12 @@ class DynamicPost extends Model
                     );
             })
             ->latestOfMany('id');
+    }
+    public function featuredImage(): BelongsTo
+    {
+        return $this->belongsTo(
+            MediaFile::class,
+            'featured_image_id'
+        );
     }
 }

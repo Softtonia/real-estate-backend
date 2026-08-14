@@ -78,17 +78,13 @@ class FeaturedPropertyService
 
             $now = $this->now();
 
-            $startsAt = !empty(
-                $data['starts_at']
-            )
+            $startsAt = !empty($data['starts_at'])
                 ? $this->parseDate(
                     $data['starts_at']
                 )
                 : $now;
 
-            $endsAt = !empty(
-                $data['ends_at']
-            )
+            $endsAt = !empty($data['ends_at'])
                 ? $this->parseDate(
                     $data['ends_at']
                 )
@@ -114,93 +110,90 @@ class FeaturedPropertyService
 
             $promotion =
                 PropertyFeaturedPromotion::query()
-                    ->create([
-                        'dynamic_post_id' =>
-                            (int) $post->id,
+                ->create([
+                    'dynamic_post_id' =>
+                    (int) $post->id,
 
-                        'source' =>
-                            $source,
+                    'source' =>
+                    $source,
 
-                        'promotion_type' =>
-                            $promotionType,
+                    'promotion_type' =>
+                    $promotionType,
 
-                        'show_on_home' =>
-                            array_key_exists(
-                                'show_on_home',
-                                $data
-                            )
-                                ? (bool) $data['show_on_home']
-                                : true,
+                    'show_on_home' =>
+                    array_key_exists(
+                        'show_on_home',
+                        $data
+                    )
+                        ? (bool) $data['show_on_home']
+                        : true,
 
-                        'show_on_search' =>
-                            array_key_exists(
-                                'show_on_search',
-                                $data
-                            )
-                                ? (bool) $data['show_on_search']
-                                : true,
+                    'show_on_search' =>
+                    array_key_exists(
+                        'show_on_search',
+                        $data
+                    )
+                        ? (bool) $data['show_on_search']
+                        : true,
 
-                        'show_on_detail' =>
-                            array_key_exists(
-                                'show_on_detail',
-                                $data
-                            )
-                                ? (bool) $data['show_on_detail']
-                                : true,
+                    'show_on_detail' =>
+                    array_key_exists(
+                        'show_on_detail',
+                        $data
+                    )
+                        ? (bool) $data['show_on_detail']
+                        : true,
 
-                        'status' =>
-                            $status,
+                    'status' =>
+                    $status,
 
-                        'starts_at' =>
-                            $startsAt,
+                    'starts_at' =>
+                    $startsAt,
 
-                        'ends_at' =>
-                            $endsAt,
+                    'ends_at' =>
+                    $endsAt,
 
-                        'priority' =>
-                            (int) (
-                                $data['priority']
-                                ?? 0
-                            ),
+                    'priority' =>
+                    (int) (
+                        $data['priority']
+                        ?? 0
+                    ),
 
-                        'admin_notes' =>
-                            $source
-                            === PropertyFeaturedPromotion::SOURCE_ADMIN
-                            && array_key_exists(
-                                'admin_notes',
-                                $data
-                            )
-                            && $data['admin_notes'] !== null
-                            && trim(
-                                (string) $data['admin_notes']
-                            ) !== ''
-                                ? trim(
-                                    (string) $data['admin_notes']
-                                )
-                                : null,
+                    'admin_notes' =>
+                    $source
+                        === PropertyFeaturedPromotion::SOURCE_ADMIN
+                        && array_key_exists(
+                            'admin_notes',
+                            $data
+                        )
+                        && $data['admin_notes'] !== null
+                        && trim(
+                            (string) $data['admin_notes']
+                        ) !== ''
+                        ? trim(
+                            (string) $data['admin_notes']
+                        )
+                        : null,
 
-                        'created_by' =>
-                            (int) $actor->id,
+                    'created_by' =>
+                    (int) $actor->id,
 
-                        'updated_by' =>
-                            (int) $actor->id,
+                    'updated_by' =>
+                    (int) $actor->id,
 
-                        'cancelled_by' =>
-                            null,
+                    'cancelled_by' =>
+                    null,
 
-                        'cancelled_at' =>
-                            null,
+                    'cancelled_at' =>
+                    null,
 
-                        'cancellation_reason' =>
-                            null,
-                    ]);
+                    'cancellation_reason' =>
+                    null,
+                ]);
 
-            return $promotion->fresh([
-                'property.postType',
-                'createdBy',
-                'updatedBy',
-                'cancelledBy',
-            ]);
+            return $promotion->fresh(
+                $this->responseRelations()
+            );
         }, 3);
     }
 
@@ -216,11 +209,11 @@ class FeaturedPropertyService
         ) {
             $lockedPromotion =
                 PropertyFeaturedPromotion::query()
-                    ->whereKey(
-                        $promotion->id
-                    )
-                    ->lockForUpdate()
-                    ->first();
+                ->whereKey(
+                    $promotion->id
+                )
+                ->lockForUpdate()
+                ->first();
 
             if (!$lockedPromotion) {
                 throw ValidationException::withMessages([
@@ -261,16 +254,16 @@ class FeaturedPropertyService
 
             $startsAt =
                 !empty($data['starts_at'])
+                ? $this->parseDate(
+                    $data['starts_at']
+                )
+                : (
+                    $lockedPromotion->starts_at
                     ? $this->parseDate(
-                        $data['starts_at']
-                    )
-                    : (
                         $lockedPromotion->starts_at
-                            ? $this->parseDate(
-                                $lockedPromotion->starts_at
-                            )
-                            : $now
-                    );
+                    )
+                    : $now
+                );
 
             $endsAt =
                 array_key_exists(
@@ -279,20 +272,20 @@ class FeaturedPropertyService
                 )
                 && $data['ends_at'] !== null
                 && $data['ends_at'] !== ''
-                    ? $this->parseDate(
-                        $data['ends_at']
+                ? $this->parseDate(
+                    $data['ends_at']
+                )
+                : (
+                    !array_key_exists(
+                        'ends_at',
+                        $data
                     )
-                    : (
-                        !array_key_exists(
-                            'ends_at',
-                            $data
-                        )
-                        && $lockedPromotion->ends_at
-                            ? $this->parseDate(
-                                $lockedPromotion->ends_at
-                            )
-                            : null
-                    );
+                    && $lockedPromotion->ends_at
+                    ? $this->parseDate(
+                        $lockedPromotion->ends_at
+                    )
+                    : null
+                );
 
             $this->assertValidDateRange(
                 startsAt: $startsAt,
@@ -301,17 +294,13 @@ class FeaturedPropertyService
             );
 
             $this->assertNoOverlappingPromotion(
-                propertyId:
-                    $requestedPostId,
+                propertyId: $requestedPostId,
 
-                startsAt:
-                    $startsAt,
+                startsAt: $startsAt,
 
-                endsAt:
-                    $endsAt,
+                endsAt: $endsAt,
 
-                excludePromotionId:
-                    (int) $lockedPromotion->id
+                excludePromotionId: (int) $lockedPromotion->id
             );
 
             $promotionType =
@@ -321,8 +310,8 @@ class FeaturedPropertyService
                 )
                 && $data['promotion_type'] !== null
                 && $data['promotion_type'] !== ''
-                    ? (string) $data['promotion_type']
-                    : $lockedPromotion->promotion_type;
+                ? (string) $data['promotion_type']
+                : $lockedPromotion->promotion_type;
 
             $this->assertValidPromotionType(
                 $promotionType
@@ -330,23 +319,23 @@ class FeaturedPropertyService
 
             $updateData = [
                 'starts_at' =>
-                    $startsAt,
+                $startsAt,
 
                 'ends_at' =>
-                    $endsAt,
+                $endsAt,
 
                 'promotion_type' =>
-                    $promotionType,
+                $promotionType,
 
                 'status' =>
-                    $this->resolveStatus(
-                        startsAt: $startsAt,
-                        endsAt: $endsAt,
-                        now: $now
-                    ),
+                $this->resolveStatus(
+                    startsAt: $startsAt,
+                    endsAt: $endsAt,
+                    now: $now
+                ),
 
                 'updated_by' =>
-                    (int) $actor->id,
+                (int) $actor->id,
             ];
 
             if (
@@ -406,10 +395,10 @@ class FeaturedPropertyService
                     && trim(
                         (string) $data['admin_notes']
                     ) !== ''
-                        ? trim(
-                            (string) $data['admin_notes']
-                        )
-                        : null;
+                    ? trim(
+                        (string) $data['admin_notes']
+                    )
+                    : null;
             }
 
             $lockedPromotion
@@ -418,12 +407,9 @@ class FeaturedPropertyService
                 )
                 ->save();
 
-            return $lockedPromotion->fresh([
-                'property.postType',
-                'createdBy',
-                'updatedBy',
-                'cancelledBy',
-            ]);
+            return $lockedPromotion->fresh(
+                $this->responseRelations()
+            );
         }, 3);
     }
 
@@ -443,11 +429,11 @@ class FeaturedPropertyService
 
             $lockedPromotion =
                 PropertyFeaturedPromotion::query()
-                    ->whereKey(
-                        $promotion->id
-                    )
-                    ->lockForUpdate()
-                    ->first();
+                ->whereKey(
+                    $promotion->id
+                )
+                ->lockForUpdate()
+                ->first();
 
             if (!$lockedPromotion) {
                 throw ValidationException::withMessages([
@@ -466,31 +452,28 @@ class FeaturedPropertyService
             $lockedPromotion
                 ->forceFill([
                     'status' =>
-                        PropertyFeaturedPromotion::STATUS_CANCELLED,
+                    PropertyFeaturedPromotion::STATUS_CANCELLED,
 
                     'cancelled_by' =>
-                        (int) $actor->id,
+                    (int) $actor->id,
 
                     'cancelled_at' =>
-                        $now,
+                    $now,
 
                     'cancellation_reason' =>
-                        $reason !== null
+                    $reason !== null
                         && trim($reason) !== ''
-                            ? trim($reason)
-                            : null,
+                        ? trim($reason)
+                        : null,
 
                     'updated_by' =>
-                        (int) $actor->id,
+                    (int) $actor->id,
                 ])
                 ->save();
 
-            return $lockedPromotion->fresh([
-                'property.postType',
-                'createdBy',
-                'updatedBy',
-                'cancelledBy',
-            ]);
+            return $lockedPromotion->fresh(
+                $this->responseRelations()
+            );
         }, 3);
     }
 
@@ -500,68 +483,68 @@ class FeaturedPropertyService
 
         $expiredCount =
             PropertyFeaturedPromotion::query()
-                ->whereIn('status', [
-                    PropertyFeaturedPromotion::STATUS_ACTIVE,
-                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                ])
-                ->whereNotNull(
-                    'ends_at'
-                )
-                ->where(
-                    'ends_at',
-                    '<=',
-                    $now
-                )
-                ->update([
-                    'status' =>
-                        PropertyFeaturedPromotion::STATUS_EXPIRED,
+            ->whereIn('status', [
+                PropertyFeaturedPromotion::STATUS_ACTIVE,
+                PropertyFeaturedPromotion::STATUS_SCHEDULED,
+            ])
+            ->whereNotNull(
+                'ends_at'
+            )
+            ->where(
+                'ends_at',
+                '<=',
+                $now
+            )
+            ->update([
+                'status' =>
+                PropertyFeaturedPromotion::STATUS_EXPIRED,
 
-                    'updated_at' =>
-                        $now,
-                ]);
+                'updated_at' =>
+                $now,
+            ]);
 
         $activatedCount =
             PropertyFeaturedPromotion::query()
-                ->where(
-                    'status',
-                    PropertyFeaturedPromotion::STATUS_SCHEDULED
-                )
-                ->where(function ($query) use ($now) {
-                    $query
-                        ->whereNull(
-                            'starts_at'
-                        )
-                        ->orWhere(
-                            'starts_at',
-                            '<=',
-                            $now
-                        );
-                })
-                ->where(function ($query) use ($now) {
-                    $query
-                        ->whereNull(
-                            'ends_at'
-                        )
-                        ->orWhere(
-                            'ends_at',
-                            '>',
-                            $now
-                        );
-                })
-                ->update([
-                    'status' =>
-                        PropertyFeaturedPromotion::STATUS_ACTIVE,
+            ->where(
+                'status',
+                PropertyFeaturedPromotion::STATUS_SCHEDULED
+            )
+            ->where(function ($query) use ($now) {
+                $query
+                    ->whereNull(
+                        'starts_at'
+                    )
+                    ->orWhere(
+                        'starts_at',
+                        '<=',
+                        $now
+                    );
+            })
+            ->where(function ($query) use ($now) {
+                $query
+                    ->whereNull(
+                        'ends_at'
+                    )
+                    ->orWhere(
+                        'ends_at',
+                        '>',
+                        $now
+                    );
+            })
+            ->update([
+                'status' =>
+                PropertyFeaturedPromotion::STATUS_ACTIVE,
 
-                    'updated_at' =>
-                        $now,
-                ]);
+                'updated_at' =>
+                $now,
+            ]);
 
         return [
             'activated' =>
-                $activatedCount,
+            $activatedCount,
 
             'expired' =>
-                $expiredCount,
+            $expiredCount,
         ];
     }
 
@@ -723,40 +706,40 @@ class FeaturedPropertyService
     ): void {
         $query =
             PropertyFeaturedPromotion::query()
-                ->where(
-                    'dynamic_post_id',
-                    $propertyId
-                )
-                ->whereIn('status', [
-                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                    PropertyFeaturedPromotion::STATUS_ACTIVE,
-                ])
-                ->where(function ($query) use ($endsAt) {
-                    if ($endsAt === null) {
-                        return;
-                    }
+            ->where(
+                'dynamic_post_id',
+                $propertyId
+            )
+            ->whereIn('status', [
+                PropertyFeaturedPromotion::STATUS_SCHEDULED,
+                PropertyFeaturedPromotion::STATUS_ACTIVE,
+            ])
+            ->where(function ($query) use ($endsAt) {
+                if ($endsAt === null) {
+                    return;
+                }
 
-                    $query
-                        ->whereNull(
-                            'starts_at'
-                        )
-                        ->orWhere(
-                            'starts_at',
-                            '<',
-                            $endsAt
-                        );
-                })
-                ->where(function ($query) use ($startsAt) {
-                    $query
-                        ->whereNull(
-                            'ends_at'
-                        )
-                        ->orWhere(
-                            'ends_at',
-                            '>',
-                            $startsAt
-                        );
-                });
+                $query
+                    ->whereNull(
+                        'starts_at'
+                    )
+                    ->orWhere(
+                        'starts_at',
+                        '<',
+                        $endsAt
+                    );
+            })
+            ->where(function ($query) use ($startsAt) {
+                $query
+                    ->whereNull(
+                        'ends_at'
+                    )
+                    ->orWhere(
+                        'ends_at',
+                        '>',
+                        $startsAt
+                    );
+            });
 
         if ($excludePromotionId !== null) {
             $query->where(
@@ -768,15 +751,15 @@ class FeaturedPropertyService
 
         $conflictingPromotion =
             $query
-                ->orderBy(
-                    'starts_at'
-                )
-                ->first([
-                    'id',
-                    'starts_at',
-                    'ends_at',
-                    'status',
-                ]);
+            ->orderBy(
+                'starts_at'
+            )
+            ->first([
+                'id',
+                'starts_at',
+                'ends_at',
+                'status',
+            ]);
 
         if (!$conflictingPromotion) {
             return;
@@ -794,18 +777,18 @@ class FeaturedPropertyService
 
                     $conflictingPromotion->starts_at
                         ? $conflictingPromotion
-                            ->starts_at
-                            ->format(
-                                'Y-m-d H:i:s'
-                            )
+                        ->starts_at
+                        ->format(
+                            'Y-m-d H:i:s'
+                        )
                         : '-',
 
                     $conflictingPromotion->ends_at
                         ? $conflictingPromotion
-                            ->ends_at
-                            ->format(
-                                'Y-m-d H:i:s'
-                            )
+                        ->ends_at
+                        ->format(
+                            'Y-m-d H:i:s'
+                        )
                         : 'No end date'
                 ),
             ],
@@ -934,5 +917,25 @@ class FeaturedPropertyService
                 'UTC'
             )
         );
+    }
+    private function responseRelations(): array
+    {
+        return [
+            'property.postType',
+            'property.country',
+            'property.state',
+            'property.city',
+            'property.author',
+            'property.parent',
+            'property.taxonomyTerms.taxonomy',
+            'property.meta.customField.options',
+            'property.keywords',
+            'property.assignedUsers',
+            'property.relationships.relatedPostType',
+            'property.relationships.relatedPost',
+            'createdBy',
+            'updatedBy',
+            'cancelledBy',
+        ];
     }
 }
