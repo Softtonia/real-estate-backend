@@ -31,6 +31,9 @@ class FeaturedPropertyController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
+            $this->normalizeBooleanFilters(
+                $request
+            );
             $validated = $request->validate([
                 'search' => [
                     'nullable',
@@ -1233,5 +1236,46 @@ class FeaturedPropertyController extends Controller
                 );
             }
         );
+    }
+    private function normalizeBooleanFilters(
+        Request $request
+    ): void {
+        $fields = [
+            'show_on_home',
+            'show_on_search',
+            'show_on_detail',
+        ];
+
+        foreach ($fields as $field) {
+            if (!$request->has($field)) {
+                continue;
+            }
+
+            $value = $request->input($field);
+
+            if (is_bool($value)) {
+                continue;
+            }
+
+            if (
+                is_string($value)
+                && strtolower(trim($value)) === 'true'
+            ) {
+                $request->merge([
+                    $field => 1,
+                ]);
+
+                continue;
+            }
+
+            if (
+                is_string($value)
+                && strtolower(trim($value)) === 'false'
+            ) {
+                $request->merge([
+                    $field => 0,
+                ]);
+            }
+        }
     }
 }
