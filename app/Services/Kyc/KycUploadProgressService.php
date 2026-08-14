@@ -73,13 +73,20 @@ class KycUploadProgressService
         ]);
     }
 
-    public function markFailed(string $uploadId, string $fileKey, string $error): array
-    {
-        return $this->mark($uploadId, $fileKey, [
-            'status' => 'failed',
-            'percent' => 0,
-            'error' => $error,
-        ]);
+    public function markFailed(
+        string $uploadId,
+        string $fileKey,
+        string $error
+    ): array {
+        return $this->mark(
+            $uploadId,
+            $fileKey,
+            [
+                'status' => 'failed',
+                'percent' => 100,
+                'error' => $error,
+            ]
+        );
     }
 
     public function get(string $uploadId): ?array
@@ -121,17 +128,30 @@ class KycUploadProgressService
         });
     }
 
-    private function syncCounters(array $progress): array
-    {
+    private function syncCounters(
+        array $progress
+    ): array {
         $files = $progress['files'] ?? [];
 
         $queued = 0;
         $processing = 0;
         $processed = 0;
         $failed = 0;
+        $totalPercent = 0;
 
         foreach ($files as $file) {
-            $status = $file['status'] ?? 'queued';
+            $status = $file['status']
+                ?? 'queued';
+
+            $filePercent = min(
+                100,
+                max(
+                    0,
+                    (int) ($file['percent'] ?? 0)
+                )
+            );
+
+            $totalPercent += $filePercent;
 
             if ($status === 'queued') {
                 $queued++;
@@ -150,17 +170,31 @@ class KycUploadProgressService
             }
         }
 
-        $total = max(1, (int) ($progress['total_files'] ?? count($files) ?: 1));
-        $done = $processed + $failed;
+        $total = count($files);
 
         $progress['queued_files'] = $queued;
         $progress['processing_files'] = $processing;
         $progress['processed_files'] = $processed;
         $progress['failed_files'] = $failed;
-        $progress['percent'] = min(100, (int) round(($done / $total) * 100));
 
-        if ($done >= $total) {
-            $progress['status'] = $failed > 0 ? 'completed_with_errors' : 'completed';
+        $progress['percent'] = $total > 0
+            ? min(
+                100,
+                (int) round(
+                    $totalPercent / $total
+                )
+            )
+            : 0;
+
+        $done = $processed + $failed;
+
+        if (
+            $total > 0
+            && $done >= $total
+        ) {
+            $progress['status'] = $failed > 0
+                ? 'completed_with_errors'
+                : 'completed';
         } elseif ($processing > 0) {
             $progress['status'] = 'processing';
         } else {
