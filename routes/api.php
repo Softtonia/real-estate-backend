@@ -1203,83 +1203,83 @@ Route::prefix('admin/notifications')
         'throttle:notification-admin',
     ])
     ->group(function () {
-/*
+        /*
 |--------------------------------------------------------------------------
 | Admin Firebase Notification Config
 |--------------------------------------------------------------------------
 */
-Route::prefix('admin/notification-config')
-    ->middleware([
-        'validate.api.client',
-        'admin.token',
-        'throttle:notification-admin',
-    ])
-    ->group(function () {
+        Route::prefix('admin/notification-config')
+            ->middleware([
+                'validate.api.client',
+                'admin.token',
+                'throttle:notification-admin',
+            ])
+            ->group(function () {
 
-        Route::get(
-            'firebase',
-            [NotificationConfigController::class, 'firebase']
-        )->middleware(
-            'permission.check:notification_config,read'
-        );
+                Route::get(
+                    'firebase',
+                    [NotificationConfigController::class, 'firebase']
+                )->middleware(
+                    'permission.check:notification_config,read'
+                );
 
-        Route::put(
-            'firebase',
-            [NotificationConfigController::class, 'updateFirebase']
-        )->middleware(
-            'permission.check:notification_config,edit'
-        );
+                Route::put(
+                    'firebase',
+                    [NotificationConfigController::class, 'updateFirebase']
+                )->middleware(
+                    'permission.check:notification_config,edit'
+                );
 
-        Route::patch(
-            'firebase',
-            [NotificationConfigController::class, 'updateFirebase']
-        )->middleware(
-            'permission.check:notification_config,edit'
-        );
+                Route::patch(
+                    'firebase',
+                    [NotificationConfigController::class, 'updateFirebase']
+                )->middleware(
+                    'permission.check:notification_config,edit'
+                );
 
-        Route::post(
-            'firebase/test-token',
-            [NotificationConfigController::class, 'testToken']
-        )->middleware(
-            'permission.check:notification_config,read'
-        );
+                Route::post(
+                    'firebase/test-token',
+                    [NotificationConfigController::class, 'testToken']
+                )->middleware(
+                    'permission.check:notification_config,read'
+                );
 
-        Route::post(
-            'firebase/test-send',
-            [NotificationConfigController::class, 'testSend']
-        )->middleware(
-            'permission.check:notification_config,read'
-        );
-    });
+                Route::post(
+                    'firebase/test-send',
+                    [NotificationConfigController::class, 'testSend']
+                )->middleware(
+                    'permission.check:notification_config,read'
+                );
+            });
 
-
-/*
-|--------------------------------------------------------------------------
-| Admin Notifications
-|--------------------------------------------------------------------------
-*/
-Route::prefix('admin/notifications')
-    ->middleware([
-        'validate.api.client',
-        'admin.token',
-        'throttle:notification-admin',
-    ])
-    ->group(function () {
 
         /*
+    |--------------------------------------------------------------------------
+    | Admin Notifications
+    |--------------------------------------------------------------------------
+    */
+        Route::prefix('admin/notifications')
+            ->middleware([
+                'validate.api.client',
+                'admin.token',
+                'throttle:notification-admin',
+            ])
+            ->group(function () {
+
+                /*
         |--------------------------------------------------------------------------
         | Send Notification
         |--------------------------------------------------------------------------
         */
-        Route::post(
-            'send',
-            [AdminNotificationSendController::class, 'send']
-        )->middleware(
-            'permission.check:notifications,send'
-        );
+                Route::post(
+                    'send',
+                    [AdminNotificationSendController::class, 'send']
+                )->middleware(
+                    'permission.check:notifications,send'
+                );
 
 
-        /*
+                /*
         |--------------------------------------------------------------------------
         | Admin Personal Inbox
         |--------------------------------------------------------------------------
@@ -1289,46 +1289,46 @@ Route::prefix('admin/notifications')
         |
         */
 
-        Route::get(
-            'inbox',
-            [AdminNotificationInboxController::class, 'index']
-        );
+                Route::get(
+                    'inbox',
+                    [AdminNotificationInboxController::class, 'index']
+                );
 
-        Route::get(
-            'inbox/unread-count',
-            [AdminNotificationInboxController::class, 'unreadCount']
-        );
+                Route::get(
+                    'inbox/unread-count',
+                    [AdminNotificationInboxController::class, 'unreadCount']
+                );
 
-        Route::post(
-            'inbox/read-all',
-            [AdminNotificationInboxController::class, 'markAllAsRead']
-        );
+                Route::post(
+                    'inbox/read-all',
+                    [AdminNotificationInboxController::class, 'markAllAsRead']
+                );
 
-        Route::get(
-            'inbox/{notification}',
-            [AdminNotificationInboxController::class, 'show']
-        );
+                Route::get(
+                    'inbox/{notification}',
+                    [AdminNotificationInboxController::class, 'show']
+                );
 
-        Route::post(
-            'inbox/{notification}/read',
-            [AdminNotificationInboxController::class, 'markAsRead']
-        );
+                Route::post(
+                    'inbox/{notification}/read',
+                    [AdminNotificationInboxController::class, 'markAsRead']
+                );
 
 
-        /*
+                /*
         |--------------------------------------------------------------------------
         | Dashboard
         |--------------------------------------------------------------------------
         */
-        Route::get(
-            'dashboard',
-            [AdminNotificationReportController::class, 'dashboard']
-        )->middleware(
-            'permission.check:notification_reports,read'
-        );
+                Route::get(
+                    'dashboard',
+                    [AdminNotificationReportController::class, 'dashboard']
+                )->middleware(
+                    'permission.check:notification_reports,read'
+                );
 
 
-        /*
+                /*
         |--------------------------------------------------------------------------
         | In-App Notification Reports
         |--------------------------------------------------------------------------
@@ -1338,35 +1338,35 @@ Route::prefix('admin/notifications')
         |
         */
 
-        Route::get(
-            'in-app',
-            [AdminNotificationReportController::class, 'inAppNotifications']
-        )->middleware(
-            'permission.check:notification_reports,read'
-        );
+                Route::get(
+                    'in-app',
+                    [AdminNotificationReportController::class, 'inAppNotifications']
+                )->middleware(
+                    'permission.check:notification_reports,read'
+                );
 
-        Route::delete(
-            'in-app/clear-all',
-            [AdminNotificationReportController::class, 'clearAllInAppNotifications']
-        )->middleware(
-            'permission.check:notification_reports,delete'
-        );
+                Route::delete(
+                    'in-app/clear-all',
+                    [AdminNotificationReportController::class, 'clearAllInAppNotifications']
+                )->middleware(
+                    'permission.check:notification_reports,delete'
+                );
 
 
-        /*
+                /*
         |--------------------------------------------------------------------------
         | Devices
         |--------------------------------------------------------------------------
         */
-        Route::get(
-            'devices',
-            [AdminNotificationDeviceController::class, 'index']
-        )->middleware(
-            'permission.check:notification_reports,read'
-        );
+                Route::get(
+                    'devices',
+                    [AdminNotificationDeviceController::class, 'index']
+                )->middleware(
+                    'permission.check:notification_reports,read'
+                );
 
 
-        /*
+                /*
         |--------------------------------------------------------------------------
         | Batch Reports
         |--------------------------------------------------------------------------
@@ -1375,139 +1375,140 @@ Route::prefix('admin/notifications')
         |
         */
 
-        Route::get(
-            'batches',
-            [AdminNotificationReportController::class, 'batches']
-        )->middleware(
-            'permission.check:notification_reports,read'
-        );
+                Route::get(
+                    'batches',
+                    [AdminNotificationReportController::class, 'batches']
+                )->middleware(
+                    'permission.check:notification_reports,read'
+                );
 
-        Route::delete(
-            'batches/clear-all',
-            [AdminNotificationReportController::class, 'clearAllBatches']
-        )->middleware(
-            'permission.check:notification_reports,delete'
-        );
+                Route::delete(
+                    'batches/clear-all',
+                    [AdminNotificationReportController::class, 'clearAllBatches']
+                )->middleware(
+                    'permission.check:notification_reports,delete'
+                );
 
-        Route::post(
-            'batches/{batch}/retry-failed',
-            [AdminNotificationRetryController::class, 'retryBatchFailed']
-        )
-            ->middleware(
-                'permission.check:notifications,retry'
-            )
-            ->whereNumber('batch');
+                Route::post(
+                    'batches/{batch}/retry-failed',
+                    [AdminNotificationRetryController::class, 'retryBatchFailed']
+                )
+                    ->middleware(
+                        'permission.check:notifications,retry'
+                    )
+                    ->whereNumber('batch');
 
-        Route::get(
-            'batches/{batch}/logs',
-            [AdminNotificationReportController::class, 'batchLogs']
-        )
-            ->middleware(
-                'permission.check:notification_reports,read'
-            )
-            ->whereNumber('batch');
+                Route::get(
+                    'batches/{batch}/logs',
+                    [AdminNotificationReportController::class, 'batchLogs']
+                )
+                    ->middleware(
+                        'permission.check:notification_reports,read'
+                    )
+                    ->whereNumber('batch');
 
-        Route::get(
-            'batches/{batch}',
-            [AdminNotificationReportController::class, 'showBatch']
-        )
-            ->middleware(
-                'permission.check:notification_reports,read'
-            )
-            ->whereNumber('batch');
+                Route::get(
+                    'batches/{batch}',
+                    [AdminNotificationReportController::class, 'showBatch']
+                )
+                    ->middleware(
+                        'permission.check:notification_reports,read'
+                    )
+                    ->whereNumber('batch');
 
 
-        /*
+                /*
         |--------------------------------------------------------------------------
         | Notification Logs
         |--------------------------------------------------------------------------
         */
 
-        Route::get(
-            'logs',
-            [AdminNotificationReportController::class, 'logs']
-        )->middleware(
-            'permission.check:notification_reports,read'
-        );
+                Route::get(
+                    'logs',
+                    [AdminNotificationReportController::class, 'logs']
+                )->middleware(
+                    'permission.check:notification_reports,read'
+                );
 
-        Route::delete(
-            'logs/clear-all',
-            [AdminNotificationReportController::class, 'clearLogs']
-        )->middleware(
-            'permission.check:notification_reports,delete'
-        );
+                Route::delete(
+                    'logs/clear-all',
+                    [AdminNotificationReportController::class, 'clearLogs']
+                )->middleware(
+                    'permission.check:notification_reports,delete'
+                );
 
-        Route::post(
-            'logs/retry-failed',
-            [AdminNotificationRetryController::class, 'retryLogsFailed']
-        )->middleware(
-            'permission.check:notifications,retry'
-        );
-    
-        /*
+                Route::post(
+                    'logs/retry-failed',
+                    [AdminNotificationRetryController::class, 'retryLogsFailed']
+                )->middleware(
+                    'permission.check:notifications,retry'
+                );
+
+                /*
         |--------------------------------------------------------------------------
         | Notification Topics
         |--------------------------------------------------------------------------
         */
-        Route::get('topics', [AdminNotificationTopicController::class, 'index'])
-            ->middleware('permission.check:notification_topics,read');
+                Route::get('topics', [AdminNotificationTopicController::class, 'index'])
+                    ->middleware('permission.check:notification_topics,read');
 
-        Route::post('topics', [AdminNotificationTopicController::class, 'store'])
-            ->middleware('permission.check:notification_topics,create');
+                Route::post('topics', [AdminNotificationTopicController::class, 'store'])
+                    ->middleware('permission.check:notification_topics,create');
 
-        Route::get('topics/{topic}/subscribers', [AdminNotificationTopicController::class, 'subscribers'])
-            ->middleware('permission.check:notification_topics,read')
-            ->whereNumber('topic');
+                Route::get('topics/{topic}/subscribers', [AdminNotificationTopicController::class, 'subscribers'])
+                    ->middleware('permission.check:notification_topics,read')
+                    ->whereNumber('topic');
 
-        Route::get('topics/{topic}', [AdminNotificationTopicController::class, 'show'])
-            ->middleware('permission.check:notification_topics,read')
-            ->whereNumber('topic');
+                Route::get('topics/{topic}', [AdminNotificationTopicController::class, 'show'])
+                    ->middleware('permission.check:notification_topics,read')
+                    ->whereNumber('topic');
 
-        Route::put('topics/{topic}', [AdminNotificationTopicController::class, 'update'])
-            ->middleware('permission.check:notification_topics,edit')
-            ->whereNumber('topic');
+                Route::put('topics/{topic}', [AdminNotificationTopicController::class, 'update'])
+                    ->middleware('permission.check:notification_topics,edit')
+                    ->whereNumber('topic');
 
-        Route::patch('topics/{topic}', [AdminNotificationTopicController::class, 'update'])
-            ->middleware('permission.check:notification_topics,edit')
-            ->whereNumber('topic');
+                Route::patch('topics/{topic}', [AdminNotificationTopicController::class, 'update'])
+                    ->middleware('permission.check:notification_topics,edit')
+                    ->whereNumber('topic');
 
-        Route::delete('topics/{topic}', [AdminNotificationTopicController::class, 'destroy'])
-            ->middleware('permission.check:notification_topics,delete')
-            ->whereNumber('topic');
+                Route::delete('topics/{topic}', [AdminNotificationTopicController::class, 'destroy'])
+                    ->middleware('permission.check:notification_topics,delete')
+                    ->whereNumber('topic');
 
 
-        /*
+                /*
         |--------------------------------------------------------------------------
         | Notification Templates
         |--------------------------------------------------------------------------
         */
-        Route::get('templates/options', [AdminNotificationTemplateController::class, 'options'])
-            ->middleware('permission.check:notification_templates,read');
+                Route::get('templates/options', [AdminNotificationTemplateController::class, 'options'])
+                    ->middleware('permission.check:notification_templates,read');
 
-        Route::get('templates', [AdminNotificationTemplateController::class, 'index'])
-            ->middleware('permission.check:notification_templates,read');
+                Route::get('templates', [AdminNotificationTemplateController::class, 'index'])
+                    ->middleware('permission.check:notification_templates,read');
 
-        Route::post('templates', [AdminNotificationTemplateController::class, 'store'])
-            ->middleware('permission.check:notification_templates,create');
+                Route::post('templates', [AdminNotificationTemplateController::class, 'store'])
+                    ->middleware('permission.check:notification_templates,create');
 
-        Route::get('templates/{template}', [AdminNotificationTemplateController::class, 'show'])
-            ->middleware('permission.check:notification_templates,read')
-            ->whereNumber('template');
+                Route::get('templates/{template}', [AdminNotificationTemplateController::class, 'show'])
+                    ->middleware('permission.check:notification_templates,read')
+                    ->whereNumber('template');
 
-        Route::put('templates/{template}', [AdminNotificationTemplateController::class, 'update'])
-            ->middleware('permission.check:notification_templates,edit')
-            ->whereNumber('template');
+                Route::put('templates/{template}', [AdminNotificationTemplateController::class, 'update'])
+                    ->middleware('permission.check:notification_templates,edit')
+                    ->whereNumber('template');
 
-        Route::patch('templates/{template}', [AdminNotificationTemplateController::class, 'update'])
-            ->middleware('permission.check:notification_templates,edit')
-            ->whereNumber('template');
+                Route::patch('templates/{template}', [AdminNotificationTemplateController::class, 'update'])
+                    ->middleware('permission.check:notification_templates,edit')
+                    ->whereNumber('template');
 
-        Route::delete('templates/{template}', [AdminNotificationTemplateController::class, 'destroy'])
-            ->middleware('permission.check:notification_templates,delete')
-            ->whereNumber('template');
+                Route::delete('templates/{template}', [AdminNotificationTemplateController::class, 'destroy'])
+                    ->middleware('permission.check:notification_templates,delete')
+                    ->whereNumber('template');
 
-        Route::get('payload-options', [NotificationPayloadOptionController::class, 'index'])
-            ->middleware('permission.check:notifications,read');
+                Route::get('payload-options', [NotificationPayloadOptionController::class, 'index'])
+                    ->middleware('permission.check:notifications,read');
+            });
     });
 
 Route::prefix('admin/membership/settings')
