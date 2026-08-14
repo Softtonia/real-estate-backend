@@ -80,18 +80,37 @@ class KycReviewRequest extends FormRequest
     public function withValidator($validator): void
     {
         $validator->after(function ($validator) {
-            if ($this->input('action') === 'reject' && !$this->filled('rejection_reason')) {
+            $action = $this->input('action');
+
+            $globalReason = trim(
+                (string) $this->input('rejection_reason', '')
+            );
+
+            if (
+                $action === 'reject'
+                && $globalReason === ''
+            ) {
                 $validator->errors()->add(
                     'rejection_reason',
                     'Rejection reason is required when rejecting KYC.'
                 );
             }
 
-            foreach ((array) $this->input('documents', []) as $index => $document) {
+            foreach (
+                (array) $this->input('documents', [])
+                as $index => $document
+            ) {
                 $status = $document['status'] ?? null;
-                $reason = $document['rejection_reason'] ?? null;
 
-                if ($status === KycDocument::STATUS_REJECTED && empty($reason)) {
+                $documentReason = trim(
+                    (string) ($document['rejection_reason'] ?? '')
+                );
+
+                if (
+                    $status === KycDocument::STATUS_REJECTED
+                    && $documentReason === ''
+                    && $globalReason === ''
+                ) {
                     $validator->errors()->add(
                         "documents.$index.rejection_reason",
                         'Document rejection reason is required when document status is rejected.'

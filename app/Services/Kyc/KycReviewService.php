@@ -25,9 +25,24 @@ class KycReviewService
         KycReviewRequest $request
     ): KycRequest {
         return match ($request->input('action')) {
-            'start_review' => $this->startReview($kycRequest, $reviewer, $request),
-            'approve' => $this->approve($kycRequest, $reviewer, $request),
-            'reject' => $this->reject($kycRequest, $reviewer, $request),
+            'start_review' => $this->startReview(
+                $kycRequest,
+                $reviewer,
+                $request
+            ),
+
+            'approve' => $this->approve(
+                $kycRequest,
+                $reviewer,
+                $request
+            ),
+
+            'reject' => $this->reject(
+                $kycRequest,
+                $reviewer,
+                $request
+            ),
+
             default => throw ValidationException::withMessages([
                 'action' => 'Invalid KYC review action.',
             ]),
@@ -41,40 +56,59 @@ class KycReviewService
     ): KycRequest {
         $kycRequest = $this->freshRequest($kycRequest);
 
-        if (!in_array($kycRequest->status, [
-            KycRequest::STATUS_SUBMITTED,
-            KycRequest::STATUS_RESUBMITTED,
-        ], true)) {
+        if (
+            !in_array(
+                $kycRequest->status,
+                [
+                    KycRequest::STATUS_SUBMITTED,
+                    KycRequest::STATUS_RESUBMITTED,
+                ],
+                true
+            )
+        ) {
             throw ValidationException::withMessages([
                 'status' => 'Only submitted or resubmitted KYC can be moved to under review.',
             ]);
         }
 
-        DB::transaction(function () use ($kycRequest, $reviewer, $request) {
-            $oldStatus = $kycRequest->status;
+        DB::transaction(
+            function () use (
+                $kycRequest,
+                $reviewer,
+                $request
+            ) {
+                $oldStatus = $kycRequest->status;
 
-            $kycRequest->update([
-                'status' => KycRequest::STATUS_UNDER_REVIEW,
-                'review_started_at' => now(),
-                'reviewed_by' => $reviewer->id,
-                'reviewer_notes' => $request->input('reviewer_notes'),
-            ]);
+                $kycRequest->update([
+                    'status' => KycRequest::STATUS_UNDER_REVIEW,
+                    'review_started_at' => now(),
+                    'reviewed_by' => $reviewer->id,
+                    'reviewer_notes' => $request->input(
+                        'reviewer_notes'
+                    ),
+                ]);
 
-            $this->activityService->record(
-                kycRequest: $kycRequest->fresh(['user']),
-                user: $kycRequest->user,
-                performedBy: $reviewer,
-                action: \App\Models\KycActivity::ACTION_VERIFICATION_STARTED,
-                oldStatus: $oldStatus,
-                newStatus: KycRequest::STATUS_UNDER_REVIEW,
-                remarks: $request->input('reviewer_notes') ?: 'KYC verification started.',
-                request: $request
-            );
-        });
+                $this->activityService->record(
+                    kycRequest: $kycRequest->fresh(['user']),
+                    user: $kycRequest->user,
+                    performedBy: $reviewer,
+                    action: \App\Models\KycActivity::ACTION_VERIFICATION_STARTED,
+                    oldStatus: $oldStatus,
+                    newStatus: KycRequest::STATUS_UNDER_REVIEW,
+                    remarks: $request->input('reviewer_notes')
+                        ?: 'KYC verification started.',
+                    request: $request
+                );
+            }
+        );
 
-        $this->clearKycCaches($kycRequest->user);
+        $this->clearKycCaches(
+            $kycRequest->user
+        );
 
-        return $this->freshRequest($kycRequest);
+        return $this->freshRequest(
+            $kycRequest
+        );
     }
 
     public function approve(
@@ -82,7 +116,9 @@ class KycReviewService
         User $reviewer,
         KycReviewRequest $request
     ): KycRequest {
-        $kycRequest = $this->freshRequest($kycRequest);
+        $kycRequest = $this->freshRequest(
+            $kycRequest
+        );
 
         if (!$kycRequest->canBeReviewed()) {
             throw ValidationException::withMessages([
@@ -90,9 +126,17 @@ class KycReviewService
             ]);
         }
 
-        $this->applyDocumentReviews($kycRequest, $reviewer, $request);
+        $this->applyDocumentReviews(
+            $kycRequest,
+            $reviewer,
+            $request
+        );
 
-        $latestDocuments = $this->documentService->latestDocumentsForRequest($kycRequest);
+        $latestDocuments = $this
+            ->documentService
+            ->latestDocumentsForRequest(
+                $kycRequest
+            );
 
         if ($latestDocuments->isEmpty()) {
             throw ValidationException::withMessages([
@@ -101,7 +145,10 @@ class KycReviewService
         }
 
         $rejectedDocuments = $latestDocuments
-            ->where('status', KycDocument::STATUS_REJECTED)
+            ->where(
+                'status',
+                KycDocument::STATUS_REJECTED
+            )
             ->values();
 
         if ($rejectedDocuments->isNotEmpty()) {
@@ -111,7 +158,10 @@ class KycReviewService
         }
 
         foreach ($latestDocuments as $document) {
-            if ($document->status !== KycDocument::STATUS_APPROVED) {
+            if (
+                $document->status
+                !== KycDocument::STATUS_APPROVED
+            ) {
                 $this->documentService->reviewDocument(
                     document: $document,
                     status: KycDocument::STATUS_APPROVED,
@@ -122,39 +172,52 @@ class KycReviewService
             }
         }
 
-        DB::transaction(function () use ($kycRequest, $reviewer, $request) {
-            $oldStatus = $kycRequest->status;
+        DB::transaction(
+            function () use (
+                $kycRequest,
+                $reviewer,
+                $request
+            ) {
+                $oldStatus = $kycRequest->status;
 
-            $kycRequest->update([
-                'status' => KycRequest::STATUS_APPROVED,
-                'reviewed_by' => $reviewer->id,
-                'reviewed_at' => now(),
-                'reviewed_ip' => $request->ip(),
-                'rejection_reason' => null,
-                'reviewer_notes' => $request->input('reviewer_notes'),
-            ]);
+                $kycRequest->update([
+                    'status' => KycRequest::STATUS_APPROVED,
+                    'reviewed_by' => $reviewer->id,
+                    'reviewed_at' => now(),
+                    'reviewed_ip' => $request->ip(),
+                    'rejection_reason' => null,
+                    'reviewer_notes' => $request->input(
+                        'reviewer_notes'
+                    ),
+                ]);
 
-            $this->syncLegacyKycMirror(
-                user: $kycRequest->user,
-                status: 2,
-                rejectionReason: null
-            );
+                $this->syncLegacyKycMirror(
+                    user: $kycRequest->user,
+                    status: 2,
+                    rejectionReason: null
+                );
 
-            $this->activityService->record(
-                kycRequest: $kycRequest->fresh(['user']),
-                user: $kycRequest->user,
-                performedBy: $reviewer,
-                action: \App\Models\KycActivity::ACTION_APPROVED,
-                oldStatus: $oldStatus,
-                newStatus: KycRequest::STATUS_APPROVED,
-                remarks: $request->input('reviewer_notes') ?: 'KYC approved.',
-                request: $request
-            );
-        });
+                $this->activityService->record(
+                    kycRequest: $kycRequest->fresh(['user']),
+                    user: $kycRequest->user,
+                    performedBy: $reviewer,
+                    action: \App\Models\KycActivity::ACTION_APPROVED,
+                    oldStatus: $oldStatus,
+                    newStatus: KycRequest::STATUS_APPROVED,
+                    remarks: $request->input('reviewer_notes')
+                        ?: 'KYC approved.',
+                    request: $request
+                );
+            }
+        );
 
-        $this->clearKycCaches($kycRequest->user);
+        $this->clearKycCaches(
+            $kycRequest->user
+        );
 
-        return $this->freshRequest($kycRequest);
+        return $this->freshRequest(
+            $kycRequest
+        );
     }
 
     public function reject(
@@ -162,7 +225,9 @@ class KycReviewService
         User $reviewer,
         KycReviewRequest $request
     ): KycRequest {
-        $kycRequest = $this->freshRequest($kycRequest);
+        $kycRequest = $this->freshRequest(
+            $kycRequest
+        );
 
         if (!$kycRequest->canBeReviewed()) {
             throw ValidationException::withMessages([
@@ -170,7 +235,11 @@ class KycReviewService
             ]);
         }
 
-        $reason = trim((string) $request->input('rejection_reason'));
+        $reason = trim(
+            (string) $request->input(
+                'rejection_reason'
+            )
+        );
 
         if ($reason === '') {
             throw ValidationException::withMessages([
@@ -178,41 +247,58 @@ class KycReviewService
             ]);
         }
 
-        $this->applyDocumentReviews($kycRequest, $reviewer, $request);
+        $this->applyDocumentReviews(
+            $kycRequest,
+            $reviewer,
+            $request
+        );
 
-        DB::transaction(function () use ($kycRequest, $reviewer, $request, $reason) {
-            $oldStatus = $kycRequest->status;
+        DB::transaction(
+            function () use (
+                $kycRequest,
+                $reviewer,
+                $request,
+                $reason
+            ) {
+                $oldStatus = $kycRequest->status;
 
-            $kycRequest->update([
-                'status' => KycRequest::STATUS_REJECTED,
-                'reviewed_by' => $reviewer->id,
-                'reviewed_at' => now(),
-                'reviewed_ip' => $request->ip(),
-                'rejection_reason' => $reason,
-                'reviewer_notes' => $request->input('reviewer_notes'),
-            ]);
+                $kycRequest->update([
+                    'status' => KycRequest::STATUS_REJECTED,
+                    'reviewed_by' => $reviewer->id,
+                    'reviewed_at' => now(),
+                    'reviewed_ip' => $request->ip(),
+                    'rejection_reason' => $reason,
+                    'reviewer_notes' => $request->input(
+                        'reviewer_notes'
+                    ),
+                ]);
 
-            $this->syncLegacyKycMirror(
-                user: $kycRequest->user,
-                status: 3,
-                rejectionReason: $reason
-            );
+                $this->syncLegacyKycMirror(
+                    user: $kycRequest->user,
+                    status: 3,
+                    rejectionReason: $reason
+                );
 
-            $this->activityService->record(
-                kycRequest: $kycRequest->fresh(['user']),
-                user: $kycRequest->user,
-                performedBy: $reviewer,
-                action: \App\Models\KycActivity::ACTION_REJECTED,
-                oldStatus: $oldStatus,
-                newStatus: KycRequest::STATUS_REJECTED,
-                remarks: $reason,
-                request: $request
-            );
-        });
+                $this->activityService->record(
+                    kycRequest: $kycRequest->fresh(['user']),
+                    user: $kycRequest->user,
+                    performedBy: $reviewer,
+                    action: \App\Models\KycActivity::ACTION_REJECTED,
+                    oldStatus: $oldStatus,
+                    newStatus: KycRequest::STATUS_REJECTED,
+                    remarks: $reason,
+                    request: $request
+                );
+            }
+        );
 
-        $this->clearKycCaches($kycRequest->user);
+        $this->clearKycCaches(
+            $kycRequest->user
+        );
 
-        return $this->freshRequest($kycRequest);
+        return $this->freshRequest(
+            $kycRequest
+        );
     }
 
     private function applyDocumentReviews(
@@ -220,16 +306,32 @@ class KycReviewService
         User $reviewer,
         KycReviewRequest $request
     ): void {
-        $documents = (array) $request->input('documents', []);
+        $documents = (array) $request->input(
+            'documents',
+            []
+        );
 
         if (empty($documents)) {
             return;
         }
 
+        $globalRejectionReason = trim(
+            (string) $request->input(
+                'rejection_reason',
+                ''
+            )
+        );
+
         foreach ($documents as $documentPayload) {
             $document = KycDocument::query()
-                ->where('kyc_request_id', $kycRequest->id)
-                ->where('id', $documentPayload['id'])
+                ->where(
+                    'kyc_request_id',
+                    $kycRequest->id
+                )
+                ->where(
+                    'id',
+                    $documentPayload['id']
+                )
                 ->first();
 
             if (!$document) {
@@ -238,10 +340,29 @@ class KycReviewService
                 ]);
             }
 
+            $status = $documentPayload['status'];
+
+            $documentReason = trim(
+                (string) (
+                    $documentPayload['rejection_reason']
+                    ?? ''
+                )
+            );
+
+            if (
+                $status === KycDocument::STATUS_REJECTED
+                && $documentReason === ''
+            ) {
+                $documentReason =
+                    $globalRejectionReason;
+            }
+
             $this->documentService->reviewDocument(
                 document: $document,
-                status: $documentPayload['status'],
-                rejectionReason: $documentPayload['rejection_reason'] ?? null,
+                status: $status,
+                rejectionReason: $documentReason !== ''
+                    ? $documentReason
+                    : null,
                 reviewer: $reviewer,
                 request: $request
             );
@@ -255,27 +376,50 @@ class KycReviewService
     ): void {
         $payload = [];
 
-        if (Schema::hasColumn('users', 'kyc')) {
+        if (
+            Schema::hasColumn(
+                'users',
+                'kyc'
+            )
+        ) {
             $payload['kyc'] = $status;
         }
 
-        if (Schema::hasColumn('users', 'reject_reason')) {
-            $payload['reject_reason'] = $rejectionReason;
+        if (
+            Schema::hasColumn(
+                'users',
+                'reject_reason'
+            )
+        ) {
+            $payload['reject_reason'] =
+                $rejectionReason;
         }
 
-        if (Schema::hasColumn('users', 'updated_at')) {
-            $payload['updated_at'] = now();
+        if (
+            Schema::hasColumn(
+                'users',
+                'updated_at'
+            )
+        ) {
+            $payload['updated_at'] =
+                now();
         }
 
         if (!empty($payload)) {
             DB::table('users')
-                ->where('id', $user->id)
-                ->update($payload);
+                ->where(
+                    'id',
+                    $user->id
+                )
+                ->update(
+                    $payload
+                );
         }
     }
 
-    private function freshRequest(KycRequest $kycRequest): KycRequest
-    {
+    private function freshRequest(
+        KycRequest $kycRequest
+    ): KycRequest {
         return KycRequest::query()
             ->with([
                 'user:id,first_name,last_name,email,phone,role_id,kyc,reject_reason',
@@ -285,26 +429,48 @@ class KycReviewService
                 'documents.uploader:id,first_name,last_name,email',
                 'activities.performer:id,first_name,last_name,email',
             ])
-            ->findOrFail($kycRequest->id);
+            ->findOrFail(
+                $kycRequest->id
+            );
     }
 
-    private function clearKycCaches(?User $user): void
-    {
+    private function clearKycCaches(
+        ?User $user
+    ): void {
         if (!$user) {
             return;
         }
 
-        $this->accessService->forgetUserCache($user);
+        $this->accessService
+            ->forgetUserCache(
+                $user
+            );
 
-        Cache::store('redis')->forget('kyc:user:' . $user->id . ':status');
-        Cache::store('redis')->forget('kyc:admin:stats');
-        Cache::store('redis')->forget('kyc:pending-count');
+        Cache::store('redis')->forget(
+            'kyc:user:' . $user->id . ':status'
+        );
 
-        Cache::store('redis')->forget('user_details_admin_' . $user->id);
-        Cache::store('redis')->forget('user_details_website_' . $user->id);
+        Cache::store('redis')->forget(
+            'kyc:admin:stats'
+        );
+
+        Cache::store('redis')->forget(
+            'kyc:pending-count'
+        );
+
+        Cache::store('redis')->forget(
+            'user_details_admin_' . $user->id
+        );
+
+        Cache::store('redis')->forget(
+            'user_details_website_' . $user->id
+        );
 
         if (!empty($user->api_token)) {
-            Cache::store('redis')->forget('user_by_token_' . md5($user->api_token));
+            Cache::store('redis')->forget(
+                'user_by_token_'
+                . md5($user->api_token)
+            );
         }
     }
 }
