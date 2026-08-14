@@ -799,22 +799,31 @@ class GuestDynamicPostService
                     ->whereNull(
                         'pfp.cancelled_at'
                     )
-                    ->whereIn(
+                    ->where(
                         'pfp.status',
-                        [
-                            PropertyFeaturedPromotion::STATUS_ACTIVE,
-                            PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                        ]
+                        PropertyFeaturedPromotion::STATUS_ACTIVE
                     )
                     ->where(
-                        'pfp.starts_at',
-                        '<=',
-                        $now
+                        function ($startQuery) use ($now) {
+                            $startQuery
+                                ->whereNull('pfp.starts_at')
+                                ->orWhere(
+                                    'pfp.starts_at',
+                                    '<=',
+                                    $now
+                                );
+                        }
                     )
                     ->where(
-                        'pfp.ends_at',
-                        '>',
-                        $now
+                        function ($endQuery) use ($now) {
+                            $endQuery
+                                ->whereNull('pfp.ends_at')
+                                ->orWhere(
+                                    'pfp.ends_at',
+                                    '>',
+                                    $now
+                                );
+                        }
                     );
             }
         );
@@ -841,22 +850,31 @@ class GuestDynamicPostService
             ->whereNull(
                 'cancelled_at'
             )
-            ->whereIn(
+            ->where(
                 'status',
-                [
-                    PropertyFeaturedPromotion::STATUS_ACTIVE,
-                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                ]
+                PropertyFeaturedPromotion::STATUS_ACTIVE
             )
             ->where(
-                'starts_at',
-                '<=',
-                $now
+                function ($startQuery) use ($now) {
+                    $startQuery
+                        ->whereNull('starts_at')
+                        ->orWhere(
+                            'starts_at',
+                            '<=',
+                            $now
+                        );
+                }
             )
             ->where(
-                'ends_at',
-                '>',
-                $now
+                function ($endQuery) use ($now) {
+                    $endQuery
+                        ->whereNull('ends_at')
+                        ->orWhere(
+                            'ends_at',
+                            '>',
+                            $now
+                        );
+                }
             )
             ->orderByDesc('priority')
             ->orderByDesc('id')
@@ -902,22 +920,31 @@ class GuestDynamicPostService
             ->whereNull(
                 'cancelled_at'
             )
-            ->whereIn(
+            ->where(
                 'status',
-                [
-                    PropertyFeaturedPromotion::STATUS_ACTIVE,
-                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                ]
+                PropertyFeaturedPromotion::STATUS_ACTIVE
             )
             ->where(
-                'starts_at',
-                '<=',
-                $now
+                function ($startQuery) use ($now) {
+                    $startQuery
+                        ->whereNull('starts_at')
+                        ->orWhere(
+                            'starts_at',
+                            '<=',
+                            $now
+                        );
+                }
             )
             ->where(
-                'ends_at',
-                '>',
-                $now
+                function ($endQuery) use ($now) {
+                    $endQuery
+                        ->whereNull('ends_at')
+                        ->orWhere(
+                            'ends_at',
+                            '>',
+                            $now
+                        );
+                }
             )
             ->orderByDesc('priority')
             ->orderByDesc('id')
