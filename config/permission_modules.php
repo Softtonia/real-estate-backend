@@ -411,5 +411,10 @@ return [
             'label' => 'Notification Topics',
             'actions' => ['read', 'create', 'edit', 'delete'],
         ],
+        'featured_posts' => [
+            'label' => 'Featured Post',
+            'actions' => ['read','create','edit','delete',
+            ],
+        ],
     ],
 ];
