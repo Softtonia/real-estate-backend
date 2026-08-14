@@ -456,7 +456,11 @@ Route::middleware(['validate.api.client'])->group(function () {
             Route::middleware(['throttle:60,1', 'permission.check:roles,read'])
                 ->post('roles/search', [RoleController::class, 'searchRole']);
         });
-
+    Route::middleware([
+        'throttle:60,1',
+        'api.token',
+        'permission.check:roles,read',
+    ])->get('role-listing/{id?}', [RoleController::class, 'index']);
     // ======= Analytics =========
     Route::middleware(['throttle:60,1', 'admin.token', 'permission.check:dashboard,read'])->get('admin-dashboard-analytics', [AdminDashboardAnalyticsController::class, 'adminDashboardAnalytics']);
     Route::middleware(['throttle:60,1', 'api.token'])->get('business-dashboard-analytics', [BusinessDashboardAnalyticsController::class, 'businessDashboardAnalytics']);
@@ -1551,7 +1555,7 @@ Route::prefix('admin/membership/settings')
             'permission.check:membership_settings,read'
         );
     });
-    
+
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get(
         'auth/google',
