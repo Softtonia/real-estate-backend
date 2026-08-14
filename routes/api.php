@@ -1245,8 +1245,6 @@ Route::prefix('admin/notifications')
         Route::get(
             'dashboard',
             [AdminNotificationReportController::class, 'dashboard']
-        )->middleware(
-            'permission.check:notification_reports,read'
         );
 
 
@@ -1259,8 +1257,6 @@ Route::prefix('admin/notifications')
         Route::get(
             'in-app',
             [AdminNotificationReportController::class, 'inAppNotifications']
-        )->middleware(
-            'permission.check:notification_reports,read'
         );
 
         Route::delete(
@@ -1280,8 +1276,6 @@ Route::prefix('admin/notifications')
         Route::get(
             'devices',
             [AdminNotificationDeviceController::class, 'index']
-        )->middleware(
-            'permission.check:notification_reports,read'
         );
 
 
@@ -1294,8 +1288,6 @@ Route::prefix('admin/notifications')
         Route::get(
             'batches',
             [AdminNotificationReportController::class, 'batches']
-        )->middleware(
-            'permission.check:notification_reports,read'
         );
 
         Route::delete(
@@ -1342,8 +1334,6 @@ Route::prefix('admin/notifications')
         Route::get(
             'logs',
             [AdminNotificationReportController::class, 'logs']
-        )->middleware(
-            'permission.check:notification_reports,read'
         );
 
         Route::delete(
