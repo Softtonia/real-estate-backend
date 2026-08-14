@@ -18,173 +18,79 @@ class FeaturedPropertyResource extends JsonResource
             : null;
 
         $dynamicPostData = $dynamicPost
-            ? $this->formatDynamicPost($dynamicPost)
+            ? (new DynamicPostFeaturedListingResource(
+                $dynamicPost
+            ))->resolve($request)
             : null;
 
         return [
             'id' => (int) $promotion->id,
 
-            'dynamic_post_id' =>
-                (int) $promotion->dynamic_post_id,
+            'dynamic_post_id' => (int) $promotion->dynamic_post_id,
 
-            'listing_id' =>
-                (int) $promotion->dynamic_post_id,
+            'listing_id' => (int) $promotion->dynamic_post_id,
 
-            'is_featured' =>
-                $promotion->isCurrentlyFeatured(),
+            'is_featured' => $promotion->isCurrentlyFeatured(),
 
-            'source' =>
-                $promotion->source,
+            'source' => $promotion->source,
 
-            'featured_via' =>
-                $this->featuredVia($promotion),
+            'featured_via' => $this->featuredVia($promotion),
 
-            'promotion_type' =>
-                $promotion->promotion_type,
+            'promotion_type' => $promotion->promotion_type,
 
-            'display_label' =>
-                $this->displayLabel($promotion),
+            'display_label' => $this->displayLabel($promotion),
 
-            'status' =>
-                $promotion->status,
+            'status' => $promotion->status,
 
-            'is_currently_featured' =>
-                $promotion->isCurrentlyFeatured(),
+            'is_currently_featured' => $promotion->isCurrentlyFeatured(),
 
             'placements' => [
-                'home' =>
-                    (bool) $promotion->show_on_home,
-
-                'search' =>
-                    (bool) $promotion->show_on_search,
-
-                'property_detail' =>
-                    (bool) $promotion->show_on_detail,
+                'home' => (bool) $promotion->show_on_home,
+                'search' => (bool) $promotion->show_on_search,
+                'property_detail' => (bool) $promotion->show_on_detail,
             ],
 
-            'show_on_home' =>
-                (bool) $promotion->show_on_home,
+            'show_on_home' => (bool) $promotion->show_on_home,
 
-            'show_on_search' =>
-                (bool) $promotion->show_on_search,
+            'show_on_search' => (bool) $promotion->show_on_search,
 
-            'show_on_detail' =>
-                (bool) $promotion->show_on_detail,
+            'show_on_detail' => (bool) $promotion->show_on_detail,
 
-            'starts_at' =>
-                $promotion->starts_at?->toISOString(),
+            'starts_at' => $promotion->starts_at?->toISOString(),
 
-            'ends_at' =>
-                $promotion->ends_at?->toISOString(),
+            'ends_at' => $promotion->ends_at?->toISOString(),
 
-            'priority' =>
-                (int) $promotion->priority,
+            'priority' => (int) $promotion->priority,
 
-            'admin_notes' =>
-                $promotion->admin_notes,
+            'admin_notes' => $promotion->admin_notes,
 
-            'dynamic_post' =>
-                $dynamicPostData,
+            'dynamic_post' => $dynamicPostData,
 
-            'property' =>
-                $dynamicPostData,
+            'property' => $dynamicPostData,
 
-            'post_type' =>
-                $dynamicPost
-                    ? $this->formatPostType(
-                        $dynamicPost
-                    )
-                    : null,
+            'post_type' => $dynamicPost
+                ? $this->formatPostType($dynamicPost)
+                : null,
 
-            'created_by' =>
-                $promotion->relationLoaded('createdBy')
-                    ? $this->formatUser(
-                        $promotion->createdBy
-                    )
-                    : null,
+            'created_by' => $promotion->relationLoaded('createdBy')
+                ? $this->formatUser($promotion->createdBy)
+                : null,
 
-            'updated_by' =>
-                $promotion->relationLoaded('updatedBy')
-                    ? $this->formatUser(
-                        $promotion->updatedBy
-                    )
-                    : null,
+            'updated_by' => $promotion->relationLoaded('updatedBy')
+                ? $this->formatUser($promotion->updatedBy)
+                : null,
 
-            'cancelled_by' =>
-                $promotion->relationLoaded('cancelledBy')
-                    ? $this->formatUser(
-                        $promotion->cancelledBy
-                    )
-                    : null,
+            'cancelled_by' => $promotion->relationLoaded('cancelledBy')
+                ? $this->formatUser($promotion->cancelledBy)
+                : null,
 
-            'cancelled_at' =>
-                $promotion->cancelled_at?->toISOString(),
+            'cancelled_at' => $promotion->cancelled_at?->toISOString(),
 
-            'cancellation_reason' =>
-                $promotion->cancellation_reason,
+            'cancellation_reason' => $promotion->cancellation_reason,
 
-            'created_at' =>
-                $promotion->created_at?->toISOString(),
+            'created_at' => $promotion->created_at?->toISOString(),
 
-            'updated_at' =>
-                $promotion->updated_at?->toISOString(),
-        ];
-    }
-
-    private function formatDynamicPost(
-        mixed $post
-    ): array {
-        return [
-            'id' =>
-                (int) $post->id,
-
-            'post_type_id' =>
-                !empty($post->post_type_id)
-                    ? (int) $post->post_type_id
-                    : null,
-
-            'post_type' =>
-                $this->formatPostType($post),
-
-            'listing_code' =>
-                $post->listing_code
-                ?? null,
-
-            'title' =>
-                $post->title
-                ?? null,
-
-            'slug' =>
-                $post->slug
-                ?? null,
-
-            'author_id' =>
-                !empty($post->author_id)
-                    ? (int) $post->author_id
-                    : null,
-
-            'status' =>
-                $post->status
-                ?? null,
-
-            'live_status' =>
-                $post->live_status
-                ?? null,
-
-            'availability_status' =>
-                $post->availability_status
-                ?? null,
-
-            'featured_image_id' =>
-                !empty($post->featured_image_id)
-                    ? (int) $post->featured_image_id
-                    : null,
-
-            'published_at' =>
-                $this->formatDate(
-                    $post->published_at
-                    ?? null
-                ),
+            'updated_at' => $promotion->updated_at?->toISOString(),
         ];
     }
 
@@ -201,27 +107,17 @@ class FeaturedPropertyResource extends JsonResource
             && $post->postType
         ) {
             return [
-                'id' =>
-                    (int) $post->postType->id,
-
-                'name' =>
-                    $post->postType->name,
-
-                'slug' =>
-                    $post->postType->slug,
+                'id' => (int) $post->postType->id,
+                'name' => $post->postType->name,
+                'slug' => $post->postType->slug,
             ];
         }
 
         return !empty($post->post_type_id)
             ? [
-                'id' =>
-                    (int) $post->post_type_id,
-
-                'name' =>
-                    null,
-
-                'slug' =>
-                    null,
+                'id' => (int) $post->post_type_id,
+                'name' => null,
+                'slug' => null,
             ]
             : null;
     }
@@ -242,23 +138,16 @@ class FeaturedPropertyResource extends JsonResource
         );
 
         if ($name === '') {
-            $name =
-                $user->name
+            $name = $user->name
                 ?? $user->user_name
                 ?? $user->email
                 ?? ('User #' . $user->id);
         }
 
         return [
-            'id' =>
-                (int) $user->id,
-
-            'name' =>
-                $name,
-
-            'email' =>
-                $user->email
-                ?? null,
+            'id' => (int) $user->id,
+            'name' => $name,
+            'email' => $user->email ?? null,
         ];
     }
 
@@ -266,14 +155,11 @@ class FeaturedPropertyResource extends JsonResource
         PropertyFeaturedPromotion $promotion
     ): string {
         return match ($promotion->source) {
-            PropertyFeaturedPromotion::SOURCE_ADMIN =>
-                'admin',
+            PropertyFeaturedPromotion::SOURCE_ADMIN => 'admin',
 
-            PropertyFeaturedPromotion::SOURCE_MEMBERSHIP =>
-                'membership',
+            PropertyFeaturedPromotion::SOURCE_MEMBERSHIP => 'membership',
 
-            default =>
-                (string) $promotion->source,
+            default => (string) $promotion->source,
         };
     }
 
@@ -281,34 +167,11 @@ class FeaturedPropertyResource extends JsonResource
         PropertyFeaturedPromotion $promotion
     ): string {
         return match ($promotion->promotion_type) {
-            PropertyFeaturedPromotion::TYPE_SPONSORED =>
-                'Sponsored',
+            PropertyFeaturedPromotion::TYPE_SPONSORED => 'Sponsored',
 
-            PropertyFeaturedPromotion::TYPE_FEATURED =>
-                'Featured',
+            PropertyFeaturedPromotion::TYPE_FEATURED => 'Featured',
 
-            default =>
-                'Featured',
+            default => 'Featured',
         };
-    }
-
-    private function formatDate(
-        mixed $value
-    ): mixed {
-        if (!$value) {
-            return null;
-        }
-
-        if (
-            is_object($value)
-            && method_exists(
-                $value,
-                'toISOString'
-            )
-        ) {
-            return $value->toISOString();
-        }
-
-        return $value;
     }
 }

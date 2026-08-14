@@ -146,12 +146,9 @@ class FeaturedPropertyController extends Controller
             ]);
 
             $query = PropertyFeaturedPromotion::query()
-                ->with([
-                    'property.postType',
-                    'createdBy',
-                    'updatedBy',
-                    'cancelledBy',
-                ]);
+                ->with(
+                    $this->featuredListingRelations()
+                );
 
             if (!empty($validated['status'])) {
                 $query->where(
@@ -1161,39 +1158,22 @@ class FeaturedPropertyController extends Controller
     private function featuredListingRelations(): array
     {
         return [
-            'property.postType:id,name,slug',
-
-            'property.country:id,name',
-
-            'property.state:id,name,country_id',
-
-            'property.city:id,name,state_id',
-
-            'property.author:id,first_name,last_name,email,phone,role_id',
-
-            'property.parent:id,post_type_id,title,slug,status,live_status,listing_code',
-
+            'property.postType',
             'property.featuredImage',
-
-            'property.taxonomyTerms.taxonomy:id,name,slug',
-
+            'property.country',
+            'property.state',
+            'property.city',
+            'property.author',
+            'property.parent',
+            'property.taxonomyTerms.taxonomy',
             'property.meta.customField.options',
-
-            'property.meta.customField.repeaters.options',
-
             'property.keywords',
-
-            'property.assignedUsers:id,first_name,last_name,email,phone,role_id',
-
-            'property.relationships.relatedPostType:id,name,slug',
-
-            'property.relationships.relatedPost:id,post_type_id,title,slug,status,live_status,listing_code',
-
-            'createdBy:id,first_name,last_name,email',
-
-            'updatedBy:id,first_name,last_name,email',
-
-            'cancelledBy:id,first_name,last_name,email',
+            'property.assignedUsers',
+            'property.relationships.relatedPostType',
+            'property.relationships.relatedPost',
+            'createdBy',
+            'updatedBy',
+            'cancelledBy',
         ];
     }
     private function attachGalleryMedia(
