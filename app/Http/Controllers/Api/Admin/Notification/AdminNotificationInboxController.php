@@ -26,7 +26,6 @@ class AdminNotificationInboxController extends Controller
                 $admin,
                 $request->validated()
             );
-
             return response()->json([
                 'status' => true,
                 'message' =>
