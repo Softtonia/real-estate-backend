@@ -256,6 +256,7 @@ return [
             'label' => 'Custom Fields',
             'actions' => ['read', 'create', 'edit', 'delete'],
         ],
+
         'listing_steps' => [
             'label' => 'Listing Form Steps',
             'actions' => ['read', 'edit'],
@@ -275,6 +276,7 @@ return [
             'label' => 'Subscribers',
             'actions' => ['read', 'create', 'delete'],
         ],
+
         'kyc_requests' => [
             'label' => 'KYC Requests',
             'actions' => ['read', 'create', 'edit', 'delete', 'approve', 'reject'],
@@ -289,10 +291,12 @@ return [
             'label' => 'KYC Exemptions',
             'actions' => ['read', 'create', 'edit', 'delete', 'revoke'],
         ],
+
         'property_verifications' => [
             'label' => 'Property Verifications',
             'actions' => ['read', 'assign', 'review', 'approve', 'reject'],
         ],
+
         'membership_categories' => [
             'label' => 'Membership Categories',
             'actions' => ['read', 'create', 'edit', 'delete'],
@@ -357,10 +361,12 @@ return [
             'label' => 'Membership Settings',
             'actions' => ['read', 'edit'],
         ],
+
         'payment_gateways' => [
             'label' => 'Payment Gateways',
             'actions' => ['read', 'edit'],
         ],
+
         'notification_config' => [
             'label' => 'Notification Config',
             'actions' => ['read', 'edit'],
@@ -376,20 +382,34 @@ return [
             'actions' => ['read', 'create', 'edit', 'delete'],
         ],
 
-        'notifications' => [
-            'label' => 'Notifications',
-            'actions' => ['read', 'create', 'send', 'delete', 'retry'],
+        'notification_dashboard' => [
+            'label' => 'Notification Dashboard',
+            'actions' => ['read'],
+        ],
+
+        'send_notification' => [
+            'label' => 'Send Notification',
+            'actions' => ['send'],
+        ],
+
+        'in_app_notifications' => [
+            'label' => 'In App Notifications',
+            'actions' => ['read', 'delete'],
+        ],
+
+        'notification_batches' => [
+            'label' => 'Notification Batches',
+            'actions' => ['read', 'retry', 'delete'],
+        ],
+
+        'notification_logs' => [
+            'label' => 'Notification Logs',
+            'actions' => ['read', 'retry', 'delete'],
         ],
 
         'notification_topics' => [
             'label' => 'Notification Topics',
             'actions' => ['read', 'create', 'edit', 'delete'],
         ],
-
-        'notification_reports' => [
-            'label' => 'Notification Reports',
-            'actions' => ['read', 'export'],
-        ],
     ],
-
 ];
