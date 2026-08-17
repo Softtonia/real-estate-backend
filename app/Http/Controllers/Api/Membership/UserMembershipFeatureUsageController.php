@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api\Membership;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Membership\ConsumeMembershipFeatureRequest;
 use App\Http\Requests\Membership\UnlockMembershipLeadRequest;
+use App\Models\DynamicPost;
 use App\Models\Membership\MembershipCreditBalance;
+use App\Models\PropertyFeaturedPromotion;
 use App\Models\User;
+use App\Services\FeaturedProperty\FeaturedPropertyService;
 use App\Services\Membership\MembershipCreditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -223,6 +226,296 @@ class UserMembershipFeatureUsageController extends Controller
         }
 
         return false;
+    }
+
+    public function featureListing(
+        Request $request,
+        FeaturedPropertyService $featuredService,
+        MembershipCreditService $creditService
+    ): JsonResponse {
+        try {
+            $user = $this->authenticatedUserOrFail($request);
+
+            $request->validate([
+                'listing_id' => ['nullable', 'integer'],
+                'dynamic_post_id' => ['nullable', 'integer'],
+            ]);
+
+            $listingId = (int) ($request->input('listing_id') ?? $request->input('dynamic_post_id'));
+
+            if ($listingId <= 0) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Valid listing_id or dynamic_post_id is required.',
+                ], 422);
+            }
+
+            $listing = DynamicPost::query()->find($listingId);
+
+            if (!$listing) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing not found.',
+                ], 404);
+            }
+
+            if (Schema::hasColumn('dynamic_posts', 'author_id') && (int) $listing->author_id !== (int) $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You can only feature your own property listing.',
+                ], 403);
+            }
+
+            $activePromotion = PropertyFeaturedPromotion::query()
+                ->where('dynamic_post_id', $listing->id)
+                ->whereNull('cancelled_at')
+                ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+                ->where(function ($query) {
+                    $query->whereNull('ends_at')
+                        ->orWhere('ends_at', '>', now());
+                })
+                ->first();
+
+            if ($activePromotion) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Property listing is already featured.',
+                    'data' => [
+                        'is_featured' => true,
+                        'promotion_id' => (int) $activePromotion->id,
+                        'dynamic_post_id' => (int) $listing->id,
+                        'promotion' => $activePromotion,
+                    ],
+                ]);
+            }
+
+            $balance = $creditService->activeBalance($user, MembershipCreditBalance::TYPE_FEATURED_LISTING);
+
+            if (!$balance || (!$balance->is_unlimited && (int) $balance->remaining_credits < 1)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You do not have any available featured listing credits in your membership plan.',
+                    'error' => [
+                        'credits' => ['Insufficient featured listing credits. Please upgrade your membership plan or purchase a featured listing add-on.'],
+                    ],
+                ], 422);
+            }
+
+            $transaction = $creditService->consumeCredit(
+                user: $user,
+                creditType: MembershipCreditBalance::TYPE_FEATURED_LISTING,
+                quantity: 1,
+                referenceType: 'dynamic_post',
+                referenceId: (int) $listing->id,
+                reason: 'Property featured (starred) by user.',
+                performedBy: $user,
+                metadata: ['action' => 'user_star_featured']
+            );
+
+            $endsAt = $balance->expires_at
+                ? $balance->expires_at->toDateTimeString()
+                : now()->addDays(30)->toDateTimeString();
+
+            $promotion = $featuredService->createForMembership([
+                'dynamic_post_id' => (int) $listing->id,
+                'promotion_type' => PropertyFeaturedPromotion::TYPE_FEATURED,
+                'show_on_home' => true,
+                'show_on_search' => true,
+                'show_on_detail' => true,
+                'starts_at' => now()->toDateTimeString(),
+                'ends_at' => $endsAt,
+                'priority' => 10,
+            ], $user);
+
+            $remainingCredits = $balance->is_unlimited ? 'unlimited' : max(0, (int) $balance->remaining_credits - 1);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Property featured (starred) successfully.',
+                'data' => [
+                    'is_featured' => true,
+                    'promotion_id' => (int) $promotion->id,
+                    'dynamic_post_id' => (int) $listing->id,
+                    'remaining_featured_credits' => $remainingCredits,
+                    'promotion' => $promotion,
+                    'transaction' => [
+                        'id' => (int) $transaction->id,
+                        'quantity' => (int) $transaction->quantity,
+                        'balance_after' => $transaction->balance_after,
+                    ],
+                ],
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to feature property listing.', $e);
+        }
+    }
+
+    public function unfeatureListing(
+        Request $request,
+        FeaturedPropertyService $featuredService
+    ): JsonResponse {
+        try {
+            $user = $this->authenticatedUserOrFail($request);
+
+            $request->validate([
+                'listing_id' => ['nullable', 'integer'],
+                'dynamic_post_id' => ['nullable', 'integer'],
+            ]);
+
+            $listingId = (int) ($request->input('listing_id') ?? $request->input('dynamic_post_id'));
+
+            if ($listingId <= 0) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Valid listing_id or dynamic_post_id is required.',
+                ], 422);
+            }
+
+            $listing = DynamicPost::query()->find($listingId);
+
+            if (!$listing) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing not found.',
+                ], 404);
+            }
+
+            if (Schema::hasColumn('dynamic_posts', 'author_id') && (int) $listing->author_id !== (int) $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You can only unfeature your own property listing.',
+                ], 403);
+            }
+
+            $activePromotion = PropertyFeaturedPromotion::query()
+                ->where('dynamic_post_id', $listing->id)
+                ->whereNull('cancelled_at')
+                ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+                ->where(function ($query) {
+                    $query->whereNull('ends_at')
+                        ->orWhere('ends_at', '>', now());
+                })
+                ->first();
+
+            if (!$activePromotion) {
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Property listing is not currently featured.',
+                    'data' => [
+                        'is_featured' => false,
+                        'dynamic_post_id' => (int) $listing->id,
+                    ],
+                ]);
+            }
+
+            $cancelled = $featuredService->cancel($activePromotion, $user, 'Unstarred by user');
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Property unfeatured (unstarred) successfully.',
+                'data' => [
+                    'is_featured' => false,
+                    'dynamic_post_id' => (int) $listing->id,
+                    'promotion' => $cancelled,
+                ],
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to unfeature property listing.', $e);
+        }
+    }
+
+    public function toggleFeaturedListing(
+        Request $request,
+        FeaturedPropertyService $featuredService,
+        MembershipCreditService $creditService
+    ): JsonResponse {
+        $listingId = (int) ($request->input('listing_id') ?? $request->input('dynamic_post_id'));
+
+        if ($listingId <= 0) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Valid listing_id or dynamic_post_id is required.',
+            ], 422);
+        }
+
+        $activePromotion = PropertyFeaturedPromotion::query()
+            ->where('dynamic_post_id', $listingId)
+            ->whereNull('cancelled_at')
+            ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+            ->where(function ($query) {
+                $query->whereNull('ends_at')
+                    ->orWhere('ends_at', '>', now());
+            })
+            ->first();
+
+        if ($activePromotion) {
+            return $this->unfeatureListing($request, $featuredService);
+        }
+
+        return $this->featureListing($request, $featuredService, $creditService);
+    }
+
+    public function featuredStatus(
+        Request $request,
+        int $listingId,
+        MembershipCreditService $creditService
+    ): JsonResponse {
+        try {
+            $user = $this->authenticatedUserOrFail($request);
+
+            $listing = DynamicPost::query()->find($listingId);
+
+            if (!$listing) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Property listing not found.',
+                ], 404);
+            }
+
+            if (Schema::hasColumn('dynamic_posts', 'author_id') && (int) $listing->author_id !== (int) $user->id) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You can only view status of your own property listing.',
+                ], 403);
+            }
+
+            $activePromotion = PropertyFeaturedPromotion::query()
+                ->where('dynamic_post_id', $listing->id)
+                ->whereNull('cancelled_at')
+                ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+                ->where(function ($query) {
+                    $query->whereNull('ends_at')
+                        ->orWhere('ends_at', '>', now());
+                })
+                ->first();
+
+            $balance = $creditService->activeBalance($user, MembershipCreditBalance::TYPE_FEATURED_LISTING);
+
+            $hasCredits = $balance && ($balance->is_unlimited || (int) $balance->remaining_credits > 0);
+            $remaining = $balance
+                ? ($balance->is_unlimited ? 'unlimited' : (int) $balance->remaining_credits)
+                : 0;
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Featured status fetched successfully.',
+                'data' => [
+                    'dynamic_post_id' => (int) $listing->id,
+                    'is_featured' => $activePromotion !== null,
+                    'can_feature' => $activePromotion === null && $hasCredits,
+                    'remaining_featured_credits' => $remaining,
+                    'promotion' => $activePromotion,
+                ],
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->serverError('Unable to fetch featured status.', $e);
+        }
     }
 
     private function validationError(ValidationException $e): JsonResponse

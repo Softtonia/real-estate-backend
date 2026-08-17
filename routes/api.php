@@ -2290,6 +2290,26 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         [UserPropertyVerificationController::class, 'timeline']
     )->whereNumber('property');
 
+    Route::post(
+        'frontend/listings/{listing_id}/feature',
+        [UserMembershipFeatureUsageController::class, 'featureListing']
+    )->whereNumber('listing_id');
+
+    Route::post(
+        'frontend/listings/{listing_id}/unfeature',
+        [UserMembershipFeatureUsageController::class, 'unfeatureListing']
+    )->whereNumber('listing_id');
+
+    Route::post(
+        'frontend/listings/{listing_id}/toggle-featured',
+        [UserMembershipFeatureUsageController::class, 'toggleFeaturedListing']
+    )->whereNumber('listing_id');
+
+    Route::get(
+        'frontend/listings/{listingId}/featured-status',
+        [UserMembershipFeatureUsageController::class, 'featuredStatus']
+    )->whereNumber('listingId');
+
     /*
     |--------------------------------------------------------------------------
     | Related Posts Widget
@@ -2376,6 +2396,12 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         Route::middleware('throttle:membership-feature-usage')->group(function () {
             Route::post('leads/unlock', [UserMembershipFeatureUsageController::class, 'unlockLead']);
             Route::post('features/consume', [UserMembershipFeatureUsageController::class, 'consumeFeature']);
+
+            Route::post('feature-listing/star', [UserMembershipFeatureUsageController::class, 'featureListing']);
+            Route::post('feature-listing/unstar', [UserMembershipFeatureUsageController::class, 'unfeatureListing']);
+            Route::post('feature-listing/toggle', [UserMembershipFeatureUsageController::class, 'toggleFeaturedListing']);
+            Route::get('feature-listing/status/{listingId}', [UserMembershipFeatureUsageController::class, 'featuredStatus'])
+                ->whereNumber('listingId');
         });
     });
     /*
