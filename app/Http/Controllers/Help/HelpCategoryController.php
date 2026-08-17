@@ -31,7 +31,13 @@ class HelpCategoryController extends Controller
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
                 $fileName = time() . '_' . $file->getClientOriginalName();
-                $file->move(public_path('uploads/help'), $fileName);
+                $uploadPath = public_path('uploads/help');
+
+                if (!File::exists($uploadPath)) {
+                    File::makeDirectory($uploadPath, 0775, true, true);
+                }
+
+                $file->move($uploadPath, $fileName);
                 $data['image'] = $fileName;
             }
 
@@ -131,7 +137,13 @@ class HelpCategoryController extends Controller
                 // Upload the new photo
                 $file = $request->file('image');
                 $fileName = time() . '_' . $file->getClientOriginalName();
-                $file->move(public_path('uploads/help'), $fileName);
+                $uploadPath = public_path('uploads/help');
+
+                if (!File::exists($uploadPath)) {
+                    File::makeDirectory($uploadPath, 0775, true, true);
+                }
+
+                $file->move($uploadPath, $fileName);
                 $data['image'] = $fileName;
             }
 
