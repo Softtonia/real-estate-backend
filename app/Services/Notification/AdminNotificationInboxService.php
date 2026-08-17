@@ -203,11 +203,26 @@ class AdminNotificationInboxService
     private function baseQuery(
         User $admin
     ) {
-        return DB::table('notifications')
+        $query = DB::table('notifications')
             ->where(
                 'notifiable_type',
                 $admin->getMorphClass()
-            )
+            );
+
+        if ($this->isAdminUser($admin)) {
+            return $query->select([
+                'id',
+                'type',
+                'notifiable_type',
+                'notifiable_id',
+                'data',
+                'read_at',
+                'created_at',
+                'updated_at',
+            ]);
+        }
+
+        return $query
             ->where(
                 'notifiable_id',
                 $admin->getKey()
@@ -222,6 +237,22 @@ class AdminNotificationInboxService
                 'created_at',
                 'updated_at',
             ]);
+    }
+
+    private function isAdminUser(User $admin): bool
+    {
+        if ((int) $admin->id === 1 || (int) $admin->role_id === 1) {
+            return true;
+        }
+
+        $roleName = strtolower(trim((string) ($admin->role->name ?? '')));
+        $roleName = str_replace([' ', '_'], '-', $roleName);
+
+        return in_array($roleName, [
+            'admin',
+            'super-admin',
+            'administrator',
+        ], true);
     }
 
     private function assertValidAdmin(

@@ -29,7 +29,9 @@ class AdminNotificationInboxResource extends JsonResource
 
             'title' => $data['title']
                 ?? $data['subject']
-                ?? null,
+                ?? $data['property_title']
+                ?? (!empty($data['event']) ? ucwords(str_replace('_', ' ', (string) $data['event'])) : null)
+                ?? 'Notification',
 
             'message' => $data['message']
                 ?? $data['body']
