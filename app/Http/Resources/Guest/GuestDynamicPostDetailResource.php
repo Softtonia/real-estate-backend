@@ -221,10 +221,31 @@ class GuestDynamicPostDetailResource extends JsonResource
                         ? (int) $promotion->id
                         : null,
 
+                'source' =>
+                    $promotion?->source,
+
+                'promotion_type' =>
+                    $promotion?->promotion_type,
+
                 'priority' =>
                     $promotion
                         ? (int) $promotion->priority
                         : null,
+
+                'placements' => [
+                    'home' => (bool) ($promotion?->show_on_home ?? false),
+                    'search' => (bool) ($promotion?->show_on_search ?? false),
+                    'property_detail' => (bool) ($promotion?->show_on_detail ?? false),
+                ],
+
+                'show_on_home' =>
+                    (bool) ($promotion?->show_on_home ?? false),
+
+                'show_on_search' =>
+                    (bool) ($promotion?->show_on_search ?? false),
+
+                'show_on_detail' =>
+                    (bool) ($promotion?->show_on_detail ?? false),
 
                 'starts_at' =>
                     $promotion

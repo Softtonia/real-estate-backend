@@ -100,10 +100,28 @@ class GuestDynamicPostCardResource extends JsonResource
                 'source' =>
                     $featuredPromotion?->source,
 
+                'promotion_type' =>
+                    $featuredPromotion?->promotion_type,
+
                 'priority' =>
                     $featuredPromotion
                         ? (int) $featuredPromotion->priority
                         : null,
+
+                'placements' => [
+                    'home' => (bool) ($featuredPromotion?->show_on_home ?? false),
+                    'search' => (bool) ($featuredPromotion?->show_on_search ?? false),
+                    'property_detail' => (bool) ($featuredPromotion?->show_on_detail ?? false),
+                ],
+
+                'show_on_home' =>
+                    (bool) ($featuredPromotion?->show_on_home ?? false),
+
+                'show_on_search' =>
+                    (bool) ($featuredPromotion?->show_on_search ?? false),
+
+                'show_on_detail' =>
+                    (bool) ($featuredPromotion?->show_on_detail ?? false),
 
                 'starts_at' =>
                     $featuredPromotion
