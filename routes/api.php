@@ -20,8 +20,7 @@ use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SearchEngine\SearchEngineController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
 use App\Http\Controllers\Subscribe\SubscribeController;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\Frontend\CityExploreController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\VerificationController;
@@ -2260,6 +2259,12 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
             Route::get('property-search/options', [PropertySearchController::class, 'options']);
             Route::get('property-search/location-suggestions', [PropertySearchController::class, 'locationSuggestions']);
             Route::get('properties/search', [PropertySearchController::class, 'search']);
+
+            Route::get('city-explore', [CityExploreController::class, 'index']);
+            Route::get('city-explore/agents', [CityExploreController::class, 'agents']);
+            Route::get('city-explore/developers', [CityExploreController::class, 'developers']);
+            Route::get('city-explore/featured-properties', [CityExploreController::class, 'featuredProperties']);
+            Route::get('city-explore/featured-projects', [CityExploreController::class, 'featuredProjects']);
         });
     /*
     |--------------------------------------------------------------------------
