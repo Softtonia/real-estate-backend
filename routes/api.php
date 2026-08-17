@@ -416,9 +416,9 @@ Route::middleware(['validate.api.client'])->group(function () {
                 '/get-admin-profile',
                 [Admincontroller::class, 'getAdminProfile']
             )->middleware([
-                'throttle:60,1',
-                'token.expiration',
-            ]);
+                        'throttle:60,1',
+                        'token.expiration',
+                    ]);
 
             Route::middleware(['throttle:60,1', 'admin.token'])->post('/login-restricted', [Admincontroller::class, 'LoginActiveInactive']);
             Route::post('/user-bulk-delete', [Admincontroller::class, 'userAllRecordBulksDelete'])->middleware(['throttle:60,1']);
@@ -921,9 +921,9 @@ Route::prefix('admin')
                 'adminUpdate',
             ]
         )->middleware([
-            'permission.check:property_availability,update',
-            'throttle:property-availability-admin',
-        ]);
+                    'permission.check:property_availability,update',
+                    'throttle:property-availability-admin',
+                ]);
 
         Route::get(
             'property-listings/{property}/availability-history',
@@ -932,9 +932,9 @@ Route::prefix('admin')
                 'adminHistory',
             ]
         )->middleware([
-            'permission.check:property_availability,history',
-            'throttle:property-availability-admin',
-        ]);
+                    'permission.check:property_availability,history',
+                    'throttle:property-availability-admin',
+                ]);
     });
 Route::middleware(['admin.token'])
     ->prefix('admin/kyc')
@@ -1017,44 +1017,44 @@ Route::middleware([
             '/',
             [PropertyVerificationController::class, 'index']
         )->middleware(
-            'permission.check:property_verifications,read'
-        );
+                'permission.check:property_verifications,read'
+            );
 
         // Static route must be declared before /{property}.
         Route::get(
             '/verifiers',
             [PropertyVerificationController::class, 'verifiers']
         )->middleware(
-            'permission.check:property_verifications,assign'
-        );
+                'permission.check:property_verifications,assign'
+            );
 
         Route::get(
             '/verifier-roles',
             [PropertyVerificationController::class, 'verifierRoles']
         )->middleware(
-            'permission.check:property_verifications,assign'
-        );
+                'permission.check:property_verifications,assign'
+            );
 
         Route::get(
             '/my-assigned',
             [PropertyVerificationController::class, 'myAssigned']
         )->middleware(
-            'permission.check:property_verifications,read'
-        );
+                'permission.check:property_verifications,read'
+            );
 
         Route::post(
             '/bulk-assign',
             [PropertyVerificationController::class, 'bulkAssign']
         )->middleware(
-            'permission.check:property_verifications,assign'
-        );
+                'permission.check:property_verifications,assign'
+            );
 
         Route::post(
             '/assign-all-open',
             [PropertyVerificationController::class, 'assignAllOpen']
         )->middleware(
-            'permission.check:property_verifications,assign'
-        );
+                'permission.check:property_verifications,assign'
+            );
 
         Route::get(
             '/{property}',
@@ -1144,36 +1144,36 @@ Route::prefix('admin/notification-config')
             'firebase',
             [NotificationConfigController::class, 'firebase']
         )->middleware(
-            'permission.check:notification_config,read'
-        );
+                'permission.check:notification_config,read'
+            );
 
         Route::put(
             'firebase',
             [NotificationConfigController::class, 'updateFirebase']
         )->middleware(
-            'permission.check:notification_config,edit'
-        );
+                'permission.check:notification_config,edit'
+            );
 
         Route::patch(
             'firebase',
             [NotificationConfigController::class, 'updateFirebase']
         )->middleware(
-            'permission.check:notification_config,edit'
-        );
+                'permission.check:notification_config,edit'
+            );
 
         Route::post(
             'firebase/test-token',
             [NotificationConfigController::class, 'testToken']
         )->middleware(
-            'permission.check:notification_config,read'
-        );
+                'permission.check:notification_config,read'
+            );
 
         Route::post(
             'firebase/test-send',
             [NotificationConfigController::class, 'testSend']
         )->middleware(
-            'permission.check:notification_config,read'
-        );
+                'permission.check:notification_config,read'
+            );
     });
 
 
@@ -1199,8 +1199,8 @@ Route::prefix('admin/notifications')
             'send',
             [AdminNotificationSendController::class, 'send']
         )->middleware(
-            'permission.check:notifications,send'
-        );
+                'permission.check:notifications,send'
+            );
 
 
         /*
@@ -1262,8 +1262,8 @@ Route::prefix('admin/notifications')
             'in-app/clear-all',
             [AdminNotificationReportController::class, 'clearAllInAppNotifications']
         )->middleware(
-            'permission.check:notification_reports,delete'
-        );
+                'permission.check:notification_reports,delete'
+            );
 
 
         /*
@@ -1293,8 +1293,8 @@ Route::prefix('admin/notifications')
             'batches/clear-all',
             [AdminNotificationReportController::class, 'clearAllBatches']
         )->middleware(
-            'permission.check:notification_reports,delete'
-        );
+                'permission.check:notification_reports,delete'
+            );
 
         Route::post(
             'batches/{batch}/retry-failed',
@@ -1339,15 +1339,15 @@ Route::prefix('admin/notifications')
             'logs/clear-all',
             [AdminNotificationReportController::class, 'clearLogs']
         )->middleware(
-            'permission.check:notification_reports,delete'
-        );
+                'permission.check:notification_reports,delete'
+            );
 
         Route::post(
             'logs/retry-failed',
             [AdminNotificationRetryController::class, 'retryLogsFailed']
         )->middleware(
-            'permission.check:notifications,retry'
-        );
+                'permission.check:notifications,retry'
+            );
 
 
         /*
@@ -1360,15 +1360,15 @@ Route::prefix('admin/notifications')
             'topics',
             [AdminNotificationTopicController::class, 'index']
         )->middleware(
-            'permission.check:notification_topics,read'
-        );
+                'permission.check:notification_topics,read'
+            );
 
         Route::post(
             'topics',
             [AdminNotificationTopicController::class, 'store']
         )->middleware(
-            'permission.check:notification_topics,create'
-        );
+                'permission.check:notification_topics,create'
+            );
 
         Route::get(
             'topics/{topic}/subscribers',
@@ -1426,22 +1426,22 @@ Route::prefix('admin/notifications')
             'templates/options',
             [AdminNotificationTemplateController::class, 'options']
         )->middleware(
-            'permission.check:notification_templates,read'
-        );
+                'permission.check:notification_templates,read'
+            );
 
         Route::get(
             'templates',
             [AdminNotificationTemplateController::class, 'index']
         )->middleware(
-            'permission.check:notification_templates,read'
-        );
+                'permission.check:notification_templates,read'
+            );
 
         Route::post(
             'templates',
             [AdminNotificationTemplateController::class, 'store']
         )->middleware(
-            'permission.check:notification_templates,create'
-        );
+                'permission.check:notification_templates,create'
+            );
 
         Route::get(
             'templates/{template}',
@@ -1490,8 +1490,8 @@ Route::prefix('admin/notifications')
             'payload-options',
             [NotificationPayloadOptionController::class, 'index']
         )->middleware(
-            'permission.check:notifications,read'
-        );
+                'permission.check:notifications,read'
+            );
     });
 
 
@@ -1516,31 +1516,31 @@ Route::prefix('admin/membership/settings')
             'tax',
             [AdminMembershipTaxSettingController::class, 'show']
         )->middleware(
-            'permission.check:membership_settings,read'
-        );
+                'permission.check:membership_settings,read'
+            );
 
         Route::put(
             'tax',
             [AdminMembershipTaxSettingController::class, 'update']
         )->middleware(
-            'permission.check:membership_settings,edit'
-        );
+                'permission.check:membership_settings,edit'
+            );
 
         Route::patch(
             'tax',
             [AdminMembershipTaxSettingController::class, 'update']
         )->middleware(
-            'permission.check:membership_settings,edit'
-        );
+                'permission.check:membership_settings,edit'
+            );
 
         Route::post(
             'tax/preview',
             [AdminMembershipTaxSettingController::class, 'calculatePreview']
         )->middleware(
-            'permission.check:membership_settings,read'
-        );
+                'permission.check:membership_settings,read'
+            );
     });
-    
+
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get(
         'auth/google',
@@ -2486,8 +2486,8 @@ Route::middleware([
             'ownerUpdate',
         ]
     )->middleware(
-        'throttle:property-availability-owner'
-    );
+            'throttle:property-availability-owner'
+        );
 
     Route::get(
         'user-listings/{property}/availability-history',
@@ -2496,8 +2496,8 @@ Route::middleware([
             'ownerHistory',
         ]
     )->middleware(
-        'throttle:property-availability-owner'
-    );
+            'throttle:property-availability-owner'
+        );
 });
 Route::middleware([
     'throttle:120,1',
