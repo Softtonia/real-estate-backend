@@ -113,6 +113,18 @@ class GuestDynamicPostService
         |--------------------------------------------------------------------------
         */
 
+        if (!empty($filters['country_id'])) {
+            $query->where('dynamic_posts.country_id', (int) $filters['country_id']);
+        }
+
+        if (!empty($filters['state_id'])) {
+            $query->where('dynamic_posts.state_id', (int) $filters['state_id']);
+        }
+
+        if (!empty($filters['city_id'])) {
+            $query->where('dynamic_posts.city_id', (int) $filters['city_id']);
+        }
+
         if (!empty($filters['search'])) {
             $this->applySearch(
                 $query,
