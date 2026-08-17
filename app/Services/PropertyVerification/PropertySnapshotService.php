@@ -21,36 +21,36 @@ class PropertySnapshotService
 
             'post_taxonomy_terms' => $this->captureRows(
                 'post_taxonomy_terms',
-                fn ($query) => $query->where('dynamic_post_id', $propertyId)
+                fn($query) => $query->where('dynamic_post_id', $propertyId)
             ),
 
             'custom_field_values' => $this->captureRows(
                 'custom_field_values',
-                fn ($query) => $query
+                fn($query) => $query
                     ->where('entity_type', 'post')
                     ->where('entity_id', $propertyId)
             ),
 
             'custom_field_repeater_values' => $this->captureRows(
                 'custom_field_repeater_values',
-                fn ($query) => $query
+                fn($query) => $query
                     ->where('entity_type', 'post')
                     ->where('entity_id', $propertyId)
             ),
 
             'dynamic_post_relationships' => $this->captureRows(
                 'dynamic_post_relationships',
-                fn ($query) => $query->where('dynamic_post_id', $propertyId)
+                fn($query) => $query->where('dynamic_post_id', $propertyId)
             ),
 
             'keyword_dynamic_post' => $this->captureRows(
                 'keyword_dynamic_post',
-                fn ($query) => $query->where('dynamic_post_id', $propertyId)
+                fn($query) => $query->where('dynamic_post_id', $propertyId)
             ),
 
             'dynamic_post_user' => $this->captureRows(
                 'dynamic_post_user',
-                fn ($query) => $query->where('dynamic_post_id', $propertyId)
+                fn($query) => $query->where('dynamic_post_id', $propertyId)
             ),
         ];
     }
@@ -84,14 +84,14 @@ class PropertySnapshotService
         $this->restoreRows(
             table: 'post_taxonomy_terms',
             snapshotRows: $snapshot['post_taxonomy_terms'] ?? [],
-            delete: fn ($query) => $query->where('dynamic_post_id', $propertyId),
+            delete: fn($query) => $query->where('dynamic_post_id', $propertyId),
             overrides: ['dynamic_post_id' => $propertyId],
         );
 
         $this->restoreRows(
             table: 'custom_field_values',
             snapshotRows: $snapshot['custom_field_values'] ?? [],
-            delete: fn ($query) => $query
+            delete: fn($query) => $query
                 ->where('entity_type', 'post')
                 ->where('entity_id', $propertyId),
             overrides: [
@@ -103,7 +103,7 @@ class PropertySnapshotService
         $this->restoreRows(
             table: 'custom_field_repeater_values',
             snapshotRows: $snapshot['custom_field_repeater_values'] ?? [],
-            delete: fn ($query) => $query
+            delete: fn($query) => $query
                 ->where('entity_type', 'post')
                 ->where('entity_id', $propertyId),
             overrides: [
@@ -115,21 +115,21 @@ class PropertySnapshotService
         $this->restoreRows(
             table: 'dynamic_post_relationships',
             snapshotRows: $snapshot['dynamic_post_relationships'] ?? [],
-            delete: fn ($query) => $query->where('dynamic_post_id', $propertyId),
+            delete: fn($query) => $query->where('dynamic_post_id', $propertyId),
             overrides: ['dynamic_post_id' => $propertyId],
         );
 
         $this->restoreRows(
             table: 'keyword_dynamic_post',
             snapshotRows: $snapshot['keyword_dynamic_post'] ?? [],
-            delete: fn ($query) => $query->where('dynamic_post_id', $propertyId),
+            delete: fn($query) => $query->where('dynamic_post_id', $propertyId),
             overrides: ['dynamic_post_id' => $propertyId],
         );
 
         $this->restoreRows(
             table: 'dynamic_post_user',
             snapshotRows: $snapshot['dynamic_post_user'] ?? [],
-            delete: fn ($query) => $query->where('dynamic_post_id', $propertyId),
+            delete: fn($query) => $query->where('dynamic_post_id', $propertyId),
             overrides: ['dynamic_post_id' => $propertyId],
         );
 
@@ -180,7 +180,7 @@ class PropertySnapshotService
         );
 
         $rows = collect($snapshotRows)
-            ->filter(fn ($row) => is_array($row))
+            ->filter(fn($row) => is_array($row))
             ->map(function (array $row) use ($allowedColumns, $overrides) {
                 unset($row['id']);
 
