@@ -9,6 +9,7 @@ use App\Models\UserDetail;
 use App\Models\UniqueID;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class DefaultUser extends Seeder
@@ -103,7 +104,7 @@ class DefaultUser extends Seeder
                         'remember_token' => Str::random(10),
                         'unique_id' => $uniqueID->unique_id,
                         'role_id' => $role->id,
-                        'password' => Hash::make('Zen@1234##'),
+                        'password' => 'Soft@1234',
                         'isapproved' => 1,
                         'kyc' => 1,
                         'is_otp_verified' => 1,
@@ -125,41 +126,51 @@ class DefaultUser extends Seeder
                 ]);
 
                 if ($data['bussiness_required']) {
+                    $detailPayload = [
+                        'role_id' => $role->id,
+                        'bussiness_name' => ucfirst($roleName) . ' Business Pvt Ltd',
+                        'bussiness_email' => $data['email'],
+                        'business_phone' => rand(8000000000, 8999999999),
+                        'license_number' => strtoupper($roleName) . '_LIC_' . rand(1000, 9999),
+                        'country_id' => 1,
+                        'state_id' => 1,
+                        'city_id' => 1,
+                        'address' => 'HQ - ' . ucfirst($roleName),
+                        'bussiness_address' => '123 ' . ucfirst($roleName) . ' St, Business Park',
+                        'area_locality' => 'Business Area',
+                        'colony' => 'Sector 20',
+                        'street_address' => 'Business Street',
+                        'pin_code' => '110011',
+                        'alternate_number' => rand(7000000000, 7999999999),
+                        'no_of_employees' => rand(5, 50),
+                        'rera_number' => 'RERA' . rand(10000, 99999),
+                        'about_us' => 'This is a demo ' . ucfirst($roleName) . ' company account.',
+                        'created_by' => 1,
+                    ];
+
+                    if (Schema::hasColumn('user_details', 'aadhaar_number')) {
+                        $detailPayload['aadhaar_number'] = str_pad(rand(100000000000, 999999999999), 12, '0', STR_PAD_LEFT);
+                    }
+
                     UserDetail::updateOrCreate(
                         ['user_id' => $user->id],
-                        [
-                            'role_id' => $role->id,
-                            'bussiness_name' => ucfirst($roleName) . ' Business Pvt Ltd',
-                            'bussiness_email' => $data['email'],
-                            'business_phone' => rand(8000000000, 8999999999),
-                            'license_number' => strtoupper($roleName) . '_LIC_' . rand(1000, 9999),
-                            'country_id' => 1,
-                            'state_id' => 1,
-                            'city_id' => 1,
-                            'address' => 'HQ - ' . ucfirst($roleName),
-                            'bussiness_address' => '123 ' . ucfirst($roleName) . ' St, Business Park',
-                            'area_locality' => 'Business Area',
-                            'colony' => 'Sector 20',
-                            'street_address' => 'Business Street',
-                            'pin_code' => '110011',
-                            'alternate_number' => rand(7000000000, 7999999999),
-                            'no_of_employees' => rand(5, 50),
-                            'rera_number' => 'RERA' . rand(10000, 99999),
-                            'about_us' => 'This is a demo ' . ucfirst($roleName) . ' company account.',
-                            'aadhaar_number' => str_pad(rand(100000000000, 999999999999), 12, '0', STR_PAD_LEFT),
-                            'created_by' => 1,
-                        ]
+                        $detailPayload
                     );
 
                     $this->command->info("✅ Full user details inserted for {$roleName}");
                 } else {
+                    $detailPayload = [
+                        'role_id' => $role->id,
+                        'created_by' => 1,
+                    ];
+
+                    if (Schema::hasColumn('user_details', 'aadhaar_number')) {
+                        $detailPayload['aadhaar_number'] = str_pad(rand(100000000000, 999999999999), 12, '0', STR_PAD_LEFT);
+                    }
+
                     UserDetail::updateOrCreate(
                         ['user_id' => $user->id],
-                        [
-                            'role_id' => $role->id,
-                            'aadhaar_number' => str_pad(rand(100000000000, 999999999999), 12, '0', STR_PAD_LEFT),
-                            'created_by' => 1,
-                        ]
+                        $detailPayload
                     );
 
                     $this->command->info("✅ Basic user details inserted for {$roleName}");
