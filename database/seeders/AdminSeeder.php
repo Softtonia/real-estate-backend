@@ -45,7 +45,7 @@ class AdminSeeder extends Seeder
                 'last_name' => 'User',
                 'user_name' => 'adminuser',
                 'email' => 'sales@softtonia.com',
-                'password' => Hash::make('Soft@1234'),
+                'password' => 'Soft@1234',
                 'role_id' => $adminRoleId,
                 'isapproved' => 1,
                 'unique_id' => 'ADMIN' // Ensure unique_id is stored as "ADMIN"
@@ -59,7 +59,7 @@ class AdminSeeder extends Seeder
                     'first_name' => 'Admin',
                     'last_name' => 'Admin',
                     'email' => 'sales@softtonia.com',
-                    'password' => Hash::make('Soft@1234'),
+                    'password' => 'Soft@1234',
                     'isapproved' => 1,
                     'role_id' => $adminRoleId,
                     'unique_id' => 'ADMIN', // Ensure unique_id is updated
