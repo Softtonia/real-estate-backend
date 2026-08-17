@@ -306,27 +306,22 @@ class AdminNotificationReportService
     public function inAppNotifications(
         array $filters = []
     ): LengthAwarePaginator {
-        $userMorphClass =
-            (new User())->getMorphClass();
-
         $query = DB::table(
-            'notifications as n'
+            'user_notifications as n'
         )
             ->leftJoin(
                 'users as u',
                 'u.id',
                 '=',
-                'n.notifiable_id'
-            )
-            ->where(
-                'n.notifiable_type',
-                $userMorphClass
+                'n.user_id'
             )
             ->select([
                 'n.id',
                 'n.type',
-                'n.notifiable_type',
-                'n.notifiable_id as user_id',
+                'n.user_id',
+                'n.title',
+                'n.body',
+                'n.image_url',
                 'n.data',
                 'n.read_at',
                 'n.created_at',
@@ -339,7 +334,7 @@ class AdminNotificationReportService
 
         if (!empty($filters['user_id'])) {
             $query->where(
-                'n.notifiable_id',
+                'n.user_id',
                 (int) $filters['user_id']
             );
         }
@@ -404,6 +399,16 @@ class AdminNotificationReportService
                         )
                         ->orWhere(
                             'n.type',
+                            'like',
+                            "%{$search}%"
+                        )
+                        ->orWhere(
+                            'n.title',
+                            'like',
+                            "%{$search}%"
+                        )
+                        ->orWhere(
+                            'n.body',
                             'like',
                             "%{$search}%"
                         )
@@ -475,14 +480,15 @@ class AdminNotificationReportService
     }
     public function clearAllInAppNotifications(): array
     {
-        $userMorphClass = (new User())->getMorphClass();
+        $deletedUserNotifications = DB::table('user_notifications')->delete();
 
-        $deletedNotifications = DB::table('notifications')
+        $userMorphClass = (new User())->getMorphClass();
+        $deletedStandardNotifications = DB::table('notifications')
             ->where('notifiable_type', $userMorphClass)
             ->delete();
 
         return [
-            'deleted_notifications' => (int) $deletedNotifications,
+            'deleted_notifications' => (int) ($deletedUserNotifications + $deletedStandardNotifications),
         ];
     }
 }

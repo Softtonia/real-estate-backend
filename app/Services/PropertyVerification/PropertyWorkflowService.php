@@ -1629,36 +1629,38 @@ class PropertyWorkflowService
             $propertyTitle,
             $event
         ) {
-            if (
-                !Schema::hasTable('permissions')
-                || !Schema::hasTable('role_has_permissions')
-            ) {
-                return;
-            }
-
             $guardName = config('permission_modules.guard', 'sanctum');
 
             User::query()
-                ->join('roles', 'roles.id', '=', 'users.role_id')
-                ->join(
-                    'role_has_permissions as rhp',
-                    'rhp.role_id',
-                    '=',
-                    'roles.id'
-                )
-                ->join(
-                    'permissions as p',
-                    'p.id',
-                    '=',
-                    'rhp.permission_id'
-                )
-                ->where('p.guard_name', $guardName)
-                ->where(
-                    'p.name',
-                    'property_verifications.assign'
-                )
-                ->select('users.*')
+                ->where(function ($q) use ($guardName) {
+                    $q->where('id', 1)
+                        ->orWhere('role_id', 1)
+                        ->orWhereHas('role', function ($rq) {
+                            $rq->whereIn('name', [
+                                'admin',
+                                'super-admin',
+                                'administrator',
+                                'Admin',
+                                'Super Admin',
+                            ]);
+                        });
+
+                    if (
+                        Schema::hasTable('permissions')
+                        && Schema::hasTable('role_has_permissions')
+                    ) {
+                        $q->orWhereExists(function ($sq) use ($guardName) {
+                            $sq->select(DB::raw(1))
+                                ->from('roles')
+                                ->join('role_has_permissions as rhp', 'rhp.role_id', '=', 'roles.id')
+                                ->join('permissions as p', 'p.id', '=', 'rhp.permission_id')
+                                ->whereColumn('roles.id', 'users.role_id')
+                                ->where('p.name', 'property_verifications.assign');
+                        });
+                    }
+                })
                 ->distinct()
+                ->get()
                 ->each(function (User $assignmentUser) use (
                     $propertyId,
                     $propertyTitle,

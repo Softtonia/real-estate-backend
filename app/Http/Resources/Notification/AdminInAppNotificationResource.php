@@ -71,12 +71,14 @@ class AdminInAppNotificationResource extends JsonResource
             'title' =>
                 $data['title']
                 ?? $data['subject']
+                ?? $row['title']
                 ?? null,
 
             'message' =>
                 $data['message']
                 ?? $data['body']
                 ?? $data['text']
+                ?? $row['body']
                 ?? null,
 
             'data' =>

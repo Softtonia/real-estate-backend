@@ -23,3 +23,5 @@ Homestead.json
 *.swo
 *.sublime-workspace
 *.code-workspace
+.claude
+
