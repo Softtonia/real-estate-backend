@@ -103,7 +103,7 @@ class DefaultUser extends Seeder
                         'remember_token' => Str::random(10),
                         'unique_id' => $uniqueID->unique_id,
                         'role_id' => $role->id,
-                        'password' => Hash::make('Zen@1234'),
+                        'password' => Hash::make('Zen@1234##'),
                         'isapproved' => 1,
                         'kyc' => 1,
                         'is_otp_verified' => 1,
