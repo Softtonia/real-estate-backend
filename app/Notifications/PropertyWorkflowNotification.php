@@ -31,6 +31,9 @@ class PropertyWorkflowNotification extends Notification
     public function toArray(object $notifiable): array
     {
         return [
+            'type' => 'property_workflow',
+            'screen' => 'property_verification_detail',
+            'route' => '/admin/property-verifications/' . $this->propertyId,
             'property_id' => $this->propertyId,
             'property_title' => $this->propertyTitle,
             'event' => $this->event,

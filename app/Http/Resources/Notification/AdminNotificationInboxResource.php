@@ -52,13 +52,20 @@ class AdminNotificationInboxResource extends JsonResource
             */
             'navigation' => [
                 'type' => $data['type']
-                    ?? data_get($data, 'data.type'),
+                    ?? data_get($data, 'data.type')
+                    ?? (!empty($data['property_id']) ? 'property_workflow' : null),
 
                 'screen' => $data['screen']
-                    ?? data_get($data, 'data.screen'),
+                    ?? data_get($data, 'data.screen')
+                    ?? (!empty($data['property_id']) ? 'property_verification_detail' : null),
 
                 'route' => $data['route']
-                    ?? data_get($data, 'data.route'),
+                    ?? data_get($data, 'data.route')
+                    ?? (!empty($data['property_id']) ? '/admin/property-verifications/' . $data['property_id'] : null),
+
+                'target_id' => !empty($data['property_id'])
+                    ? (int) $data['property_id']
+                    : (data_get($data, 'data.target_id') ?? null),
             ],
 
             'data' => $data,
