@@ -45,7 +45,7 @@ class AdminSeeder extends Seeder
                 'last_name' => 'User',
                 'user_name' => 'adminuser',
                 'email' => 'sales@softtonia.com',
-                'password' => Hash::make('Zen@1234####'),
+                'password' => Hash::make('Zen@1234##'),
                 'role_id' => $adminRoleId,
                 'isapproved' => 1,
                 'unique_id' => 'ADMIN' // Ensure unique_id is stored as "ADMIN"
