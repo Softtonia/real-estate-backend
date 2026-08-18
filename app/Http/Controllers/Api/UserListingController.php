@@ -24,6 +24,7 @@ use Illuminate\Validation\ValidationException;
 use Throwable;
 use App\Services\Membership\MembershipCreditService;
 use App\Services\PropertyVerification\PropertyWorkflowService;
+use App\Models\PropertyFeaturedPromotion;
 
 class UserListingController extends Controller
 {
@@ -1279,6 +1280,7 @@ class UserListingController extends Controller
             'meta.customField.options',
             'meta.customField.repeaters.options',
             'latestVerificationRevision',
+            'currentFeaturedPromotion',
         ];
     }
 
@@ -1529,6 +1531,45 @@ class UserListingController extends Controller
         $data['meta'] = $this->formatMetaForFrontend(
             $data['meta'] ?? []
         );
+
+        $featuredPromotion = $listing->currentFeaturedPromotion;
+
+        $isFeatured = $featuredPromotion !== null
+            && (
+                !method_exists($featuredPromotion, 'isCurrentlyFeatured')
+                || $featuredPromotion->isCurrentlyFeatured()
+            );
+
+        $data['is_featured'] = $isFeatured;
+        $data['featured_id'] = $featuredPromotion ? (int) $featuredPromotion->id : null;
+        $data['featured_promotion_id'] = $featuredPromotion ? (int) $featuredPromotion->id : null;
+        $data['featured_via'] = $featuredPromotion?->source;
+        $data['promotion_type'] = $featuredPromotion?->promotion_type;
+        $data['featured_display_label'] = $featuredPromotion
+            ? (($featuredPromotion->promotion_type === PropertyFeaturedPromotion::TYPE_SPONSORED) ? 'Sponsored' : 'Featured')
+            : null;
+
+        $data['featured'] = [
+            'id' => $featuredPromotion ? (int) $featuredPromotion->id : null,
+            'promotion_id' => $featuredPromotion ? (int) $featuredPromotion->id : null,
+            'dynamic_post_id' => (int) $listing->id,
+            'is_featured' => $isFeatured,
+            'source' => $featuredPromotion?->source,
+            'featured_via' => $featuredPromotion?->source,
+            'promotion_type' => $featuredPromotion?->promotion_type,
+            'display_label' => $featuredPromotion
+                ? (($featuredPromotion->promotion_type === PropertyFeaturedPromotion::TYPE_SPONSORED) ? 'Sponsored' : 'Featured')
+                : null,
+            'status' => $featuredPromotion?->status,
+            'priority' => $featuredPromotion ? (int) $featuredPromotion->priority : null,
+            'placements' => [
+                'home' => $featuredPromotion ? (bool) $featuredPromotion->show_on_home : false,
+                'search' => $featuredPromotion ? (bool) $featuredPromotion->show_on_search : false,
+                'property_detail' => $featuredPromotion ? (bool) $featuredPromotion->show_on_detail : false,
+            ],
+            'starts_at' => optional($featuredPromotion?->starts_at)->toISOString(),
+            'ends_at' => optional($featuredPromotion?->ends_at)->toISOString(),
+        ];
 
         return $data;
     }
