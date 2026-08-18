@@ -103,22 +103,27 @@ class ApiClientOriginService
 
     private function getAllActiveAllowedOrigins(): array
     {
-        return Cache::remember(self::CACHE_KEY, now()->addMinutes(5), function () {
-            if (! Schema::hasTable('api_clients')) {
-                return [];
-            }
+        try {
+            return Cache::remember(self::CACHE_KEY, now()->addMinutes(5), function () {
+                if (! Schema::hasTable('api_clients')) {
+                    return [];
+                }
 
-            return ApiClient::query()
-                ->where('status', 1)
-                ->get(['id', 'allowed_origins'])
-                ->flatMap(function (ApiClient $client) {
-                    return $this->extractAllowedOrigins($client->allowed_origins ?? []);
-                })
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-        });
+                return ApiClient::query()
+                    ->where('status', 1)
+                    ->get(['id', 'allowed_origins'])
+                    ->flatMap(function (ApiClient $client) {
+                        return $this->extractAllowedOrigins($client->allowed_origins ?? []);
+                    })
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+            });
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('ApiClientOriginService error: ' . $e->getMessage());
+            return [];
+        }
     }
 
     private function extractAllowedOrigins($allowedOrigins): array

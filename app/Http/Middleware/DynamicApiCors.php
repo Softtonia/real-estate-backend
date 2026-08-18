@@ -15,29 +15,39 @@ class DynamicApiCors
 
     public function handle(Request $request, Closure $next): Response
     {
-        $origin = $this->originService->resolveRequestOrigin($request);
+        try {
+            $origin = $this->originService->resolveRequestOrigin($request);
 
-        if ($origin === '') {
-            return $next($request);
-        }
+            if ($origin === '') {
+                return $next($request);
+            }
 
-        $originAllowed = $this->originService->originExistsInAnyActiveClient($origin);
+            $originAllowed = $this->originService->originExistsInAnyActiveClient($origin);
 
-        if (! $originAllowed) {
+            if (! $originAllowed) {
+                if ($request->isMethod('OPTIONS')) {
+                    return response('', 403);
+                }
+
+                return $next($request);
+            }
+
             if ($request->isMethod('OPTIONS')) {
-                return response('', 403);
+                return $this->addCorsHeaders(response('', 204), $request, $origin);
+            }
+
+            $response = $next($request);
+
+            return $this->addCorsHeaders($response, $request, $origin);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('DynamicApiCors exception: ' . $e->getMessage());
+
+            if ($request->isMethod('OPTIONS')) {
+                return response('', 200);
             }
 
             return $next($request);
         }
-
-        if ($request->isMethod('OPTIONS')) {
-            return $this->addCorsHeaders(response('', 204), $request, $origin);
-        }
-
-        $response = $next($request);
-
-        return $this->addCorsHeaders($response, $request, $origin);
     }
 
     private function addCorsHeaders(Response $response, Request $request, string $origin): Response

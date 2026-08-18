@@ -177,41 +177,51 @@ Route::get('/check-ip', function (Request $request) {
 
 Route::middleware(['validate.api.client'])
     ->get('/app-access-check', function (Request $request) {
-        $client = $request->attributes->get('api_client');
-        $applicationPassword = $request->attributes->get('application_password');
+        try {
+            $client = $request->attributes->get('api_client');
+            $applicationPassword = $request->attributes->get('application_password');
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Application access verified successfully.',
-            'data' => [
-                'api_client' => $client ? [
-                    'id' => $client->id,
-                    'name' => $client->name,
-                    'slug' => $client->slug,
-                    'type' => $client->type,
-                    'status' => method_exists($client, 'isActive')
-                        ? $client->isActive()
-                        : (bool) ($client->status ?? false),
-                    'allowed_origins' => $client->allowed_origins ?? [],
-                    'permissions' => $client->permissions ?? [],
-                    'requires_signature' => method_exists($client, 'isSignatureRequired')
-                        ? $client->isSignatureRequired()
-                        : (bool) ($client->requires_signature ?? false),
-                ] : null,
+            return response()->json([
+                'success' => true,
+                'message' => 'Application access verified successfully.',
+                'data' => [
+                    'api_client' => $client ? [
+                        'id' => $client->id,
+                        'name' => $client->name,
+                        'slug' => $client->slug,
+                        'type' => $client->type,
+                        'status' => method_exists($client, 'isActive')
+                            ? $client->isActive()
+                            : (bool) ($client->status ?? false),
+                        'allowed_origins' => $client->allowed_origins ?? [],
+                        'permissions' => $client->permissions ?? [],
+                        'requires_signature' => method_exists($client, 'isSignatureRequired')
+                            ? $client->isSignatureRequired()
+                            : (bool) ($client->requires_signature ?? false),
+                    ] : null,
 
-                'application_password' => $applicationPassword ? [
-                    'id' => $applicationPassword->id,
-                    'name' => $applicationPassword->name,
-                    'permissions' => $applicationPassword->permissions ?? [],
-                ] : null,
+                    'application_password' => $applicationPassword ? [
+                        'id' => $applicationPassword->id,
+                        'name' => $applicationPassword->name,
+                        'permissions' => $applicationPassword->permissions ?? $applicationPassword->abilities ?? [],
+                    ] : null,
 
-                'request' => [
-                    'app_type' => $request->header('X-App-Type'),
-                    'origin' => $request->header('Origin') ?: $request->header('X-App-Origin'),
-                    'ip' => $request->ip(),
+                    'request' => [
+                        'app_type' => $request->header('X-App-Type'),
+                        'origin' => $request->header('Origin') ?: $request->header('X-App-Origin'),
+                        'ip' => $request->ip(),
+                    ],
                 ],
-            ],
-        ]);
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('app-access-check error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error checking application access.',
+                'error' => app()->environment('local') ? $e->getMessage() : null,
+            ], 500);
+        }
     });
 
 Route::middleware(['validate.api.client'])->group(function () {
