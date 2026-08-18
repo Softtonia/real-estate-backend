@@ -1153,6 +1153,18 @@ class UserListingController extends Controller
                         ->delete();
                 }
 
+                if (Schema::hasTable('property_featured_promotions')) {
+                    DB::table('property_featured_promotions')
+                        ->where('dynamic_post_id', $ownedListing->id)
+                        ->delete();
+                }
+
+                if (Schema::hasTable('property_verification_revisions')) {
+                    DB::table('property_verification_revisions')
+                        ->where('dynamic_post_id', $ownedListing->id)
+                        ->delete();
+                }
+
                 if (method_exists($ownedListing, 'forceDelete')) {
                     $ownedListing->forceDelete();
                 } else {

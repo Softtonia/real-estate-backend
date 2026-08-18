@@ -2323,7 +2323,6 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         ->whereNumber('listing');
 
     Route::delete('frontend/listings/{listing}', [UserListingController::class, 'destroy'])
-        ->middleware('kyc.publish')
         ->whereNumber('listing');
 
     Route::get(
