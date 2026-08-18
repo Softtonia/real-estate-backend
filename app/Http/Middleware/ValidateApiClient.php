@@ -121,9 +121,7 @@ class ValidateApiClient
                 'message' => 'An error occurred while validating API client access.',
             ];
 
-            if (app()->environment('local') || $request->header('X-Debug-API-Client') === '1') {
-                $payload['error'] = $e->getMessage();
-            }
+            $payload['error'] = $e->getMessage();
 
             return response()->json($payload, 500);
         }

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Http\Request;
 use App\Http\Controllers\Admin\ApiClient\ApiClientController;
 use App\Http\Controllers\AgentProject\AgentProjectController;
 use App\Http\Controllers\Auth\AuthController;
@@ -178,34 +179,64 @@ Route::get('/check-ip', function (Request $request) {
 Route::middleware(['validate.api.client'])
     ->get('/app-access-check', function (Request $request) {
         try {
-            $client = $request->attributes->get('api_client');
-            $applicationPassword = $request->attributes->get('application_password');
+            $client = (isset($request->attributes) && is_object($request->attributes) && method_exists($request->attributes, 'get'))
+                ? $request->attributes->get('api_client')
+                : null;
+            $applicationPassword = (isset($request->attributes) && is_object($request->attributes) && method_exists($request->attributes, 'get'))
+                ? $request->attributes->get('application_password')
+                : null;
+
+            $clientData = null;
+            if ($client) {
+                $allowedOrigins = $client->allowed_origins ?? [];
+                if (is_string($allowedOrigins)) {
+                    $decoded = json_decode($allowedOrigins, true);
+                    $allowedOrigins = (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) ? $decoded : explode(',', $allowedOrigins);
+                }
+
+                $permissions = $client->permissions ?? [];
+                if (is_string($permissions)) {
+                    $decoded = json_decode($permissions, true);
+                    $permissions = (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) ? $decoded : [];
+                }
+
+                $clientData = [
+                    'id' => $client->id ?? null,
+                    'name' => $client->name ?? null,
+                    'slug' => $client->slug ?? null,
+                    'type' => $client->type ?? null,
+                    'status' => method_exists($client, 'isActive')
+                        ? $client->isActive()
+                        : (bool) ($client->status ?? false),
+                    'allowed_origins' => is_array($allowedOrigins) ? array_values(array_filter($allowedOrigins)) : [],
+                    'permissions' => is_array($permissions) ? array_values($permissions) : [],
+                    'requires_signature' => method_exists($client, 'isSignatureRequired')
+                        ? $client->isSignatureRequired()
+                        : (bool) ($client->requires_signature ?? false),
+                ];
+            }
+
+            $appPasswordData = null;
+            if ($applicationPassword) {
+                $abilities = $applicationPassword->abilities ?? $applicationPassword->getAttribute('abilities') ?? [];
+                if (is_string($abilities)) {
+                    $decoded = json_decode($abilities, true);
+                    $abilities = (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) ? $decoded : [];
+                }
+
+                $appPasswordData = [
+                    'id' => $applicationPassword->id ?? null,
+                    'name' => $applicationPassword->name ?? null,
+                    'permissions' => is_array($abilities) ? array_values($abilities) : [],
+                ];
+            }
 
             return response()->json([
                 'success' => true,
                 'message' => 'Application access verified successfully.',
                 'data' => [
-                    'api_client' => $client ? [
-                        'id' => $client->id,
-                        'name' => $client->name,
-                        'slug' => $client->slug,
-                        'type' => $client->type,
-                        'status' => method_exists($client, 'isActive')
-                            ? $client->isActive()
-                            : (bool) ($client->status ?? false),
-                        'allowed_origins' => $client->allowed_origins ?? [],
-                        'permissions' => $client->permissions ?? [],
-                        'requires_signature' => method_exists($client, 'isSignatureRequired')
-                            ? $client->isSignatureRequired()
-                            : (bool) ($client->requires_signature ?? false),
-                    ] : null,
-
-                    'application_password' => $applicationPassword ? [
-                        'id' => $applicationPassword->id,
-                        'name' => $applicationPassword->name,
-                        'permissions' => $applicationPassword->permissions ?? $applicationPassword->abilities ?? [],
-                    ] : null,
-
+                    'api_client' => $clientData,
+                    'application_password' => $appPasswordData,
                     'request' => [
                         'app_type' => $request->header('X-App-Type'),
                         'origin' => $request->header('Origin') ?: $request->header('X-App-Origin'),
@@ -214,12 +245,12 @@ Route::middleware(['validate.api.client'])
                 ],
             ]);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('app-access-check error: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::error('app-access-check error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error checking application access.',
-                'error' => app()->environment('local') ? $e->getMessage() : null,
+                'error' => $e->getMessage(),
             ], 500);
         }
     });

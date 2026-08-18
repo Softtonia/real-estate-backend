@@ -32,7 +32,7 @@ class Handler extends ExceptionHandler
                 return response()->json([
                     'success' => false,
                     'message' => 'An internal server error occurred.',
-                    'error' => config('app.debug') ? $e->getMessage() : null,
+                    'error' => $e->getMessage(),
                 ], 500);
             }
         });
