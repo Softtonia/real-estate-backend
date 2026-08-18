@@ -35,14 +35,16 @@ class UserListingController extends Controller
                 'users_property_listings' => [
                     'nullable',
                     'string',
-                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish', 'under_review', 'rejected', 'delete_pending']),
                 ],
                 'users-Property-listings' => [
                     'nullable',
                     'string',
-                    Rule::in(['all', 'active', 'inactive', 'draft', 'publish', 'under_review', 'rejected', 'delete_pending']),
                 ],
                 'search' => ['nullable', 'string', 'max:255'],
+                'is_featured' => ['nullable', 'string'],
+                'featured_status' => ['nullable', 'string'],
+                'sort_by' => ['nullable', 'string'],
+                'sort' => ['nullable', 'string'],
                 'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
                 'page' => ['nullable', 'integer', 'min:1'],
             ]);
@@ -101,8 +103,21 @@ class UserListingController extends Controller
 
             $this->applyListingFilter($query, $filter);
 
+            // Additional featured filter check via query parameters
+            $isFeaturedParam = $request->query('is_featured') ?? $request->query('featured_status');
+            if ($isFeaturedParam !== null && $isFeaturedParam !== '') {
+                $val = strtolower(trim((string) $isFeaturedParam));
+
+                if (in_array($val, ['1', 'true', 'featured', 'yes'], true)) {
+                    $query->whereHas('currentFeaturedPromotion');
+                } elseif (in_array($val, ['0', 'false', 'unfeatured', 'not_featured', 'no'], true)) {
+                    $query->whereDoesntHave('currentFeaturedPromotion');
+                }
+            }
+
+            // Search by title, listing_code, slug, locality, address, city, state, country
             if ($request->filled('search')) {
-                $search = (string) $request->search;
+                $search = trim((string) $request->search);
 
                 $query->where(function ($q) use ($search) {
                     if (Schema::hasColumn('dynamic_posts', 'title')) {
@@ -116,14 +131,88 @@ class UserListingController extends Controller
                     if (Schema::hasColumn('dynamic_posts', 'listing_code')) {
                         $q->orWhere('listing_code', 'like', "%{$search}%");
                     }
+
+                    if (Schema::hasColumn('dynamic_posts', 'area_locality')) {
+                        $q->orWhere('area_locality', 'like', "%{$search}%");
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'full_address')) {
+                        $q->orWhere('full_address', 'like', "%{$search}%");
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'address')) {
+                        $q->orWhere('address', 'like', "%{$search}%");
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'city_id') && Schema::hasTable('cities')) {
+                        $cityIds = DB::table('cities')->where('name', 'like', "%{$search}%")->pluck('id');
+                        if ($cityIds->isNotEmpty()) {
+                            $q->orWhereIn('city_id', $cityIds);
+                        }
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'state_id') && Schema::hasTable('states')) {
+                        $stateIds = DB::table('states')->where('name', 'like', "%{$search}%")->pluck('id');
+                        if ($stateIds->isNotEmpty()) {
+                            $q->orWhereIn('state_id', $stateIds);
+                        }
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'country_id') && Schema::hasTable('countries')) {
+                        $countryIds = DB::table('countries')->where('name', 'like', "%{$search}%")->pluck('id');
+                        if ($countryIds->isNotEmpty()) {
+                            $q->orWhereIn('country_id', $countryIds);
+                        }
+                    }
                 });
             }
 
-            if (Schema::hasColumn('dynamic_posts', 'sort_order')) {
-                $query->orderBy('sort_order', 'asc');
-            }
+            // Sort By filters
+            $sortBy = strtolower(trim((string) ($request->query('sort_by') ?? $request->query('sort') ?? '')));
 
-            $query->latest();
+            if (in_array($sortBy, ['oldest', 'oldest_first', 'created_at_asc', 'asc'], true)) {
+                $query->orderBy('created_at', 'asc');
+            } elseif (in_array($sortBy, ['price_high_to_low', 'price_desc', 'high_to_low'], true)) {
+                if (Schema::hasColumn('dynamic_posts', 'price')) {
+                    $query->orderBy('price', 'desc');
+                } else {
+                    $metaTable = $this->dynamicPostMetaTable();
+                    if ($metaTable) {
+                        $query->orderBy(
+                            DB::table($metaTable)
+                                ->select(DB::raw('CAST(field_meta_value AS DECIMAL(15,2))'))
+                                ->whereColumn("{$metaTable}.entity_id", 'dynamic_posts.id')
+                                ->limit(1),
+                            'desc'
+                        );
+                    } else {
+                        $query->orderBy('created_at', 'desc');
+                    }
+                }
+            } elseif (in_array($sortBy, ['price_low_to_high', 'price_asc', 'low_to_high'], true)) {
+                if (Schema::hasColumn('dynamic_posts', 'price')) {
+                    $query->orderBy('price', 'asc');
+                } else {
+                    $metaTable = $this->dynamicPostMetaTable();
+                    if ($metaTable) {
+                        $query->orderBy(
+                            DB::table($metaTable)
+                                ->select(DB::raw('CAST(field_meta_value AS DECIMAL(15,2))'))
+                                ->whereColumn("{$metaTable}.entity_id", 'dynamic_posts.id')
+                                ->limit(1),
+                            'asc'
+                        );
+                    } else {
+                        $query->orderBy('created_at', 'desc');
+                    }
+                }
+            } else {
+                // Default: Newest first
+                if (Schema::hasColumn('dynamic_posts', 'sort_order')) {
+                    $query->orderBy('sort_order', 'asc');
+                }
+                $query->latest();
+            }
 
             $perPage = (int) $request->get('per_page', 10);
 
@@ -1315,7 +1404,7 @@ class UserListingController extends Controller
 
     private function applyListingFilter($query, string $filter): void
     {
-        match ($filter) {
+        match (strtolower(trim($filter))) {
             'active' => $query
                 ->where('status', 'published')
                 ->where('live_status', 'approve'),
@@ -1347,6 +1436,12 @@ class UserListingController extends Controller
                         $q->where('status', 'archived');
                     }
                 }),
+
+            'featured' => $query
+                ->whereHas('currentFeaturedPromotion'),
+
+            'unfeatured', 'not_featured' => $query
+                ->whereDoesntHave('currentFeaturedPromotion'),
 
             default => null,
         };
@@ -1394,6 +1489,14 @@ class UserListingController extends Controller
             ->whereIn('live_status', ['reject', 'disapprove'])
             ->count();
 
+        $featuredListing = (clone $baseQuery)
+            ->whereHas('currentFeaturedPromotion')
+            ->count();
+
+        $unfeaturedListing = (clone $baseQuery)
+            ->whereDoesntHave('currentFeaturedPromotion')
+            ->count();
+
         return [
             'total_listing' => $totalListing,
             'active_listing' => $activeListing,
@@ -1403,6 +1506,8 @@ class UserListingController extends Controller
             'published_listing' => $publishedListing,
             'under_review_listing' => $underReviewListing,
             'rejected_listing' => $rejectedListing,
+            'featured_listing' => $featuredListing,
+            'unfeatured_listing' => $unfeaturedListing,
         ];
     }
 
