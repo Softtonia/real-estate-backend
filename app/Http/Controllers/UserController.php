@@ -1463,11 +1463,23 @@ class UserController extends Controller
             adminMode: false
         );
     }
+    private function normalizeUserDeletionRequest(Request $request): void
+    {
+        if (!empty($request->getContent())) {
+            $jsonData = json_decode($request->getContent(), true);
+            if (is_array($jsonData)) {
+                $request->merge($jsonData);
+            }
+        }
+    }
+
     //  for delete user
     public function checkUserDeletion(Request $request)
     {
+        $this->normalizeUserDeletionRequest($request);
+
         try {
-            $userId = $request->input('id') ?? $request->input('user_id');
+            $userId = $request->input('id') ?? $request->input('user_id') ?? $request->query('id') ?? $request->query('user_id');
 
             if (!$userId || !User::where('id', $userId)->exists()) {
                 return response()->json([
@@ -1476,7 +1488,7 @@ class UserController extends Controller
                 ], 404);
             }
 
-            $user = User::select(['id', 'name', 'email', 'phone', 'role_id'])->find($userId);
+            $user = User::select(['id', 'first_name', 'last_name', 'user_name', 'email', 'phone', 'role_id'])->find($userId);
 
             $listingsQuery = DynamicPost::query();
             if (Schema::hasColumn('dynamic_posts', 'author_id')) {
@@ -1493,13 +1505,21 @@ class UserController extends Controller
                 ->pluck('count', 'status')
                 ->toArray();
 
+            $userName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+            if ($userName === '') {
+                $userName = $user->user_name ?? $user->email ?? null;
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'User deletion check completed.',
                 'data' => [
                     'user' => [
                         'id' => (int) $user->id,
-                        'name' => $user->name ?? null,
+                        'name' => $userName,
+                        'first_name' => $user->first_name ?? null,
+                        'last_name' => $user->last_name ?? null,
+                        'user_name' => $user->user_name ?? null,
                         'email' => $user->email ?? null,
                     ],
                     'has_listings' => $totalListings > 0,
@@ -1533,6 +1553,8 @@ class UserController extends Controller
 
     public function deleteUser(Request $request)
     {
+        $this->normalizeUserDeletionRequest($request);
+
         try {
             $request->validate([
                 'id' => 'nullable|exists:users,id',
@@ -1545,7 +1567,7 @@ class UserController extends Controller
             return response()->json(['status' => false, 'error' => $e->errors()], 422);
         }
 
-        $userId = $request->input('id') ?? $request->input('user_id');
+        $userId = $request->input('id') ?? $request->input('user_id') ?? $request->query('id') ?? $request->query('user_id');
 
         if (!$userId) {
             return response()->json(['status' => false, 'message' => 'User ID is required.'], 422);
@@ -1579,7 +1601,7 @@ class UserController extends Controller
             ], 422);
         }
 
-        $reassignUserId = $request->input('reassign_user_id') ?? $request->input('target_user_id');
+        $reassignUserId = $request->input('reassign_user_id') ?? $request->input('target_user_id') ?? $request->query('reassign_user_id') ?? $request->query('target_user_id');
 
         if ($totalListings > 0 && $listingAction === 'reassign') {
             if (!$reassignUserId) {
@@ -1686,6 +1708,7 @@ class UserController extends Controller
 
     public function bulkDelete(Request $request)
     {
+        $this->normalizeUserDeletionRequest($request);
         try {
             $request->validate([
                 'ids' => 'required|array|min:1',
