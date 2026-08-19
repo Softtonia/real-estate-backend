@@ -138,6 +138,11 @@ class User extends Authenticatable implements CanResetPassword
         );
     }
 
+    public function userDetails(): HasOne
+    {
+        return $this->userDetail();
+    }
+
     /**
      * User tickets.
      */

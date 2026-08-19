@@ -213,14 +213,10 @@ class LeadController extends Controller
             $dynamicPost = DynamicPost::find($dynamicPostId);
             if ($dynamicPost) {
                 $postTypeId = $dynamicPost->post_type_id;
-                if (!empty($dynamicPost->author_id)) {
+                if (empty($userIds) && !empty($dynamicPost->author_id)) {
                     $userIds[] = (int) $dynamicPost->author_id;
                 }
             }
-        }
-
-        if ($user) {
-            $userIds[] = (int) $user->id;
         }
 
         $lead = Lead::create([
@@ -281,7 +277,7 @@ class LeadController extends Controller
                 $dynamicPost = DynamicPost::find($dynamicPostId);
                 if ($dynamicPost) {
                     $postTypeId = $dynamicPost->post_type_id;
-                    if (!empty($dynamicPost->author_id)) {
+                    if (empty($userIds) && !empty($dynamicPost->author_id)) {
                         $userIds[] = (int) $dynamicPost->author_id;
                     }
                 }
@@ -333,7 +329,7 @@ class LeadController extends Controller
 
             $userIds = $lead->user_ids ?? [];
             $users = User::whereIn('id', $userIds)
-                ->with(['userDetails', 'role'])
+                ->with(['userDetail', 'role'])
                 ->get()
                 ->keyBy('id');
 
@@ -385,13 +381,13 @@ class LeadController extends Controller
 
         $dynamicPostId = $request->dynamic_post_id ?? $lead->dynamic_post_id;
         $postTypeId = $request->post_type_id ?? $lead->post_type_id;
-        $userIds = $request->user_ids ?? $lead->user_ids ?? [];
+        $userIds = $request->has('user_ids') ? ($request->user_ids ?? []) : ($lead->user_ids ?? []);
 
         if ($dynamicPostId) {
             $dynamicPost = DynamicPost::find($dynamicPostId);
             if ($dynamicPost) {
                 $postTypeId = $dynamicPost->post_type_id;
-                if (!empty($dynamicPost->author_id)) {
+                if (empty($userIds) && !empty($dynamicPost->author_id)) {
                     $userIds[] = (int) $dynamicPost->author_id;
                 }
             }
