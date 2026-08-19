@@ -17,42 +17,11 @@ class PropertySearchService
 {
     public function options(array $filters = []): array
     {
-        $purposeInput = $filters['purpose'] ?? $filters['tab'] ?? null;
-        $hidePurposeInput = $filters['hide_purpose'] ?? $filters['hide_purposes'] ?? null;
-
-        $hidePurpose = $hidePurposeInput !== null
-            ? (bool) filter_var($hidePurposeInput, FILTER_VALIDATE_BOOLEAN)
-            : ($purposeInput !== null && $purposeInput !== '');
-
-        $mappedPurpose = null;
-
-        if ($purposeInput !== null && $purposeInput !== '') {
-            $norm = mb_strtolower(trim((string) $purposeInput));
-
-            if (in_array($norm, ['buy', 'sell', 'sale', 'for-sale', 'purchase'], true)) {
-                $mappedPurpose = 'sell';
-            } elseif (in_array($norm, ['rent', 'rental', 'lease', 'for-rent'], true)) {
-                $mappedPurpose = 'rent';
-            } else {
-                $mappedPurpose = $norm;
-            }
-        }
-
-        $cacheKey = 'frontend:property-search:options:v4:' . md5(json_encode([
-            'hide_purpose' => $hidePurpose,
-            'purpose' => $mappedPurpose,
-        ]));
-
         return Cache::store('redis')->remember(
-            $cacheKey,
+            'frontend:property-search:options:v5',
             now()->addHours(6),
-            function () use ($hidePurpose, $mappedPurpose): array {
-                $purposes = $hidePurpose ? [] : $this->taxonomyOptions('purpose');
-
+            function (): array {
                 return [
-                    'active_purpose' => $mappedPurpose,
-                    'hidden_purpose' => $mappedPurpose,
-                    'purposes' => $purposes,
                     'property_types' => $this->taxonomyOptions('property_type'),
                     'bedrooms' => $this->bedroomOptions(),
                     'budget_options' => config('property_search.budget_options', []),
