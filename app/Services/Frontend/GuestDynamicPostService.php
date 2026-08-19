@@ -125,6 +125,14 @@ class GuestDynamicPostService
             $query->where('dynamic_posts.city_id', (int) $filters['city_id']);
         }
 
+        if (!empty($filters['area_locality'])) {
+            $query->where(
+                'dynamic_posts.area_locality',
+                'like',
+                '%' . trim((string) $filters['area_locality']) . '%'
+            );
+        }
+
         if (!empty($filters['search'])) {
             $this->applySearch(
                 $query,

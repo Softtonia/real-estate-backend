@@ -20,6 +20,27 @@ class GuestDynamicPostListRequest extends FormRequest
                 'boolean',
             ],
 
+            'country_id' => [
+                'nullable',
+                'integer',
+            ],
+
+            'state_id' => [
+                'nullable',
+                'integer',
+            ],
+
+            'city_id' => [
+                'nullable',
+                'integer',
+            ],
+
+            'area_locality' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
             'search' => [
                 'nullable',
                 'string',

@@ -103,6 +103,18 @@ class GuestDynamicPostController extends Controller
                         'featured' =>
                             $featuredOnly,
 
+                        'country_id' =>
+                            isset($validated['country_id']) ? (int) $validated['country_id'] : null,
+
+                        'state_id' =>
+                            isset($validated['state_id']) ? (int) $validated['state_id'] : null,
+
+                        'city_id' =>
+                            isset($validated['city_id']) ? (int) $validated['city_id'] : null,
+
+                        'area_locality' =>
+                            $validated['area_locality'] ?? null,
+
                         'search' =>
                             $validated['search']
                             ?? null,
