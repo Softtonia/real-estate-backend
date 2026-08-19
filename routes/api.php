@@ -2300,8 +2300,12 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         Route::get('locations/states', [FrontendLocationController::class, 'states']);
         Route::get('locations/cities', [FrontendLocationController::class, 'cities']);
         Route::get('locations/selected', [FrontendLocationController::class, 'selected']);
+        Route::get('locations/popular-cities', [FrontendLocationController::class, 'popularCities']);
+        Route::get('locations/header-cities', [FrontendLocationController::class, 'headerCities']);
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
     });
+    Route::get('get-popular-cities', [FrontendLocationController::class, 'popularCities']);
+    Route::get('get-header-cities', [FrontendLocationController::class, 'headerCities']);
     Route::prefix('frontend')
         ->middleware(['validate.api.client', 'throttle:api'])
         ->group(function () {
