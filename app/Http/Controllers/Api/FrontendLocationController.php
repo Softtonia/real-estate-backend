@@ -222,7 +222,13 @@ class FrontendLocationController extends Controller
             ], 500);
         }
 
-        $query = DB::table('cities')
+        $search = trim((string) $request->input('search', ''));
+        $countryId = $request->input('country_id');
+        $stateId = $request->input('state_id');
+
+        $hasPopularColumn = Schema::hasColumn('cities', 'is_popular');
+
+        $baseQuery = DB::table('cities')
             ->join('states', 'cities.state_id', '=', 'states.id')
             ->join('countries', 'states.country_id', '=', 'countries.id')
             ->select(
@@ -231,46 +237,49 @@ class FrontendLocationController extends Controller
                 'cities.state_id',
                 'states.name as state_name',
                 'states.country_id',
-                'countries.name as country_name'
+                'countries.name as country_name',
+                $hasPopularColumn ? DB::raw('IFNULL(cities.is_popular, 0) as is_popular') : DB::raw('0 as is_popular')
             );
 
-        if (Schema::hasColumn('cities', 'is_popular')) {
-            $query->where('cities.is_popular', 1);
+        if (Schema::hasColumn('cities', 'status')) {
+            $baseQuery->where('cities.status', 1);
         }
 
-        if ($request->filled('country_id')) {
-            $query->where('states.country_id', (int) $request->country_id);
+        if ($countryId) {
+            $baseQuery->where('states.country_id', (int) $countryId);
         }
 
-        if ($request->filled('state_id')) {
-            $query->where('cities.state_id', (int) $request->state_id);
+        if ($stateId) {
+            $baseQuery->where('cities.state_id', (int) $stateId);
         }
 
-        if ($request->filled('search')) {
-            $search = trim((string) $request->search);
-            $query->where('cities.name', 'like', "%{$search}%");
+        if ($search !== '') {
+            $baseQuery->where(function ($q) use ($search) {
+                $q->where('cities.name', 'like', "%{$search}%")
+                    ->orWhere('states.name', 'like', "%{$search}%");
+            });
         }
 
-        $popularCities = $query
-            ->orderByRaw('LOWER(cities.name) ASC')
-            ->get()
-            ->map(function ($city) {
-                $name = $this->formatLocationName($city->name);
+        $allCities = $baseQuery->orderByRaw('LOWER(cities.name) ASC')->get();
 
-                return [
-                    'id' => (int) $city->id,
-                    'value' => (int) $city->id,
-                    'label' => $name,
-                    'name' => $name,
-                    'state_id' => (int) $city->state_id,
-                    'state_name' => $this->formatLocationName($city->state_name),
-                    'country_id' => (int) $city->country_id,
-                    'country_name' => $this->formatLocationName($city->country_name),
-                ];
-            })
-            ->values();
+        $mapCity = function ($city) {
+            $name = $this->formatLocationName($city->name);
 
-        if ($popularCities->isEmpty() && !$request->filled('search')) {
+            return [
+                'id' => (int) $city->id,
+                'value' => (int) $city->id,
+                'label' => $name,
+                'name' => $name,
+                'state_id' => (int) $city->state_id,
+                'state_name' => $this->formatLocationName($city->state_name),
+                'country_id' => (int) $city->country_id,
+                'country_name' => $this->formatLocationName($city->country_name),
+            ];
+        };
+
+        $popularCities = $allCities->where('is_popular', 1)->map($mapCity)->values();
+
+        if ($popularCities->isEmpty()) {
             $majorCityNames = [
                 'ahmedabad', 'bangalore', 'bengaluru', 'chennai', 'delhi', 'new delhi',
                 'ghaziabad', 'gurgaon', 'gurugram', 'hyderabad', 'indore', 'jaipur',
@@ -278,48 +287,33 @@ class FrontendLocationController extends Controller
                 'pune', 'thane'
             ];
 
-            $fallbackQuery = DB::table('cities')
-                ->join('states', 'cities.state_id', '=', 'states.id')
-                ->join('countries', 'states.country_id', '=', 'countries.id')
-                ->select(
-                    'cities.id',
-                    'cities.name',
-                    'cities.state_id',
-                    'states.name as state_name',
-                    'states.country_id',
-                    'countries.name as country_name'
-                )
-                ->whereIn(DB::raw('LOWER(cities.name)'), $majorCityNames);
-
-            if ($request->filled('country_id')) {
-                $fallbackQuery->where('states.country_id', (int) $request->country_id);
-            }
-
-            $popularCities = $fallbackQuery
-                ->orderByRaw('LOWER(cities.name) ASC')
-                ->get()
-                ->map(function ($city) {
-                    $name = $this->formatLocationName($city->name);
-
-                    return [
-                        'id' => (int) $city->id,
-                        'value' => (int) $city->id,
-                        'label' => $name,
-                        'name' => $name,
-                        'state_id' => (int) $city->state_id,
-                        'state_name' => $this->formatLocationName($city->state_name),
-                        'country_id' => (int) $city->country_id,
-                        'country_name' => $this->formatLocationName($city->country_name),
-                    ];
-                })
+            $popularCities = $allCities
+                ->filter(fn($c) => in_array(strtolower($c->name), $majorCityNames, true))
+                ->map($mapCity)
                 ->values();
         }
 
+        $popularIds = $popularCities->pluck('id')->all();
+
+        $otherCities = $allCities
+            ->reject(fn($c) => in_array((int) $c->id, $popularIds, true))
+            ->map($mapCity)
+            ->values();
+
+        $dataPayload = [
+            'popular_cities' => $popularCities,
+            'other_cities' => $otherCities,
+        ];
+
         return response()->json([
             'status' => true,
-            'message' => 'Popular cities fetched successfully.',
-            'count' => $popularCities->count(),
-            'data' => $popularCities,
+            'message' => 'Popular and other cities fetched successfully.',
+            'popular_count' => $popularCities->count(),
+            'other_count' => $otherCities->count(),
+            'total_count' => $allCities->count(),
+            'data' => $dataPayload,
+            'popular_cities' => $popularCities,
+            'other_cities' => $otherCities,
         ]);
     }
 
