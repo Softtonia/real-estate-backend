@@ -670,10 +670,17 @@ class TicketController extends Controller
         }
 
         $hasRoleName = Schema::hasColumn('roles', 'role_name');
+        $excludedRoles = ['admin', 'super admin', 'superadmin', 'administrator'];
 
         $query = DB::table('roles')->select('id', 'name');
+        $query->whereNotIn(DB::raw('LOWER(name)'), $excludedRoles);
+
         if ($hasRoleName) {
             $query->addSelect(DB::raw("IFNULL(NULLIF(role_name, ''), name) as display_name"));
+            $query->where(function ($q) use ($excludedRoles) {
+                $q->whereNull('role_name')
+                    ->orWhereNotIn(DB::raw('LOWER(role_name)'), $excludedRoles);
+            });
         } else {
             $query->addSelect('name as display_name');
         }
