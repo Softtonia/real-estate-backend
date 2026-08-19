@@ -13,13 +13,14 @@ use Throwable;
 class PropertySearchController extends Controller
 {
     public function options(
+        Request $request,
         PropertySearchService $service
     ): JsonResponse {
         try {
             return response()->json([
                 'status' => true,
                 'message' => 'Property search options fetched successfully.',
-                'data' => $service->options(),
+                'data' => $service->options($request->all()),
             ]);
         } catch (Throwable $e) {
             return $this->serverError(

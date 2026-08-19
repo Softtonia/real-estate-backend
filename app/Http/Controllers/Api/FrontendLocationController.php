@@ -304,10 +304,26 @@ class FrontendLocationController extends Controller
 
         if ($popularCities->isEmpty() && $search === '') {
             $majorCityNames = [
-                'ahmedabad', 'bangalore', 'bengaluru', 'chennai', 'delhi', 'new delhi',
-                'ghaziabad', 'gurgaon', 'gurugram', 'hyderabad', 'indore', 'jaipur',
-                'kolkata', 'lucknow', 'mumbai', 'navi mumbai', 'noida', 'greater noida',
-                'pune', 'thane'
+                'ahmedabad',
+                'bangalore',
+                'bengaluru',
+                'chennai',
+                'delhi',
+                'new delhi',
+                'ghaziabad',
+                'gurgaon',
+                'gurugram',
+                'hyderabad',
+                'indore',
+                'jaipur',
+                'kolkata',
+                'lucknow',
+                'mumbai',
+                'navi mumbai',
+                'noida',
+                'greater noida',
+                'pune',
+                'thane'
             ];
 
             $fallbackQuery = DB::table('cities')
@@ -456,10 +472,26 @@ class FrontendLocationController extends Controller
 
         if ($popularCities->isEmpty() && $search === '') {
             $majorCityNames = [
-                'ahmedabad', 'bangalore', 'bengaluru', 'chennai', 'delhi', 'new delhi',
-                'ghaziabad', 'gurgaon', 'gurugram', 'hyderabad', 'indore', 'jaipur',
-                'kolkata', 'lucknow', 'mumbai', 'navi mumbai', 'noida', 'greater noida',
-                'pune', 'thane'
+                'ahmedabad',
+                'bangalore',
+                'bengaluru',
+                'chennai',
+                'delhi',
+                'new delhi',
+                'ghaziabad',
+                'gurgaon',
+                'gurugram',
+                'hyderabad',
+                'indore',
+                'jaipur',
+                'kolkata',
+                'lucknow',
+                'mumbai',
+                'navi mumbai',
+                'noida',
+                'greater noida',
+                'pune',
+                'thane'
             ];
 
             $popularCities = $allCities
