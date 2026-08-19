@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use App\Models\User;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 use Illuminate\Support\Str;
 
@@ -650,6 +652,114 @@ class TicketController extends Controller
         ]);
     }
 
+    public function assignableRoles(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->unauthenticatedResponse();
+        }
+
+        if (!Schema::hasTable('roles')) {
+            return response()->json([
+                'status' => true,
+                'message' => 'Roles fetched successfully.',
+                'count' => 0,
+                'data' => [],
+            ]);
+        }
+
+        $roles = DB::table('roles')
+            ->select('id', 'name', DB::raw("IFNULL(NULLIF(role_name, ''), name) as display_name"))
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Assignable roles fetched successfully.',
+            'count' => $roles->count(),
+            'data' => $roles->map(fn($role) => [
+                'id' => (int) $role->id,
+                'value' => (int) $role->id,
+                'name' => $role->name,
+                'display_name' => $role->display_name,
+                'label' => ucfirst($role->display_name ?? $role->name),
+            ])->values(),
+        ]);
+    }
+
+    public function assignableUsers(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->unauthenticatedResponse();
+        }
+
+        $roleId = $request->input('role_id', $request->input('role', $request->input('assigned_role_id')));
+        $search = trim((string) $request->input('search', ''));
+        $limit = min(max((int) $request->input('limit', 100), 1), 200);
+
+        $query = User::query()
+            ->with(['role:id,name'])
+            ->select([
+                'id',
+                'first_name',
+                'last_name',
+                'user_name',
+                'email',
+                'phone',
+                'role_id',
+            ]);
+
+        if (!empty($roleId)) {
+            if (is_numeric($roleId)) {
+                $query->where('role_id', (int) $roleId);
+            } else {
+                $query->whereHas('role', function (Builder $q) use ($roleId) {
+                    $q->where('name', $roleId)
+                        ->orWhere('role_name', $roleId);
+                });
+            }
+        }
+
+        if ($search !== '') {
+            $query->where(function (Builder $q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('user_name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        $users = $query->orderBy('first_name')->orderBy('last_name')->limit($limit)->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Assignable users fetched successfully.',
+            'role_id' => is_numeric($roleId) ? (int) $roleId : null,
+            'count' => $users->count(),
+            'data' => $users->map(function ($u) {
+                $fullName = trim(($u->first_name ?? '') . ' ' . ($u->last_name ?? '')) ?: ($u->user_name ?? $u->email);
+                $label = $fullName . ($u->email ? " ({$u->email})" : '');
+
+                return [
+                    'id' => (int) $u->id,
+                    'value' => (int) $u->id,
+                    'label' => $label,
+                    'first_name' => $u->first_name,
+                    'last_name' => $u->last_name,
+                    'full_name' => $fullName,
+                    'email' => $u->email,
+                    'phone' => $u->phone,
+                    'role_id' => $u->role_id ? (int) $u->role_id : null,
+                    'role_name' => $u->role?->name ?? null,
+                ];
+            })->values(),
+        ]);
+    }
+
     private function storeRules(): array
     {
         return [
@@ -902,7 +1012,8 @@ class TicketController extends Controller
     {
         return [
             'raisedBy:id,first_name,last_name,email',
-            'assignedTo:id,first_name,last_name,email',
+            'assignedTo:id,first_name,last_name,email,role_id',
+            'assignedTo.role:id,name',
             'status.media',
             'priority.media',
             'type.media',
@@ -926,6 +1037,12 @@ class TicketController extends Controller
 
             'user_id' => $ticket->user_id ? (int) $ticket->user_id : null,
             'user_name' => $this->userName($ticket->assignedTo),
+            'user_role_id' => $ticket->assignedTo?->role_id ? (int) $ticket->assignedTo->role_id : null,
+            'user_role_name' => $ticket->assignedTo?->role?->name ?? null,
+            'assigned_role' => $ticket->assignedTo?->role ? [
+                'id' => (int) $ticket->assignedTo->role->id,
+                'name' => $ticket->assignedTo->role->name,
+            ] : null,
 
             'status_id' => $ticket->status_id ? (int) $ticket->status_id : null,
             'status_name' => $ticket->status?->ticket_status_name,

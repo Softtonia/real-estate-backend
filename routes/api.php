@@ -587,6 +587,10 @@ Route::middleware(['validate.api.client'])->group(function () {
             Route::post('get-tickets-by-id', [TicketController::class, 'show']);
             Route::post('tickets/respond', [TicketController::class, 'respond']);
             Route::get('tickets-respond-list', [TicketController::class, 'respondlist']);
+            Route::get('tickets-assignable-roles', [TicketController::class, 'assignableRoles']);
+            Route::get('tickets-assignable-users', [TicketController::class, 'assignableUsers']);
+            Route::get('tickets/roles', [TicketController::class, 'assignableRoles']);
+            Route::get('tickets/assignable-users', [TicketController::class, 'assignableUsers']);
         });
         Route::middleware('admin.token')->group(function () {
             Route::post('tickets-status-create', [TicketStatusController::class, 'store']);
