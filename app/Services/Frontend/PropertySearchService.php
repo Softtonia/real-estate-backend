@@ -18,16 +18,47 @@ class PropertySearchService
     public function options(array $filters = []): array
     {
         return Cache::store('redis')->remember(
-            'frontend:property-search:options:v5',
+            'frontend:property-search:options:v6',
             now()->addHours(6),
             function (): array {
+                $purposes = $this->taxonomyOptions('purpose');
+                $propertyTypes = $this->taxonomyOptions('property_type');
+                $groupedPropertyTypes = $this->buildTaxonomyTree($propertyTypes);
+
                 return [
-                    'property_types' => $this->taxonomyOptions('property_type'),
+                    'purposes' => $purposes,
+                    'property_types' => $propertyTypes,
+                    'grouped_property_types' => $groupedPropertyTypes,
                     'bedrooms' => $this->bedroomOptions(),
                     'budget_options' => config('property_search.budget_options', []),
                 ];
             }
         );
+    }
+
+    private function buildTaxonomyTree(array $terms): array
+    {
+        $byParent = [];
+        foreach ($terms as $term) {
+            $parentId = $term['parent_id'] ?? 0;
+            if ($parentId === null) {
+                $parentId = 0;
+            }
+            $byParent[$parentId][] = $term;
+        }
+
+        $build = function (int $parentId) use (&$build, &$byParent): array {
+            $result = [];
+            foreach ($byParent[$parentId] ?? [] as $term) {
+                $children = $build((int) $term['id']);
+                $term['children'] = $children;
+                $term['has_children'] = !empty($children);
+                $result[] = $term;
+            }
+            return $result;
+        };
+
+        return $build(0);
     }
 
     public function locationSuggestions(array $filters): array
