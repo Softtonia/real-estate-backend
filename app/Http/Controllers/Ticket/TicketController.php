@@ -669,10 +669,16 @@ class TicketController extends Controller
             ]);
         }
 
-        $roles = DB::table('roles')
-            ->select('id', 'name', DB::raw("IFNULL(NULLIF(role_name, ''), name) as display_name"))
-            ->orderBy('name')
-            ->get();
+        $hasRoleName = Schema::hasColumn('roles', 'role_name');
+
+        $query = DB::table('roles')->select('id', 'name');
+        if ($hasRoleName) {
+            $query->addSelect(DB::raw("IFNULL(NULLIF(role_name, ''), name) as display_name"));
+        } else {
+            $query->addSelect('name as display_name');
+        }
+
+        $roles = $query->orderBy('name')->get();
 
         return response()->json([
             'status' => true,
@@ -682,7 +688,7 @@ class TicketController extends Controller
                 'id' => (int) $role->id,
                 'value' => (int) $role->id,
                 'name' => $role->name,
-                'display_name' => $role->display_name,
+                'display_name' => $role->display_name ?? $role->name,
                 'label' => ucfirst($role->display_name ?? $role->name),
             ])->values(),
         ]);
@@ -717,8 +723,10 @@ class TicketController extends Controller
                 $query->where('role_id', (int) $roleId);
             } else {
                 $query->whereHas('role', function (Builder $q) use ($roleId) {
-                    $q->where('name', $roleId)
-                        ->orWhere('role_name', $roleId);
+                    $q->where('name', $roleId);
+                    if (Schema::hasColumn('roles', 'role_name')) {
+                        $q->orWhere('role_name', $roleId);
+                    }
                 });
             }
         }
