@@ -229,6 +229,20 @@ class FrontendLocationController extends Controller
         ];
     }
 
+    private function resolveIndiaCountryId(?int $requestCountryId): ?int
+    {
+        if ($requestCountryId) {
+            return $requestCountryId;
+        }
+
+        return (int) (DB::table('countries')
+            ->where(function ($q) {
+                $q->whereRaw('LOWER(name) = ?', ['india'])
+                    ->orWhereRaw('LOWER(name) = ?', ['in']);
+            })
+            ->value('id') ?: 0) ?: null;
+    }
+
     public function popularCities(Request $request): JsonResponse
     {
         if (!Schema::hasTable('cities')) {
@@ -239,14 +253,16 @@ class FrontendLocationController extends Controller
         }
 
         $search = trim((string) $request->input('search', ''));
-        $countryId = $request->input('country_id');
+        $countryId = $this->resolveIndiaCountryId($request->filled('country_id') ? (int) $request->country_id : null);
         $stateId = $request->input('state_id');
-        $limit = min(max((int) $request->input('limit', 50), 1), 200);
+
+        $isAll = $request->boolean('all') || $request->input('limit') === 'all' || $request->input('limit') === '-1';
+        $limit = $isAll ? null : min(max((int) $request->input('limit', 100), 1), 500);
 
         $hasPopularColumn = Schema::hasColumn('cities', 'is_popular');
 
         /*
-         * 1. Fetch Popular Cities
+         * 1. Fetch Popular Cities for India
          */
         $popularQuery = DB::table('cities')
             ->join('states', 'cities.state_id', '=', 'states.id')
@@ -265,7 +281,7 @@ class FrontendLocationController extends Controller
         }
 
         if ($countryId) {
-            $popularQuery->where('states.country_id', (int) $countryId);
+            $popularQuery->where('states.country_id', $countryId);
         }
 
         if ($stateId) {
@@ -308,7 +324,7 @@ class FrontendLocationController extends Controller
                 ->whereIn(DB::raw('LOWER(cities.name)'), $majorCityNames);
 
             if ($countryId) {
-                $fallbackQuery->where('states.country_id', (int) $countryId);
+                $fallbackQuery->where('states.country_id', $countryId);
             }
 
             if ($stateId) {
@@ -323,7 +339,7 @@ class FrontendLocationController extends Controller
         }
 
         /*
-         * 2. Fetch Other Cities (excluded popular cities, limited for speed & payload optimization)
+         * 2. Fetch Other Cities in India
          */
         $popularIds = $popularCities->pluck('id')->all();
 
@@ -344,7 +360,7 @@ class FrontendLocationController extends Controller
         }
 
         if ($countryId) {
-            $otherQuery->where('states.country_id', (int) $countryId);
+            $otherQuery->where('states.country_id', $countryId);
         }
 
         if ($stateId) {
@@ -362,16 +378,21 @@ class FrontendLocationController extends Controller
             });
         }
 
+        $otherQuery->orderByRaw('LOWER(cities.name) ASC');
+
+        if ($limit !== null) {
+            $otherQuery->limit($limit);
+        }
+
         $otherCities = $otherQuery
-            ->orderByRaw('LOWER(cities.name) ASC')
-            ->limit($limit)
             ->get()
             ->map(fn($c) => $this->mapCityFormat($c))
             ->values();
 
         return response()->json([
             'status' => true,
-            'message' => 'Popular and other cities fetched successfully.',
+            'message' => 'Indian popular and other cities fetched successfully.',
+            'country_id' => $countryId,
             'popular_count' => $popularCities->count(),
             'other_count' => $otherCities->count(),
             'data' => [
@@ -390,9 +411,11 @@ class FrontendLocationController extends Controller
             ], 500);
         }
 
-        $countryId = $request->input('country_id');
+        $countryId = $this->resolveIndiaCountryId($request->filled('country_id') ? (int) $request->country_id : null);
         $search = trim((string) $request->input('search', ''));
-        $limit = min(max((int) $request->input('limit', 50), 1), 200);
+
+        $isAll = $request->boolean('all') || $request->input('limit') === 'all' || $request->input('limit') === '-1';
+        $limit = $isAll ? null : min(max((int) $request->input('limit', 100), 1), 500);
 
         $hasPopularColumn = Schema::hasColumn('cities', 'is_popular');
         $hasNearbyColumn = Schema::hasColumn('cities', 'is_nearby');
@@ -416,7 +439,7 @@ class FrontendLocationController extends Controller
         }
 
         if ($countryId) {
-            $baseQuery->where('states.country_id', (int) $countryId);
+            $baseQuery->where('states.country_id', $countryId);
         }
 
         if ($search !== '') {
@@ -449,15 +472,18 @@ class FrontendLocationController extends Controller
         $nearbyIds = $nearbyCities->pluck('id')->all();
         $excludeIds = array_unique(array_merge($popularIds, $nearbyIds));
 
-        $otherCities = $allCities
-            ->reject(fn($c) => in_array((int) $c->id, $excludeIds, true))
-            ->take($limit)
-            ->map(fn($c) => $this->mapCityFormat($c))
-            ->values();
+        $otherCitiesQuery = $allCities->reject(fn($c) => in_array((int) $c->id, $excludeIds, true));
+
+        if ($limit !== null) {
+            $otherCitiesQuery = $otherCitiesQuery->take($limit);
+        }
+
+        $otherCities = $otherCitiesQuery->map(fn($c) => $this->mapCityFormat($c))->values();
 
         return response()->json([
             'status' => true,
             'message' => 'Header location cities fetched successfully.',
+            'country_id' => $countryId,
             'data' => [
                 'nearby_cities' => $nearbyCities,
                 'popular_cities' => $popularCities,
