@@ -65,9 +65,6 @@ class UserProfileController extends Controller
             ], 401);
         }
 
-        // Accept Aadhaar number from personal-profile forms as well as KYC forms.
-        // This is important when the frontend sends Aadhaar with "Save Changes".
-        // $this->normalizeKycRequest($request);
 
         $isOwnerRole = $this->isOwnerUser($user);
 
@@ -90,8 +87,6 @@ class UserProfileController extends Controller
             'alternate_number' => ['nullable', 'string', 'max:200'],
             'no_of_employees' => ['nullable', 'integer'],
             'about_us' => ['nullable', 'string'],
-
-
         ];
 
         if (!$isOwnerRole) {
