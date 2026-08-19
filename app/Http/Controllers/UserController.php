@@ -3787,8 +3787,10 @@ class UserController extends Controller
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'User not found'
-                ], 200);
+                    'status' => false,
+                    'message' => 'User account does not exist or session expired.',
+                    'error' => 'Unauthorized. User does not exist.',
+                ], 401);
             }
 
             $email = $user->email;

@@ -27,9 +27,15 @@ class UserProfileController extends Controller
         $user = $this->resolveCurrentUser($request);
 
         if (!$user) {
+            $requestedId = $request->input('id') ?? $request->input('user_id') ?? $request->query('id') ?? $request->query('user_id');
+            $message = $requestedId
+                ? 'User account does not exist or has been deleted.'
+                : 'Invalid or expired session token.';
+
             return response()->json([
                 'status' => false,
-                'message' => 'Invalid or expired token.',
+                'message' => $message,
+                'error' => 'Unauthorized. User account not found or token expired.',
             ], 401);
         }
 
