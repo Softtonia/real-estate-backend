@@ -108,7 +108,8 @@ class UserListingController extends Controller
             if ($isFeaturedParam !== null && $isFeaturedParam !== '') {
                 $val = strtolower(trim((string) $isFeaturedParam));
 
-                if (in_array($val, ['1', 'true', 'featured', 'yes'], true)) {
+                if (in_array($val, ['1', 'true', 'featured', 'yes'], true
+                )) {
                     $query->whereHas('currentFeaturedPromotion');
                 } elseif (in_array($val, ['0', 'false', 'unfeatured', 'not_featured', 'no'], true)) {
                     $query->whereDoesntHave('currentFeaturedPromotion');

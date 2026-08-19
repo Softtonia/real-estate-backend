@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Lead extends Model
 {
@@ -14,41 +15,60 @@ class Lead extends Model
         'email',
         'phone',
         'message',
-        'property_id',
-        'project_id',
-        'developer_id',
-        'user_ids','lead_type_id'
+        'dynamic_post_id',
+        'post_type_id',
+        'user_ids',
+        'lead_type_id',
+        'created_by_admin',
     ];
 
-    public function property()
+    protected $casts = [
+        'user_ids' => 'array',
+        'dynamic_post_id' => 'integer',
+        'post_type_id' => 'integer',
+        'lead_type_id' => 'integer',
+        'created_by_admin' => 'integer',
+    ];
+
+    /**
+     * The dynamic post associated with the lead.
+     */
+    public function dynamicPost(): BelongsTo
     {
-        return $this->belongsTo(PropertyList::class, 'property_id');
+        return $this->belongsTo(DynamicPost::class, 'dynamic_post_id');
     }
 
-    public function project()
+    /**
+     * The post type of the dynamic post.
+     */
+    public function postType(): BelongsTo
     {
-        return $this->belongsTo(ProjectList::class, 'project_id');
+        return $this->belongsTo(PostType::class, 'post_type_id');
     }
 
-    public function developer()
+    /**
+     * The lead type.
+     */
+    public function leadType(): BelongsTo
     {
-        return $this->belongsTo(Developerlist::class, 'developer_id');
-    }
-
-    public function leadType(){
         return $this->belongsTo(LeadType::class, 'lead_type_id');
     }
 
+    /**
+     * Admin user who created this lead if created by admin.
+     */
+    public function createdByAdmin(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_admin');
+    }
 
-
-
-     protected $casts = [
-        'user_ids' => 'array', // "[\"1\"]" → [1]
-    ];
-
-    // Accessor for users
+    /**
+     * Accessor for user data associated with user_ids array.
+     */
     public function getUsersDataAttribute()
     {
-        return User::whereIn('id', $this->user_ids ?? [])->select('id', 'first_name','last_name', 'email','phone','area_locality')->get();
+        return User::whereIn('id', $this->user_ids ?? [])
+            ->select('id', 'first_name', 'last_name', 'email', 'phone', 'area_locality')
+            ->get();
     }
 }

@@ -758,6 +758,7 @@ class LocationController extends Controller
                 'country_id' => ['nullable', 'integer', 'exists:countries,id'],
                 'state_id' => ['nullable', 'integer', 'exists:states,id'],
                 'city_id' => ['nullable', 'integer', 'exists:cities,id'],
+                'location_id' => ['nullable', 'integer'],
                 'search' => ['nullable', 'string', 'max:255'],
             ]);
 
@@ -785,8 +786,9 @@ class LocationController extends Controller
                 $query->where('state_id', $request->state_id);
             }
 
-            if ($request->filled('city_id') && $this->dynamicPostsHasColumn('city_id')) {
-                $query->where('city_id', $request->city_id);
+            $cityId = $request->input('city_id') ?? $request->input('location_id');
+            if ($cityId && $this->dynamicPostsHasColumn('city_id')) {
+                $query->where('city_id', $cityId);
             }
 
             if ($request->filled('search')) {

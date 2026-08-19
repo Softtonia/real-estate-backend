@@ -318,6 +318,8 @@ Route::middleware(['validate.api.client'])->group(function () {
         Route::post('user-kyc-update', [KycController::class, 'updateKycStatus'])
             ->middleware('permission.check:users,edit');
 
+        Route::get('check-user-deletion', [UserController::class, 'checkUserDeletion']);
+
         Route::post('delete-user', [UserController::class, 'deleteUser'])
             ->middleware('permission.check:users,delete');
 
@@ -783,6 +785,8 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::get('countries', [LocationController::class, 'getCountries'])->middleware(['throttle:60,1']);
     Route::get('states/{countryId}', [LocationController::class, 'getStatesByCountry'])->middleware(['throttle:60,1']);
     Route::get('cities/{stateId}', [LocationController::class, 'getCitiesByState'])->middleware(['throttle:60,1']);
+    Route::get('get-localities-filter-by-location-id', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
+    Route::get('get-area-localities', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
 
     Route::middleware(['throttle:60,1', 'admin.token'])->get('/get-location-countries', [LocationController::class, 'getLocationCountries']);
     Route::middleware(['throttle:60,1', 'admin.token'])->get('/get-location-states', [LocationController::class, 'getLocationStates']);

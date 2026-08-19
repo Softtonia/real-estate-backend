@@ -7,16 +7,10 @@ use App\Models\PasswordReset;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Role;
-use App\Models\Agent;
 use App\Models\UniqueID;
 use App\Models\UserDetail;
 use App\Models\OTP;
 use App\Models\JoinRequest;
-use App\Models\ProjectList;
-use App\Models\PropertyList;
-use App\Models\Status;
-use App\Models\Property;
-use App\Models\Purpose;
 use App\Models\Customfieldvalue;
 use App\Models\CustomField;
 use App\Models\CompanyConsultancyProject;
@@ -45,8 +39,9 @@ use App\Exports\SubscribedEmailsExport;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Cache;
+use App\Models\DynamicPost;
+use App\Models\MediaFile;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Schema;
 
 class UserController extends Controller
 {
@@ -1469,32 +1464,439 @@ class UserController extends Controller
         );
     }
     //  for delete user
+    public function checkUserDeletion(Request $request)
+    {
+        try {
+            $userId = $request->input('id') ?? $request->input('user_id');
+
+            if (!$userId || !User::where('id', $userId)->exists()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'User not found.',
+                ], 404);
+            }
+
+            $user = User::select(['id', 'name', 'email', 'phone', 'role_id'])->find($userId);
+
+            $listingsQuery = DynamicPost::query();
+            if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+                $listingsQuery->where('author_id', $userId);
+            } elseif (Schema::hasColumn('dynamic_posts', 'user_id')) {
+                $listingsQuery->where('user_id', $userId);
+            }
+
+            $totalListings = (clone $listingsQuery)->count();
+
+            $byStatus = (clone $listingsQuery)
+                ->select('status', DB::raw('count(*) as count'))
+                ->groupBy('status')
+                ->pluck('count', 'status')
+                ->toArray();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'User deletion check completed.',
+                'data' => [
+                    'user' => [
+                        'id' => (int) $user->id,
+                        'name' => $user->name ?? null,
+                        'email' => $user->email ?? null,
+                    ],
+                    'has_listings' => $totalListings > 0,
+                    'total_listings' => $totalListings,
+                    'listings_by_status' => $byStatus,
+                    'available_actions' => [
+                        [
+                            'action' => 'delete_all',
+                            'label' => 'Delete user and permanently delete all their related listings',
+                        ],
+                        [
+                            'action' => 'reassign',
+                            'label' => 'Delete user and reassign all listings to another user/agent',
+                            'requires_reassign_user_id' => true,
+                        ],
+                        [
+                            'action' => 'keep_orphan',
+                            'label' => 'Delete user and set listings owner to null',
+                        ],
+                    ],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to check user deletion status.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function deleteUser(Request $request)
     {
         try {
             $request->validate([
-                'id' => 'required|exists:users,id',
+                'id' => 'nullable|exists:users,id',
+                'user_id' => 'nullable|exists:users,id',
+                'listing_action' => 'nullable|string|in:delete_all,reassign,keep_orphan',
+                'reassign_user_id' => 'nullable|exists:users,id',
+                'target_user_id' => 'nullable|exists:users,id',
             ]);
         } catch (ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
+            return response()->json(['status' => false, 'error' => $e->errors()], 422);
         }
 
-        $id = $request->id;
+        $userId = $request->input('id') ?? $request->input('user_id');
+
+        if (!$userId) {
+            return response()->json(['status' => false, 'message' => 'User ID is required.'], 422);
+        }
+
+        $targetUser = User::find($userId);
+        if (!$targetUser) {
+            return response()->json(['status' => false, 'message' => 'User not found.'], 404);
+        }
+
+        $listingsQuery = DynamicPost::query();
+        if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+            $listingsQuery->where('author_id', $userId);
+        } elseif (Schema::hasColumn('dynamic_posts', 'user_id')) {
+            $listingsQuery->where('user_id', $userId);
+        }
+
+        $totalListings = (clone $listingsQuery)->count();
+        $listingAction = strtolower(trim((string) $request->input('listing_action')));
+
+        if ($totalListings > 0 && empty($listingAction)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'User has active listings. Please select a listing_action ("delete_all", "reassign", or "keep_orphan").',
+                'error' => 'listing_action_required',
+                'data' => [
+                    'user_id' => (int) $userId,
+                    'total_listings' => $totalListings,
+                    'available_actions' => ['delete_all', 'reassign', 'keep_orphan'],
+                ],
+            ], 422);
+        }
+
+        $reassignUserId = $request->input('reassign_user_id') ?? $request->input('target_user_id');
+
+        if ($totalListings > 0 && $listingAction === 'reassign') {
+            if (!$reassignUserId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'reassign_user_id parameter is required when listing_action is "reassign".',
+                    'error' => 'reassign_user_id_required',
+                ], 422);
+            }
+
+            if ((int) $reassignUserId === (int) $userId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Cannot reassign listings to the user being deleted.',
+                    'error' => 'invalid_reassign_user',
+                ], 422);
+            }
+
+            $newUser = User::find($reassignUserId);
+            if (!$newUser) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Reassign target user not found.',
+                    'error' => 'target_user_not_found',
+                ], 404);
+            }
+        }
 
         DB::beginTransaction();
 
         try {
-            User::where('id', $id)->delete();
-            UserDetail::where('user_id', $id)->delete();
+            $affectedListings = $totalListings;
+
+            if ($totalListings > 0) {
+                if ($listingAction === 'delete_all') {
+                    $postsToDelete = (clone $listingsQuery)->get();
+                    foreach ($postsToDelete as $post) {
+                        $this->deleteDynamicPostPermanently($post);
+                    }
+                } elseif ($listingAction === 'reassign') {
+                    $updatePayload = [];
+                    if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+                        $updatePayload['author_id'] = (int) $reassignUserId;
+                    }
+                    if (Schema::hasColumn('dynamic_posts', 'user_id')) {
+                        $updatePayload['user_id'] = (int) $reassignUserId;
+                    }
+                    if (Schema::hasColumn('dynamic_posts', 'assigned_user_id')) {
+                        $updatePayload['assigned_user_id'] = (int) $reassignUserId;
+                    }
+
+                    if (!empty($updatePayload)) {
+                        (clone $listingsQuery)->update($updatePayload);
+                    }
+                } elseif ($listingAction === 'keep_orphan') {
+                    $updatePayload = [];
+                    if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+                        $updatePayload['author_id'] = null;
+                    }
+                    if (Schema::hasColumn('dynamic_posts', 'user_id')) {
+                        $updatePayload['user_id'] = null;
+                    }
+                    if (Schema::hasColumn('dynamic_posts', 'assigned_user_id')) {
+                        $updatePayload['assigned_user_id'] = null;
+                    }
+
+                    if (!empty($updatePayload)) {
+                        (clone $listingsQuery)->update($updatePayload);
+                    }
+                }
+            }
+
+            // Delete User Details & User record
+            UserDetail::where('user_id', $userId)->delete();
+
+            if (Schema::hasTable('api_tokens')) {
+                DB::table('api_tokens')->where('user_id', $userId)->delete();
+            }
+
+            $targetUser->delete();
 
             DB::commit();
 
-            return response()->json(['status' => true, 'message' => 'User deleted successfully.'], 201);
+            return response()->json([
+                'status' => true,
+                'message' => 'User deleted successfully.',
+                'data' => [
+                    'deleted_user_id' => (int) $userId,
+                    'listing_action' => $listingAction ?: 'none',
+                    'affected_listings_count' => $affectedListings,
+                    'reassigned_to_user_id' => ($listingAction === 'reassign') ? (int) $reassignUserId : null,
+                ],
+            ], 200);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['error' => 'Failed to delete user. ' . $e->getMessage()], 500);
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to delete user: ' . $e->getMessage(),
+                'error' => $e->getMessage(),
+            ], 500);
         }
+    }
+
+    public function bulkDelete(Request $request)
+    {
+        try {
+            $request->validate([
+                'ids' => 'required|array|min:1',
+                'ids.*' => 'integer|exists:users,id',
+                'listing_action' => 'nullable|string|in:delete_all,reassign,keep_orphan',
+                'reassign_user_id' => 'nullable|exists:users,id',
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json(['status' => false, 'error' => $e->errors()], 422);
+        }
+
+        $userIds = array_map('intval', $request->input('ids'));
+        $listingAction = strtolower(trim((string) $request->input('listing_action', 'keep_orphan')));
+        $reassignUserId = $request->input('reassign_user_id');
+
+        if ($listingAction === 'reassign') {
+            if (!$reassignUserId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'reassign_user_id parameter is required when listing_action is "reassign".',
+                ], 422);
+            }
+
+            if (in_array((int) $reassignUserId, $userIds, true)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Reassign target user cannot be one of the users being deleted.',
+                ], 422);
+            }
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $deletedCount = 0;
+
+            foreach ($userIds as $userId) {
+                $user = User::find($userId);
+                if (!$user) {
+                    continue;
+                }
+
+                $listingsQuery = DynamicPost::query();
+                if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+                    $listingsQuery->where('author_id', $userId);
+                } elseif (Schema::hasColumn('dynamic_posts', 'user_id')) {
+                    $listingsQuery->where('user_id', $userId);
+                }
+
+                $userListings = (clone $listingsQuery)->get();
+
+                if ($userListings->isNotEmpty()) {
+                    if ($listingAction === 'delete_all') {
+                        foreach ($userListings as $post) {
+                            $this->deleteDynamicPostPermanently($post);
+                        }
+                    } elseif ($listingAction === 'reassign') {
+                        $updatePayload = [];
+                        if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+                            $updatePayload['author_id'] = (int) $reassignUserId;
+                        }
+                        if (Schema::hasColumn('dynamic_posts', 'user_id')) {
+                            $updatePayload['user_id'] = (int) $reassignUserId;
+                        }
+                        if (!empty($updatePayload)) {
+                            (clone $listingsQuery)->update($updatePayload);
+                        }
+                    } elseif ($listingAction === 'keep_orphan') {
+                        $updatePayload = [];
+                        if (Schema::hasColumn('dynamic_posts', 'author_id')) {
+                            $updatePayload['author_id'] = null;
+                        }
+                        if (Schema::hasColumn('dynamic_posts', 'user_id')) {
+                            $updatePayload['user_id'] = null;
+                        }
+                        if (!empty($updatePayload)) {
+                            (clone $listingsQuery)->update($updatePayload);
+                        }
+                    }
+                }
+
+                UserDetail::where('user_id', $userId)->delete();
+                $user->delete();
+                $deletedCount++;
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status' => true,
+                'message' => "{$deletedCount} users deleted successfully.",
+                'data' => [
+                    'deleted_count' => $deletedCount,
+                    'listing_action' => $listingAction,
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Bulk user deletion failed: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function deleteDynamicPostPermanently(DynamicPost $ownedListing): void
+    {
+        $mediaIds = [];
+
+        if (!empty($ownedListing->featured_image_id)) {
+            $mediaIds[] = (int) $ownedListing->featured_image_id;
+        }
+
+        $galleryIds = is_array($ownedListing->gallery_image_ids)
+            ? $ownedListing->gallery_image_ids
+            : (is_string($ownedListing->gallery_image_ids) ? json_decode($ownedListing->gallery_image_ids, true) ?? [] : []);
+
+        $mediaIds = collect(array_merge($mediaIds, $galleryIds))
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $mediaFiles = MediaFile::query()
+            ->whereIn('id', $mediaIds)
+            ->get();
+
+        if (method_exists($ownedListing, 'taxonomyTerms')) {
+            $ownedListing->taxonomyTerms()->detach();
+        }
+
+        $metaTable = $this->dynamicPostMetaTable();
+        if ($metaTable) {
+            $metaQuery = DB::table($metaTable);
+            if (Schema::hasColumn($metaTable, 'entity_id')) {
+                $metaQuery->where('entity_id', $ownedListing->id);
+            } elseif (Schema::hasColumn($metaTable, 'post_id')) {
+                $metaQuery->where('post_id', $ownedListing->id);
+            } elseif (Schema::hasColumn($metaTable, 'dynamic_post_id')) {
+                $metaQuery->where('dynamic_post_id', $ownedListing->id);
+            }
+            if (Schema::hasColumn($metaTable, 'entity_type')) {
+                $metaQuery->where('entity_type', 'post');
+            }
+            $metaQuery->delete();
+        }
+
+        if (
+            Schema::hasTable('custom_field_repeater_values')
+            && Schema::hasColumn('custom_field_repeater_values', 'entity_id')
+        ) {
+            DB::table('custom_field_repeater_values')
+                ->where('entity_type', 'post')
+                ->where('entity_id', $ownedListing->id)
+                ->delete();
+        }
+
+        if (Schema::hasTable('property_featured_promotions')) {
+            DB::table('property_featured_promotions')
+                ->where('dynamic_post_id', $ownedListing->id)
+                ->delete();
+        }
+
+        if (Schema::hasTable('property_verification_revisions')) {
+            DB::table('property_verification_revisions')
+                ->where('dynamic_post_id', $ownedListing->id)
+                ->delete();
+        }
+
+        if (method_exists($ownedListing, 'forceDelete')) {
+            $ownedListing->forceDelete();
+        } else {
+            $ownedListing->delete();
+        }
+
+        foreach ($mediaFiles as $media) {
+            $disk = $media->disk ?: 'public';
+            $path = $media->path;
+
+            if ($path && Storage::disk($disk)->exists($path)) {
+                Storage::disk($disk)->delete($path);
+            }
+
+            if (method_exists($media, 'forceDelete')) {
+                $media->forceDelete();
+            } else {
+                $media->delete();
+            }
+        }
+    }
+
+    private function dynamicPostMetaTable(): ?string
+    {
+        foreach (
+            [
+                'custom_field_values',
+                'dynamic_post_meta',
+                'dynamic_post_metas',
+                'post_meta',
+                'post_metas',
+                'custom_field_meta',
+            ] as $table
+        ) {
+            if (Schema::hasTable($table)) {
+                return $table;
+            }
+        }
+
+        return null;
     }
 
 
@@ -2610,69 +3012,7 @@ class UserController extends Controller
         ], 200);
     }
 
-    public function bulkDelete(Request $request)
-    {
-        if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
-        }
-
-        $authorizationHeader = $request->header('Authorization');
-
-        if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
-        }
-
-        $requestToken = substr($authorizationHeader, 7);
-
-        if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
-        }
-
-        $user = User::select([
-            'id',
-            'role_id',
-            'api_token',
-        ])
-            ->where('api_token', $requestToken)
-            ->first();
-
-        if (!$user) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
-        }
-
-        try {
-            $request->validate([
-                'ids' => 'required|array',
-                'ids.*' => 'exists:users,id',
-            ]);
-        } catch (ValidationException $e) {
-            return response()->json(['error' => $e->errors()], 400);
-        }
-
-        try {
-            $ids = $request->input('ids');
-
-            DB::beginTransaction();
-
-            User::whereIn('id', $ids)->delete();
-            UserDetail::whereIn('user_id', $ids)->delete();
-
-            DB::commit();
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Users deleted successfully.',
-            ], 200);
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            \Log::error($e->getMessage());
-
-            return response()->json([
-                'error' => 'Failed to delete users. ' . $e->getMessage(),
-            ], 500);
-        }
-    }
+    // Duplicate bulkDelete declaration removed - primary implementation handled by conditional bulkDelete above.
 
 
     public function filterByRole(Request $request)

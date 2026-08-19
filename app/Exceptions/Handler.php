@@ -29,11 +29,14 @@ class Handler extends ExceptionHandler
 
         $this->renderable(function (Throwable $e, $request) {
             if ($request->is('api/*') || $request->wantsJson()) {
+                $status = $this->isHttpException($e) ? $e->getStatusCode() : 500;
+                $message = $status === 500 ? 'An internal server error occurred.' : $e->getMessage();
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'An internal server error occurred.',
+                    'message' => $message,
                     'error' => $e->getMessage(),
-                ], 500);
+                ], $status);
             }
         });
     }
