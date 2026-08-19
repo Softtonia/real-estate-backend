@@ -20,13 +20,13 @@ class AllowOwnerAndAgent
         $authorizationHeader = $request->header('Authorization');
 
         if (!$authorizationHeader || !str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid or missing Authorization header.'], 422);
+            return response()->json(['status' => false, 'error' => 'Invalid or missing Authorization header.'], 401);
         }
 
         $requestToken = substr($authorizationHeader, 7);
 
         if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
+            return response()->json(['status' => false, 'error' => 'Token is missing.'], 401);
         }
 
         $user = DB::table('users')

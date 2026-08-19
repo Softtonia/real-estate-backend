@@ -879,8 +879,9 @@ class UserController extends Controller
 
                 return response()->json([
                     'status' => false,
-                    'message' => 'No data found for this user.',
-                ], 404);
+                    'message' => 'User account not found or session expired.',
+                    'error' => 'Unauthorized. User does not exist.',
+                ], 401);
             }
 
             return response()->json($response, 200);
@@ -1681,6 +1682,12 @@ class UserController extends Controller
             if (Schema::hasTable('api_tokens')) {
                 DB::table('api_tokens')->where('user_id', $userId)->delete();
             }
+
+            if ($targetUser->api_token) {
+                Cache::forget('api_token_user:' . $targetUser->api_token);
+            }
+            Cache::forget("user_details_admin_{$userId}");
+            Cache::forget("user_details_{$userId}");
 
             $targetUser->delete();
 

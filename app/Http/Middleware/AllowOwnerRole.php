@@ -19,7 +19,7 @@ class AllowOwnerRole
     {
         // Check if the Authorization header exists and is not empty
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
+            return response()->json(['status' => false, 'error' => 'Please provide an API token.'], 401);
         }
 
         // Retrieve the Authorization header
@@ -27,7 +27,7 @@ class AllowOwnerRole
 
         // Check if the header starts with "Bearer "
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+            return response()->json(['status' => false, 'error' => 'Invalid token format. Token must start with "Bearer ".'], 401);
         }
 
         // Extract the token by removing the "Bearer " prefix
@@ -35,7 +35,7 @@ class AllowOwnerRole
 
         // Check if the token is empty after removing "Bearer "
         if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
+            return response()->json(['status' => false, 'error' => 'Token is missing.'], 401);
         }
 
         // Verify the token dynamically (check in the database)

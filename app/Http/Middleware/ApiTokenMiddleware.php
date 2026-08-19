@@ -14,21 +14,21 @@ class ApiTokenMiddleware
     {
         // Check if Authorization header exists
         if (!$request->hasHeader('Authorization') || empty($request->header('Authorization'))) {
-            return response()->json(['error' => 'Please provide an API token.'], 422);
+            return response()->json(['status' => false, 'error' => 'Please provide an API token.'], 401);
         }
 
         // Retrieve and validate token format
         $authorizationHeader = $request->header('Authorization');
 
         if (!str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json(['error' => 'Invalid token format. Token must start with "Bearer ".'], 422);
+            return response()->json(['status' => false, 'error' => 'Invalid token format. Token must start with "Bearer ".'], 401);
         }
 
         // Extract token
         $requestToken = substr($authorizationHeader, 7);
 
         if (empty($requestToken)) {
-            return response()->json(['error' => 'Token is missing.'], 422);
+            return response()->json(['status' => false, 'error' => 'Token is missing.'], 401);
         }
 
         // Cache key based on token
@@ -51,8 +51,9 @@ class ApiTokenMiddleware
                 ->first();
         });
 
-        if (!$user) {
-            return response()->json(['error' => 'Unauthorized. Invalid API token.'], 401);
+        if (!$user || !User::where('id', $user->id)->exists()) {
+            Cache::forget($cacheKey);
+            return response()->json(['status' => false, 'error' => 'Unauthorized. Invalid API token.'], 401);
         }
 
         // Set authenticated user for controller usage
