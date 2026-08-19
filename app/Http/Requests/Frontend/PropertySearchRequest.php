@@ -26,6 +26,15 @@ class PropertySearchRequest extends FormRequest
             }
         }
 
+        if (!isset($data['purpose']) && isset($data['tab'])) {
+            $tab = is_string($data['tab']) ? mb_strtolower(trim($data['tab'])) : '';
+            if (in_array($tab, ['buy', 'sell', 'sale'], true)) {
+                $data['purpose'] = 'sell';
+            } elseif (in_array($tab, ['rent', 'rental', 'lease'], true)) {
+                $data['purpose'] = 'rent';
+            }
+        }
+
         foreach ([
             'purpose',
             'property_type',

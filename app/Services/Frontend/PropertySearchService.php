@@ -1456,6 +1456,21 @@ class PropertySearchService
             return [];
         }
 
+        if ($taxonomyKey === 'purpose') {
+            $expandedValues = [];
+            foreach ($values as $val) {
+                $norm = mb_strtolower(trim((string) $val));
+                if (in_array($norm, ['buy', 'sell', 'sale', 'for-sale', 'purchase'], true)) {
+                    $expandedValues = array_merge($expandedValues, ['sell', 'sale', 'buy', 'for-sale', 'purchase']);
+                } elseif (in_array($norm, ['rent', 'rental', 'lease', 'for-rent'], true)) {
+                    $expandedValues = array_merge($expandedValues, ['rent', 'rental', 'lease', 'for-rent']);
+                } else {
+                    $expandedValues[] = $val;
+                }
+            }
+            $values = array_values(array_unique($expandedValues));
+        }
+
         $query = DB::table('taxonomy_terms as tt')
             ->join('taxonomies as t', 't.id', '=', 'tt.taxonomy_id')
             ->whereIn('t.slug', $taxonomySlugs)
