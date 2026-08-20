@@ -17,12 +17,24 @@ class PropertySearchRequest extends FormRequest
         $data = $this->all();
 
         foreach ([
+            'location',
             'area_locality',
             'search',
             'sort_by',
         ] as $key) {
             if (isset($data[$key]) && is_string($data[$key])) {
                 $data[$key] = trim($data[$key]);
+            }
+        }
+
+        if (isset($data['purpose'])) {
+            if (is_string($data['purpose'])) {
+                $pNorm = mb_strtolower(trim($data['purpose']));
+                if (in_array($pNorm, ['buy', 'sell', 'sale', 'for-sale', 'purchase'], true)) {
+                    $data['purpose'] = 'sell';
+                } elseif (in_array($pNorm, ['rent', 'rental', 'lease', 'for-rent'], true)) {
+                    $data['purpose'] = 'rent';
+                }
             }
         }
 
@@ -105,6 +117,11 @@ class PropertySearchRequest extends FormRequest
                 'exists:cities,id',
             ],
 
+            'location' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
             'area_locality' => [
                 'nullable',
                 'string',

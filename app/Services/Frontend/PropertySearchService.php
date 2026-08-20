@@ -356,6 +356,22 @@ class PropertySearchService
 
     private function applyLocationFilters(Builder $query, array $filters): void
     {
+        $location = trim((string) ($filters['location'] ?? ''));
+
+        $cityId = !empty($filters['city_id']) ? (int) $filters['city_id'] : null;
+
+        if (!$cityId && $location !== '') {
+            if (Schema::hasTable('cities')) {
+                $foundCityId = DB::table('cities')
+                    ->whereRaw('LOWER(name) = ?', [mb_strtolower($location)])
+                    ->value('id');
+
+                if ($foundCityId) {
+                    $cityId = (int) $foundCityId;
+                }
+            }
+        }
+
         if (!empty($filters['country_id'])) {
             $query->where('dynamic_posts.country_id', (int) $filters['country_id']);
         }
@@ -364,8 +380,13 @@ class PropertySearchService
             $query->where('dynamic_posts.state_id', (int) $filters['state_id']);
         }
 
-        if (!empty($filters['city_id'])) {
-            $query->where('dynamic_posts.city_id', (int) $filters['city_id']);
+        if ($cityId) {
+            $query->where('dynamic_posts.city_id', $cityId);
+        } elseif ($location !== '') {
+            $query->where(function (Builder $locQuery) use ($location): void {
+                $locQuery->where('search_city.name', 'like', "%{$location}%")
+                    ->orWhere('dynamic_posts.area_locality', 'like', "%{$location}%");
+            });
         }
 
         if (!empty($filters['area_locality'])) {
