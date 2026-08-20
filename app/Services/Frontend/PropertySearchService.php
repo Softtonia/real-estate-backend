@@ -90,104 +90,130 @@ class PropertySearchService
 
     private function buildGroupedPropertyTypes(array $propertyTypes): array
     {
-        $groupTerms = $this->taxonomyOptions('property');
+        $standardGroups = [
+            'residential' => [
+                'id' => 1,
+                'name' => 'Residential',
+                'label' => 'Residential',
+                'slug' => 'residential',
+                'taxonomy_id' => 2,
+                'children' => [],
+                'has_children' => false,
+            ],
+            'commercial' => [
+                'id' => 2,
+                'name' => 'Commercial',
+                'label' => 'Commercial',
+                'slug' => 'commercial',
+                'taxonomy_id' => 2,
+                'children' => [],
+                'has_children' => false,
+            ],
+            'agricultural' => [
+                'id' => 3,
+                'name' => 'Agricultural',
+                'label' => 'Agricultural',
+                'slug' => 'agricultural',
+                'taxonomy_id' => 2,
+                'children' => [],
+                'has_children' => false,
+            ],
+            'industrial' => [
+                'id' => 4,
+                'name' => 'Industrial',
+                'label' => 'Industrial',
+                'slug' => 'industrial',
+                'taxonomy_id' => 2,
+                'children' => [],
+                'has_children' => false,
+            ],
+        ];
 
-        if (empty($groupTerms)) {
-            $groupTerms = [
-                ['id' => 1, 'name' => 'Residential', 'label' => 'Residential', 'slug' => 'residential', 'taxonomy_id' => 2],
-                ['id' => 2, 'name' => 'Commercial', 'label' => 'Commercial', 'slug' => 'commercial', 'taxonomy_id' => 2],
-                ['id' => 3, 'name' => 'Agricultural', 'label' => 'Agricultural', 'slug' => 'agricultural', 'taxonomy_id' => 2],
-                ['id' => 4, 'name' => 'Industrial', 'label' => 'Industrial', 'slug' => 'industrial', 'taxonomy_id' => 2],
-            ];
-        }
+        $termIdToGroupSlug = [];
 
-        $termRelations = [];
-        if (Schema::hasTable('taxonomy_term_relations')) {
-            $rows = DB::table('taxonomy_term_relations')->get();
-            foreach ($rows as $r) {
-                if (property_exists($r, 'taxonomy_term_id') && property_exists($r, 'relation_value_term_id')) {
-                    $termRelations[(int) $r->taxonomy_term_id][] = (int) $r->relation_value_term_id;
-                    $termRelations[(int) $r->relation_value_term_id][] = (int) $r->taxonomy_term_id;
+        if (Schema::hasTable('taxonomy_terms') && Schema::hasTable('taxonomies')) {
+            $dbGroupTerms = DB::table('taxonomy_terms')
+                ->join('taxonomies', 'taxonomies.id', '=', 'taxonomy_terms.taxonomy_id')
+                ->where('taxonomies.slug', 'property')
+                ->select('taxonomy_terms.id', 'taxonomy_terms.name', 'taxonomy_terms.slug', 'taxonomy_terms.taxonomy_id')
+                ->get();
+
+            foreach ($dbGroupTerms as $gt) {
+                $gSlug = mb_strtolower((string) $gt->slug);
+                if (isset($standardGroups[$gSlug])) {
+                    $standardGroups[$gSlug]['id'] = (int) $gt->id;
+                    $standardGroups[$gSlug]['taxonomy_id'] = (int) $gt->taxonomy_id;
+                    $termIdToGroupSlug[(int) $gt->id] = $gSlug;
+                }
+            }
+
+            $parentIds = collect($propertyTypes)->pluck('parent_id')->filter()->unique()->all();
+
+            if (!empty($parentIds)) {
+                $allParents = DB::table('taxonomy_terms')
+                    ->whereIn('id', $parentIds)
+                    ->pluck('slug', 'id');
+
+                foreach ($allParents as $pId => $pSlug) {
+                    $s = mb_strtolower((string) $pSlug);
+                    if (isset($standardGroups[$s])) {
+                        $termIdToGroupSlug[(int) $pId] = $s;
+                    }
                 }
             }
         }
 
-        $groups = [];
-        foreach ($groupTerms as $g) {
-            $gId = (int) $g['id'];
-            $groups[$gId] = [
-                'id' => $gId,
-                'name' => $g['name'],
-                'label' => $g['name'],
-                'slug' => $g['slug'],
-                'taxonomy_id' => $g['taxonomy_id'] ?? null,
-                'children' => [],
-                'has_children' => false,
-            ];
-        }
+        if (Schema::hasTable('taxonomy_term_relations')) {
+            $relations = DB::table('taxonomy_term_relations')->get();
+            foreach ($relations as $r) {
+                if (property_exists($r, 'taxonomy_term_id') && property_exists($r, 'relation_value_term_id')) {
+                    $termId = (int) $r->taxonomy_term_id;
+                    $relId = (int) $r->relation_value_term_id;
 
-        $groupKeysBySlug = [
-            'residential' => null,
-            'commercial' => null,
-            'agricultural' => null,
-            'industrial' => null,
-        ];
-
-        foreach ($groups as $gId => $gData) {
-            $s = mb_strtolower((string) $gData['slug']);
-            if (array_key_exists($s, $groupKeysBySlug)) {
-                $groupKeysBySlug[$s] = $gId;
+                    if (isset($termIdToGroupSlug[$relId]) && !isset($termIdToGroupSlug[$termId])) {
+                        $termIdToGroupSlug[$termId] = $termIdToGroupSlug[$relId];
+                    }
+                }
             }
         }
-
-        $defaultGroupKey = reset($groupKeysBySlug) ?: (array_key_first($groups) ?? 1);
 
         foreach ($propertyTypes as $term) {
             $termId = (int) $term['id'];
             $parentId = isset($term['parent_id']) && $term['parent_id'] !== null ? (int) $term['parent_id'] : null;
 
-            $targetGroupId = null;
+            $groupSlug = null;
 
-            if ($parentId && isset($groups[$parentId])) {
-                $targetGroupId = $parentId;
+            if ($parentId && isset($termIdToGroupSlug[$parentId])) {
+                $groupSlug = $termIdToGroupSlug[$parentId];
             }
 
-            if (!$targetGroupId && !empty($termRelations[$termId])) {
-                foreach ($termRelations[$termId] as $relId) {
-                    if (isset($groups[$relId])) {
-                        $targetGroupId = $relId;
-                        break;
-                    }
-                }
+            if (!$groupSlug && isset($termIdToGroupSlug[$termId])) {
+                $groupSlug = $termIdToGroupSlug[$termId];
             }
 
-            if (!$targetGroupId) {
+            if (!$groupSlug) {
                 $slug = mb_strtolower((string) ($term['slug'] ?? ''));
                 $name = mb_strtolower((string) ($term['name'] ?? ''));
                 $text = $slug . ' ' . $name;
 
-                if (Str::contains($text, ['office', 'showroom', 'commercial', 'warehouse', 'hotel', 'restaurant', 'business', 'co-working', 'shop', 'mall', 'retail', 'hospitality', 'pg'])) {
-                    $targetGroupId = $groupKeysBySlug['commercial'] ?? null;
+                if (Str::contains($text, ['office', 'showroom', 'commercial', 'warehouse', 'hotel', 'restaurant', 'business', 'co-working', 'coworking', 'shop', 'mall', 'retail', 'hospitality', 'pg'])) {
+                    $groupSlug = 'commercial';
                 } elseif (Str::contains($text, ['agricultural', 'crop', 'orchard', 'plantation', 'horticultural', 'dairy', 'poultry', 'farm', 'pasture', 'irrigated', 'fallow', 'agroforestry'])) {
-                    $targetGroupId = $groupKeysBySlug['agricultural'] ?? null;
+                    $groupSlug = 'agricultural';
                 } elseif (Str::contains($text, ['industrial', 'factory', 'manufacturing', 'shed', 'godown', 'workshop', 'logistics', 'cold-storage', 'estate'])) {
-                    $targetGroupId = $groupKeysBySlug['industrial'] ?? null;
+                    $groupSlug = 'industrial';
                 } else {
-                    $targetGroupId = $groupKeysBySlug['residential'] ?? null;
+                    $groupSlug = 'residential';
                 }
             }
 
-            if (!$targetGroupId || !isset($groups[$targetGroupId])) {
-                $targetGroupId = $defaultGroupKey;
-            }
-
-            if (isset($groups[$targetGroupId])) {
-                $groups[$targetGroupId]['children'][] = $term;
-                $groups[$targetGroupId]['has_children'] = true;
+            if (isset($standardGroups[$groupSlug])) {
+                $standardGroups[$groupSlug]['children'][] = $term;
+                $standardGroups[$groupSlug]['has_children'] = true;
             }
         }
 
-        return array_values(array_filter($groups, fn($g) => !empty($g['children'])));
+        return array_values(array_filter($standardGroups, fn ($g) => !empty($g['children'])));
     }
 
     public function locationSuggestions(array $filters): array
