@@ -10,5 +10,5 @@ class ClientReview extends Model
     use HasFactory;
     protected $table='client_reviews';
     protected $guarded=[];
-    protected $fillable = ['title', 'review', 'short_description', 'client_photo', 'status'];
+    protected $fillable = ['title', 'review', 'short_description', 'client_photo', 'status', 'rating'];
 }

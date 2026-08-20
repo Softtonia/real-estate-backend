@@ -20,13 +20,15 @@ class ClientReviewController extends Controller
 	            'title' => 'required|string|max:255',
 	            'review' => 'required|string',
 	            'short_description' => 'required|string',
-	            'client_photo' => 'nullable|required',
+	            'client_photo' => 'nullable',
+	            'rating' => 'nullable|integer|min:1|max:5',
 	        ]);
 
             $data = [
                 'title' => $request->title,
 	            'review' =>  $request->review,
 	            'short_description' => $request->short_description,
+	            'rating' => $request->input('rating', 5),
             ];
     
             // Handle file uploads client photo
@@ -53,23 +55,49 @@ class ClientReviewController extends Controller
     }
     
     
-    // this is for listing
+    // this is for listing (Frontend Guest API)
 	public function index(Request $request)
 	{
 	    try {
-	        $baseURL = config('app.url');
+	        $query = ClientReview::query()
+	            ->where(function ($q) {
+	                $q->where('status', '1')->orWhereNull('status');
+	            })
+	            ->latest();
 
-	        $data = ClientReview::all();
-	        
-	        if($data){
-	            foreach($data as $row){
-	                $row->client_photo = $row->client_photo ? url('uploads/client_photo/' . $row->client_photo) : null;
-	            }
+	        if ($request->has('limit')) {
+	            $query->limit((int) $request->input('limit'));
 	        }
-	        
-	        return response()->json($data);
+
+	        $data = $query->get();
+
+	        foreach ($data as $row) {
+	            $photo = $row->client_photo;
+	            if ($photo && is_string($photo) && trim($photo) !== '') {
+	                $trimmed = trim($photo);
+	                if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
+	                    $row->client_photo = $trimmed;
+	                } else {
+	                    $row->client_photo = url('uploads/client_photo/' . ltrim($trimmed, '/'));
+	                }
+	            } else {
+	                $row->client_photo = url('images/default.png');
+	            }
+	            $row->client_photo_url = $row->client_photo;
+	            $row->rating = $row->rating ? (int) $row->rating : 5;
+	        }
+
+	        return response()->json([
+	            'status' => true,
+	            'message' => 'Client reviews fetched successfully.',
+	            'data' => $data,
+	        ]);
 	    } catch (\Throwable $th) {
-	        return response()->json(['error' => $th->getMessage()], 500);
+	        return response()->json([
+	            'status' => false,
+	            'message' => 'Unable to fetch client reviews.',
+	            'error' => $th->getMessage(),
+	        ], 500);
 	    }
 	}
 
@@ -88,11 +116,12 @@ class ClientReviewController extends Controller
 	            'title' => 'required|string|max:255',
 	            'review' => 'required|string',
 	            'short_description' => 'required|string',
-	            'client_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+	            'client_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
+	            'rating' => 'nullable|integer|min:1|max:5',
 	        ]);
 
 	        // Prepare the data for updating
-	        $data = $request->only(['title', 'review', 'short_description', 'status']);
+	        $data = $request->only(['title', 'review', 'short_description', 'status', 'rating']);
 
 	        // Handle file upload if a new file is uploaded
 	        if ($request->hasFile('client_photo')) {
