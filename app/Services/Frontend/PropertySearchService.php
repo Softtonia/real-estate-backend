@@ -18,7 +18,7 @@ class PropertySearchService
     public function options(array $filters = []): array
     {
         return Cache::store('redis')->remember(
-            'frontend:property-search:options:v6',
+            'frontend:property-search:options:v7',
             now()->addHours(6),
             function (): array {
                 $purposes = $this->taxonomyOptions('purpose');
@@ -30,10 +30,62 @@ class PropertySearchService
                     'property_types' => $propertyTypes,
                     'grouped_property_types' => $groupedPropertyTypes,
                     'bedrooms' => $this->bedroomOptions(),
-                    'budget_options' => config('property_search.budget_options', []),
+                    'budget_options' => $this->dynamicBudgetOptions(),
                 ];
             }
         );
+    }
+
+    private function dynamicBudgetOptions(): array
+    {
+        $priceFieldIds = $this->priceFieldIds();
+
+        $minPrice = null;
+        $maxPrice = null;
+
+        if (!empty($priceFieldIds) && Schema::hasTable('custom_field_values')) {
+            $stats = DB::table('custom_field_values')
+                ->where('entity_type', 'post')
+                ->whereIn('custom_field_id', $priceFieldIds)
+                ->whereNotNull('value_number')
+                ->where('value_number', '>', 0)
+                ->selectRaw('MIN(value_number) as min_val, MAX(value_number) as max_val')
+                ->first();
+
+            if ($stats && $stats->min_val !== null && $stats->max_val !== null) {
+                $minPrice = (float) $stats->min_val;
+                $maxPrice = (float) $stats->max_val;
+            }
+        }
+
+        $configuredBudget = config('property_search.budget_options', []);
+        $rawMinList = $configuredBudget['min'] ?? [500000, 1000000, 2000000, 3000000, 4000000, 5000000, 7500000, 10000000, 15000000, 20000000];
+        $rawMaxList = $configuredBudget['max'] ?? [1000000, 2000000, 3000000, 5000000, 7500000, 10000000, 15000000, 20000000, 30000000, 50000000];
+
+        $minOptions = collect($rawMinList)->map(function ($val) {
+            return [
+                'value' => (float) $val,
+                'label' => $this->displayPrice($val),
+            ];
+        })->values()->all();
+
+        $maxOptions = collect($rawMaxList)->map(function ($val) {
+            return [
+                'value' => (float) $val,
+                'label' => $this->displayPrice($val),
+            ];
+        })->values()->all();
+
+        return [
+            'db_min_price' => $minPrice,
+            'db_max_price' => $maxPrice,
+            'db_min_formatted' => $minPrice ? $this->displayPrice($minPrice) : null,
+            'db_max_formatted' => $maxPrice ? $this->displayPrice($maxPrice) : null,
+            'min' => $rawMinList,
+            'max' => $rawMaxList,
+            'min_options' => $minOptions,
+            'max_options' => $maxOptions,
+        ];
     }
 
     private function buildTaxonomyTree(array $terms): array
