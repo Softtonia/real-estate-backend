@@ -261,24 +261,46 @@ class CityExploreController extends Controller
     {
         $hasSlugColumn = Schema::hasColumn('roles', 'slug');
 
-        $roleIds = Role::query()
-            ->where(function ($q) use ($roleNames, $hasSlugColumn) {
-                foreach ($roleNames as $name) {
-                    $lName = strtolower($name);
-                    $q->orWhereRaw('LOWER(name) LIKE ?', ["%{$lName}%"]);
-                    if ($hasSlugColumn) {
-                        $q->orWhereRaw('LOWER(slug) LIKE ?', ["%{$lName}%"]);
+        $roleIds = [];
+        if (Schema::hasTable('roles')) {
+            $roleIds = Role::query()
+                ->where(function ($q) use ($roleNames, $hasSlugColumn) {
+                    foreach ($roleNames as $name) {
+                        $lName = strtolower($name);
+                        $q->orWhereRaw('LOWER(name) LIKE ?', ["%{$lName}%"]);
+                        if ($hasSlugColumn) {
+                            $q->orWhereRaw('LOWER(slug) LIKE ?', ["%{$lName}%"]);
+                        }
                     }
-                }
-            })
-            ->pluck('id')
-            ->filter()
-            ->all();
+                })
+                ->pluck('id')
+                ->filter()
+                ->all();
+        }
 
         $hasUserPhoto = Schema::hasColumn('users', 'profile_photo');
         $hasUserAvatar = Schema::hasColumn('users', 'avatar');
         $hasUserImage = Schema::hasColumn('users', 'image');
-        $hasDetailImage = Schema::hasTable('user_details') && Schema::hasColumn('user_details', 'profile_image');
+        $hasUserUniqueId = Schema::hasColumn('users', 'unique_id');
+        $hasUserIsApproved = Schema::hasColumn('users', 'isapproved');
+        $hasUserCity = Schema::hasColumn('users', 'city_id');
+
+        $hasDetailTable = Schema::hasTable('user_details');
+        $hasDetailCity = $hasDetailTable && Schema::hasColumn('user_details', 'city_id');
+        $hasDetailState = $hasDetailTable && Schema::hasColumn('user_details', 'state_id');
+        $hasDetailCountry = $hasDetailTable && Schema::hasColumn('user_details', 'country_id');
+        $hasDetailBName = $hasDetailTable && Schema::hasColumn('user_details', 'bussiness_name');
+        $hasDetailBAddress = $hasDetailTable && Schema::hasColumn('user_details', 'bussiness_address');
+        $hasDetailBEmail = $hasDetailTable && Schema::hasColumn('user_details', 'bussiness_email');
+        $hasDetailBPhone = $hasDetailTable && Schema::hasColumn('user_details', 'business_phone');
+        $hasDetailPhoto = $hasDetailTable && Schema::hasColumn('user_details', 'profile_photo');
+        $hasDetailImage = $hasDetailTable && Schema::hasColumn('user_details', 'profile_image');
+        $hasDetailLicense = $hasDetailTable && Schema::hasColumn('user_details', 'license_number');
+        $hasDetailRera = $hasDetailTable && Schema::hasColumn('user_details', 'rera_number');
+        $hasDetailAbout = $hasDetailTable && Schema::hasColumn('user_details', 'about_us');
+        $hasDetailAddress = $hasDetailTable && Schema::hasColumn('user_details', 'address');
+        $hasDetailPin = $hasDetailTable && Schema::hasColumn('user_details', 'pin_code');
+        $hasDetailAltPhone = $hasDetailTable && Schema::hasColumn('user_details', 'alternate_number');
 
         $selects = [
             'users.id',
@@ -287,69 +309,92 @@ class CityExploreController extends Controller
             'users.user_name',
             'users.email',
             'users.phone',
-            'users.unique_id',
             'users.role_id',
-            'users.isapproved',
             'users.created_at',
-            'users.city_id as user_city_id',
-            'user_details.city_id as detail_city_id',
-            'user_details.state_id as detail_state_id',
-            'user_details.country_id as detail_country_id',
-            'user_details.bussiness_name',
-            'user_details.bussiness_address',
-            'user_details.bussiness_email',
-            'user_details.business_phone',
-            'user_details.profile_photo as detail_profile_photo',
-            'user_details.license_number',
-            'user_details.rera_number',
-            'user_details.about_us',
-            'user_details.address',
-            'user_details.pin_code',
-            'user_details.alternate_number',
-            'roles.name as role_name',
-            DB::raw('COALESCE(user_cities.name, detail_cities.name) as city_name'),
-            DB::raw('user_states.name as state_name'),
         ];
 
-        if ($hasUserPhoto) {
-            $selects[] = 'users.profile_photo as user_profile_photo';
-        }
-        if ($hasUserAvatar) {
-            $selects[] = 'users.avatar as user_avatar';
-        }
-        if ($hasUserImage) {
-            $selects[] = 'users.image as user_image';
-        }
-        if ($hasDetailImage) {
-            $selects[] = 'user_details.profile_image as detail_profile_image';
+        $selects[] = $hasUserUniqueId ? 'users.unique_id' : DB::raw('NULL as unique_id');
+        $selects[] = $hasUserIsApproved ? 'users.isapproved' : DB::raw('1 as isapproved');
+        $selects[] = $hasUserCity ? 'users.city_id as user_city_id' : DB::raw('NULL as user_city_id');
+
+        $selects[] = $hasDetailCity ? 'user_details.city_id as detail_city_id' : DB::raw('NULL as detail_city_id');
+        $selects[] = $hasDetailState ? 'user_details.state_id as detail_state_id' : DB::raw('NULL as detail_state_id');
+        $selects[] = $hasDetailCountry ? 'user_details.country_id as detail_country_id' : DB::raw('NULL as detail_country_id');
+        $selects[] = $hasDetailBName ? 'user_details.bussiness_name' : DB::raw('NULL as bussiness_name');
+        $selects[] = $hasDetailBAddress ? 'user_details.bussiness_address' : DB::raw('NULL as bussiness_address');
+        $selects[] = $hasDetailBEmail ? 'user_details.bussiness_email' : DB::raw('NULL as bussiness_email');
+        $selects[] = $hasDetailBPhone ? 'user_details.business_phone' : DB::raw('NULL as business_phone');
+        $selects[] = $hasDetailPhoto ? 'user_details.profile_photo as detail_profile_photo' : DB::raw('NULL as detail_profile_photo');
+        $selects[] = $hasDetailLicense ? 'user_details.license_number' : DB::raw('NULL as license_number');
+        $selects[] = $hasDetailRera ? 'user_details.rera_number' : DB::raw('NULL as rera_number');
+        $selects[] = $hasDetailAbout ? 'user_details.about_us' : DB::raw('NULL as about_us');
+        $selects[] = $hasDetailAddress ? 'user_details.address' : DB::raw('NULL as address');
+        $selects[] = $hasDetailPin ? 'user_details.pin_code' : DB::raw('NULL as pin_code');
+        $selects[] = $hasDetailAltPhone ? 'user_details.alternate_number' : DB::raw('NULL as alternate_number');
+
+        if ($hasUserPhoto) $selects[] = 'users.profile_photo as user_profile_photo';
+        if ($hasUserAvatar) $selects[] = 'users.avatar as user_avatar';
+        if ($hasUserImage) $selects[] = 'users.image as user_image';
+        if ($hasDetailImage) $selects[] = 'user_details.profile_image as detail_profile_image';
+
+        if (Schema::hasTable('roles')) {
+            $selects[] = 'roles.name as role_name';
+        } else {
+            $selects[] = DB::raw('NULL as role_name');
         }
 
-        $query = User::query()
-            ->leftJoin('user_details', 'user_details.user_id', '=', 'users.id')
-            ->leftJoin('roles', 'roles.id', '=', 'users.role_id')
-            ->leftJoin('cities as user_cities', function ($join) {
-                $join->on('user_cities.id', '=', 'users.city_id');
-            })
-            ->leftJoin('cities as detail_cities', function ($join) {
-                $join->on('detail_cities.id', '=', 'user_details.city_id');
-            })
-            ->leftJoin('states as user_states', function ($join) {
-                $join->on('user_states.id', '=', 'user_cities.state_id');
-            })
-            ->select($selects)
-            ->where(function ($cityQuery) use ($cityId) {
-                if (Schema::hasColumn('users', 'city_id')) {
+        $selects[] = DB::raw('COALESCE(user_cities.name, detail_cities.name) as city_name');
+        $selects[] = DB::raw('user_states.name as state_name');
+
+        $query = User::query();
+
+        if ($hasDetailTable) {
+            $query->leftJoin('user_details', 'user_details.user_id', '=', 'users.id');
+        }
+
+        if (Schema::hasTable('roles')) {
+            $query->leftJoin('roles', 'roles.id', '=', 'users.role_id');
+        }
+
+        if (Schema::hasTable('cities')) {
+            if ($hasUserCity) {
+                $query->leftJoin('cities as user_cities', 'user_cities.id', '=', 'users.city_id');
+            } else {
+                $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as user_cities'), DB::raw('1'), '=', DB::raw('2'));
+            }
+
+            if ($hasDetailCity) {
+                $query->leftJoin('cities as detail_cities', 'detail_cities.id', '=', 'user_details.city_id');
+            } else {
+                $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as detail_cities'), DB::raw('1'), '=', DB::raw('2'));
+            }
+        } else {
+            $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as user_cities'), DB::raw('1'), '=', DB::raw('2'));
+            $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as detail_cities'), DB::raw('1'), '=', DB::raw('2'));
+        }
+
+        if (Schema::hasTable('states')) {
+            $query->leftJoin('states as user_states', 'user_states.id', '=', 'user_cities.state_id');
+        } else {
+            $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as user_states'), DB::raw('1'), '=', DB::raw('2'));
+        }
+
+        $query->select($selects)
+            ->where(function ($cityQuery) use ($cityId, $hasUserCity, $hasDetailCity) {
+                if ($hasUserCity) {
                     $cityQuery->where('users.city_id', $cityId);
                 }
-                if (Schema::hasTable('user_details') && Schema::hasColumn('user_details', 'city_id')) {
+                if ($hasDetailCity) {
                     $cityQuery->orWhere('user_details.city_id', $cityId);
                 }
-                $cityQuery->orWhereExists(function ($dpQuery) use ($cityId) {
-                    $dpQuery->selectRaw('1')
-                        ->from('dynamic_posts')
-                        ->whereColumn('dynamic_posts.author_id', 'users.id')
-                        ->where('dynamic_posts.city_id', $cityId);
-                });
+                if (Schema::hasTable('dynamic_posts') && Schema::hasColumn('dynamic_posts', 'city_id')) {
+                    $cityQuery->orWhereExists(function ($dpQuery) use ($cityId) {
+                        $dpQuery->selectRaw('1')
+                            ->from('dynamic_posts')
+                            ->whereColumn('dynamic_posts.author_id', 'users.id')
+                            ->where('dynamic_posts.city_id', $cityId);
+                    });
+                }
             })
             ->where(function ($roleQuery) use ($roleIds, $roleNames) {
                 if (!empty($roleIds)) {
@@ -511,11 +556,62 @@ class CityExploreController extends Controller
             $photoUrl = url('images/default.png');
         }
 
-        $propertiesCount = DB::table('dynamic_posts')
-            ->where('author_id', $user->id)
-            ->where('status', 'published')
-            ->where('live_status', 'approve')
-            ->count();
+        $propertiesCount = 0;
+        $sellCount = 0;
+        $rentCount = 0;
+
+        if (Schema::hasTable('dynamic_posts')) {
+            $propertiesCount = DB::table('dynamic_posts')
+                ->where('author_id', $user->id)
+                ->where('status', 'published')
+                ->where('live_status', 'approve')
+                ->count();
+
+            if (Schema::hasTable('post_taxonomy_terms') && Schema::hasTable('taxonomy_terms')) {
+                $purposeCounts = DB::table('dynamic_posts')
+                    ->join('post_taxonomy_terms', 'post_taxonomy_terms.dynamic_post_id', '=', 'dynamic_posts.id')
+                    ->join('taxonomy_terms', 'taxonomy_terms.id', '=', 'post_taxonomy_terms.taxonomy_term_id')
+                    ->where('dynamic_posts.author_id', $user->id)
+                    ->where('dynamic_posts.status', 'published')
+                    ->where('dynamic_posts.live_status', 'approve')
+                    ->select('taxonomy_terms.slug', 'taxonomy_terms.name', DB::raw('COUNT(DISTINCT dynamic_posts.id) as count'))
+                    ->groupBy('taxonomy_terms.slug', 'taxonomy_terms.name')
+                    ->get();
+
+                foreach ($purposeCounts as $pc) {
+                    $slug = strtolower((string) ($pc->slug ?? ''));
+                    $name = strtolower((string) ($pc->name ?? ''));
+
+                    if (in_array($slug, ['sell', 'sale', 'buy', 'for-sale', 'purchase'], true) || str_contains($name, 'sell') || str_contains($name, 'sale')) {
+                        $sellCount += (int) $pc->count;
+                    } elseif (in_array($slug, ['rent', 'rental', 'lease', 'for-rent'], true) || str_contains($name, 'rent') || str_contains($name, 'lease')) {
+                        $rentCount += (int) $pc->count;
+                    }
+                }
+            }
+
+            if ($sellCount === 0 && $rentCount === 0 && Schema::hasColumn('dynamic_posts', 'purpose_id') && Schema::hasTable('taxonomy_terms')) {
+                $directPurposes = DB::table('dynamic_posts')
+                    ->leftJoin('taxonomy_terms', 'taxonomy_terms.id', '=', 'dynamic_posts.purpose_id')
+                    ->where('dynamic_posts.author_id', $user->id)
+                    ->where('dynamic_posts.status', 'published')
+                    ->where('dynamic_posts.live_status', 'approve')
+                    ->select('taxonomy_terms.slug', 'taxonomy_terms.name', DB::raw('COUNT(dynamic_posts.id) as count'))
+                    ->groupBy('taxonomy_terms.slug', 'taxonomy_terms.name')
+                    ->get();
+
+                foreach ($directPurposes as $dp) {
+                    $slug = strtolower((string) ($dp->slug ?? ''));
+                    $name = strtolower((string) ($dp->name ?? ''));
+
+                    if (in_array($slug, ['sell', 'sale', 'buy', 'for-sale', 'purchase'], true) || str_contains($name, 'sell') || str_contains($name, 'sale')) {
+                        $sellCount += (int) $dp->count;
+                    } elseif (in_array($slug, ['rent', 'rental', 'lease', 'for-rent'], true) || str_contains($name, 'rent') || str_contains($name, 'lease')) {
+                        $rentCount += (int) $dp->count;
+                    }
+                }
+            }
+        }
 
         $cityId = $user->user_city_id ? (int) $user->user_city_id : ($user->detail_city_id ? (int) $user->detail_city_id : null);
 
@@ -549,6 +645,13 @@ class CityExploreController extends Controller
             'state_name' => $user->state_name ?? null,
             'country_id' => $user->detail_country_id ? (int) $user->detail_country_id : null,
             'properties_count' => $propertiesCount,
+            'listings_count' => $propertiesCount,
+            'sell_listings_count' => $sellCount,
+            'rent_listings_count' => $rentCount,
+            'purpose_counts' => [
+                'sell' => $sellCount,
+                'rent' => $rentCount,
+            ],
             'profile_photo' => $photoUrl,
             'profile_photo_url' => $photoUrl,
             'profile_image' => $photoUrl,
