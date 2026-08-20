@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 class CityExploreController extends Controller
@@ -577,8 +578,8 @@ class CityExploreController extends Controller
 
                 if (str_starts_with($trimmed, 'uploads/')) {
                     $relativePath = substr($trimmed, strlen('uploads/'));
-                    if (class_exists('Illuminate\Support\Facades\Storage') && Storage::disk('public_uploads')->exists($relativePath)) {
-                        $photoUrl = Storage::disk('public_uploads')->url($relativePath);
+                    if (\Illuminate\Support\Facades\Storage::disk('public_uploads')->exists($relativePath)) {
+                        $photoUrl = \Illuminate\Support\Facades\Storage::disk('public_uploads')->url($relativePath);
                     } else {
                         $photoUrl = url('uploads/' . ltrim($relativePath, '/'));
                     }

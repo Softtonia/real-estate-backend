@@ -33,7 +33,8 @@ class PropertyWorkflowService
     public function __construct(
         private readonly PropertySnapshotService $snapshots,
         private readonly PropertyAvailabilityService $availability
-    ) {}
+    ) {
+    }
     public function assertCanSubmitProperty(User $user): void
     {
         if (!$user->exists || (int) $user->getKey() <= 0) {
@@ -61,8 +62,8 @@ class PropertyWorkflowService
 
             if (
                 PropertyListingRevision::query()
-                ->where('dynamic_post_id', $lockedProperty->id)
-                ->exists()
+                    ->where('dynamic_post_id', $lockedProperty->id)
+                    ->exists()
             ) {
                 throw ValidationException::withMessages([
                     'property' => [
@@ -133,12 +134,12 @@ class PropertyWorkflowService
             && in_array($latestRevision->status, PropertyWorkflowStatus::OPEN_STATUSES, true);
 
         /*
-     * Agar listing already live thi aur user edit karta hai,
-     * baseline old approved version ka snapshot hoga.
-     *
-     * Agar already live_update pending hai aur user dobara edit karta hai,
-     * old baseline preserve hoga.
-     */
+         * Agar listing already live thi aur user edit karta hai,
+         * baseline old approved version ka snapshot hoga.
+         *
+         * Agar already live_update pending hai aur user dobara edit karta hai,
+         * old baseline preserve hoga.
+         */
         $wasLive = (
             ($property->status ?? null) === 'published'
             && ($property->live_status ?? null) === 'approve'
@@ -171,11 +172,7 @@ class PropertyWorkflowService
         User $owner,
         array $context
     ): PropertyListingRevision {
-        $revision = DB::transaction(function () use (
-            $property,
-            $owner,
-            $context
-        ) {
+        $revision = DB::transaction(function () use ($property, $owner, $context) {
             $lockedProperty = DynamicPost::query()
                 ->lockForUpdate()
                 ->findOrFail($property->id);
@@ -253,8 +250,8 @@ class PropertyWorkflowService
                     'submitted_at' => now(),
 
                     /*
-     * Previous verifier preserve.
-     */
+                     * Previous verifier preserve.
+                     */
                     'assigned_to' => $previousAssignedTo,
                     'assigned_by' => $previousAssignedBy,
                     'assigned_at' => $previousAssignedAt,
@@ -282,8 +279,8 @@ class PropertyWorkflowService
                 fromStatus: $fromStatus,
                 toStatus: PropertyWorkflowStatus::RESUBMISSION,
                 message: $wasLive
-                    ? 'Published property changes submitted for admin review.'
-                    : 'Property changes submitted for admin review.'
+                ? 'Published property changes submitted for admin review.'
+                : 'Property changes submitted for admin review.'
             );
 
             $this->notifyOwnerAfterCommit(
@@ -317,12 +314,7 @@ class PropertyWorkflowService
     ): PropertyListingRevision {
         $this->assertVerifier($verifier);
 
-        $revision = DB::transaction(function () use (
-            $property,
-            $actor,
-            $verifier,
-            $notes
-        ) {
+        $revision = DB::transaction(function () use ($property, $actor, $verifier, $notes) {
             $lockedProperty = DynamicPost::query()
                 ->lockForUpdate()
                 ->findOrFail($property->id);
@@ -337,9 +329,9 @@ class PropertyWorkflowService
             $fromStatus = $revision->status;
 
             /*
-         * If already in_verification, this is reassignment.
-         * Do not move status back to assigned.
-         */
+             * If already in_verification, this is reassignment.
+             * Do not move status back to assigned.
+             */
             $nextStatus = $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
                 ? PropertyWorkflowStatus::IN_VERIFICATION
                 : PropertyWorkflowStatus::ASSIGNED;
@@ -361,10 +353,10 @@ class PropertyWorkflowService
             );
 
             /*
-         * Existing table:
-         * dynamic_post_user.user_id = verifier id
-         * dynamic_post_user.assigned_by = admin id
-         */
+             * Existing table:
+             * dynamic_post_user.user_id = verifier id
+             * dynamic_post_user.assigned_by = admin id
+             */
             $this->syncDynamicPostAssignedVerifier(
                 property: $lockedProperty,
                 actor: $actor,
@@ -376,8 +368,8 @@ class PropertyWorkflowService
                 revision: $revision,
                 actor: $actor,
                 event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
-                    ? 'property_reassigned'
-                    : 'property_assigned',
+                ? 'property_reassigned'
+                : 'property_assigned',
                 fromStatus: $fromStatus,
                 toStatus: $nextStatus,
                 message: $notes ?: (
@@ -395,8 +387,8 @@ class PropertyWorkflowService
                 userId: (int) $verifier->id,
                 property: $lockedProperty,
                 event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
-                    ? 'property_reassigned'
-                    : 'property_assigned',
+                ? 'property_reassigned'
+                : 'property_assigned',
                 metadata: [
                     'assigned_by' => (int) $actor->id,
                 ]
@@ -406,8 +398,8 @@ class PropertyWorkflowService
                 ownerId: (int) $lockedProperty->author_id,
                 property: $lockedProperty,
                 event: $fromStatus === PropertyWorkflowStatus::IN_VERIFICATION
-                    ? 'property_reassigned'
-                    : 'property_assigned',
+                ? 'property_reassigned'
+                : 'property_assigned',
                 metadata: [
                     'verifier_id' => (int) $verifier->id,
                 ]
@@ -432,16 +424,13 @@ class PropertyWorkflowService
         );
 
         $revision = DB::transaction(
-            function () use (
-                $property,
-                $actor
-            ) {
+            function () use ($property, $actor) {
                 $lockedProperty =
                     DynamicPost::query()
-                    ->lockForUpdate()
-                    ->findOrFail(
-                        $property->id
-                    );
+                        ->lockForUpdate()
+                        ->findOrFail(
+                            $property->id
+                        );
 
                 $this->assertPropertyListing(
                     $lockedProperty
@@ -470,8 +459,8 @@ class PropertyWorkflowService
                     throw ValidationException::withMessages([
                         'status' => [
                             'This action is not allowed while the verification status is '
-                                . $revision->status
-                                . '.',
+                            . $revision->status
+                            . '.',
                         ],
                     ]);
                 }
@@ -488,7 +477,7 @@ class PropertyWorkflowService
                     $this->setPropertyWorkflowState(
                         $lockedProperty,
                         status: $lockedProperty->status
-                            ?: 'draft',
+                        ?: 'draft',
 
                         liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
                     );
@@ -501,26 +490,26 @@ class PropertyWorkflowService
 
                 $revision->forceFill([
                     'status' =>
-                    PropertyWorkflowStatus::IN_VERIFICATION,
+                        PropertyWorkflowStatus::IN_VERIFICATION,
 
                     'verification_started_at' =>
-                    $revision->verification_started_at
+                        $revision->verification_started_at
                         ?: now(),
 
                     'decided_by' =>
-                    null,
+                        null,
 
                     'decided_at' =>
-                    null,
+                        null,
 
                     'rejection_reason' =>
-                    null,
+                        null,
                 ])->save();
 
                 $this->setPropertyWorkflowState(
                     $lockedProperty,
                     status: $lockedProperty->status
-                        ?: 'draft',
+                    ?: 'draft',
 
                     liveStatus: PropertyWorkflowStatus::IN_VERIFICATION
                 );
@@ -574,11 +563,7 @@ class PropertyWorkflowService
     ): PropertyListingRevision {
         $this->assertCanActOnVerification($actor);
 
-        $revision = DB::transaction(function () use (
-            $property,
-            $actor,
-            $notes
-        ) {
+        $revision = DB::transaction(function () use ($property, $actor, $notes) {
             $lockedProperty = DynamicPost::query()
                 ->lockForUpdate()
                 ->findOrFail($property->id);
@@ -609,8 +594,8 @@ class PropertyWorkflowService
                 throw ValidationException::withMessages([
                     'status' => [
                         'This action is not allowed while the property verification status is '
-                            . $revision->status
-                            . '.',
+                        . $revision->status
+                        . '.',
                     ],
                 ]);
             }
@@ -675,8 +660,8 @@ class PropertyWorkflowService
                 fromStatus: PropertyWorkflowStatus::APPROVED,
                 toStatus: PropertyWorkflowStatus::LIVE,
                 message: $wasRepublish
-                    ? 'Approved property changes were published.'
-                    : 'Property was published and is now live.'
+                ? 'Approved property changes were published.'
+                : 'Property was published and is now live.'
             );
 
             $this->notifyOwnerAfterCommit(
@@ -702,9 +687,9 @@ class PropertyWorkflowService
         string $reason
     ): PropertyListingRevision {
         /*
-     * Admin can reject without assignment.
-     * Non-admin verifier must be valid + assigned.
-     */
+         * Admin can reject without assignment.
+         * Non-admin verifier must be valid + assigned.
+         */
         $this->assertCanActOnVerification($actor);
 
         $reason = trim($reason);
@@ -717,11 +702,7 @@ class PropertyWorkflowService
             ]);
         }
 
-        $revision = DB::transaction(function () use (
-            $property,
-            $actor,
-            $reason
-        ) {
+        $revision = DB::transaction(function () use ($property, $actor, $reason) {
             $lockedProperty = DynamicPost::query()
                 ->lockForUpdate()
                 ->findOrFail($property->id);
@@ -754,16 +735,16 @@ class PropertyWorkflowService
                 throw ValidationException::withMessages([
                     'status' => [
                         'This action is not allowed while the property verification status is '
-                            . $revision->status
-                            . '.',
+                        . $revision->status
+                        . '.',
                     ],
                 ]);
             }
 
             /*
-         * Admin bypasses assignment.
-         * Company/verifier must be assigned.
-         */
+             * Admin bypasses assignment.
+             * Company/verifier must be assigned.
+             */
             $this->ensureActorCanWorkOnRevision($revision, $actor);
 
             $fromStatus = $revision->status;
@@ -797,12 +778,12 @@ class PropertyWorkflowService
             }
 
             /*
-         * Important:
-         * Do not restore old live version.
-         * Your required final status:
-         * dynamic_posts.status = draft
-         * dynamic_posts.live_status = reject
-         */
+             * Important:
+             * Do not restore old live version.
+             * Your required final status:
+             * dynamic_posts.status = draft
+             * dynamic_posts.live_status = reject
+             */
             $this->setPropertyWorkflowState(
                 $lockedProperty,
                 status: 'draft',
@@ -936,8 +917,8 @@ class PropertyWorkflowService
         }
 
         /*
-     * Allow assign/reassign before final decision.
-     */
+         * Allow assign/reassign before final decision.
+         */
         $allowedStatuses = [
             PropertyWorkflowStatus::UNDER_REVIEW,
             PropertyWorkflowStatus::RESUBMISSION,
@@ -949,8 +930,8 @@ class PropertyWorkflowService
             throw ValidationException::withMessages([
                 'status' => [
                     'Verifier cannot be assigned because this property verification is already '
-                        . $revision->status
-                        . '.',
+                    . $revision->status
+                    . '.',
                 ],
             ]);
         }
@@ -985,8 +966,8 @@ class PropertyWorkflowService
             throw ValidationException::withMessages([
                 'status' => [
                     'This action is not allowed while the property verification status is '
-                        . $revision->status
-                        . '.',
+                    . $revision->status
+                    . '.',
                 ],
             ]);
         }
@@ -1148,16 +1129,16 @@ class PropertyWorkflowService
         User $actor
     ): void {
         /*
-     * Admin can review/action without assignment.
-     * Important: admin ko auto assign nahi karna.
-     */
+         * Admin can review/action without assignment.
+         * Important: admin ko auto assign nahi karna.
+         */
         if ($this->isSystemAdmin($actor)) {
             return;
         }
 
         /*
-     * Non-admin/verifier must be assigned.
-     */
+         * Non-admin/verifier must be assigned.
+         */
         if (empty($revision->assigned_to)) {
             throw ValidationException::withMessages([
                 'assignment' => [
@@ -1459,30 +1440,36 @@ class PropertyWorkflowService
     {
         $status = strtolower(trim($workflowStatus));
 
-        if (in_array($status, [
-            'live',
-            'approved',
-            'approve',
-        ], true)) {
+        if (
+            in_array($status, [
+                'live',
+                'approved',
+                'approve',
+            ], true)
+        ) {
             return 'approve';
         }
 
-        if (in_array($status, [
-            'rejected',
-            'reject',
-            'disapprove',
-        ], true)) {
+        if (
+            in_array($status, [
+                'rejected',
+                'reject',
+                'disapprove',
+            ], true)
+        ) {
             return 'reject';
         }
 
-        if (in_array($status, [
-            'under_review',
-            'resubmission',
-            'assigned',
-            'in_verification',
-            'submit',
-            'modify_review',
-        ], true)) {
+        if (
+            in_array($status, [
+                'under_review',
+                'resubmission',
+                'assigned',
+                'in_verification',
+                'submit',
+                'modify_review',
+            ], true)
+        ) {
             return 'under_review';
         }
 
@@ -1581,14 +1568,7 @@ class PropertyWorkflowService
         $propertyId = (int) $property->id;
         $propertyTitle = $property->title ?? null;
 
-        DB::afterCommit(function () use (
-            $userId,
-            $propertyId,
-            $propertyTitle,
-            $event,
-            $reason,
-            $metadata
-        ) {
+        DB::afterCommit(function () use ($userId, $propertyId, $propertyTitle, $event, $reason, $metadata) {
             $user = User::find($userId);
 
             if (!$user || !method_exists($user, 'notify')) {
@@ -1612,11 +1592,7 @@ class PropertyWorkflowService
         $propertyId = (int) $property->id;
         $propertyTitle = $property->title ?? null;
 
-        DB::afterCommit(function () use (
-            $propertyId,
-            $propertyTitle,
-            $event
-        ) {
+        DB::afterCommit(function () use ($propertyId, $propertyTitle, $event) {
             $guardName = config('permission_modules.guard', 'sanctum');
 
             User::query()
@@ -1649,11 +1625,7 @@ class PropertyWorkflowService
                 })
                 ->distinct()
                 ->get()
-                ->each(function (User $assignmentUser) use (
-                    $propertyId,
-                    $propertyTitle,
-                    $event
-                ) {
+                ->each(function (User $assignmentUser) use ($propertyId, $propertyTitle, $event) {
                     if (!method_exists($assignmentUser, 'notify')) {
                         return;
                     }
@@ -1673,8 +1645,8 @@ class PropertyWorkflowService
     {
         return trim(
             ($user->first_name ?? '')
-                . ' '
-                . ($user->last_name ?? '')
+            . ' '
+            . ($user->last_name ?? '')
         ) ?: ($user->email ?? ('User #' . $user->id));
     }
     private function assertCanActOnVerification(User $actor): void
