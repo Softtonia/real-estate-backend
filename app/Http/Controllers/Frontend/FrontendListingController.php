@@ -378,11 +378,12 @@ class FrontendListingController extends Controller
         }
 
         /*
-     * Dependent taxonomy:
-     * do not show terms until its parent taxonomy term is selected.
-     */
+         * Dependent taxonomy:
+         * if no parent taxonomy term is selected yet, return all active terms
+         * so dropdown options are populated for initial selection.
+         */
         if (empty($parentSelectedTermIds)) {
-            return collect();
+            return $terms;
         }
 
         /*

@@ -30,7 +30,21 @@ class TaxonomyTermController extends Controller
                 ->withCount('postTaxonomyTerms as posts_count')
 
                 ->when($request->filled('taxonomy_id'), function ($q) use ($request) {
-                    $q->where('taxonomy_id', $request->taxonomy_id);
+                    $taxId = $request->taxonomy_id;
+                    if (!is_numeric($taxId)) {
+                        $q->whereHas('taxonomy', function ($tQ) use ($taxId) {
+                            $tQ->where('slug', $taxId)->orWhere('name', $taxId);
+                        });
+                    } else {
+                        $q->where('taxonomy_id', $taxId);
+                    }
+                })
+
+                ->when($request->filled('taxonomy_slug'), function ($q) use ($request) {
+                    $slug = $request->taxonomy_slug;
+                    $q->whereHas('taxonomy', function ($tQ) use ($slug) {
+                        $tQ->where('slug', $slug);
+                    });
                 })
 
                 ->when($request->has('parent_id'), function ($q) use ($request) {
