@@ -259,12 +259,16 @@ class CityExploreController extends Controller
      */
     private function queryCityUsers(int $cityId, array $roleNames, int $perPage, bool $paginated = false): mixed
     {
+        $hasSlugColumn = Schema::hasColumn('roles', 'slug');
+
         $roleIds = Role::query()
-            ->where(function ($q) use ($roleNames) {
+            ->where(function ($q) use ($roleNames, $hasSlugColumn) {
                 foreach ($roleNames as $name) {
                     $lName = strtolower($name);
-                    $q->orWhereRaw('LOWER(name) LIKE ?', ["%{$lName}%"])
-                      ->orWhereRaw('LOWER(slug) LIKE ?', ["%{$lName}%"]);
+                    $q->orWhereRaw('LOWER(name) LIKE ?', ["%{$lName}%"]);
+                    if ($hasSlugColumn) {
+                        $q->orWhereRaw('LOWER(slug) LIKE ?', ["%{$lName}%"]);
+                    }
                 }
             })
             ->pluck('id')
