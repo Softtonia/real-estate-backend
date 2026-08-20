@@ -66,7 +66,7 @@ class CityExploreController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch city exploration data.',
-                'error' => config('app.debug') ? $e->getMessage() : 'Server error',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -104,7 +104,7 @@ class CityExploreController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch city agents.',
-                'error' => config('app.debug') ? $e->getMessage() : 'Server error',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -142,7 +142,7 @@ class CityExploreController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch city developers.',
-                'error' => config('app.debug') ? $e->getMessage() : 'Server error',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -180,7 +180,7 @@ class CityExploreController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch city featured properties.',
-                'error' => config('app.debug') ? $e->getMessage() : 'Server error',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -218,7 +218,7 @@ class CityExploreController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch city featured projects.',
-                'error' => config('app.debug') ? $e->getMessage() : 'Server error',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -380,21 +380,27 @@ class CityExploreController extends Controller
             if ($hasUserCity) {
                 $query->leftJoin('cities as user_cities', 'user_cities.id', '=', 'users.city_id');
             } else {
-                $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as user_cities'), DB::raw('1'), '=', DB::raw('2'));
+                $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name, NULL as state_id) as user_cities'), DB::raw('1'), '=', DB::raw('2'));
             }
 
             if ($hasDetailCity) {
                 $query->leftJoin('cities as detail_cities', 'detail_cities.id', '=', 'user_details.city_id');
             } else {
-                $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as detail_cities'), DB::raw('1'), '=', DB::raw('2'));
+                $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name, NULL as state_id) as detail_cities'), DB::raw('1'), '=', DB::raw('2'));
             }
         } else {
-            $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as user_cities'), DB::raw('1'), '=', DB::raw('2'));
-            $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as detail_cities'), DB::raw('1'), '=', DB::raw('2'));
+            $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name, NULL as state_id) as user_cities'), DB::raw('1'), '=', DB::raw('2'));
+            $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name, NULL as state_id) as detail_cities'), DB::raw('1'), '=', DB::raw('2'));
         }
 
-        if (Schema::hasTable('states')) {
+        $hasCitiesTable = Schema::hasTable('cities');
+        $hasStatesTable = Schema::hasTable('states');
+        $hasCityStateCol = $hasCitiesTable && Schema::hasColumn('cities', 'state_id');
+
+        if ($hasStatesTable && $hasCityStateCol && $hasUserCity) {
             $query->leftJoin('states as user_states', 'user_states.id', '=', 'user_cities.state_id');
+        } elseif ($hasStatesTable && $hasDetailState) {
+            $query->leftJoin('states as user_states', 'user_states.id', '=', 'user_details.state_id');
         } else {
             $query->leftJoin(DB::raw('(SELECT 1 as id, NULL as name) as user_states'), DB::raw('1'), '=', DB::raw('2'));
         }
