@@ -448,9 +448,20 @@ class CityExploreController extends Controller
             $fullName = $user->user_name ?? $user->bussiness_name ?? $user->email ?? ('User #' . $user->id);
         }
 
-        $photo = $user->profile_photo ?? null;
-        if ($photo && !str_starts_with($photo, 'http://') && !str_starts_with($photo, 'https://')) {
-            $photo = url($photo);
+        $rawPhoto = $user->profile_photo ?? null;
+        $photoUrl = null;
+
+        if ($rawPhoto && is_string($rawPhoto) && trim($rawPhoto) !== '') {
+            $trimmed = trim($rawPhoto);
+            if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
+                $photoUrl = $trimmed;
+            } else {
+                $photoUrl = url(ltrim($trimmed, '/'));
+            }
+        }
+
+        if (!$photoUrl) {
+            $photoUrl = url('images/default.png');
         }
 
         $propertiesCount = DB::table('dynamic_posts')
@@ -491,7 +502,11 @@ class CityExploreController extends Controller
             'state_name' => $user->state_name ?? null,
             'country_id' => $user->detail_country_id ? (int) $user->detail_country_id : null,
             'properties_count' => $propertiesCount,
-            'profile_photo' => $photo,
+            'profile_photo' => $photoUrl,
+            'profile_photo_url' => $photoUrl,
+            'profile_image' => $photoUrl,
+            'avatar' => $photoUrl,
+            'image' => $photoUrl,
             'created_at' => $user->created_at ?? null,
         ];
     }
