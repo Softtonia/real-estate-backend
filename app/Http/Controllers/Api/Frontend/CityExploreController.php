@@ -259,16 +259,28 @@ class CityExploreController extends Controller
      */
     private function queryCityUsers(int $cityId, array $roleNames, int $perPage, bool $paginated = false): mixed
     {
-        $hasSlugColumn = Schema::hasColumn('roles', 'slug');
+        $hasRoleTable = Schema::hasTable('roles');
+        $hasRoleNameCol = $hasRoleTable && Schema::hasColumn('roles', 'name');
+        $hasRoleRoleNameCol = $hasRoleTable && Schema::hasColumn('roles', 'role_name');
+        $hasRoleSlugCol = $hasRoleTable && Schema::hasColumn('roles', 'slug');
+        $hasRoleTitleCol = $hasRoleTable && Schema::hasColumn('roles', 'title');
 
         $roleIds = [];
-        if (Schema::hasTable('roles')) {
+        if ($hasRoleTable) {
             $roleIds = Role::query()
-                ->where(function ($q) use ($roleNames, $hasSlugColumn) {
+                ->where(function ($q) use ($roleNames, $hasRoleNameCol, $hasRoleRoleNameCol, $hasRoleSlugCol, $hasRoleTitleCol) {
                     foreach ($roleNames as $name) {
                         $lName = strtolower($name);
-                        $q->orWhereRaw('LOWER(name) LIKE ?', ["%{$lName}%"]);
-                        if ($hasSlugColumn) {
+                        if ($hasRoleNameCol) {
+                            $q->orWhereRaw('LOWER(name) LIKE ?', ["%{$lName}%"]);
+                        }
+                        if ($hasRoleRoleNameCol) {
+                            $q->orWhereRaw('LOWER(role_name) LIKE ?', ["%{$lName}%"]);
+                        }
+                        if ($hasRoleTitleCol) {
+                            $q->orWhereRaw('LOWER(title) LIKE ?', ["%{$lName}%"]);
+                        }
+                        if ($hasRoleSlugCol) {
                             $q->orWhereRaw('LOWER(slug) LIKE ?', ["%{$lName}%"]);
                         }
                     }
@@ -337,8 +349,16 @@ class CityExploreController extends Controller
         if ($hasUserImage) $selects[] = 'users.image as user_image';
         if ($hasDetailImage) $selects[] = 'user_details.profile_image as detail_profile_image';
 
-        if (Schema::hasTable('roles')) {
+        if ($hasRoleNameCol && $hasRoleRoleNameCol) {
+            $selects[] = DB::raw('COALESCE(roles.role_name, roles.name) as role_name');
+        } elseif ($hasRoleRoleNameCol) {
+            $selects[] = 'roles.role_name as role_name';
+        } elseif ($hasRoleNameCol) {
             $selects[] = 'roles.name as role_name';
+        } elseif ($hasRoleTitleCol) {
+            $selects[] = 'roles.title as role_name';
+        } elseif ($hasRoleSlugCol) {
+            $selects[] = 'roles.slug as role_name';
         } else {
             $selects[] = DB::raw('NULL as role_name');
         }
@@ -352,7 +372,7 @@ class CityExploreController extends Controller
             $query->leftJoin('user_details', 'user_details.user_id', '=', 'users.id');
         }
 
-        if (Schema::hasTable('roles')) {
+        if ($hasRoleTable) {
             $query->leftJoin('roles', 'roles.id', '=', 'users.role_id');
         }
 
@@ -396,13 +416,25 @@ class CityExploreController extends Controller
                     });
                 }
             })
-            ->where(function ($roleQuery) use ($roleIds, $roleNames) {
+            ->where(function ($roleQuery) use ($roleIds, $roleNames, $hasRoleTable, $hasRoleNameCol, $hasRoleRoleNameCol, $hasRoleSlugCol, $hasRoleTitleCol) {
                 if (!empty($roleIds)) {
                     $roleQuery->whereIn('users.role_id', $roleIds);
                 }
-                if (Schema::hasTable('roles')) {
+                if ($hasRoleTable) {
                     foreach ($roleNames as $rName) {
-                        $roleQuery->orWhereRaw('LOWER(roles.name) LIKE ?', ['%' . strtolower($rName) . '%']);
+                        $lName = strtolower($rName);
+                        if ($hasRoleNameCol) {
+                            $roleQuery->orWhereRaw('LOWER(roles.name) LIKE ?', ["%{$lName}%"]);
+                        }
+                        if ($hasRoleRoleNameCol) {
+                            $roleQuery->orWhereRaw('LOWER(roles.role_name) LIKE ?', ["%{$lName}%"]);
+                        }
+                        if ($hasRoleTitleCol) {
+                            $roleQuery->orWhereRaw('LOWER(roles.title) LIKE ?', ["%{$lName}%"]);
+                        }
+                        if ($hasRoleSlugCol) {
+                            $roleQuery->orWhereRaw('LOWER(roles.slug) LIKE ?', ["%{$lName}%"]);
+                        }
                     }
                 }
             })
