@@ -11,7 +11,6 @@ use App\Http\Controllers\ContactUsLead\ContactUsLeadController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HelpActivityController;
 use App\Http\Controllers\IpLog\IpLogController;
-
 use App\Http\Controllers\Lead\LeadController;
 use App\Http\Controllers\Lead\LeadTypeController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
@@ -45,10 +44,8 @@ use App\Http\Controllers\Profile\profilecontroller;
 use App\Http\Controllers\ClientReviewController;
 use App\Http\Controllers\FaqCategoryController;
 use App\Http\Controllers\FaqController;
-
 use App\Http\Controllers\Page\servicescontroller;
 use App\Http\Controllers\Page\AboutusController;
-
 use App\Http\Controllers\Page\PropertyValuationController;
 use App\Http\Controllers\Help\HelpCategoryController;
 use App\Http\Controllers\Help\HelpSubcategoryController;

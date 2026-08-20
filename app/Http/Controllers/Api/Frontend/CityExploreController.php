@@ -260,7 +260,13 @@ class CityExploreController extends Controller
     private function queryCityUsers(int $cityId, array $roleNames, int $perPage, bool $paginated = false): mixed
     {
         $roleIds = Role::query()
-            ->whereIn('name', $roleNames)
+            ->where(function ($q) use ($roleNames) {
+                foreach ($roleNames as $name) {
+                    $lName = strtolower($name);
+                    $q->orWhereRaw('LOWER(name) LIKE ?', ["%{$lName}%"])
+                      ->orWhereRaw('LOWER(slug) LIKE ?', ["%{$lName}%"]);
+                }
+            })
             ->pluck('id')
             ->filter()
             ->all();
@@ -268,6 +274,15 @@ class CityExploreController extends Controller
         $query = User::query()
             ->leftJoin('user_details', 'user_details.user_id', '=', 'users.id')
             ->leftJoin('roles', 'roles.id', '=', 'users.role_id')
+            ->leftJoin('cities as user_cities', function ($join) {
+                $join->on('user_cities.id', '=', 'users.city_id');
+            })
+            ->leftJoin('cities as detail_cities', function ($join) {
+                $join->on('detail_cities.id', '=', 'user_details.city_id');
+            })
+            ->leftJoin('states as user_states', function ($join) {
+                $join->on('user_states.id', '=', 'user_cities.state_id');
+            })
             ->select([
                 'users.id',
                 'users.first_name',
@@ -277,15 +292,26 @@ class CityExploreController extends Controller
                 'users.phone',
                 'users.unique_id',
                 'users.role_id',
+                'users.isapproved',
+                'users.created_at',
                 'users.city_id as user_city_id',
                 'user_details.city_id as detail_city_id',
+                'user_details.state_id as detail_state_id',
+                'user_details.country_id as detail_country_id',
                 'user_details.bussiness_name',
                 'user_details.bussiness_address',
                 'user_details.bussiness_email',
                 'user_details.business_phone',
                 'user_details.profile_photo',
                 'user_details.license_number',
+                'user_details.rera_number',
+                'user_details.about_us',
+                'user_details.address',
+                'user_details.pin_code',
+                'user_details.alternate_number',
                 'roles.name as role_name',
+                DB::raw('COALESCE(user_cities.name, detail_cities.name) as city_name'),
+                DB::raw('user_states.name as state_name'),
             ])
             ->where(function ($cityQuery) use ($cityId) {
                 if (Schema::hasColumn('users', 'city_id')) {
@@ -294,16 +320,23 @@ class CityExploreController extends Controller
                 if (Schema::hasTable('user_details') && Schema::hasColumn('user_details', 'city_id')) {
                     $cityQuery->orWhere('user_details.city_id', $cityId);
                 }
+                $cityQuery->orWhereExists(function ($dpQuery) use ($cityId) {
+                    $dpQuery->selectRaw('1')
+                        ->from('dynamic_posts')
+                        ->whereColumn('dynamic_posts.author_id', 'users.id')
+                        ->where('dynamic_posts.city_id', $cityId);
+                });
             })
             ->where(function ($roleQuery) use ($roleIds, $roleNames) {
                 if (!empty($roleIds)) {
                     $roleQuery->whereIn('users.role_id', $roleIds);
                 }
                 if (Schema::hasTable('roles')) {
-                    $roleQuery->orWhereIn('roles.name', $roleNames);
+                    foreach ($roleNames as $rName) {
+                        $roleQuery->orWhereRaw('LOWER(roles.name) LIKE ?', ['%' . strtolower($rName) . '%']);
+                    }
                 }
             })
-            ->where('users.isapproved', 1)
             ->distinct();
 
         if ($paginated) {
@@ -416,6 +449,14 @@ class CityExploreController extends Controller
             $photo = url($photo);
         }
 
+        $propertiesCount = DB::table('dynamic_posts')
+            ->where('author_id', $user->id)
+            ->where('status', 'published')
+            ->where('live_status', 'approve')
+            ->count();
+
+        $cityId = $user->user_city_id ? (int) $user->user_city_id : ($user->detail_city_id ? (int) $user->detail_city_id : null);
+
         return [
             'id' => (int) $user->id,
             'user_id' => (int) $user->id,
@@ -428,13 +469,26 @@ class CityExploreController extends Controller
             'phone' => $user->phone,
             'unique_id' => $user->unique_id,
             'role_id' => $user->role_id ? (int) $user->role_id : null,
-            'role_name' => $user->role_name,
-            'business_name' => $user->bussiness_name,
-            'business_address' => $user->bussiness_address,
-            'business_email' => $user->bussiness_email,
-            'business_phone' => $user->business_phone,
+            'role_name' => $user->role_name ?? 'Agent',
+            'isapproved' => isset($user->isapproved) ? (int) $user->isapproved : 1,
+            'business_name' => $user->bussiness_name ?? $fullName,
+            'business_address' => $user->bussiness_address ?? $user->address,
+            'business_email' => $user->bussiness_email ?? $user->email,
+            'business_phone' => $user->business_phone ?? $user->phone,
             'license_number' => $user->license_number,
+            'rera_number' => $user->rera_number ?? null,
+            'about_us' => $user->about_us ?? null,
+            'address' => $user->address ?? $user->bussiness_address,
+            'pin_code' => $user->pin_code ?? null,
+            'alternate_number' => $user->alternate_number ?? null,
+            'city_id' => $cityId,
+            'city_name' => $user->city_name ?? null,
+            'state_id' => $user->detail_state_id ? (int) $user->detail_state_id : null,
+            'state_name' => $user->state_name ?? null,
+            'country_id' => $user->detail_country_id ? (int) $user->detail_country_id : null,
+            'properties_count' => $propertiesCount,
             'profile_photo' => $photo,
+            'created_at' => $user->created_at ?? null,
         ];
     }
 }
