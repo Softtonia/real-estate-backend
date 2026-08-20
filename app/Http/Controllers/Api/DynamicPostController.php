@@ -4642,10 +4642,10 @@ class DynamicPostController extends Controller
         }
 
         if (empty($selectedTermIds)) {
-            return collect();
+            return $terms->values();
         }
 
-        return $terms
+        $filtered = $terms
             ->filter(function ($term) use ($selectedTermIds) {
                 $relationValueTermIds = $term->relationValues
                     ->pluck('id')
@@ -4654,12 +4654,14 @@ class DynamicPostController extends Controller
                     ->toArray();
 
                 if (empty($relationValueTermIds)) {
-                    return false;
+                    return true;
                 }
 
                 return count(array_intersect($relationValueTermIds, $selectedTermIds)) > 0;
             })
             ->values();
+
+        return $filtered->isNotEmpty() ? $filtered : $terms->values();
     }
 
 
