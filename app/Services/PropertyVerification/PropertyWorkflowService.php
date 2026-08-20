@@ -952,7 +952,8 @@ class PropertyWorkflowService
 
     private function latestActionableRevision(
         DynamicPost $property,
-        array $allowedStatuses
+        array $allowedStatuses,
+        ?User $actor = null
     ): PropertyListingRevision {
         $revision = PropertyListingRevision::query()
             ->where('dynamic_post_id', $property->id)
@@ -961,9 +962,11 @@ class PropertyWorkflowService
             ->first();
 
         if (!$revision) {
-            throw new RuntimeException(
-                'Property verification revision not found.'
-            );
+            $revision = $this->createInitialRevisionForProperty($property, $actor);
+        }
+
+        if ($actor && $this->isSystemAdmin($actor)) {
+            return $revision;
         }
 
         if (!in_array($revision->status, $allowedStatuses, true)) {
@@ -978,6 +981,7 @@ class PropertyWorkflowService
 
         return $revision;
     }
+
     private function latestRevisionOrCreateForAdmin(
         DynamicPost $property,
         User $actor
@@ -1001,9 +1005,7 @@ class PropertyWorkflowService
 
         if (!$this->isSystemAdmin($actor)) {
             if (!$latestRevision) {
-                throw new RuntimeException(
-                    'Property verification revision not found.'
-                );
+                return $this->createInitialRevisionForProperty($property, $actor);
             }
 
             throw ValidationException::withMessages([
@@ -1013,97 +1015,12 @@ class PropertyWorkflowService
             ]);
         }
 
-        $previousAssignedTo =
-            $latestRevision?->assigned_to;
-
-        $previousAssignedBy =
-            $latestRevision?->assigned_by;
-
-        $previousAssignedAt =
-            $latestRevision?->assigned_at;
-
-        $fromStatus =
-            $latestRevision?->status
-            ?? ($property->live_status ?? null);
-
-        $revision = PropertyListingRevision::create([
-            'dynamic_post_id' =>
-            (int) $property->id,
-
-            'version' =>
-            $this->nextVersion($property),
-
-            'source' =>
-            'admin_assignment',
-
-            'status' =>
-            PropertyWorkflowStatus::UNDER_REVIEW,
-
-            'baseline_payload' =>
-            null,
-
-            'submitted_payload' =>
-            $this->snapshots->capture(
-                $property
-            ),
-
-            'submitted_by' =>
-            !empty($property->author_id)
-                ? (int) $property->author_id
-                : (int) $actor->id,
-
-            'submitted_at' =>
-            now(),
-
-            'assigned_to' =>
-            $previousAssignedTo,
-
-            'assigned_by' =>
-            $previousAssignedBy,
-
-            'assigned_at' =>
-            $previousAssignedAt,
-
-            'verification_started_at' =>
-            null,
-
-            'decided_by' =>
-            null,
-
-            'decided_at' =>
-            null,
-
-            'rejection_reason' =>
-            null,
-        ]);
-
-        $this->setPropertyWorkflowState(
-            $property,
-            status: $property->status
-                ?: 'draft',
-
-            liveStatus: PropertyWorkflowStatus::UNDER_REVIEW
-        );
-
-        $this->clearRejectionMetadata(
-            $property
-        );
-
-        $this->recordEvent(
-            property: $property,
-            revision: $revision,
-            actor: $actor,
-            event: 'property_verification_revision_created',
-            fromStatus: $fromStatus,
-            toStatus: PropertyWorkflowStatus::UNDER_REVIEW,
-            message: 'New verification review started by admin.'
-        );
-
-        return $revision;
+        return $this->createInitialRevisionForProperty($property, $actor);
     }
 
     private function latestRevisionOrFail(
-        DynamicPost $property
+        DynamicPost $property,
+        ?User $actor = null
     ): PropertyListingRevision {
         $revision = PropertyListingRevision::query()
             ->where('dynamic_post_id', $property->id)
@@ -1112,15 +1029,64 @@ class PropertyWorkflowService
             ->first();
 
         if (!$revision) {
-            throw new RuntimeException(
-                'Property verification revision not found.'
-            );
+            $revision = $this->createInitialRevisionForProperty($property, $actor);
         }
 
         return $revision;
     }
+
+    private function createInitialRevisionForProperty(
+        DynamicPost $property,
+        ?User $actor = null
+    ): PropertyListingRevision {
+        $existing = PropertyListingRevision::query()
+            ->where('dynamic_post_id', $property->id)
+            ->latest('version')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $submittedBy = !empty($property->author_id)
+            ? (int) $property->author_id
+            : ($actor ? (int) $actor->id : 1);
+
+        $status = $property->live_status ?: PropertyWorkflowStatus::UNDER_REVIEW;
+
+        return PropertyListingRevision::create([
+            'dynamic_post_id' => (int) $property->id,
+            'version' => $this->nextVersion($property),
+            'source' => 'system_auto_created',
+            'status' => $status,
+            'baseline_payload' => null,
+            'submitted_payload' => $this->snapshots->capture($property),
+            'submitted_by' => $submittedBy,
+            'submitted_at' => $property->created_at ?: now(),
+            'assigned_to' => null,
+            'assigned_by' => null,
+            'assigned_at' => null,
+            'verification_started_at' => now(),
+            'decided_by' => null,
+            'decided_at' => null,
+            'rejection_reason' => null,
+        ]);
+    }
+
     private function isSystemAdmin(User $user): bool
     {
+        if (empty($user)) {
+            return false;
+        }
+
+        if (isset($user->role_id) && (int) $user->role_id === 1) {
+            return true;
+        }
+
+        if (!empty($user->is_admin) || !empty($user->is_super_admin)) {
+            return true;
+        }
+
         if (
             empty($user->role_id)
             || !Schema::hasTable('roles')
