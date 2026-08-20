@@ -589,7 +589,9 @@ class PropertyWorkflowService
                 $lockedProperty
             );
 
-            if ($revision->status === PropertyWorkflowStatus::APPROVED) {
+            if (
+                in_array($revision->status, [PropertyWorkflowStatus::APPROVED, PropertyWorkflowStatus::LIVE, 'approve'], true)
+            ) {
                 return $revision;
             }
 
@@ -598,9 +600,12 @@ class PropertyWorkflowService
                 PropertyWorkflowStatus::RESUBMISSION,
                 PropertyWorkflowStatus::ASSIGNED,
                 PropertyWorkflowStatus::IN_VERIFICATION,
+                PropertyWorkflowStatus::APPROVED,
+                PropertyWorkflowStatus::LIVE,
+                'approve',
             ];
 
-            if (!in_array($revision->status, $allowedStatuses, true)) {
+            if (!$this->isSystemAdmin($actor) && !in_array($revision->status, $allowedStatuses, true)) {
                 throw ValidationException::withMessages([
                     'status' => [
                         'This action is not allowed while the property verification status is '
@@ -727,7 +732,7 @@ class PropertyWorkflowService
                 $lockedProperty
             );
 
-            if ($revision->status === PropertyWorkflowStatus::APPROVED) {
+            if (!$this->isSystemAdmin($actor) && in_array($revision->status, [PropertyWorkflowStatus::APPROVED, PropertyWorkflowStatus::LIVE, 'approve'], true)) {
                 throw ValidationException::withMessages([
                     'status' => [
                         'This property is already approved. Reject is not allowed after approval.',
@@ -740,9 +745,12 @@ class PropertyWorkflowService
                 PropertyWorkflowStatus::RESUBMISSION,
                 PropertyWorkflowStatus::ASSIGNED,
                 PropertyWorkflowStatus::IN_VERIFICATION,
+                PropertyWorkflowStatus::APPROVED,
+                PropertyWorkflowStatus::LIVE,
+                'approve',
             ];
 
-            if (!in_array($revision->status, $allowedStatuses, true)) {
+            if (!$this->isSystemAdmin($actor) && !in_array($revision->status, $allowedStatuses, true)) {
                 throw ValidationException::withMessages([
                     'status' => [
                         'This action is not allowed while the property verification status is '
@@ -965,7 +973,11 @@ class PropertyWorkflowService
             $revision = $this->createInitialRevisionForProperty($property, $actor);
         }
 
-        if ($actor && $this->isSystemAdmin($actor)) {
+        if (($actor && $this->isSystemAdmin($actor)) || $this->isSystemAdmin()) {
+            return $revision;
+        }
+
+        if (in_array($revision->status, ['approve', 'approved', PropertyWorkflowStatus::APPROVED, PropertyWorkflowStatus::LIVE], true)) {
             return $revision;
         }
 
@@ -1073,8 +1085,12 @@ class PropertyWorkflowService
         ]);
     }
 
-    private function isSystemAdmin(User $user): bool
+    private function isSystemAdmin(?User $user = null): bool
     {
+        if (!$user) {
+            $user = Auth::user();
+        }
+
         if (empty($user)) {
             return false;
         }
@@ -1085,6 +1101,12 @@ class PropertyWorkflowService
 
         if (!empty($user->is_admin) || !empty($user->is_super_admin)) {
             return true;
+        }
+
+        if (method_exists($user, 'hasRole')) {
+            if ($user->hasRole('admin') || $user->hasRole('Administrator') || $user->hasRole('super-admin')) {
+                return true;
+            }
         }
 
         if (
@@ -1104,7 +1126,7 @@ class PropertyWorkflowService
 
         $roleValues = collect([
             $role->name ?? null,
-            $role->slug ?? null,
+            $role->prefix ?? null,
             $role->role_name ?? null,
         ])
             ->filter()
