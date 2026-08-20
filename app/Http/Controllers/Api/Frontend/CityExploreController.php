@@ -275,6 +275,55 @@ class CityExploreController extends Controller
             ->filter()
             ->all();
 
+        $hasUserPhoto = Schema::hasColumn('users', 'profile_photo');
+        $hasUserAvatar = Schema::hasColumn('users', 'avatar');
+        $hasUserImage = Schema::hasColumn('users', 'image');
+        $hasDetailImage = Schema::hasTable('user_details') && Schema::hasColumn('user_details', 'profile_image');
+
+        $selects = [
+            'users.id',
+            'users.first_name',
+            'users.last_name',
+            'users.user_name',
+            'users.email',
+            'users.phone',
+            'users.unique_id',
+            'users.role_id',
+            'users.isapproved',
+            'users.created_at',
+            'users.city_id as user_city_id',
+            'user_details.city_id as detail_city_id',
+            'user_details.state_id as detail_state_id',
+            'user_details.country_id as detail_country_id',
+            'user_details.bussiness_name',
+            'user_details.bussiness_address',
+            'user_details.bussiness_email',
+            'user_details.business_phone',
+            'user_details.profile_photo as detail_profile_photo',
+            'user_details.license_number',
+            'user_details.rera_number',
+            'user_details.about_us',
+            'user_details.address',
+            'user_details.pin_code',
+            'user_details.alternate_number',
+            'roles.name as role_name',
+            DB::raw('COALESCE(user_cities.name, detail_cities.name) as city_name'),
+            DB::raw('user_states.name as state_name'),
+        ];
+
+        if ($hasUserPhoto) {
+            $selects[] = 'users.profile_photo as user_profile_photo';
+        }
+        if ($hasUserAvatar) {
+            $selects[] = 'users.avatar as user_avatar';
+        }
+        if ($hasUserImage) {
+            $selects[] = 'users.image as user_image';
+        }
+        if ($hasDetailImage) {
+            $selects[] = 'user_details.profile_image as detail_profile_image';
+        }
+
         $query = User::query()
             ->leftJoin('user_details', 'user_details.user_id', '=', 'users.id')
             ->leftJoin('roles', 'roles.id', '=', 'users.role_id')
@@ -287,36 +336,7 @@ class CityExploreController extends Controller
             ->leftJoin('states as user_states', function ($join) {
                 $join->on('user_states.id', '=', 'user_cities.state_id');
             })
-            ->select([
-                'users.id',
-                'users.first_name',
-                'users.last_name',
-                'users.user_name',
-                'users.email',
-                'users.phone',
-                'users.unique_id',
-                'users.role_id',
-                'users.isapproved',
-                'users.created_at',
-                'users.city_id as user_city_id',
-                'user_details.city_id as detail_city_id',
-                'user_details.state_id as detail_state_id',
-                'user_details.country_id as detail_country_id',
-                'user_details.bussiness_name',
-                'user_details.bussiness_address',
-                'user_details.bussiness_email',
-                'user_details.business_phone',
-                'user_details.profile_photo',
-                'user_details.license_number',
-                'user_details.rera_number',
-                'user_details.about_us',
-                'user_details.address',
-                'user_details.pin_code',
-                'user_details.alternate_number',
-                'roles.name as role_name',
-                DB::raw('COALESCE(user_cities.name, detail_cities.name) as city_name'),
-                DB::raw('user_states.name as state_name'),
-            ])
+            ->select($selects)
             ->where(function ($cityQuery) use ($cityId) {
                 if (Schema::hasColumn('users', 'city_id')) {
                     $cityQuery->where('users.city_id', $cityId);
@@ -448,15 +468,42 @@ class CityExploreController extends Controller
             $fullName = $user->user_name ?? $user->bussiness_name ?? $user->email ?? ('User #' . $user->id);
         }
 
-        $rawPhoto = $user->profile_photo ?? null;
+        $rawPhoto = $user->detail_profile_photo
+            ?? $user->user_profile_photo
+            ?? $user->detail_profile_image
+            ?? $user->user_avatar
+            ?? $user->user_image
+            ?? null;
+
         $photoUrl = null;
 
         if ($rawPhoto && is_string($rawPhoto) && trim($rawPhoto) !== '') {
             $trimmed = trim($rawPhoto);
+            $trimmed = str_replace('\\/', '/', $trimmed);
+            $trimmed = ltrim($trimmed, '/');
+
             if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
                 $photoUrl = $trimmed;
             } else {
-                $photoUrl = url(ltrim($trimmed, '/'));
+                if (str_starts_with($trimmed, 'storage/uploads/')) {
+                    $trimmed = str_replace('storage/uploads/', 'uploads/', $trimmed);
+                }
+                if (str_starts_with($trimmed, 'public/uploads/')) {
+                    $trimmed = str_replace('public/uploads/', 'uploads/', $trimmed);
+                }
+
+                if (str_starts_with($trimmed, 'uploads/')) {
+                    $relativePath = substr($trimmed, strlen('uploads/'));
+                    if (class_exists('Illuminate\Support\Facades\Storage') && Storage::disk('public_uploads')->exists($relativePath)) {
+                        $photoUrl = Storage::disk('public_uploads')->url($relativePath);
+                    } else {
+                        $photoUrl = url('uploads/' . ltrim($relativePath, '/'));
+                    }
+                } elseif (str_starts_with($trimmed, 'storage/')) {
+                    $photoUrl = url($trimmed);
+                } else {
+                    $photoUrl = url('uploads/users/' . ltrim($trimmed, '/'));
+                }
             }
         }
 

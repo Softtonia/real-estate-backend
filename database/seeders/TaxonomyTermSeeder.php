@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Taxonomy;
 use App\Models\TaxonomyTerm;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class TaxonomyTermSeeder extends Seeder
@@ -105,205 +106,133 @@ class TaxonomyTermSeeder extends Seeder
 
     private function seedPropertyTypeTerms(): void
     {
-        $taxonomy = Taxonomy::where('slug', 'property-type')->first();
+        $propertyTaxonomy = Taxonomy::where('slug', 'property')->first();
+        $propertyTypeTaxonomy = Taxonomy::where('slug', 'property-type')->first();
 
-        if (!$taxonomy) {
+        if (!$propertyTypeTaxonomy) {
             return;
         }
 
-        /*
-         * Parent terms for property-type taxonomy.
-         * Ye parents same taxonomy ke andar banenge, taki hierarchy properly work kare.
-         */
-        $parents = [
-            'Residential' => 1,
-            'Commercial' => 2,
-            'Agricultural' => 3,
-            'Industrial' => 4,
-        ];
+        $groupNames = ['Residential', 'Commercial', 'Agricultural', 'Industrial'];
+        $propertyGroupTerms = [];
+        $propertyTypeGroupTerms = [];
 
-        $parentIds = [];
+        // 1. Fetch/create parent Property terms (Taxonomy 2: Property)
+        if ($propertyTaxonomy) {
+            foreach ($groupNames as $idx => $gName) {
+                $term = TaxonomyTerm::updateOrCreate(
+                    [
+                        'taxonomy_id' => $propertyTaxonomy->id,
+                        'slug' => Str::slug($gName),
+                    ],
+                    [
+                        'parent_id' => null,
+                        'name' => $gName,
+                        'sort_order' => $idx + 1,
+                        'status' => true,
+                    ]
+                );
+                $propertyGroupTerms[$gName] = $term;
+            }
+        }
 
-        foreach ($parents as $parentName => $sortOrder) {
-            $parentSlug = Str::slug($parentName);
-
-            $parent = TaxonomyTerm::updateOrCreate(
+        // 2. Fetch/create parent Property Type terms (Taxonomy 3: Property Type)
+        foreach ($groupNames as $idx => $gName) {
+            $term = TaxonomyTerm::updateOrCreate(
                 [
-                    'taxonomy_id' => $taxonomy->id,
-                    'slug' => $parentSlug,
+                    'taxonomy_id' => $propertyTypeTaxonomy->id,
+                    'slug' => Str::slug($gName),
                 ],
                 [
                     'parent_id' => null,
-                    'name' => $parentName,
-                    'description' => null,
-                    'sort_order' => $sortOrder,
+                    'name' => $gName,
+                    'sort_order' => $idx + 1,
                     'status' => true,
                 ]
             );
-
-            $parentIds[$parentSlug] = $parent->id;
+            $propertyTypeGroupTerms[$gName] = $term;
         }
 
+        // 3. Define all 38 Magicbricks Property Types with exact slugs & grouping
         $propertyTypes = [
-            [
-                'name' => 'Apartments',
-                'parent' => 'Residential',
-                'sort_order' => 1,
-            ],
-            [
-                'name' => 'Independent Houses',
-                'parent' => 'Residential',
-                'sort_order' => 2,
-            ],
-            [
-                'name' => 'Plots',
-                'parent' => 'Residential',
-                'sort_order' => 3,
-            ],
-            [
-                'name' => 'Townhouses',
-                'parent' => 'Residential',
-                'sort_order' => 4,
-            ],
-            [
-                'name' => 'Bungalows',
-                'parent' => 'Residential',
-                'sort_order' => 5,
-            ],
-            [
-                'name' => 'Office Spaces',
-                'parent' => 'Commercial',
-                'sort_order' => 6,
-            ],
-            [
-                'name' => 'Retail Spaces',
-                'parent' => 'Commercial',
-                'sort_order' => 7,
-            ],
-            [
-                'name' => 'Buildings',
-                'parent' => 'Commercial',
-                'sort_order' => 8,
-            ],
-            [
-                'name' => 'Hospitality Properties',
-                'parent' => 'Commercial',
-                'sort_order' => 9,
-            ],
-            [
-                'name' => 'Warehousing Spaces',
-                'parent' => 'Commercial',
-                'sort_order' => 10,
-            ],
-            [
-                'name' => 'Institutional Properties',
-                'parent' => 'Commercial',
-                'sort_order' => 11,
-            ],
-            [
-                'name' => 'Pg',
-                'parent' => 'Commercial',
-                'sort_order' => 12,
-            ],
-            [
-                'name' => 'Room/Bed in a Shared-Flat',
-                'parent' => 'Commercial',
-                'sort_order' => 13,
-            ],
-            [
-                'name' => 'Crop-Based Agricultural Land',
-                'parent' => 'Agricultural',
-                'sort_order' => 14,
-            ],
-            [
-                'name' => 'Horticulture Land',
-                'parent' => 'Agricultural',
-                'sort_order' => 15,
-            ],
-            [
-                'name' => 'Plantation Land',
-                'parent' => 'Agricultural',
-                'sort_order' => 16,
-            ],
-            [
-                'name' => 'Organic Farmland',
-                'parent' => 'Agricultural',
-                'sort_order' => 17,
-            ],
-            [
-                'name' => 'Fallow Land',
-                'parent' => 'Agricultural',
-                'sort_order' => 18,
-            ],
-            [
-                'name' => 'Pasture Land',
-                'parent' => 'Agricultural',
-                'sort_order' => 19,
-            ],
-            [
-                'name' => 'Agroforestry Land',
-                'parent' => 'Agricultural',
-                'sort_order' => 20,
-            ],
-            [
-                'name' => 'Industrial Land',
-                'parent' => 'Industrial',
-                'sort_order' => 21,
-            ],
-            [
-                'name' => 'Industrial Sheds',
-                'parent' => 'Industrial',
-                'sort_order' => 22,
-            ],
-            [
-                'name' => 'Manufacturing Units',
-                'parent' => 'Industrial',
-                'sort_order' => 23,
-            ],
-            [
-                'name' => 'Logistics Facilities',
-                'parent' => 'Industrial',
-                'sort_order' => 24,
-            ],
-            [
-                'name' => 'Industrial Parks',
-                'parent' => 'Industrial',
-                'sort_order' => 25,
-            ],
-            [
-                'name' => 'Logistics Parks',
-                'parent' => 'Industrial',
-                'sort_order' => 26,
-            ],
-            [
-                'name' => 'Hazardous Industry Zones',
-                'parent' => 'Industrial',
-                'sort_order' => 27,
-            ],
-            [
-                'name' => 'Textile',
-                'parent' => 'Industrial',
-                'sort_order' => 28,
-            ],
+            // Residential
+            ['name' => 'Apartment', 'slug' => 'apartment', 'parent' => 'Residential', 'sort' => 1],
+            ['name' => 'Flat', 'slug' => 'flat', 'parent' => 'Residential', 'sort' => 2],
+            ['name' => 'Villa', 'slug' => 'villa', 'parent' => 'Residential', 'sort' => 3],
+            ['name' => 'Independent House', 'slug' => 'independent-house', 'parent' => 'Residential', 'sort' => 4],
+            ['name' => 'Builder Floor', 'slug' => 'builder-floor', 'parent' => 'Residential', 'sort' => 5],
+            ['name' => 'Residential Plot', 'slug' => 'residential-plot', 'parent' => 'Residential', 'sort' => 6],
+            ['name' => 'Duplex', 'slug' => 'duplex', 'parent' => 'Residential', 'sort' => 7],
+            ['name' => 'Penthouse', 'slug' => 'penthouse', 'parent' => 'Residential', 'sort' => 8],
+
+            // Commercial
+            ['name' => 'Office Space', 'slug' => 'office-space', 'parent' => 'Commercial', 'sort' => 9],
+            ['name' => 'Showroom', 'slug' => 'showroom', 'parent' => 'Commercial', 'sort' => 10],
+            ['name' => 'Shopping Complex / Mall', 'slug' => 'shopping-complex-mall', 'parent' => 'Commercial', 'sort' => 11],
+            ['name' => 'Commercial Building', 'slug' => 'commercial-building', 'parent' => 'Commercial', 'sort' => 12],
+            ['name' => 'Warehouse', 'slug' => 'warehouse', 'parent' => 'Commercial', 'sort' => 13],
+            ['name' => 'Hotel', 'slug' => 'hotel', 'parent' => 'Commercial', 'sort' => 14],
+            ['name' => 'Restaurant / Cafe', 'slug' => 'restaurant-cafe', 'parent' => 'Commercial', 'sort' => 15],
+            ['name' => 'Business Centre', 'slug' => 'business-centre', 'parent' => 'Commercial', 'sort' => 16],
+            ['name' => 'Co-working Space', 'slug' => 'co-working-space', 'parent' => 'Commercial', 'sort' => 17],
+
+            // Agricultural
+            ['name' => 'Agricultural Land / Farmland', 'slug' => 'agricultural-land-farmland', 'parent' => 'Agricultural', 'sort' => 18],
+            ['name' => 'Crop Land', 'slug' => 'crop-land', 'parent' => 'Agricultural', 'sort' => 19],
+            ['name' => 'Orchard / Fruit Farm', 'slug' => 'orchard-fruit-farm', 'parent' => 'Agricultural', 'sort' => 20],
+            ['name' => 'Plantation Land', 'slug' => 'plantation-land', 'parent' => 'Agricultural', 'sort' => 21],
+            ['name' => 'Horticultural Land', 'slug' => 'horticultural-land', 'parent' => 'Agricultural', 'sort' => 22],
+            ['name' => 'Dairy Farm Land', 'slug' => 'dairy-farm-land', 'parent' => 'Agricultural', 'sort' => 23],
+            ['name' => 'Poultry Farm Land', 'slug' => 'poultry-farm-land', 'parent' => 'Agricultural', 'sort' => 24],
+            ['name' => 'Agricultural Farmhouse', 'slug' => 'agricultural-farmhouse', 'parent' => 'Agricultural', 'sort' => 25],
+            ['name' => 'Grazing / Pasture Land', 'slug' => 'grazing-pasture-land', 'parent' => 'Agricultural', 'sort' => 26],
+            ['name' => 'Irrigated Agricultural Land', 'slug' => 'irrigated-agricultural-land', 'parent' => 'Agricultural', 'sort' => 27],
+            ['name' => 'Non-Irrigated Agricultural Land', 'slug' => 'non-irrigated-agricultural-land', 'parent' => 'Agricultural', 'sort' => 28],
+
+            // Industrial
+            ['name' => 'Industrial Plot', 'slug' => 'industrial-plot', 'parent' => 'Industrial', 'sort' => 29],
+            ['name' => 'Factory', 'slug' => 'factory', 'parent' => 'Industrial', 'sort' => 30],
+            ['name' => 'Manufacturing Unit', 'slug' => 'manufacturing-unit', 'parent' => 'Industrial', 'sort' => 31],
+            ['name' => 'Industrial Shed', 'slug' => 'industrial-shed', 'parent' => 'Industrial', 'sort' => 32],
+            ['name' => 'Warehouse / Godown', 'slug' => 'warehouse-godown', 'parent' => 'Industrial', 'sort' => 33],
+            ['name' => 'Workshop', 'slug' => 'workshop', 'parent' => 'Industrial', 'sort' => 34],
+            ['name' => 'Industrial Building', 'slug' => 'industrial-building', 'parent' => 'Industrial', 'sort' => 35],
+            ['name' => 'Logistics / Distribution Centre', 'slug' => 'logistics-distribution-centre', 'parent' => 'Industrial', 'sort' => 36],
+            ['name' => 'Cold Storage', 'slug' => 'cold-storage', 'parent' => 'Industrial', 'sort' => 37],
+            ['name' => 'Industrial Estate', 'slug' => 'industrial-estate', 'parent' => 'Industrial', 'sort' => 38],
         ];
 
-        foreach ($propertyTypes as $type) {
-            $parentSlug = Str::slug($type['parent']);
-            $parentId = $parentIds[$parentSlug] ?? null;
+        foreach ($propertyTypes as $pt) {
+            $gName = $pt['parent'];
+            $parentTypeTerm = $propertyTypeGroupTerms[$gName] ?? null;
+            $parentPropTerm = $propertyGroupTerms[$gName] ?? null;
 
-            TaxonomyTerm::updateOrCreate(
+            $typeTerm = TaxonomyTerm::updateOrCreate(
                 [
-                    'taxonomy_id' => $taxonomy->id,
-                    'slug' => Str::slug($type['name']),
+                    'taxonomy_id' => $propertyTypeTaxonomy->id,
+                    'slug' => $pt['slug'],
                 ],
                 [
-                    'parent_id' => $parentId,
-                    'name' => $type['name'],
+                    'parent_id' => $parentTypeTerm?->id,
+                    'name' => $pt['name'],
                     'description' => null,
-                    'sort_order' => $type['sort_order'],
+                    'sort_order' => $pt['sort'],
                     'status' => true,
                 ]
             );
+
+            if ($parentPropTerm && DB::getSchemaBuilder()->hasTable('taxonomy_term_relations')) {
+                DB::table('taxonomy_term_relations')->updateOrInsert(
+                    [
+                        'parent_taxonomy_term_id' => $parentPropTerm->id,
+                        'taxonomy_term_id' => $typeTerm->id,
+                    ],
+                    [
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]
+                );
+            }
         }
     }
 
