@@ -30,6 +30,30 @@ class CustomFieldGroup extends Model
                 $group->group_slug = self::generateUniqueSlug($group->group_name, $group->id);
             }
         });
+
+        static::deleting(function ($group) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($group) {
+                $group->locationRules()->delete();
+
+                foreach ($group->fields as $field) {
+                    $field->locationRules()->delete();
+                    $field->options()->delete();
+
+                    $repeaterIds = $field->repeaters()->pluck('id')->toArray();
+                    if (!empty($repeaterIds)) {
+                        CustomFieldRepeaterOption::whereIn('custom_field_repeater_id', $repeaterIds)->delete();
+                        CustomFieldRepeaterValues::whereIn('custom_field_repeater_id', $repeaterIds)->delete();
+                    }
+                    $field->repeaters()->delete();
+                    $field->conditions()->delete();
+
+                    if (method_exists($field, 'values')) {
+                        $field->values()->delete();
+                    }
+                    $field->delete();
+                }
+            });
+        });
     }
 
     public static function generateUniqueSlug(string $name, ?int $ignoreId = null): string

@@ -418,7 +418,15 @@ class CustomFieldGroupController extends Controller
             ]);
 
             $ids = array_values(array_unique($request->ids));
-            $deleted = DB::transaction(fn() => CustomFieldGroup::whereIn('id', $ids)->delete());
+            $deleted = DB::transaction(function () use ($ids) {
+                $groups = CustomFieldGroup::whereIn('id', $ids)->get();
+                $count = 0;
+                foreach ($groups as $group) {
+                    $group->delete();
+                    $count++;
+                }
+                return $count;
+            });
 
             return $this->successResponse('Selected custom field groups deleted successfully.', null, 200, [
                 'deleted_count' => $deleted,
@@ -668,6 +676,21 @@ class CustomFieldGroupController extends Controller
         } catch (Throwable $e) {
             return $this->errorResponse('Unable to delete custom field.', 500, $e->getMessage());
         }
+    }
+
+    public function deleteCustomFieldsById(Request $request, int|string|null $fieldId = null): JsonResponse
+    {
+        $id = $fieldId ?? $request->input('field_id') ?? $request->input('id') ?? $request->input('custom_field_id');
+
+        if (!$id && $request->has('ids')) {
+            return $this->bulkDeleteFields($request);
+        }
+
+        if (!$id) {
+            return $this->errorResponse('Field ID is required.', 400);
+        }
+
+        return $this->destroyFieldById($id);
     }
     public function bulkDeleteFields(Request $request): JsonResponse
     {
