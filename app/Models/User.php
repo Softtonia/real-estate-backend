@@ -127,20 +127,50 @@ class User extends Authenticatable implements CanResetPassword
     }
 
     /**
-     * User detail record.
+     * User personal detail record.
      */
-    public function userDetail(): HasOne
+    public function personalDetail(): HasOne
     {
         return $this->hasOne(
-            UserDetail::class,
+            UserPersonalDetail::class,
             'user_id',
             'id'
         );
     }
 
+    public function userPersonalDetail(): HasOne
+    {
+        return $this->personalDetail();
+    }
+
+    /**
+     * User business detail record.
+     */
+    public function businessDetail(): HasOne
+    {
+        return $this->hasOne(
+            UserBusinessDetail::class,
+            'user_id',
+            'id'
+        );
+    }
+
+    public function userBusinessDetail(): HasOne
+    {
+        return $this->businessDetail();
+    }
+
+    /**
+     * User detail record (legacy compatibility, fallback to personalDetail).
+     */
+    public function userDetail(): HasOne
+    {
+        return $this->personalDetail();
+    }
+
     public function userDetails(): HasOne
     {
-        return $this->userDetail();
+        return $this->personalDetail();
     }
 
     /**

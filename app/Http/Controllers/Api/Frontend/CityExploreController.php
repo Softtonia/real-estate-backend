@@ -378,22 +378,25 @@ class CityExploreController extends Controller
         $hasUserIsApproved = Schema::hasColumn('users', 'isapproved');
         $hasUserCity = Schema::hasColumn('users', 'city_id');
 
+        $hasPersonalTable = Schema::hasTable('user_personal_details');
+        $hasBusinessTable = Schema::hasTable('user_business_details');
         $hasDetailTable = Schema::hasTable('user_details');
-        $hasDetailCity = $hasDetailTable && Schema::hasColumn('user_details', 'city_id');
-        $hasDetailState = $hasDetailTable && Schema::hasColumn('user_details', 'state_id');
-        $hasDetailCountry = $hasDetailTable && Schema::hasColumn('user_details', 'country_id');
-        $hasDetailBName = $hasDetailTable && Schema::hasColumn('user_details', 'bussiness_name');
-        $hasDetailBAddress = $hasDetailTable && Schema::hasColumn('user_details', 'bussiness_address');
-        $hasDetailBEmail = $hasDetailTable && Schema::hasColumn('user_details', 'bussiness_email');
-        $hasDetailBPhone = $hasDetailTable && Schema::hasColumn('user_details', 'business_phone');
-        $hasDetailPhoto = $hasDetailTable && Schema::hasColumn('user_details', 'profile_photo');
+
+        $hasDetailCity = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'city_id')) || ($hasDetailTable && Schema::hasColumn('user_details', 'city_id'));
+        $hasDetailState = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'state_id')) || ($hasDetailTable && Schema::hasColumn('user_details', 'state_id'));
+        $hasDetailCountry = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'country_id')) || ($hasDetailTable && Schema::hasColumn('user_details', 'country_id'));
+        $hasDetailBName = ($hasBusinessTable && Schema::hasColumn('user_business_details', 'business_name')) || ($hasDetailTable && Schema::hasColumn('user_details', 'bussiness_name'));
+        $hasDetailBAddress = ($hasBusinessTable && Schema::hasColumn('user_business_details', 'business_address')) || ($hasDetailTable && Schema::hasColumn('user_details', 'bussiness_address'));
+        $hasDetailBEmail = ($hasBusinessTable && Schema::hasColumn('user_business_details', 'business_email')) || ($hasDetailTable && Schema::hasColumn('user_details', 'bussiness_email'));
+        $hasDetailBPhone = ($hasBusinessTable && Schema::hasColumn('user_business_details', 'business_phone')) || ($hasDetailTable && Schema::hasColumn('user_details', 'business_phone'));
+        $hasDetailPhoto = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'profile_photo')) || ($hasDetailTable && Schema::hasColumn('user_details', 'profile_photo'));
         $hasDetailImage = $hasDetailTable && Schema::hasColumn('user_details', 'profile_image');
-        $hasDetailLicense = $hasDetailTable && Schema::hasColumn('user_details', 'license_number');
-        $hasDetailRera = $hasDetailTable && Schema::hasColumn('user_details', 'rera_number');
-        $hasDetailAbout = $hasDetailTable && Schema::hasColumn('user_details', 'about_us');
-        $hasDetailAddress = $hasDetailTable && Schema::hasColumn('user_details', 'address');
-        $hasDetailPin = $hasDetailTable && Schema::hasColumn('user_details', 'pin_code');
-        $hasDetailAltPhone = $hasDetailTable && Schema::hasColumn('user_details', 'alternate_number');
+        $hasDetailLicense = ($hasBusinessTable && Schema::hasColumn('user_business_details', 'license_number')) || ($hasDetailTable && Schema::hasColumn('user_details', 'license_number'));
+        $hasDetailRera = ($hasBusinessTable && Schema::hasColumn('user_business_details', 'rera_number')) || ($hasDetailTable && Schema::hasColumn('user_details', 'rera_number'));
+        $hasDetailAbout = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'about_us')) || ($hasDetailTable && Schema::hasColumn('user_details', 'about_us'));
+        $hasDetailAddress = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'address')) || ($hasDetailTable && Schema::hasColumn('user_details', 'address'));
+        $hasDetailPin = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'pin_code')) || ($hasDetailTable && Schema::hasColumn('user_details', 'pin_code'));
+        $hasDetailAltPhone = ($hasPersonalTable && Schema::hasColumn('user_personal_details', 'alternate_number')) || ($hasDetailTable && Schema::hasColumn('user_details', 'alternate_number'));
 
         $selects = [
             'users.id',
@@ -410,25 +413,29 @@ class CityExploreController extends Controller
         $selects[] = $hasUserIsApproved ? 'users.isapproved' : DB::raw('1 as isapproved');
         $selects[] = $hasUserCity ? 'users.city_id as user_city_id' : DB::raw('NULL as user_city_id');
 
-        $selects[] = $hasDetailCity ? 'user_details.city_id as detail_city_id' : DB::raw('NULL as detail_city_id');
-        $selects[] = $hasDetailState ? 'user_details.state_id as detail_state_id' : DB::raw('NULL as detail_state_id');
-        $selects[] = $hasDetailCountry ? 'user_details.country_id as detail_country_id' : DB::raw('NULL as detail_country_id');
-        $selects[] = $hasDetailBName ? 'user_details.bussiness_name' : DB::raw('NULL as bussiness_name');
-        $selects[] = $hasDetailBAddress ? 'user_details.bussiness_address' : DB::raw('NULL as bussiness_address');
-        $selects[] = $hasDetailBEmail ? 'user_details.bussiness_email' : DB::raw('NULL as bussiness_email');
-        $selects[] = $hasDetailBPhone ? 'user_details.business_phone' : DB::raw('NULL as business_phone');
-        $selects[] = $hasDetailPhoto ? 'user_details.profile_photo as detail_profile_photo' : DB::raw('NULL as detail_profile_photo');
-        $selects[] = $hasDetailLicense ? 'user_details.license_number' : DB::raw('NULL as license_number');
-        $selects[] = $hasDetailRera ? 'user_details.rera_number' : DB::raw('NULL as rera_number');
-        $selects[] = $hasDetailAbout ? 'user_details.about_us' : DB::raw('NULL as about_us');
-        $selects[] = $hasDetailAddress ? 'user_details.address' : DB::raw('NULL as address');
-        $selects[] = $hasDetailPin ? 'user_details.pin_code' : DB::raw('NULL as pin_code');
-        $selects[] = $hasDetailAltPhone ? 'user_details.alternate_number' : DB::raw('NULL as alternate_number');
+        $selects[] = $hasPersonalTable ? 'user_personal_details.city_id as detail_city_id' : ($hasDetailCity ? 'user_details.city_id as detail_city_id' : DB::raw('NULL as detail_city_id'));
+        $selects[] = $hasPersonalTable ? 'user_personal_details.state_id as detail_state_id' : ($hasDetailState ? 'user_details.state_id as detail_state_id' : DB::raw('NULL as detail_state_id'));
+        $selects[] = $hasPersonalTable ? 'user_personal_details.country_id as detail_country_id' : ($hasDetailCountry ? 'user_details.country_id as detail_country_id' : DB::raw('NULL as detail_country_id'));
+        $selects[] = $hasBusinessTable ? 'user_business_details.business_name as bussiness_name' : ($hasDetailBName ? 'user_details.bussiness_name' : DB::raw('NULL as bussiness_name'));
+        $selects[] = $hasBusinessTable ? 'user_business_details.business_address as bussiness_address' : ($hasDetailBAddress ? 'user_details.bussiness_address' : DB::raw('NULL as bussiness_address'));
+        $selects[] = $hasBusinessTable ? 'user_business_details.business_email as bussiness_email' : ($hasDetailBEmail ? 'user_details.bussiness_email' : DB::raw('NULL as bussiness_email'));
+        $selects[] = $hasBusinessTable ? 'user_business_details.business_phone' : ($hasDetailBPhone ? 'user_details.business_phone' : DB::raw('NULL as business_phone'));
+        $selects[] = $hasPersonalTable ? 'user_personal_details.profile_photo as detail_profile_photo' : ($hasDetailPhoto ? 'user_details.profile_photo as detail_profile_photo' : DB::raw('NULL as detail_profile_photo'));
+        $selects[] = $hasBusinessTable ? 'user_business_details.license_number' : ($hasDetailLicense ? 'user_details.license_number' : DB::raw('NULL as license_number'));
+        $selects[] = $hasBusinessTable ? 'user_business_details.rera_number' : ($hasDetailRera ? 'user_details.rera_number' : DB::raw('NULL as rera_number'));
+        $selects[] = $hasPersonalTable ? 'user_personal_details.about_us' : ($hasDetailAbout ? 'user_details.about_us' : DB::raw('NULL as about_us'));
+        $selects[] = $hasPersonalTable ? 'user_personal_details.address' : ($hasDetailAddress ? 'user_details.address' : DB::raw('NULL as address'));
+        $selects[] = $hasPersonalTable ? 'user_personal_details.pin_code' : ($hasDetailPin ? 'user_details.pin_code' : DB::raw('NULL as pin_code'));
+        $selects[] = $hasPersonalTable ? 'user_personal_details.alternate_number' : ($hasDetailAltPhone ? 'user_details.alternate_number' : DB::raw('NULL as alternate_number'));
 
-        if ($hasUserPhoto) $selects[] = 'users.profile_photo as user_profile_photo';
-        if ($hasUserAvatar) $selects[] = 'users.avatar as user_avatar';
-        if ($hasUserImage) $selects[] = 'users.image as user_image';
-        if ($hasDetailImage) $selects[] = 'user_details.profile_image as detail_profile_image';
+        if ($hasUserPhoto)
+            $selects[] = 'users.profile_photo as user_profile_photo';
+        if ($hasUserAvatar)
+            $selects[] = 'users.avatar as user_avatar';
+        if ($hasUserImage)
+            $selects[] = 'users.image as user_image';
+        if ($hasDetailImage)
+            $selects[] = 'user_details.profile_image as detail_profile_image';
 
         if ($hasRoleNameCol && $hasRoleRoleNameCol) {
             $selects[] = DB::raw('COALESCE(roles.role_name, roles.name) as role_name');
@@ -449,7 +456,13 @@ class CityExploreController extends Controller
 
         $query = User::query();
 
-        if ($hasDetailTable) {
+        if ($hasPersonalTable) {
+            $query->leftJoin('user_personal_details', 'user_personal_details.user_id', '=', 'users.id');
+        }
+        if ($hasBusinessTable) {
+            $query->leftJoin('user_business_details', 'user_business_details.user_id', '=', 'users.id');
+        }
+        if (!$hasPersonalTable && $hasDetailTable) {
             $query->leftJoin('user_details', 'user_details.user_id', '=', 'users.id');
         }
 
@@ -529,11 +542,11 @@ class CityExploreController extends Controller
 
         if ($paginated) {
             $paginator = $query->paginate($perPage);
-            $paginator->getCollection()->transform(fn ($user) => $this->formatUserCard($user));
+            $paginator->getCollection()->transform(fn($user) => $this->formatUserCard($user));
             return $paginator;
         }
 
-        return $query->limit($perPage)->get()->map(fn ($user) => $this->formatUserCard($user))->all();
+        return $query->limit($perPage)->get()->map(fn($user) => $this->formatUserCard($user))->all();
     }
 
     /**

@@ -36,31 +36,31 @@ class KycController extends Controller
         // Validation
         try {
             $request->validate([
-                // Users table fields
+                // User table fields
                 'first_name' => ['required', 'string', 'max:255'],
-                'last_name' => ['required', 'string', 'max:255'],
+                'last_name' => ['nullable', 'string', 'max:255'],
                 'user_name' => [
-                    'required',
+                    'nullable',
                     'string',
                     'min:3',
                     'max:20',
                     'regex:/^[a-zA-Z0-9._]+$/',
-                    Rule::unique('users', 'user_name')->ignore($user->id),
+                    Rule::unique('users', 'user_name')->ignore($user->id)
                 ],
-                'email' => ['nullable', 'email'],
-                'phone' => ['nullable', 'string'],
-                'country_id' => ['required', 'exists:countries,id'],
-                'state_id' => ['required', 'exists:states,id'],
-                'city_id' => ['required', 'exists:cities,id'],
+                'email' => ['nullable', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+                'phone' => ['nullable', 'string', Rule::unique('users', 'phone')->ignore($user->id)],
+                'country_id' => ['nullable', 'exists:countries,id'],
+                'state_id' => ['nullable', 'exists:states,id'],
+                'city_id' => ['nullable', 'exists:cities,id'],
                 'area_locality' => ['nullable', 'string'],
                 'colony' => ['nullable', 'string'],
                 'street_address' => ['nullable', 'string'],
-                'pin_code' => ['required', 'numeric', 'digits:6'],
+                'pin_code' => ['nullable', 'numeric', 'digits:6'],
                 'about' => ['nullable', 'string'],
 
-                // Password
                 'password' => [
                     'nullable',
+                    'string',
                     'min:8',
                     'regex:/[A-Z]/',        
                     'regex:/[a-z]/',        
@@ -68,16 +68,19 @@ class KycController extends Controller
                     'regex:/[@$!%*#?&]/',   
                 ],
 
-                // UserDetails table fields
+                // Business & Personal fields
                 'bussiness_name' => ['nullable', 'string'],
+                'business_name' => ['nullable', 'string'],
                 'bussiness_address' => ['nullable', 'string'],
+                'business_address' => ['nullable', 'string'],
                 'bussiness_email' => ['nullable', 'email'],
+                'business_email' => ['nullable', 'email'],
                 'business_phone' => ['nullable', 'string'],
                 'business_country_id' => ['nullable', 'exists:countries,id'],
                 'business_state_id' => ['nullable', 'exists:states,id'],
                 'business_city_id' => ['nullable', 'exists:cities,id'],
                 'address' => ['nullable', 'string'],
-                'business_pin_code' => ['nullable', 'numeric', 'digits:6'],
+                'business_pin_code' => ['nullable', 'string', 'max:20'],
                 'license_number' => ['nullable', 'string'],
                 'alternate_number' => ['nullable', 'string'],
                 'no_of_employees' => ['nullable', 'numeric'],
@@ -85,21 +88,9 @@ class KycController extends Controller
                 'business_area_locality' => ['nullable', 'string'],
                 'business_colony' => ['nullable', 'string'],
                 'business_street_address' => ['nullable', 'string'],
-
-                // KYC fields
-                'aadhaar_number' => [
-                    'required',
-                    'digits:12',
-                    Rule::unique('user_details', 'aadhaar_number')->ignore($user->id, 'user_id')
-                ],
-                'aadhaar_front' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
-                'aadhaar_back' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'min:10','max:5120'],
-                'business_proof' => ['required', 'file', 'mimes:pdf', 'min:10','max:5120'],
-
             ], [
                 'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
                 'password.regex' => 'Password must include uppercase, lowercase, number, and special character.',
-                'aadhaar_number.digits' => 'Aadhaar number must be 12 digits.',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json(['error' => $e->errors()], 400);
@@ -110,17 +101,17 @@ class KycController extends Controller
             // Update users table
             $user->first_name = $request->first_name;
             $user->last_name = $request->last_name;
-            $user->user_name = $request->user_name;
+            $user->user_name = $request->user_name ?? $user->user_name;
             $user->email = $request->email ?? $user->email;
             $user->phone = $request->phone ?? $user->phone;
-            $user->country_id = $request->country_id;
-            $user->state_id = $request->state_id;
-            $user->city_id = $request->city_id;
-            $user->area_locality = $request->area_locality;
-            $user->colony = $request->colony;
-            $user->street_address = $request->street_address;
-            $user->pin_code = $request->pin_code;
-            $user->about = $request->about;
+            $user->country_id = $request->country_id ?? $user->country_id;
+            $user->state_id = $request->state_id ?? $user->state_id;
+            $user->city_id = $request->city_id ?? $user->city_id;
+            $user->area_locality = $request->area_locality ?? $user->area_locality;
+            $user->colony = $request->colony ?? $user->colony;
+            $user->street_address = $request->street_address ?? $user->street_address;
+            $user->pin_code = $request->pin_code ?? $user->pin_code;
+            $user->about = $request->about ?? $user->about;
 
             if ($request->filled('password')) {
                 $user->password = Hash::make($request->password);
@@ -131,60 +122,54 @@ class KycController extends Controller
             $user->isapproved = 1; 
             $user->save();
 
-            // Update user_details table
-            $userDetail = [
-                'user_id' => $user->id,
-                'bussiness_name' => $request->bussiness_name,
-                'bussiness_address' => $request->bussiness_address,
-                'bussiness_email' => $request->bussiness_email,
-                'business_phone' => $request->business_phone,
-                'country_id' => $request->business_country_id ?? null,
-                'state_id' => $request->business_state_id ?? null,
-                'city_id' => $request->business_city_id ?? null,
-                'address' => $request->address,
-                'pin_code' => $request->business_pin_code,
-                'license_number' => $request->license_number,
-                'alternate_number' => $request->alternate_number,
-                'no_of_employees' => $request->no_of_employees,
-                'about_us' => $request->about_us,
-                'area_locality' => $request->business_area_locality,
-                'colony' => $request->business_colony,
-                'street_address' => $request->business_street_address,
-                'aadhaar_number' => $request->aadhaar_number,
-            ];
-
-            // File uploads
+            // Personal details
+            $profilePhotoPath = null;
             if ($request->hasFile('profile_photo')) {
                 $file = $request->file('profile_photo');
                 $fileName = time() . '_' . str_replace(' ', '_', $file->getClientOriginalName());
                 $file->move(public_path('uploads/users'), $fileName);
-                $userDetail['profile_photo'] = 'uploads/users/' . $fileName;
+                $profilePhotoPath = 'uploads/users/' . $fileName;
             }
 
-            if ($request->hasFile('aadhaar_front')) {
-                $file = $request->file('aadhaar_front');
-                $fileName = time() . '_aadhaar_front_' . $file->getClientOriginalName();
-                $file->move(public_path('uploads/kyc/aadhaarFront'), $fileName);
-                $userDetail['aadhaar_front'] = 'uploads/kyc/aadhaarFront/' . $fileName;
-            }
-
-            if ($request->hasFile('aadhaar_back')) {
-                $file = $request->file('aadhaar_back');
-                $fileName = time() . '_aadhaar_back_' . $file->getClientOriginalName();
-                $file->move(public_path('uploads/kyc/aadhaarBack'), $fileName);
-                $userDetail['aadhaar_back'] = 'uploads/kyc/aadhaarBack/' . $fileName;
-            }
-
-            if ($request->hasFile('business_proof')) {
-                $file = $request->file('business_proof');
-                $fileName = time() . '_business_proof_' . $file->getClientOriginalName();
-                $file->move(public_path('uploads/kyc/businessProof'), $fileName);
-                $userDetail['business_proof'] = 'uploads/kyc/businessProof/' . $fileName;
-            }
-
-            UserDetail::updateOrCreate(
+            UserPersonalDetail::updateOrCreate(
                 ['user_id' => $user->id],
-                $userDetail
+                array_filter([
+                    'address' => $request->address,
+                    'alternate_number' => $request->alternate_number,
+                    'about_us' => $request->about_us,
+                    'profile_photo' => $profilePhotoPath,
+                    'country_id' => $request->country_id,
+                    'state_id' => $request->state_id,
+                    'city_id' => $request->city_id,
+                    'area_locality' => $request->area_locality,
+                    'colony' => $request->colony,
+                    'street_address' => $request->street_address,
+                    'pin_code' => $request->pin_code,
+                ], fn($val) => !is_null($val))
+            );
+
+            // Business details
+            $bName = $request->business_name ?? $request->bussiness_name;
+            $bEmail = $request->business_email ?? $request->bussiness_email;
+            $bAddress = $request->business_address ?? $request->bussiness_address;
+
+            UserBusinessDetail::updateOrCreate(
+                ['user_id' => $user->id],
+                array_filter([
+                    'business_name' => $bName,
+                    'business_email' => $bEmail,
+                    'business_address' => $bAddress,
+                    'business_phone' => $request->business_phone,
+                    'country_id' => $request->business_country_id,
+                    'state_id' => $request->business_state_id,
+                    'city_id' => $request->business_city_id,
+                    'business_pin_code' => $request->business_pin_code,
+                    'license_number' => $request->license_number,
+                    'no_of_employees' => $request->no_of_employees,
+                    'area_locality' => $request->business_area_locality,
+                    'colony' => $request->business_colony,
+                    'street_address' => $request->business_street_address,
+                ], fn($val) => !is_null($val))
             );
 
             DB::commit();

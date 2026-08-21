@@ -45,13 +45,13 @@ class CompanyConsultancyController extends Controller
 
             // Retrieve users with role and details
             $users = User::whereIn('id', $final_consultancy_id_arr)
-                ->with(['role', 'userDetails'])
+                ->with(['role', 'personalDetail', 'businessDetail'])
                 ->get()
                 ->map(function ($user) {
-                if ($user->userDetails && $user->userDetails->profile_photo) {
-                    $user->userDetails->profile_photo_url = url( $user->userDetails->profile_photo);
+                if ($user->personalDetail && $user->personalDetail->profile_photo) {
+                    $user->profile_photo_url = url($user->personalDetail->profile_photo);
                 } else {
-                    $user->userDetails->profile_photo_url = url('images/default.png');
+                    $user->profile_photo_url = url('images/default.png');
                 }
                 return $user;
             });
@@ -75,34 +75,38 @@ class CompanyConsultancyController extends Controller
                 $query->where('name', 'Consultancy'); // Checking by role name
             })->where('created_by', 0)
                 ->with([
-                    'userDetails',
+                    'personalDetail',
+                    'businessDetail',
                     'joinRequest' => function ($query) use ($userId) {
                         $query->where('user_id', $userId);
                     }
                 ])->get();
             $user = User::find($userId);
-            $userDetails = $user->userDetails; // This should return the related user_details
+            $businessDetail = $user->businessDetail;
 
             $returnArr = [];
 
-            foreach ($userDataList as $user) {
-                // Get business name from user_details
-                $business_name = optional($user->userDetails)->business_name ?? '';
+            foreach ($userDataList as $cUser) {
+                // Get business name from businessDetail
+                $bDetail = $cUser->businessDetail;
+                $business_name = $bDetail?->business_name ?? '';
 
                 // Get join request status
-                $joinRequestData = $user->joinRequest->first();
+                $joinRequestData = $cUser->joinRequest->first();
                 $user_status = match (optional($joinRequestData)->status) {
                     'accepted' => 'connected',
                     'requested' => 'requested',
                     default => 'normal',
                 };
 
-                // **Allowed fields only: business_name, unique_id, email_id**
                 $returnArr[] = [
-                    'business_name' => $userDetails->bussiness_name,
-                    'bussiness_address' => $userDetails->bussiness_address,
-                    'unique_id' => $user->unique_id,
-                    'email_id' => $user->email,
+                    'business_name' => $bDetail?->business_name ?? '',
+                    'bussiness_name' => $bDetail?->business_name ?? '',
+                    'bussiness_address' => $bDetail?->business_address ?? '',
+                    'business_address' => $bDetail?->business_address ?? '',
+                    'business_pin_code' => $bDetail?->business_pin_code ?? '',
+                    'unique_id' => $cUser->unique_id,
+                    'email_id' => $cUser->email,
                 ];
             }
 

@@ -646,11 +646,29 @@ class AgentController extends Controller
             $consultancyData = User::whereIn('id', $consultancy_id_arr)->get();
 
             $userData = DB::table('users')
-                ->join('user_details', 'users.id', '=', 'user_details.user_id')
+                ->leftJoin('user_personal_details', 'users.id', '=', 'user_personal_details.user_id')
+                ->leftJoin('user_business_details', 'users.id', '=', 'user_business_details.user_id')
                 ->join('roles', 'users.role_id', '=', 'roles.id')
                 ->where('users.id', $userId)
                 ->where('users.role_id', '!=', 1)
-                ->select('users.*', 'user_details.*', 'roles.name as role_name')
+                ->select(
+                    'users.*',
+                    'user_personal_details.address',
+                    'user_personal_details.profile_photo',
+                    'user_personal_details.alternate_number',
+                    'user_personal_details.about_us',
+                    'user_business_details.business_name as bussiness_name',
+                    'user_business_details.business_name',
+                    'user_business_details.business_phone',
+                    'user_business_details.business_email as bussiness_email',
+                    'user_business_details.business_email',
+                    'user_business_details.business_address as bussiness_address',
+                    'user_business_details.business_address',
+                    'user_business_details.business_pin_code',
+                    'user_business_details.license_number',
+                    'user_business_details.rera_number',
+                    'roles.name as role_name'
+                )
                 ->first();
 // dd($userData );
             // Check if user data exists
@@ -758,11 +776,29 @@ class AgentController extends Controller
 
 
             $userData = DB::table('users')
-                ->join('user_details', 'users.id', '=', 'user_details.user_id')
+                ->leftJoin('user_personal_details', 'users.id', '=', 'user_personal_details.user_id')
+                ->leftJoin('user_business_details', 'users.id', '=', 'user_business_details.user_id')
                 ->join('roles', 'users.role_id', '=', 'roles.id')
                 ->where('users.id', $userId)
                 ->where('users.role_id', '!=', 1)
-                ->select('users.*', 'user_details.*', 'roles.name as role_name')
+                ->select(
+                    'users.*',
+                    'user_personal_details.address',
+                    'user_personal_details.profile_photo',
+                    'user_personal_details.alternate_number',
+                    'user_personal_details.about_us',
+                    'user_business_details.business_name as bussiness_name',
+                    'user_business_details.business_name',
+                    'user_business_details.business_phone',
+                    'user_business_details.business_email as bussiness_email',
+                    'user_business_details.business_email',
+                    'user_business_details.business_address as bussiness_address',
+                    'user_business_details.business_address',
+                    'user_business_details.business_pin_code',
+                    'user_business_details.license_number',
+                    'user_business_details.rera_number',
+                    'roles.name as role_name'
+                )
                 ->first();
 
             // Check if user data exists

@@ -361,58 +361,24 @@ class KycSubmissionService
                 ]);
         }
 
-        if (!Schema::hasTable('user_details') || !Schema::hasColumn('user_details', 'user_id')) {
-            return;
+        $businessPayload = [];
+
+        if ($request->has('rera_number')) {
+            $businessPayload['rera_number'] = $request->input('rera_number');
+        }
+        if ($request->has('business_name')) {
+            $businessPayload['business_name'] = $request->input('business_name');
+        }
+        if ($request->has('bussiness_name')) {
+            $businessPayload['business_name'] = $request->input('bussiness_name');
         }
 
-        $payload = [
-            'user_id' => $user->id,
-        ];
-
-        foreach ([
-            'aadhaar_number',
-            'rera_number',
-            'business_name',
-        ] as $column) {
-            if (!$request->has($column)) {
-                continue;
-            }
-
-            $targetColumn = $column === 'business_name' ? 'bussiness_name' : $column;
-
-            if (Schema::hasColumn('user_details', $targetColumn)) {
-                $payload[$targetColumn] = $request->input($column);
-            }
+        if (!empty($businessPayload)) {
+            \App\Models\UserBusinessDetail::updateOrCreate(
+                ['user_id' => $user->id],
+                $businessPayload
+            );
         }
-
-        if (count($payload) <= 1) {
-            return;
-        }
-
-        if (Schema::hasColumn('user_details', 'updated_at')) {
-            $payload['updated_at'] = now();
-        }
-
-        $exists = DB::table('user_details')
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if ($exists) {
-            $updatePayload = $payload;
-            unset($updatePayload['user_id']);
-
-            DB::table('user_details')
-                ->where('user_id', $user->id)
-                ->update($updatePayload);
-
-            return;
-        }
-
-        if (Schema::hasColumn('user_details', 'created_at')) {
-            $payload['created_at'] = now();
-        }
-
-        DB::table('user_details')->insert($payload);
     }
 
     private function clearKycCaches(User $user): void

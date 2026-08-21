@@ -225,7 +225,7 @@ class PropertySearchService
             }
         }
 
-        return array_values(array_filter($standardGroups, fn ($g) => !empty($g['children'])));
+        return array_values(array_filter($standardGroups, fn($g) => !empty($g['children'])));
     }
 
     public function locationSuggestions(array $filters): array
@@ -259,7 +259,7 @@ class PropertySearchService
                         ->where('cities.name', 'like', "%{$search}%")
                         ->when(
                             Schema::hasColumn('cities', 'status'),
-                            fn ($q) => $q->where('cities.status', 1)
+                            fn($q) => $q->where('cities.status', 1)
                         )
                         ->orderBy('cities.name')
                         ->limit(10)
@@ -345,7 +345,7 @@ class PropertySearchService
                 }
 
                 return $results
-                    ->unique(fn (array $item) => $item['type'] . ':' . mb_strtolower((string) $item['label']))
+                    ->unique(fn(array $item) => $item['type'] . ':' . mb_strtolower((string) $item['label']))
                     ->values()
                     ->all();
             }
@@ -403,19 +403,14 @@ class PropertySearchService
             return $paginator;
         }
 
-        $postIds = $posts->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $postIds = $posts->pluck('id')->map(fn($id) => (int) $id)->all();
 
         $mediaById = $this->mediaByIdForPosts($posts);
         $repeaterValues = $this->repeaterValuesByPost($postIds);
         $keywordsByPost = $this->keywordsByPost($postIds);
         $relationshipsByPost = $this->relationshipsByPost($postIds);
 
-        $posts->transform(function (DynamicPost $post) use (
-            $mediaById,
-            $repeaterValues,
-            $keywordsByPost,
-            $relationshipsByPost
-        ): array {
+        $posts->transform(function (DynamicPost $post) use ($mediaById, $repeaterValues, $keywordsByPost, $relationshipsByPost): array {
             return $this->formatCompleteListing(
                 post: $post,
                 mediaById: $mediaById,
@@ -680,7 +675,7 @@ class PropertySearchService
         foreach ($groups as $termIds) {
             $query->whereHas(
                 'taxonomyTerms',
-                fn (Builder $termQuery) => $termQuery->whereIn(
+                fn(Builder $termQuery) => $termQuery->whereIn(
                     'taxonomy_terms.id',
                     $termIds
                 )
@@ -777,7 +772,7 @@ class PropertySearchService
         if (!empty($termIds)) {
             $query->whereHas(
                 'taxonomyTerms',
-                fn (Builder $termQuery) => $termQuery->whereIn(
+                fn(Builder $termQuery) => $termQuery->whereIn(
                     'taxonomy_terms.id',
                     $termIds
                 )
@@ -811,13 +806,7 @@ class PropertySearchService
 
         $priceExpression = $this->priceSqlExpression('price_cfv');
 
-        $query->whereExists(function ($exists) use (
-            $priceFieldIds,
-            $priceExpression,
-            $filters,
-            $hasMin,
-            $hasMax
-        ): void {
+        $query->whereExists(function ($exists) use ($priceFieldIds, $priceExpression, $filters, $hasMin, $hasMax): void {
             $exists
                 ->selectRaw('1')
                 ->from('custom_field_values as price_cfv')
@@ -886,7 +875,7 @@ class PropertySearchService
             $postTypeIds = DB::table('post_types')
                 ->whereIn('slug', $propertyPostTypeSlugs)
                 ->pluck('id')
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->all();
 
             if (!empty($postTypeIds)) {
@@ -901,8 +890,8 @@ class PropertySearchService
         }
 
         $slugs = is_array($postType) ? $postType : explode(',', (string) $postType);
-        $slugs = array_map(fn ($s) => mb_strtolower(trim((string) $s)), $slugs);
-        $slugs = array_filter($slugs, fn ($s) => $s !== '');
+        $slugs = array_map(fn($s) => mb_strtolower(trim((string) $s)), $slugs);
+        $slugs = array_filter($slugs, fn($s) => $s !== '');
 
         if (empty($slugs)) {
             return;
@@ -921,7 +910,7 @@ class PropertySearchService
                 }
             })
             ->pluck('id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->all();
 
         if (!empty($postTypeIds)) {
@@ -1260,7 +1249,7 @@ class PropertySearchService
                 $cityName,
                 $stateName,
                 $countryName,
-            ])->filter(fn ($value) => $value !== null && $value !== '')
+            ])->filter(fn($value) => $value !== null && $value !== '')
                 ->implode(', '),
         ];
 
@@ -1376,11 +1365,11 @@ class PropertySearchService
                     'taxonomy_slug' => $taxonomy->slug,
                     'selected_term_ids' => $taxonomyTerms
                         ->pluck('id')
-                        ->map(fn ($id) => (int) $id)
+                        ->map(fn($id) => (int) $id)
                         ->values()
                         ->all(),
                     'selected_terms' => $taxonomyTerms
-                        ->map(fn ($term) => [
+                        ->map(fn($term) => [
                             'id' => (int) $term->id,
                             'name' => $term->name,
                             'slug' => $term->slug,
@@ -1528,7 +1517,7 @@ class PropertySearchService
         return MediaFile::query()
             ->whereIn('id', $ids)
             ->get()
-            ->keyBy(fn (MediaFile $media) => (int) $media->id);
+            ->keyBy(fn(MediaFile $media) => (int) $media->id);
     }
 
     private function formatMediaFile(MediaFile $media): array
@@ -1672,7 +1661,7 @@ class PropertySearchService
             ->groupBy('dynamic_post_id')
             ->map(function (Collection $rows): array {
                 return $rows
-                    ->map(fn ($row) => [
+                    ->map(fn($row) => [
                         'id' => (int) $row->id,
                         'value' => $row->keyword,
                         'label' => $row->keyword,
@@ -1725,7 +1714,7 @@ class PropertySearchService
             ->groupBy('dynamic_post_id')
             ->map(function (Collection $items): array {
                 return $items
-                    ->map(fn ($row) => [
+                    ->map(fn($row) => [
                         'post_type_id' => (int) $row->related_post_type_id,
                         'post_type_name' => $row->related_post_type_name,
                         'post_type_slug' => $row->related_post_type_slug,
@@ -1767,7 +1756,7 @@ class PropertySearchService
         $taxonomyIds = DB::table('taxonomies')
             ->whereIn('slug', $taxonomySlugs)
             ->pluck('id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->all();
 
         if (empty($taxonomyIds)) {
@@ -1785,12 +1774,12 @@ class PropertySearchService
             ->whereIn('taxonomy_id', $taxonomyIds)
             ->when(
                 Schema::hasColumn('taxonomy_terms', 'status'),
-                fn ($q) => $q->where('status', true)
+                fn($q) => $q->where('status', true)
             )
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get()
-            ->map(fn ($term) => [
+            ->map(fn($term) => [
                 'id' => (int) $term->id,
                 'value' => $term->slug,
                 'label' => $term->name,
@@ -1833,7 +1822,7 @@ class PropertySearchService
                 ->whereIn('custom_field_id', $fieldIds)
                 ->when(
                     Schema::hasColumn('custom_field_options', 'status'),
-                    fn ($q) => $q->where('status', true)
+                    fn($q) => $q->where('status', true)
                 )
                 ->orderBy('id')
                 ->get()
@@ -1856,7 +1845,7 @@ class PropertySearchService
 
         if ($options->isNotEmpty()) {
             return $options
-                ->unique(fn (array $item) => mb_strtolower((string) $item['value']))
+                ->unique(fn(array $item) => mb_strtolower((string) $item['value']))
                 ->values()
                 ->all();
         }
@@ -1887,13 +1876,13 @@ class PropertySearchService
 
                 return null;
             })
-            ->filter(fn ($value) => $value !== null && $value !== '')
-            ->unique(fn ($value) => mb_strtolower(trim((string) $value)))
-            ->sortBy(fn ($value) => is_numeric($value) ? (float) $value : PHP_FLOAT_MAX)
+            ->filter(fn($value) => $value !== null && $value !== '')
+            ->unique(fn($value) => mb_strtolower(trim((string) $value)))
+            ->sortBy(fn($value) => is_numeric($value) ? (float) $value : PHP_FLOAT_MAX)
             ->values();
 
         return $rows
-            ->map(fn ($value) => [
+            ->map(fn($value) => [
                 'id' => null,
                 'value' => (string) $value,
                 'label' => (string) $value,
@@ -1932,7 +1921,7 @@ class PropertySearchService
             is_array($configured) ? $configured : [],
             $fallback
         ))
-            ->map(fn ($slug) => Str::slug((string) $slug))
+            ->map(fn($slug) => Str::slug((string) $slug))
             ->filter()
             ->unique()
             ->values()
@@ -1995,7 +1984,7 @@ class PropertySearchService
 
         return $query
             ->pluck('tt.id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
@@ -2058,7 +2047,7 @@ class PropertySearchService
             is_array($configured) ? $configured : [],
             $fallback
         ))
-            ->map(fn ($slug) => trim((string) $slug))
+            ->map(fn($slug) => trim((string) $slug))
             ->filter()
             ->unique()
             ->values()
@@ -2067,7 +2056,7 @@ class PropertySearchService
         return DB::table('custom_fields')
             ->whereIn('field_name_slug', $slugs)
             ->pluck('id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
@@ -2103,7 +2092,7 @@ class PropertySearchService
             (array) config('property_search.price_field_slugs', []),
             ['price', 'property_price', 'property-price']
         ))
-            ->map(fn ($slug) => trim((string) $slug))
+            ->map(fn($slug) => trim((string) $slug))
             ->filter()
             ->unique()
             ->all();
@@ -2137,7 +2126,7 @@ class PropertySearchService
             (array) config('property_search.bedroom_field_slugs', []),
             ['bedrooms', 'bedroom', 'bhk']
         ))
-            ->map(fn ($slug) => trim((string) $slug))
+            ->map(fn($slug) => trim((string) $slug))
             ->filter()
             ->unique()
             ->all();
@@ -2236,8 +2225,8 @@ class PropertySearchService
 
                 return $item;
             })
-            ->filter(fn ($item) => $item !== null && trim((string) $item) !== '')
-            ->map(fn ($item) => trim((string) $item))
+            ->filter(fn($item) => $item !== null && trim((string) $item) !== '')
+            ->map(fn($item) => trim((string) $item))
             ->unique()
             ->values()
             ->all();
@@ -2280,8 +2269,8 @@ class PropertySearchService
 
                 return $id;
             })
-            ->filter(fn ($id) => $id !== null && $id !== '' && is_numeric($id))
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();

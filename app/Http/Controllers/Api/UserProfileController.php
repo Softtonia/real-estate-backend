@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\UserDetail;
+use App\Models\UserPersonalDetail;
+use App\Models\UserBusinessDetail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -132,34 +134,61 @@ class UserProfileController extends Controller
                     $user->update($userPayload);
                 }
 
-                $detailColumns = [
+                $personalColumns = [
                     'alternate_number',
-                    'no_of_employees',
                     'about_us',
                 ];
 
-                if (!$isOwnerRole) {
-                    $detailColumns = array_merge($detailColumns, [
-                        'bussiness_name',
-                        'business_phone',
-                        'bussiness_email',
-                    ]);
-                }
-
-                $detailPayload = [
+                $personalPayload = [
                     'user_id' => $user->id,
                 ];
 
-                foreach ($detailColumns as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
+                foreach ($personalColumns as $column) {
+                    if ($request->has($column)) {
+                        $personalPayload[$column] = $request->input($column);
                     }
                 }
 
-                if (count($detailPayload) > 1) {
-                    // Use the database-level persistence helper so Aadhaar and
-                    // other user_details fields cannot be skipped by model settings.
-                    $this->persistUserDetailPayload($user, $detailPayload);
+                if (count($personalPayload) > 1) {
+                    UserPersonalDetail::updateOrCreate(
+                        ['user_id' => $user->id],
+                        $personalPayload
+                    );
+                }
+
+                if (!$isOwnerRole) {
+                    $businessColumns = [
+                        'bussiness_name',
+                        'business_name',
+                        'business_phone',
+                        'bussiness_email',
+                        'business_email',
+                        'no_of_employees',
+                    ];
+
+                    $businessPayload = [
+                        'user_id' => $user->id,
+                    ];
+
+                    foreach ($businessColumns as $column) {
+                        if ($request->has($column)) {
+                            $val = $request->input($column);
+                            if (in_array($column, ['bussiness_name', 'business_name'])) {
+                                $businessPayload['business_name'] = $val;
+                            } elseif (in_array($column, ['bussiness_email', 'business_email'])) {
+                                $businessPayload['business_email'] = $val;
+                            } else {
+                                $businessPayload[$column] = $val;
+                            }
+                        }
+                    }
+
+                    if (count($businessPayload) > 1) {
+                        UserBusinessDetail::updateOrCreate(
+                            ['user_id' => $user->id],
+                            $businessPayload
+                        );
+                    }
                 }
             });
 
@@ -209,6 +238,7 @@ class UserProfileController extends Controller
             $rules['business_state_id'] = ['nullable', 'exists:states,id'];
             $rules['business_city_id'] = ['nullable', 'exists:cities,id'];
             $rules['bussiness_address'] = ['nullable', 'string', 'max:200'];
+            $rules['business_address'] = ['nullable', 'string', 'max:200'];
             $rules['business_pin_code'] = ['nullable', 'string', 'max:20'];
         }
 
@@ -223,10 +253,7 @@ class UserProfileController extends Controller
 
         try {
             DB::transaction(function () use ($request, $user, $isOwnerRole) {
-                $detailPayload = [
-                    'user_id' => $user->id,
-                ];
-
+                $personalPayload = ['user_id' => $user->id];
                 $addressColumns = [
                     'country_id',
                     'state_id',
@@ -239,58 +266,48 @@ class UserProfileController extends Controller
                 ];
 
                 foreach ($addressColumns as $column) {
-                    if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                        $detailPayload[$column] = $request->input($column);
+                    if ($request->has($column)) {
+                        $personalPayload[$column] = $request->input($column);
                     }
                 }
 
-                $missingSeparateColumns = !Schema::hasColumn('user_details', 'street_address')
-                    || !Schema::hasColumn('user_details', 'area_locality')
-                    || !Schema::hasColumn('user_details', 'colony');
-
-                if (
-                    $missingSeparateColumns
-                    && Schema::hasColumn('user_details', 'address')
-                    && (
-                        $request->filled('street_address')
-                        || $request->filled('colony')
-                        || $request->filled('area_locality')
-                        || $request->filled('address')
-                    )
-                ) {
-                    $detailPayload['address'] = collect([
-                        $request->input('street_address'),
-                        $request->input('colony'),
-                        $request->input('area_locality'),
-                        $request->input('address'),
-                    ])->filter()->values()->implode(', ');
-                }
-
-                if (!$isOwnerRole) {
-                    foreach (
-                        [
-                            'business_country_id',
-                            'business_state_id',
-                            'business_city_id',
-                            'bussiness_address',
-                            'business_pin_code',
-                        ] as $column
-                    ) {
-                        if ($request->has($column) && Schema::hasColumn('user_details', $column)) {
-                            $detailPayload[$column] = $request->input($column);
-                        }
-                    }
-                }
-
-                if (count($detailPayload) > 1) {
-                    UserDetail::updateOrCreate(
+                if (count($personalPayload) > 1) {
+                    UserPersonalDetail::updateOrCreate(
                         ['user_id' => $user->id],
-                        $detailPayload
+                        $personalPayload
                     );
                 }
 
-                $userPayload = [];
+                if (!$isOwnerRole) {
+                    $businessPayload = ['user_id' => $user->id];
+                    if ($request->has('business_country_id')) {
+                        $businessPayload['country_id'] = $request->input('business_country_id');
+                    }
+                    if ($request->has('business_state_id')) {
+                        $businessPayload['state_id'] = $request->input('business_state_id');
+                    }
+                    if ($request->has('business_city_id')) {
+                        $businessPayload['city_id'] = $request->input('business_city_id');
+                    }
+                    if ($request->has('bussiness_address')) {
+                        $businessPayload['business_address'] = $request->input('bussiness_address');
+                    }
+                    if ($request->has('business_address')) {
+                        $businessPayload['business_address'] = $request->input('business_address');
+                    }
+                    if ($request->has('business_pin_code')) {
+                        $businessPayload['business_pin_code'] = $request->input('business_pin_code');
+                    }
 
+                    if (count($businessPayload) > 1) {
+                        UserBusinessDetail::updateOrCreate(
+                            ['user_id' => $user->id],
+                            $businessPayload
+                        );
+                    }
+                }
+
+                $userPayload = [];
                 foreach ($addressColumns as $column) {
                     if ($request->has($column) && Schema::hasColumn('users', $column)) {
                         $userPayload[$column] = $request->input($column);
@@ -355,13 +372,13 @@ class UserProfileController extends Controller
             );
 
             DB::transaction(function () use ($user, $newPath, &$oldPath) {
-                $detail = UserDetail::query()
+                $personal = UserPersonalDetail::query()
                     ->where('user_id', $user->id)
                     ->first();
 
-                $oldPath = $detail?->profile_photo;
+                $oldPath = $personal?->profile_photo;
 
-                UserDetail::updateOrCreate(
+                UserPersonalDetail::updateOrCreate(
                     ['user_id' => $user->id],
                     [
                         'user_id' => $user->id,
@@ -415,7 +432,11 @@ class UserProfileController extends Controller
             return [];
         }
 
-        $detail = UserDetail::query()
+        $personal = UserPersonalDetail::query()
+            ->where('user_id', $user->id)
+            ->first();
+
+        $business = UserBusinessDetail::query()
             ->where('user_id', $user->id)
             ->first();
 
@@ -426,15 +447,15 @@ class UserProfileController extends Controller
             $roleName = $role->name ?? $role->role_name ?? null;
         }
 
-        $countryId = $this->valueFromModel($user, $detail, 'country_id');
-        $stateId = $this->valueFromModel($user, $detail, 'state_id');
-        $cityId = $this->valueFromModel($user, $detail, 'city_id');
+        $countryId = $user->country_id ?? $personal?->country_id ?? null;
+        $stateId = $user->state_id ?? $personal?->state_id ?? null;
+        $cityId = $user->city_id ?? $personal?->city_id ?? null;
 
         $countryName = $this->locationName('countries', $countryId);
         $stateName = $this->locationName('states', $stateId);
         $cityName = $this->locationName('cities', $cityId);
 
-        $profilePhoto = $this->fileUrl($detail?->profile_photo);
+        $profilePhoto = $this->fileUrl($personal?->profile_photo);
 
         $firstName = $user->first_name ?? null;
         $lastName = $user->last_name ?? null;
@@ -444,11 +465,11 @@ class UserProfileController extends Controller
         $isOwnerRole = $this->isOwnerUser($user);
         $kycSummary = $this->kycModuleSummary($user);
 
-        $streetAddress = $this->detailValue($detail, 'street_address');
-        $areaLocality = $this->detailValue($detail, 'area_locality');
-        $colony = $this->detailValue($detail, 'colony');
-        $address = $detail?->address ?? null;
-        $pinCode = $detail?->pin_code ?? null;
+        $streetAddress = $user->street_address ?? $personal?->street_address ?? null;
+        $areaLocality = $user->area_locality ?? $personal?->area_locality ?? null;
+        $colony = $user->colony ?? $personal?->colony ?? null;
+        $address = $personal?->address ?? null;
+        $pinCode = $user->pin_code ?? $personal?->pin_code ?? null;
 
         $fullAddress = collect([
             $streetAddress,
@@ -507,9 +528,9 @@ class UserProfileController extends Controller
 
             'profile_photo' => $profilePhoto,
 
-            'alternate_number' => $detail?->alternate_number ?? null,
-            'no_of_employees' => $detail?->no_of_employees ?? null,
-            'about_us' => $detail?->about_us ?? null,
+            'alternate_number' => $personal?->alternate_number ?? null,
+            'no_of_employees' => $business?->no_of_employees ?? null,
+            'about_us' => $personal?->about_us ?? ($user->about ?? null),
 
             'business_fields_visible' => !$isOwnerRole,
 
@@ -518,15 +539,20 @@ class UserProfileController extends Controller
         ];
 
         if (!$isOwnerRole) {
-            $businessCountryId = $this->detailValue($detail, 'business_country_id') ?: $countryId;
-            $businessStateId = $this->detailValue($detail, 'business_state_id') ?: $stateId;
-            $businessCityId = $this->detailValue($detail, 'business_city_id') ?: $cityId;
+            $businessCountryId = $business?->country_id ?: $countryId;
+            $businessStateId = $business?->state_id ?: $stateId;
+            $businessCityId = $business?->city_id ?: $cityId;
 
-            $raw['bussiness_name'] = $detail?->bussiness_name ?? null;
-            $raw['business_phone'] = $detail?->business_phone ?? null;
-            $raw['bussiness_email'] = $detail?->bussiness_email ?? null;
-            $raw['bussiness_address'] = $detail?->bussiness_address ?? null;
-            $raw['business_pin_code'] = $this->detailValue($detail, 'business_pin_code');
+            $raw['bussiness_name'] = $business?->business_name ?? null;
+            $raw['business_name'] = $business?->business_name ?? null;
+            $raw['business_phone'] = $business?->business_phone ?? null;
+            $raw['bussiness_email'] = $business?->business_email ?? null;
+            $raw['business_email'] = $business?->business_email ?? null;
+            $raw['bussiness_address'] = $business?->business_address ?? null;
+            $raw['business_address'] = $business?->business_address ?? null;
+            $raw['business_pin_code'] = $business?->business_pin_code ?? null;
+            $raw['license_number'] = $business?->license_number ?? null;
+            $raw['rera_number'] = $business?->rera_number ?? null;
 
             $raw['business_country_id'] = $businessCountryId;
             $raw['business_state_id'] = $businessStateId;
@@ -1209,52 +1235,60 @@ class UserProfileController extends Controller
 
     private function persistUserDetailPayload(User $user, array $payload): void
     {
-        if (!Schema::hasTable('user_details') || !Schema::hasColumn('user_details', 'user_id')) {
-            throw new \RuntimeException('The user_details table or user_id column is missing.');
-        }
-
-        $allowedPayload = [
-            'user_id' => $user->id,
+        $personalKeys = [
+            'alternate_number', 'profile_photo', 'about_us', 'country_id',
+            'state_id', 'city_id', 'area_locality', 'colony', 'street_address',
+            'address', 'pin_code', 'created_by'
         ];
 
-        foreach ($payload as $column => $value) {
-            if ($column === 'id' || $column === 'user_id') {
+        $businessKeysMap = [
+            'bussiness_name' => 'business_name',
+            'business_name' => 'business_name',
+            'business_phone' => 'business_phone',
+            'bussiness_email' => 'business_email',
+            'business_email' => 'business_email',
+            'bussiness_address' => 'business_address',
+            'business_address' => 'business_address',
+            'business_pin_code' => 'business_pin_code',
+            'business_country_id' => 'country_id',
+            'business_state_id' => 'state_id',
+            'business_city_id' => 'city_id',
+            'license_number' => 'license_number',
+            'rera_number' => 'rera_number',
+            'no_of_employees' => 'no_of_employees',
+            'about_business' => 'about_business',
+            'created_by' => 'created_by',
+        ];
+
+        $personalPayload = [];
+        $businessPayload = [];
+
+        foreach ($payload as $key => $value) {
+            if ($key === 'id' || $key === 'user_id') {
                 continue;
             }
-
-            if (Schema::hasColumn('user_details', $column)) {
-                $allowedPayload[$column] = $value;
+            if (in_array($key, $personalKeys)) {
+                $personalPayload[$key] = $value;
+            }
+            if (array_key_exists($key, $businessKeysMap)) {
+                $targetCol = $businessKeysMap[$key];
+                $businessPayload[$targetCol] = $value;
             }
         }
 
-        if (count($allowedPayload) <= 1) {
-            return;
+        if (!empty($personalPayload)) {
+            UserPersonalDetail::updateOrCreate(
+                ['user_id' => $user->id],
+                $personalPayload
+            );
         }
 
-        if (Schema::hasColumn('user_details', 'updated_at')) {
-            $allowedPayload['updated_at'] = now();
+        if (!empty($businessPayload)) {
+            UserBusinessDetail::updateOrCreate(
+                ['user_id' => $user->id],
+                $businessPayload
+            );
         }
-
-        $existing = DB::table('user_details')
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if ($existing) {
-            $updatePayload = $allowedPayload;
-            unset($updatePayload['user_id']);
-
-            DB::table('user_details')
-                ->where('user_id', $user->id)
-                ->update($updatePayload);
-
-            return;
-        }
-
-        if (Schema::hasColumn('user_details', 'created_at')) {
-            $allowedPayload['created_at'] = now();
-        }
-
-        DB::table('user_details')->insert($allowedPayload);
     }
 
 

@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\UniqueID;
 use App\Models\UserDetail;
+use App\Models\UserPersonalDetail;
+use App\Models\UserBusinessDetail;
 use App\Models\OTP;
 use App\Models\JoinRequest;
 use App\Models\Customfieldvalue;
@@ -731,12 +733,13 @@ class UserController extends Controller
 
             $response = Cache::store('redis')->remember($cacheKey, 300, function () use ($userId) {
                 $userData = DB::table('users')
-                    ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
+                    ->leftJoin('user_personal_details', 'users.id', '=', 'user_personal_details.user_id')
+                    ->leftJoin('user_business_details', 'users.id', '=', 'user_business_details.user_id')
                     ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
 
-                    ->leftJoin('countries as business_countries', 'user_details.country_id', '=', 'business_countries.id')
-                    ->leftJoin('states as business_states', 'user_details.state_id', '=', 'business_states.id')
-                    ->leftJoin('cities as business_cities', 'user_details.city_id', '=', 'business_cities.id')
+                    ->leftJoin('countries as business_countries', 'user_business_details.country_id', '=', 'business_countries.id')
+                    ->leftJoin('states as business_states', 'user_business_details.state_id', '=', 'business_states.id')
+                    ->leftJoin('cities as business_cities', 'user_business_details.city_id', '=', 'business_cities.id')
 
                     ->leftJoin('countries as user_countries', 'users.country_id', '=', 'user_countries.id')
                     ->leftJoin('states as user_states', 'users.state_id', '=', 'user_states.id')
@@ -769,32 +772,34 @@ class UserController extends Controller
                         'users.pin_code',
                         'users.about',
 
-                        'user_details.bussiness_name',
-                        'user_details.bussiness_address',
-                        'user_details.bussiness_email',
-                        'user_details.business_phone',
+                        'user_business_details.business_name as bussiness_name',
+                        'user_business_details.business_name',
+                        'user_business_details.business_address as bussiness_address',
+                        'user_business_details.business_address',
+                        'user_business_details.business_email as bussiness_email',
+                        'user_business_details.business_email',
+                        'user_business_details.business_phone',
 
-                        'user_details.country_id as business_country_id',
-                        'user_details.state_id as business_state_id',
-                        'user_details.city_id as business_city_id',
+                        'user_business_details.country_id as business_country_id',
+                        'user_business_details.state_id as business_state_id',
+                        'user_business_details.city_id as business_city_id',
                         'business_countries.name as business_country',
                         'business_states.name as business_state',
                         'business_cities.name as business_city',
 
-                        'user_details.area_locality as business_area_locality',
-                        'user_details.colony as business_colony',
-                        'user_details.street_address as business_street_address',
-                        'user_details.pin_code as business_pin_code',
+                        'user_business_details.area_locality as business_area_locality',
+                        'user_business_details.colony as business_colony',
+                        'user_business_details.street_address as business_street_address',
+                        'user_business_details.business_pin_code',
 
-                        'user_details.address',
-                        'user_details.profile_photo',
+                        'user_personal_details.address',
+                        'user_personal_details.profile_photo',
 
-
-                        'user_details.license_number',
-                        'user_details.rera_number',
-                        'user_details.alternate_number',
-                        'user_details.no_of_employees',
-                        'user_details.about_us',
+                        'user_business_details.license_number',
+                        'user_business_details.rera_number',
+                        'user_personal_details.alternate_number',
+                        'user_business_details.no_of_employees',
+                        'user_personal_details.about_us',
 
                         'users.created_at',
                         'users.updated_at'
@@ -914,12 +919,13 @@ class UserController extends Controller
 
             $response = Cache::store('redis')->remember($cacheKey, 300, function () use ($userId) {
                 $userData = DB::table('users')
-                    ->leftJoin('user_details', 'users.id', '=', 'user_details.user_id')
+                    ->leftJoin('user_personal_details', 'users.id', '=', 'user_personal_details.user_id')
+                    ->leftJoin('user_business_details', 'users.id', '=', 'user_business_details.user_id')
                     ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
 
-                    ->leftJoin('countries as business_countries', 'user_details.country_id', '=', 'business_countries.id')
-                    ->leftJoin('states as business_states', 'user_details.state_id', '=', 'business_states.id')
-                    ->leftJoin('cities as business_cities', 'user_details.city_id', '=', 'business_cities.id')
+                    ->leftJoin('countries as business_countries', 'user_business_details.country_id', '=', 'business_countries.id')
+                    ->leftJoin('states as business_states', 'user_business_details.state_id', '=', 'business_states.id')
+                    ->leftJoin('cities as business_cities', 'user_business_details.city_id', '=', 'business_cities.id')
 
                     ->where('users.id', $userId)
                     ->select(
@@ -935,27 +941,30 @@ class UserController extends Controller
                         'users.isapproved',
                         'users.kyc',
 
-                        'user_details.bussiness_name',
-                        'user_details.bussiness_address',
-                        'user_details.bussiness_email',
-                        'user_details.business_phone',
+                        'user_business_details.business_name as bussiness_name',
+                        'user_business_details.business_name',
+                        'user_business_details.business_address as bussiness_address',
+                        'user_business_details.business_address',
+                        'user_business_details.business_email as bussiness_email',
+                        'user_business_details.business_email',
+                        'user_business_details.business_phone',
 
-                        'user_details.country_id as business_country_id',
-                        'user_details.state_id as business_state_id',
-                        'user_details.city_id as business_city_id',
+                        'user_business_details.country_id as business_country_id',
+                        'user_business_details.state_id as business_state_id',
+                        'user_business_details.city_id as business_city_id',
                         'business_countries.name as business_country',
                         'business_states.name as business_state',
                         'business_cities.name as business_city',
 
-                        'user_details.address',
-                        'user_details.pin_code',
-                        'user_details.profile_photo',
-                        'user_details.license_number',
-                        'user_details.rera_number',
-                        'user_details.alternate_number',
-                        'user_details.no_of_employees',
-                        'user_details.about_us',
-
+                        'user_personal_details.address',
+                        'user_personal_details.pin_code',
+                        'user_business_details.business_pin_code',
+                        'user_personal_details.profile_photo',
+                        'user_business_details.license_number',
+                        'user_business_details.rera_number',
+                        'user_personal_details.alternate_number',
+                        'user_business_details.no_of_employees',
+                        'user_personal_details.about_us',
 
                         'users.created_at',
                         'users.updated_at'
@@ -4164,30 +4173,60 @@ class UserController extends Controller
 
     private function persistUserDetailPayload(User $user, array $payload): void
     {
-        $payload['user_id'] = $user->id;
+        $personalKeys = [
+            'alternate_number', 'profile_photo', 'about_us', 'country_id',
+            'state_id', 'city_id', 'area_locality', 'colony', 'street_address',
+            'address', 'pin_code', 'created_by'
+        ];
 
-        $payload = $this->payloadForTable('user_details', $payload);
+        $businessKeysMap = [
+            'bussiness_name' => 'business_name',
+            'business_name' => 'business_name',
+            'business_phone' => 'business_phone',
+            'bussiness_email' => 'business_email',
+            'business_email' => 'business_email',
+            'bussiness_address' => 'business_address',
+            'business_address' => 'business_address',
+            'business_pin_code' => 'business_pin_code',
+            'business_country_id' => 'country_id',
+            'business_state_id' => 'state_id',
+            'business_city_id' => 'city_id',
+            'license_number' => 'license_number',
+            'rera_number' => 'rera_number',
+            'no_of_employees' => 'no_of_employees',
+            'about_business' => 'about_business',
+            'created_by' => 'created_by',
+        ];
 
-        if (count($payload) <= 1) {
-            return;
+        $personalPayload = [];
+        $businessPayload = [];
+
+        foreach ($payload as $key => $value) {
+            if ($key === 'id' || $key === 'user_id') {
+                continue;
+            }
+            if (in_array($key, $personalKeys)) {
+                $personalPayload[$key] = $value;
+            }
+            if (array_key_exists($key, $businessKeysMap)) {
+                $targetCol = $businessKeysMap[$key];
+                $businessPayload[$targetCol] = $value;
+            }
         }
 
-        if (Schema::hasColumn('user_details', 'updated_at')) {
-            $payload['updated_at'] = now();
+        if (!empty($personalPayload)) {
+            UserPersonalDetail::updateOrCreate(
+                ['user_id' => $user->id],
+                $personalPayload
+            );
         }
 
-        $exists = DB::table('user_details')
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if (!$exists && Schema::hasColumn('user_details', 'created_at')) {
-            $payload['created_at'] = now();
+        if (!empty($businessPayload)) {
+            UserBusinessDetail::updateOrCreate(
+                ['user_id' => $user->id],
+                $businessPayload
+            );
         }
-
-        DB::table('user_details')->updateOrInsert(
-            ['user_id' => $user->id],
-            $payload
-        );
     }
 
     private function createUniqueIdForRole(Role $role): UniqueID

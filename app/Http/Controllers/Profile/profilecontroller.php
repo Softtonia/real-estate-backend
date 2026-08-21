@@ -8,7 +8,9 @@ use App\Models\User;
 use App\Models\Role;
 use DB;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use App\Models\UserDetail;
+use App\Models\UserPersonalDetail;
+use App\Models\UserBusinessDetail;
+
 class profilecontroller extends Controller
 {
     public function updateProfile(Request $request)
@@ -19,9 +21,13 @@ class profilecontroller extends Controller
             'user_id' => 'required|exists:users,id', // Ensure the user ID exists in the database
             'role_id' => 'required|exists:roles,id', // Ensure the role ID exists in the roles table
             'bussiness_name' => 'nullable|string',
+            'business_name' => 'nullable|string',
             'bussiness_address' => 'nullable|string',
+            'business_address' => 'nullable|string',
             'bussiness_email' => 'nullable|email',
+            'business_email' => 'nullable|email',
             'business_phone' => 'nullable|string',
+            'business_pin_code' => 'nullable|string',
             'country' => 'nullable|string',
             'state' => 'nullable|string',
             'city' => 'nullable|string',
@@ -55,26 +61,40 @@ class profilecontroller extends Controller
         $user->role_id = $roleId;
         $user->save();
 
-        // Save user details in the user_details table
-        $userDetail = UserDetail::updateOrCreate(
+        // Save personal details
+        $personalDetail = UserPersonalDetail::updateOrCreate(
             ['user_id' => $userId],
             [
-                'role_id' => $roleId,
-                'bussiness_name' => $validatedData['bussiness_name'],
-                'bussiness_address' => $validatedData['bussiness_address'],
-                'bussiness_email' => $validatedData['bussiness_email'],
-                'business_phone' => $validatedData['business_phone'],
-                'country' => $validatedData['country'],
-                'state' => $validatedData['state'],
-                'city' => $validatedData['city'],
-                'pin_code' => $validatedData['pin_code'],
-                'license_number' => $validatedData['license_number'],
-                'alternate_number' => $validatedData['alternate_number']
+                'alternate_number' => $validatedData['alternate_number'] ?? null,
+                'pin_code' => $validatedData['pin_code'] ?? null,
+            ]
+        );
+
+        // Save business details
+        $bName = $validatedData['business_name'] ?? ($validatedData['bussiness_name'] ?? null);
+        $bEmail = $validatedData['business_email'] ?? ($validatedData['bussiness_email'] ?? null);
+        $bAddress = $validatedData['business_address'] ?? ($validatedData['bussiness_address'] ?? null);
+        $bPinCode = $validatedData['business_pin_code'] ?? ($validatedData['pin_code'] ?? null);
+
+        $businessDetail = UserBusinessDetail::updateOrCreate(
+            ['user_id' => $userId],
+            [
+                'business_name' => $bName,
+                'business_address' => $bAddress,
+                'business_email' => $bEmail,
+                'business_phone' => $validatedData['business_phone'] ?? null,
+                'business_pin_code' => $bPinCode,
+                'license_number' => $validatedData['license_number'] ?? null,
             ]
         );
 
         // Return a success response
-        return response()->json(['message' => 'Profile updated successfully and waiting for admin approval', 'user' => $user, 'user_detail' => $userDetail]);
+        return response()->json([
+            'message' => 'Profile updated successfully and waiting for admin approval',
+            'user' => $user,
+            'personal_detail' => $personalDetail,
+            'business_detail' => $businessDetail,
+        ]);
     } catch (ModelNotFoundException $ex) {
         return response()->json(['error' => 'User not found'], 404);
     }
