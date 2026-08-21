@@ -22,15 +22,25 @@ class AuthController extends Controller
 
     public function register(Request $request)
     {
+        if ($request->has('phone') && is_string($request->phone)) {
+            $request->merge([
+                'phone' => preg_replace('/[^\d+]/', '', $request->phone)
+            ]);
+        }
+
         $validator = Validator::make($request->all(), [
             'phone' => [
                 'required',
+                'string',
+                'regex:/^\+?[0-9]{10,15}$/',
                 'unique:users,phone',
-                'regex:/^[0-9]{10}$/' // Ensures the phone field contains exactly 10 digits
             ],
             'role_id' => 'required',
             'email' => 'required|email|unique:users,email', // Added email validation for sending mail
             'user_name' => 'required|string|min:3|max:20|unique:users,user_name|regex:/^[a-zA-Z0-9._]+$/',
+        ], [
+            'phone.regex' => 'The phone number format is invalid. It must be between 10 and 15 digits (optional country code prefix like 91 or +91).',
+            'user_name.regex' => 'Only letters, numbers, dot, and underscore are allowed in username.',
         ]);
 
         if ($validator->fails()) {

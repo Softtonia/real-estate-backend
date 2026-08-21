@@ -7139,7 +7139,7 @@ class DynamicPostController extends Controller
             'user.last_name' => ['nullable', 'string', 'max:100'],
             'user.phone' => [
                 'required',
-                'regex:/^[0-9]{10}$/',
+                'regex:/^\+?[0-9]{10,15}$/',
                 'unique:users,phone',
             ],
             'user.email' => [
