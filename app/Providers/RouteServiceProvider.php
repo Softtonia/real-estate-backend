@@ -21,7 +21,7 @@ class RouteServiceProvider extends ServiceProvider
         |--------------------------------------------------------------------------
         */
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(300)
+            return Limit::perMinute(600)
                 ->by($this->throttleKey($request, 'api'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
@@ -32,31 +32,31 @@ class RouteServiceProvider extends ServiceProvider
         |--------------------------------------------------------------------------
         */
         RateLimiter::for('membership-public', function (Request $request) {
-            return Limit::perMinute(300)
+            return Limit::perMinute(600)
                 ->by($this->throttleKey($request, 'membership-public'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
 
         RateLimiter::for('membership-user', function (Request $request) {
-            return Limit::perMinute(300)
+            return Limit::perMinute(600)
                 ->by($this->throttleKey($request, 'membership-user'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
 
         RateLimiter::for('membership-payment', function (Request $request) {
-            return Limit::perMinute(80)
+            return Limit::perMinute(300)
                 ->by($this->throttleKey($request, 'membership-payment'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
 
         RateLimiter::for('membership-feature-usage', function (Request $request) {
-            return Limit::perMinute(120)
+            return Limit::perMinute(600)
                 ->by($this->throttleKey($request, 'membership-feature-usage'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
 
         RateLimiter::for('membership-admin', function (Request $request) {
-            return Limit::perMinute(600)
+            return Limit::perMinute(1200)
                 ->by($this->throttleKey($request, 'membership-admin'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
@@ -67,19 +67,19 @@ class RouteServiceProvider extends ServiceProvider
         |--------------------------------------------------------------------------
         */
         RateLimiter::for('notification-admin', function (Request $request) {
-            return Limit::perMinute(600)
+            return Limit::perMinute(1200)
                 ->by($this->throttleKey($request, 'notification-admin'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
 
         RateLimiter::for('notification-user', function (Request $request) {
-            return Limit::perMinute(300)
+            return Limit::perMinute(600)
                 ->by($this->throttleKey($request, 'notification-user'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
 
         RateLimiter::for('notification-device', function (Request $request) {
-            return Limit::perMinute(120)
+            return Limit::perMinute(600)
                 ->by($this->throttleKey($request, 'notification-device'))
                 ->response(fn () => $this->tooManyAttemptsResponse());
         });
