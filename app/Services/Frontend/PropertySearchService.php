@@ -4,6 +4,7 @@ namespace App\Services\Frontend;
 
 use App\Models\DynamicPost;
 use App\Models\MediaFile;
+use App\Models\PropertyFeaturedPromotion;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -386,6 +387,7 @@ class PropertySearchService
         $this->applyBedroomFilter($query, $filters);
         $this->applyPriceFilter($query, $filters);
         $this->applyPriceSelect($query);
+        $this->applyPromotionFilters($query, $filters);
         $this->applySort($query, $filters);
 
         $paginator = $query->paginate(
@@ -436,6 +438,7 @@ class PropertySearchService
             'meta.customField.options',
             'meta.customField.repeaters.options',
             'latestVerificationRevision',
+            'currentFeaturedPromotion',
         ];
     }
 
@@ -846,6 +849,106 @@ class PropertySearchService
         ]);
     }
 
+    private function applyPromotionFilters(Builder $query, array $filters): void
+    {
+        $isSponsored = $filters['is_sponsored'] ?? $filters['sponsored'] ?? null;
+        $isFeatured = $filters['is_featured'] ?? $filters['featured'] ?? null;
+        $promotionType = isset($filters['promotion_type']) && is_string($filters['promotion_type'])
+            ? mb_strtolower(trim($filters['promotion_type']))
+            : null;
+
+        if ($promotionType === 'sponsored') {
+            $isSponsored = true;
+        } elseif ($promotionType === 'featured') {
+            $isFeatured = true;
+        }
+
+        if ($isSponsored !== null) {
+            $isSponsoredBool = is_bool($isSponsored)
+                ? $isSponsored
+                : in_array($isSponsored, [1, '1', 'true', 'yes'], true);
+
+            if ($isSponsoredBool) {
+                $query->where(function (Builder $q): void {
+                    if (Schema::hasTable('property_featured_promotions')) {
+                        $q->whereHas('featuredPromotions', function (Builder $sub): void {
+                            $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED)
+                                ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+                                ->where(function (Builder $st): void {
+                                    $st->whereNull('starts_at')
+                                        ->orWhere('starts_at', '<=', now());
+                                })
+                                ->where(function (Builder $et): void {
+                                    $et->whereNull('ends_at')
+                                        ->orWhere('ends_at', '>', now());
+                                });
+                        });
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'is_sponsored')) {
+                        $q->orWhere('dynamic_posts.is_sponsored', 1);
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'sponsored')) {
+                        $q->orWhere('dynamic_posts.sponsored', 1);
+                    }
+                });
+            } else {
+                $query->where(function (Builder $q): void {
+                    if (Schema::hasTable('property_featured_promotions')) {
+                        $q->whereDoesntHave('featuredPromotions', function (Builder $sub): void {
+                            $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED)
+                                ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+                                ->where(function (Builder $st): void {
+                                    $st->whereNull('starts_at')
+                                        ->orWhere('starts_at', '<=', now());
+                                })
+                                ->where(function (Builder $et): void {
+                                    $et->whereNull('ends_at')
+                                        ->orWhere('ends_at', '>', now());
+                                });
+                        });
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'is_sponsored')) {
+                        $q->where(function (Builder $sub): void {
+                            $sub->whereNull('dynamic_posts.is_sponsored')
+                                ->orWhere('dynamic_posts.is_sponsored', 0);
+                        });
+                    }
+                });
+            }
+        }
+
+        if ($isFeatured !== null && $isSponsored === null) {
+            $isFeaturedBool = is_bool($isFeatured)
+                ? $isFeatured
+                : in_array($isFeatured, [1, '1', 'true', 'yes'], true);
+
+            if ($isFeaturedBool) {
+                $query->where(function (Builder $q): void {
+                    if (Schema::hasTable('property_featured_promotions')) {
+                        $q->whereHas('featuredPromotions', function (Builder $sub): void {
+                            $sub->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+                                ->where(function (Builder $st): void {
+                                    $st->whereNull('starts_at')
+                                        ->orWhere('starts_at', '<=', now());
+                                })
+                                ->where(function (Builder $et): void {
+                                    $et->whereNull('ends_at')
+                                        ->orWhere('ends_at', '>', now());
+                                });
+                        });
+                    }
+
+                    if (Schema::hasColumn('dynamic_posts', 'is_featured')) {
+                        $q->orWhere('dynamic_posts.is_featured', 1);
+                    }
+                });
+            }
+        }
+    }
+
     private function applySort(Builder $query, array $filters): void
     {
         $sortBy = (string) ($filters['sort_by'] ?? 'newest');
@@ -1074,6 +1177,28 @@ class PropertySearchService
             : null;
 
         $data['availability'] = $this->availabilityData($post);
+
+        $featuredPromotion = $post->currentFeaturedPromotion;
+        $isFeatured = $featuredPromotion !== null;
+        $isSponsored = $featuredPromotion !== null && $featuredPromotion->promotion_type === PropertyFeaturedPromotion::TYPE_SPONSORED;
+
+        if (!$isSponsored && Schema::hasColumn('dynamic_posts', 'is_sponsored') && !empty($post->is_sponsored)) {
+            $isSponsored = true;
+        }
+
+        $data['is_featured'] = $isFeatured;
+        $data['is_sponsored'] = $isSponsored;
+        $data['promotion_type'] = $featuredPromotion?->promotion_type ?? ($isSponsored ? 'sponsored' : ($isFeatured ? 'featured' : null));
+        $data['featured_promotion'] = $featuredPromotion ? [
+            'id' => (int) $featuredPromotion->id,
+            'promotion_type' => $featuredPromotion->promotion_type,
+            'source' => $featuredPromotion->source,
+            'status' => $featuredPromotion->status,
+            'display_label' => $featuredPromotion->promotion_type === PropertyFeaturedPromotion::TYPE_SPONSORED ? 'Sponsored' : 'Featured',
+        ] : null;
+        $data['promotion_label'] = $featuredPromotion
+            ? ($featuredPromotion->promotion_type === PropertyFeaturedPromotion::TYPE_SPONSORED ? 'Sponsored' : 'Featured')
+            : ($isSponsored ? 'Sponsored' : null);
 
         $data['is_active'] =
             ($post->status ?? null) === 'published'

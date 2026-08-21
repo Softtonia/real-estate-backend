@@ -60,6 +60,22 @@ class PropertySearchRequest extends FormRequest
             $data[$key] = $this->normalizeFlexibleFilterValue($data[$key]);
         }
 
+        foreach ([
+            'is_sponsored',
+            'sponsored',
+            'is_featured',
+            'featured',
+        ] as $boolKey) {
+            if (array_key_exists($boolKey, $data) && $data[$boolKey] !== null) {
+                $val = $data[$boolKey];
+                if (in_array($val, [1, '1', true, 'true', 'yes'], true)) {
+                    $data[$boolKey] = true;
+                } elseif (in_array($val, [0, '0', false, 'false', 'no'], true)) {
+                    $data[$boolKey] = false;
+                }
+            }
+        }
+
         $this->merge($data);
     }
 
@@ -171,6 +187,28 @@ class PropertySearchRequest extends FormRequest
                     'price_high',
                     'relevance',
                 ]),
+            ],
+
+            'is_sponsored' => [
+                'nullable',
+                'boolean',
+            ],
+            'sponsored' => [
+                'nullable',
+                'boolean',
+            ],
+            'is_featured' => [
+                'nullable',
+                'boolean',
+            ],
+            'featured' => [
+                'nullable',
+                'boolean',
+            ],
+            'promotion_type' => [
+                'nullable',
+                'string',
+                Rule::in(['featured', 'sponsored']),
             ],
 
             'page' => [
