@@ -154,6 +154,10 @@ class PropertySearchRequest extends FormRequest
                 'nullable',
                 $flexibleFilter,
             ],
+            'post_type' => [
+                'nullable',
+                $flexibleFilter,
+            ],
             'property_type' => [
                 'nullable',
                 $flexibleFilter,

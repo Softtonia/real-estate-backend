@@ -375,10 +375,10 @@ class PropertySearchService
                 'search_city.name as search_city_name',
             ])
             ->with($this->listingRelations())
-            ->where('dynamic_posts.post_type_id', $postTypeId)
             ->where('dynamic_posts.status', 'published')
             ->where('dynamic_posts.live_status', 'approve');
 
+        $this->applyPostTypeFilter($query, $filters);
         $this->applyPublicAvailabilityScope($query);
 
         $this->applyLocationFilters($query, $filters);
@@ -849,6 +849,54 @@ class PropertySearchService
         ]);
     }
 
+    private function applyPostTypeFilter(Builder $query, array $filters): void
+    {
+        $postType = $filters['post_type'] ?? null;
+
+        if (empty($postType)) {
+            $defaultTypeId = $this->propertyPostTypeId();
+            $query->where('dynamic_posts.post_type_id', $defaultTypeId);
+            return;
+        }
+
+        if (is_string($postType) && mb_strtolower(trim($postType)) === 'all') {
+            return;
+        }
+
+        $slugs = is_array($postType) ? $postType : explode(',', (string) $postType);
+        $slugs = array_map(fn ($s) => mb_strtolower(trim((string) $s)), $slugs);
+        $slugs = array_filter($slugs, fn ($s) => $s !== '');
+
+        if (empty($slugs)) {
+            $defaultTypeId = $this->propertyPostTypeId();
+            $query->where('dynamic_posts.post_type_id', $defaultTypeId);
+            return;
+        }
+
+        $numericIds = array_filter($slugs, 'is_numeric');
+        $stringSlugs = array_diff($slugs, $numericIds);
+
+        $postTypeIds = DB::table('post_types')
+            ->where(function ($q) use ($numericIds, $stringSlugs): void {
+                if (!empty($numericIds)) {
+                    $q->whereIn('id', array_map('intval', $numericIds));
+                }
+                if (!empty($stringSlugs)) {
+                    $q->orWhereIn('slug', $stringSlugs);
+                }
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if (!empty($postTypeIds)) {
+            $query->whereIn('dynamic_posts.post_type_id', $postTypeIds);
+        } else {
+            $defaultTypeId = $this->propertyPostTypeId();
+            $query->where('dynamic_posts.post_type_id', $defaultTypeId);
+        }
+    }
+
     private function applyPromotionFilters(Builder $query, array $filters): void
     {
         $isSponsored = $filters['is_sponsored'] ?? $filters['sponsored'] ?? null;
@@ -869,10 +917,10 @@ class PropertySearchService
                 : in_array($isSponsored, [1, '1', 'true', 'yes'], true);
 
             if ($isSponsoredBool) {
-                $query->where(function (Builder $q): void {
+                $query->where(function (Builder $q) use ($promotionType): void {
                     if (Schema::hasTable('property_featured_promotions')) {
-                        $q->whereHas('featuredPromotions', function (Builder $sub): void {
-                            $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED)
+                        $q->whereHas('featuredPromotions', function (Builder $sub) use ($promotionType): void {
+                            $sub->whereNull('cancelled_at')
                                 ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
                                 ->where(function (Builder $st): void {
                                     $st->whereNull('starts_at')
@@ -882,6 +930,10 @@ class PropertySearchService
                                     $et->whereNull('ends_at')
                                         ->orWhere('ends_at', '>', now());
                                 });
+
+                            if ($promotionType === 'sponsored') {
+                                $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED);
+                            }
                         });
                     }
 
@@ -892,12 +944,16 @@ class PropertySearchService
                     if (Schema::hasColumn('dynamic_posts', 'sponsored')) {
                         $q->orWhere('dynamic_posts.sponsored', 1);
                     }
+
+                    if (Schema::hasColumn('dynamic_posts', 'is_featured')) {
+                        $q->orWhere('dynamic_posts.is_featured', 1);
+                    }
                 });
             } else {
                 $query->where(function (Builder $q): void {
                     if (Schema::hasTable('property_featured_promotions')) {
                         $q->whereDoesntHave('featuredPromotions', function (Builder $sub): void {
-                            $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED)
+                            $sub->whereNull('cancelled_at')
                                 ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
                                 ->where(function (Builder $st): void {
                                     $st->whereNull('starts_at')
@@ -918,18 +974,17 @@ class PropertySearchService
                     }
                 });
             }
-        }
-
-        if ($isFeatured !== null && $isSponsored === null) {
+        } elseif ($isFeatured !== null) {
             $isFeaturedBool = is_bool($isFeatured)
                 ? $isFeatured
                 : in_array($isFeatured, [1, '1', 'true', 'yes'], true);
 
             if ($isFeaturedBool) {
-                $query->where(function (Builder $q): void {
+                $query->where(function (Builder $q) use ($promotionType): void {
                     if (Schema::hasTable('property_featured_promotions')) {
-                        $q->whereHas('featuredPromotions', function (Builder $sub): void {
-                            $sub->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
+                        $q->whereHas('featuredPromotions', function (Builder $sub) use ($promotionType): void {
+                            $sub->whereNull('cancelled_at')
+                                ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
                                 ->where(function (Builder $st): void {
                                     $st->whereNull('starts_at')
                                         ->orWhere('starts_at', '<=', now());
@@ -938,6 +993,10 @@ class PropertySearchService
                                     $et->whereNull('ends_at')
                                         ->orWhere('ends_at', '>', now());
                                 });
+
+                            if ($promotionType === 'featured') {
+                                $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_FEATURED);
+                            }
                         });
                     }
 
