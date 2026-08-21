@@ -2176,10 +2176,14 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('custom-fields/{fieldId}', [CustomFieldGroupController::class, 'destroyFieldById'])
         ->whereNumber('fieldId');
 
-    // Delete aliases
+    // Delete & slug check aliases
     Route::match(['delete', 'post', 'get'], 'delete-custom-fields-by-id/{fieldId?}', [CustomFieldGroupController::class, 'deleteCustomFieldsById']);
     Route::match(['delete', 'post', 'get'], 'delete-custom-fields/{fieldId?}', [CustomFieldGroupController::class, 'deleteCustomFieldsById']);
     Route::match(['delete', 'post', 'get'], 'delete-custom-field-group-by-id/{id?}', [CustomFieldGroupController::class, 'destroy']);
+    Route::match(['get', 'post'], 'slug-uniqueness-check', [CustomFieldGroupController::class, 'slugUniquenessCheck']);
+    Route::match(['get', 'post'], 'custom-fields/slug-uniqueness-check', [CustomFieldGroupController::class, 'slugUniquenessCheck']);
+    Route::match(['get', 'post'], 'custom-field-groups/slug-uniqueness-check', [CustomFieldGroupController::class, 'slugUniquenessCheck']);
+    Route::match(['get', 'post'], 'check-slug-uniqueness', [CustomFieldGroupController::class, 'slugUniquenessCheck']);
 
     /*
     |--------------------------------------------------------------------------

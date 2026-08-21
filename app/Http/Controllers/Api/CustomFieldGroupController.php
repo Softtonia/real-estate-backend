@@ -1716,4 +1716,79 @@ class CustomFieldGroupController extends Controller
             return $this->errorResponse('Unable to fetch custom field.', 500, $e->getMessage());
         }
     }
+
+    public function slugUniquenessCheck(Request $request): JsonResponse
+    {
+        $rawSlug = $request->input('slug')
+            ?? $request->input('field_name_slug')
+            ?? $request->input('field_key')
+            ?? $request->input('name')
+            ?? $request->input('value')
+            ?? '';
+
+        if (trim((string) $rawSlug) === '') {
+            return response()->json([
+                'status' => true,
+                'success' => true,
+                'is_unique' => true,
+                'unique' => true,
+                'available' => true,
+                'exists' => false,
+                'message' => 'Slug is available',
+            ], 200);
+        }
+
+        $cleanSlug = trim((string) $rawSlug);
+        $underscoredSlug = Str::slug($cleanSlug, '_');
+        $hyphenatedSlug = Str::slug($cleanSlug, '-');
+
+        $type = strtolower(trim((string) ($request->input('type') ?? $request->input('context') ?? $request->input('model') ?? 'field')));
+        $groupId = $request->input('group_id') ?? $request->input('custom_field_group_id');
+        $ignoreId = $request->input('ignore_id') ?? $request->input('exclude_id') ?? $request->input('id') ?? $request->input('field_id');
+
+        $exists = false;
+
+        if (in_array($type, ['group', 'custom_field_group', 'field_group'])) {
+            $query = CustomFieldGroup::query()
+                ->where(function ($q) use ($cleanSlug, $underscoredSlug, $hyphenatedSlug) {
+                    $q->where('group_slug', $cleanSlug)
+                      ->orWhere('group_slug', $underscoredSlug)
+                      ->orWhere('group_slug', $hyphenatedSlug);
+                });
+            if ($ignoreId) {
+                $query->where('id', '!=', $ignoreId);
+            }
+            $exists = $query->exists();
+        } else {
+            $query = CustomField::query()
+                ->where(function ($q) use ($cleanSlug, $underscoredSlug, $hyphenatedSlug) {
+                    $q->where('field_name_slug', $cleanSlug)
+                      ->orWhere('field_name_slug', $underscoredSlug)
+                      ->orWhere('field_name_slug', $hyphenatedSlug);
+                });
+
+            if ($groupId) {
+                $query->where('custom_field_group_id', $groupId);
+            }
+
+            if ($ignoreId) {
+                $query->where('id', '!=', $ignoreId);
+            }
+
+            $exists = $query->exists();
+        }
+
+        $isUnique = !$exists;
+
+        return response()->json([
+            'status' => true,
+            'success' => true,
+            'is_unique' => $isUnique,
+            'unique' => $isUnique,
+            'available' => $isUnique,
+            'exists' => $exists,
+            'slug' => $cleanSlug,
+            'message' => $isUnique ? 'Slug is available' : 'This field key is already taken.',
+        ], 200);
+    }
 }
