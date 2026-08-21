@@ -1791,4 +1791,31 @@ class CustomFieldGroupController extends Controller
             'message' => $isUnique ? 'Slug is available' : 'This field key is already taken.',
         ], 200);
     }
+
+    public function getFieldTypes(): JsonResponse
+    {
+        $types = [
+            ['key' => 'text', 'label' => 'Text', 'description' => 'Single line text input'],
+            ['key' => 'textarea', 'label' => 'Textarea', 'description' => 'Multi-line text input'],
+            ['key' => 'number', 'label' => 'Number', 'description' => 'Numeric digit input'],
+            ['key' => 'texteditor', 'label' => 'Text Editor', 'description' => 'WYSIWYG rich text editor'],
+            ['key' => 'select', 'label' => 'Select', 'description' => 'Dropdown options select'],
+            ['key' => 'checkbox', 'label' => 'Checkbox', 'description' => 'Checkbox options selection'],
+            ['key' => 'radio', 'label' => 'Radio', 'description' => 'Single option radio selection'],
+            ['key' => 'boolean', 'label' => 'Boolean (True/False)', 'description' => 'True/False or Yes/No toggle switch'],
+            ['key' => 'email', 'label' => 'Email', 'description' => 'Email address input'],
+            ['key' => 'url', 'label' => 'URL', 'description' => 'Web address link'],
+            ['key' => 'date', 'label' => 'Date', 'description' => 'Date picker input'],
+            ['key' => 'datetime', 'label' => 'Date Time', 'description' => 'Date and time picker input'],
+            ['key' => 'repeater', 'label' => 'Repeater', 'description' => 'Repeater sub-fields container'],
+            ['key' => 'media', 'label' => 'Media', 'description' => 'Image/Media gallery uploader'],
+            ['key' => 'file', 'label' => 'File', 'description' => 'File attachment uploader'],
+        ];
+
+        return response()->json([
+            'status' => true,
+            'success' => true,
+            'data' => $types,
+        ], 200);
+    }
 }

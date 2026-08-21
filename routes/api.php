@@ -2185,6 +2185,11 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::match(['get', 'post'], 'custom-field-groups/slug-uniqueness-check', [CustomFieldGroupController::class, 'slugUniquenessCheck']);
     Route::match(['get', 'post'], 'check-slug-uniqueness', [CustomFieldGroupController::class, 'slugUniquenessCheck']);
 
+    // Field types listing
+    Route::get('custom-field-types', [CustomFieldGroupController::class, 'getFieldTypes']);
+    Route::get('field-types', [CustomFieldGroupController::class, 'getFieldTypes']);
+    Route::get('custom-field-groups/field-types', [CustomFieldGroupController::class, 'getFieldTypes']);
+
     /*
     |--------------------------------------------------------------------------
     | Page Builder
