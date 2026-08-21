@@ -2315,6 +2315,8 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
             Route::get('city-explore/developers', [CityExploreController::class, 'developers']);
             Route::get('city-explore/featured-properties', [CityExploreController::class, 'featuredProperties']);
             Route::get('city-explore/featured-projects', [CityExploreController::class, 'featuredProjects']);
+            Route::get('city-explore/sponsored-properties', [CityExploreController::class, 'sponsoredProperties']);
+            Route::get('city-explore/sponsored-projects', [CityExploreController::class, 'sponsoredProjects']);
             Route::get('client-reviews', [ClientReviewController::class, 'index']);
         });
     /*

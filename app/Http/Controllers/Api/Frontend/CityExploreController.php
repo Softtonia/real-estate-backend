@@ -42,8 +42,10 @@ class CityExploreController extends Controller
 
             $agents = $this->queryCityUsers($city->id, ['agent'], $perPage);
             $developers = $this->queryCityUsers($city->id, ['developer', 'company', 'consultancy', 'builder'], $perPage);
-            $featuredProperties = $this->queryCityFeaturedPosts($city->id, ['property-listing'], $perPage);
-            $featuredProjects = $this->queryCityFeaturedPosts($city->id, ['project', 'builder-project', 'consultancy-project', 'agent-project'], $perPage);
+            $featuredProperties = $this->queryCityFeaturedPosts($city->id, ['property-listing'], $perPage, false, 'featured');
+            $featuredProjects = $this->queryCityFeaturedPosts($city->id, ['project', 'builder-project', 'consultancy-project', 'agent-project'], $perPage, false, 'featured');
+            $sponsoredProperties = $this->queryCityFeaturedPosts($city->id, ['property-listing'], $perPage, false, 'sponsored');
+            $sponsoredProjects = $this->queryCityFeaturedPosts($city->id, ['project', 'builder-project', 'consultancy-project', 'agent-project'], $perPage, false, 'sponsored');
 
             return response()->json([
                 'status' => true,
@@ -61,6 +63,8 @@ class CityExploreController extends Controller
                     'developers' => $developers,
                     'featured_properties' => $featuredProperties,
                     'featured_projects' => $featuredProjects,
+                    'sponsored_properties' => $sponsoredProperties,
+                    'sponsored_projects' => $sponsoredProjects,
                 ],
             ]);
         } catch (Throwable $e) {
@@ -166,7 +170,7 @@ class CityExploreController extends Controller
             }
 
             $perPage = min(50, max(1, (int) $request->input('per_page', 15)));
-            $properties = $this->queryCityFeaturedPosts($city->id, ['property-listing'], $perPage, true);
+            $properties = $this->queryCityFeaturedPosts($city->id, ['property-listing'], $perPage, true, 'featured');
 
             return response()->json([
                 'status' => true,
@@ -181,6 +185,44 @@ class CityExploreController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch city featured properties.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get sponsored properties for a specific city.
+     *
+     * GET /api/frontend/city-explore/sponsored-properties?city_id=1
+     */
+    public function sponsoredProperties(Request $request): JsonResponse
+    {
+        try {
+            $city = $this->resolveCity($request);
+
+            if (!$city) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'City is required. Please provide city_id or city_name.',
+                ], 422);
+            }
+
+            $perPage = min(50, max(1, (int) $request->input('per_page', 15)));
+            $properties = $this->queryCityFeaturedPosts($city->id, ['property-listing'], $perPage, true, 'sponsored');
+
+            return response()->json([
+                'status' => true,
+                'message' => 'City sponsored properties fetched successfully.',
+                'city' => [
+                    'id' => (int) $city->id,
+                    'name' => $city->name,
+                ],
+                'data' => $properties,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch city sponsored properties.',
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -204,7 +246,7 @@ class CityExploreController extends Controller
             }
 
             $perPage = min(50, max(1, (int) $request->input('per_page', 15)));
-            $projects = $this->queryCityFeaturedPosts($city->id, ['project', 'builder-project', 'consultancy-project', 'agent-project'], $perPage, true);
+            $projects = $this->queryCityFeaturedPosts($city->id, ['project', 'builder-project', 'consultancy-project', 'agent-project'], $perPage, true, 'featured');
 
             return response()->json([
                 'status' => true,
@@ -219,6 +261,44 @@ class CityExploreController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch city featured projects.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get sponsored projects for a specific city.
+     *
+     * GET /api/frontend/city-explore/sponsored-projects?city_id=1
+     */
+    public function sponsoredProjects(Request $request): JsonResponse
+    {
+        try {
+            $city = $this->resolveCity($request);
+
+            if (!$city) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'City is required. Please provide city_id or city_name.',
+                ], 422);
+            }
+
+            $perPage = min(50, max(1, (int) $request->input('per_page', 15)));
+            $projects = $this->queryCityFeaturedPosts($city->id, ['project', 'builder-project', 'consultancy-project', 'agent-project'], $perPage, true, 'sponsored');
+
+            return response()->json([
+                'status' => true,
+                'message' => 'City sponsored projects fetched successfully.',
+                'city' => [
+                    'id' => (int) $city->id,
+                    'name' => $city->name,
+                ],
+                'data' => $projects,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch city sponsored projects.',
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -457,9 +537,9 @@ class CityExploreController extends Controller
     }
 
     /**
-     * Query Featured Posts (Properties or Projects) matching a city.
+     * Query Featured/Sponsored Posts (Properties or Projects) matching a city.
      */
-    private function queryCityFeaturedPosts(int $cityId, array $postTypeSlugs, int $perPage, bool $paginated = false): mixed
+    private function queryCityFeaturedPosts(int $cityId, array $postTypeSlugs, int $perPage, bool $paginated = false, ?string $promotionType = null): mixed
     {
         $postTypeIds = PostType::query()
             ->whereIn('slug', $postTypeSlugs)
@@ -488,20 +568,56 @@ class CityExploreController extends Controller
                 }
             });
 
-        // Filter featured promotions
-        $query->whereExists(function ($promotionQuery) use ($now) {
-            $promotionQuery
-                ->selectRaw('1')
-                ->from('property_featured_promotions as pfp')
-                ->whereColumn('pfp.dynamic_post_id', 'dynamic_posts.id')
-                ->whereNull('pfp.cancelled_at')
-                ->where('pfp.status', PropertyFeaturedPromotion::STATUS_ACTIVE)
-                ->where(function ($startQuery) use ($now) {
-                    $startQuery->whereNull('pfp.starts_at')->orWhere('pfp.starts_at', '<=', $now);
-                })
-                ->where(function ($endQuery) use ($now) {
-                    $endQuery->whereNull('pfp.ends_at')->orWhere('pfp.ends_at', '>', $now);
+        // Filter featured or sponsored promotions
+        $query->where(function ($q) use ($now, $promotionType) {
+            if (Schema::hasTable('property_featured_promotions')) {
+                $q->whereExists(function ($promotionQuery) use ($now, $promotionType) {
+                    $promotionQuery
+                        ->selectRaw('1')
+                        ->from('property_featured_promotions as pfp')
+                        ->whereColumn('pfp.dynamic_post_id', 'dynamic_posts.id')
+                        ->whereNull('pfp.cancelled_at')
+                        ->where(function ($statusQuery) {
+                            $statusQuery->whereIn('pfp.status', [PropertyFeaturedPromotion::STATUS_ACTIVE, '1', 1, 'active', 'approved'])
+                                ->orWhereNull('pfp.status');
+                        })
+                        ->where(function ($startQuery) use ($now) {
+                            $startQuery->whereNull('pfp.starts_at')->orWhere('pfp.starts_at', '<=', $now);
+                        })
+                        ->where(function ($endQuery) use ($now) {
+                            $endQuery->whereNull('pfp.ends_at')->orWhere('pfp.ends_at', '>=', $now);
+                        });
+
+                    if ($promotionType === 'sponsored') {
+                        $promotionQuery->where('pfp.promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED);
+                    } elseif ($promotionType === 'featured') {
+                        $promotionQuery->where('pfp.promotion_type', PropertyFeaturedPromotion::TYPE_FEATURED);
+                    }
                 });
+            }
+
+            if ($promotionType === 'sponsored') {
+                if (Schema::hasColumn('dynamic_posts', 'is_sponsored')) {
+                    $q->orWhere('dynamic_posts.is_sponsored', 1);
+                }
+                if (Schema::hasColumn('dynamic_posts', 'sponsored')) {
+                    $q->orWhere('dynamic_posts.sponsored', 1);
+                }
+            } elseif ($promotionType === 'featured') {
+                if (Schema::hasColumn('dynamic_posts', 'is_featured')) {
+                    $q->orWhere('dynamic_posts.is_featured', 1);
+                }
+                if (Schema::hasColumn('dynamic_posts', 'featured')) {
+                    $q->orWhere('dynamic_posts.featured', 1);
+                }
+            } else {
+                if (Schema::hasColumn('dynamic_posts', 'is_sponsored')) {
+                    $q->orWhere('dynamic_posts.is_sponsored', 1);
+                }
+                if (Schema::hasColumn('dynamic_posts', 'is_featured')) {
+                    $q->orWhere('dynamic_posts.is_featured', 1);
+                }
+            }
         });
 
         // Attach promotion relationship
@@ -509,18 +625,17 @@ class CityExploreController extends Controller
 
         $collection = $paginated ? $posts->getCollection() : $posts;
 
-        if ($collection->isNotEmpty()) {
+        if ($collection->isNotEmpty() && Schema::hasTable('property_featured_promotions')) {
             $postIds = $collection->pluck('id')->all();
 
             $promotions = PropertyFeaturedPromotion::query()
                 ->whereIn('dynamic_post_id', $postIds)
                 ->whereNull('cancelled_at')
-                ->where('status', PropertyFeaturedPromotion::STATUS_ACTIVE)
                 ->where(function ($startQuery) use ($now) {
                     $startQuery->whereNull('starts_at')->orWhere('starts_at', '<=', $now);
                 })
                 ->where(function ($endQuery) use ($now) {
-                    $endQuery->whereNull('ends_at')->orWhere('ends_at', '>', $now);
+                    $endQuery->whereNull('ends_at')->orWhere('ends_at', '>=', $now);
                 })
                 ->get()
                 ->keyBy('dynamic_post_id');
