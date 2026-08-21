@@ -539,8 +539,18 @@ class CityExploreController extends Controller
     /**
      * Query Featured/Sponsored Posts (Properties or Projects) matching a city.
      */
-    private function queryCityFeaturedPosts(int $cityId, array $postTypeSlugs, int $perPage, bool $paginated = false, ?string $promotionType = null): mixed
+    private function queryCityFeaturedPosts(int $cityId, array $postTypeSlugs, int $perPage, bool $paginated = false, ?string $promotionType = null, ?string $placement = null): mixed
     {
+        $req = request();
+        if ($placement === null && $req) {
+            $placement = $req->input('placement')
+                ?? ($req->input('show_on_home') ? 'home' : ($req->input('show_on_search') ? 'search' : ($req->input('show_on_detail') ? 'detail' : null)));
+        }
+
+        $showOnHome = $req?->input('show_on_home') ? true : ($placement === 'home' ? true : null);
+        $showOnSearch = $req?->input('show_on_search') ? true : ($placement === 'search' ? true : null);
+        $showOnDetail = $req?->input('show_on_detail') ? true : ($placement === 'detail' ? true : null);
+
         $postTypeIds = PostType::query()
             ->whereIn('slug', $postTypeSlugs)
             ->pluck('id')
@@ -569,9 +579,9 @@ class CityExploreController extends Controller
             });
 
         // Filter featured or sponsored promotions
-        $query->where(function ($q) use ($now, $promotionType) {
+        $query->where(function ($q) use ($now, $promotionType, $showOnHome, $showOnSearch, $showOnDetail) {
             if (Schema::hasTable('property_featured_promotions')) {
-                $q->whereExists(function ($promotionQuery) use ($now, $promotionType) {
+                $q->whereExists(function ($promotionQuery) use ($now, $promotionType, $showOnHome, $showOnSearch, $showOnDetail) {
                     $promotionQuery
                         ->selectRaw('1')
                         ->from('property_featured_promotions as pfp')
@@ -592,6 +602,16 @@ class CityExploreController extends Controller
                         $promotionQuery->where('pfp.promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED);
                     } elseif ($promotionType === 'featured') {
                         $promotionQuery->where('pfp.promotion_type', PropertyFeaturedPromotion::TYPE_FEATURED);
+                    }
+
+                    if ($showOnHome) {
+                        $promotionQuery->where('pfp.show_on_home', 1);
+                    }
+                    if ($showOnSearch) {
+                        $promotionQuery->where('pfp.show_on_search', 1);
+                    }
+                    if ($showOnDetail) {
+                        $promotionQuery->where('pfp.show_on_detail', 1);
                     }
                 });
             }

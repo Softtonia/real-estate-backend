@@ -937,9 +937,22 @@ class PropertySearchService
             ? mb_strtolower(trim($filters['promotion_type']))
             : null;
 
+        $placement = isset($filters['placement']) && is_string($filters['placement'])
+            ? mb_strtolower(trim($filters['placement']))
+            : null;
+
+        $showOnHome = isset($filters['show_on_home']) ? (bool) $filters['show_on_home'] : ($placement === 'home' ? true : null);
+        $showOnSearch = isset($filters['show_on_search']) ? (bool) $filters['show_on_search'] : ($placement === 'search' ? true : null);
+        $showOnDetail = isset($filters['show_on_detail']) ? (bool) $filters['show_on_detail'] : ($placement === 'detail' ? true : null);
+
         if ($promotionType === 'sponsored') {
             $isSponsored = true;
         } elseif ($promotionType === 'featured') {
+            $isFeatured = true;
+        }
+
+        // If placement filter is specified without explicit is_sponsored/is_featured, treat as any promotion query
+        if ($isSponsored === null && $isFeatured === null && ($showOnHome || $showOnSearch || $showOnDetail || $placement !== null)) {
             $isFeatured = true;
         }
 
@@ -949,9 +962,9 @@ class PropertySearchService
                 : in_array($isSponsored, [1, '1', 'true', 'yes'], true);
 
             if ($isSponsoredBool) {
-                $query->where(function (Builder $q) use ($promotionType): void {
+                $query->where(function (Builder $q) use ($promotionType, $showOnHome, $showOnSearch, $showOnDetail): void {
                     if (Schema::hasTable('property_featured_promotions')) {
-                        $q->whereHas('featuredPromotions', function (Builder $sub) use ($promotionType): void {
+                        $q->whereHas('featuredPromotions', function (Builder $sub) use ($promotionType, $showOnHome, $showOnSearch, $showOnDetail): void {
                             $sub->whereNull('cancelled_at')
                                 ->where(function (Builder $statusQuery): void {
                                     $statusQuery->whereIn('status', [PropertyFeaturedPromotion::STATUS_ACTIVE, '1', 1, 'active', 'approved'])
@@ -968,6 +981,16 @@ class PropertySearchService
 
                             if ($promotionType === 'sponsored') {
                                 $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_SPONSORED);
+                            }
+
+                            if ($showOnHome) {
+                                $sub->where('show_on_home', 1);
+                            }
+                            if ($showOnSearch) {
+                                $sub->where('show_on_search', 1);
+                            }
+                            if ($showOnDetail) {
+                                $sub->where('show_on_detail', 1);
                             }
                         });
                     }
@@ -989,9 +1012,9 @@ class PropertySearchService
                     }
                 });
             } else {
-                $query->where(function (Builder $q): void {
+                $query->where(function (Builder $q) use ($showOnHome, $showOnSearch, $showOnDetail): void {
                     if (Schema::hasTable('property_featured_promotions')) {
-                        $q->whereDoesntHave('featuredPromotions', function (Builder $sub): void {
+                        $q->whereDoesntHave('featuredPromotions', function (Builder $sub) use ($showOnHome, $showOnSearch, $showOnDetail): void {
                             $sub->whereNull('cancelled_at')
                                 ->where(function (Builder $statusQuery): void {
                                     $statusQuery->whereIn('status', [PropertyFeaturedPromotion::STATUS_ACTIVE, '1', 1, 'active', 'approved'])
@@ -1005,6 +1028,16 @@ class PropertySearchService
                                     $et->whereNull('ends_at')
                                         ->orWhere('ends_at', '>=', now());
                                 });
+
+                            if ($showOnHome) {
+                                $sub->where('show_on_home', 1);
+                            }
+                            if ($showOnSearch) {
+                                $sub->where('show_on_search', 1);
+                            }
+                            if ($showOnDetail) {
+                                $sub->where('show_on_detail', 1);
+                            }
                         });
                     }
 
@@ -1022,9 +1055,9 @@ class PropertySearchService
                 : in_array($isFeatured, [1, '1', 'true', 'yes'], true);
 
             if ($isFeaturedBool) {
-                $query->where(function (Builder $q) use ($promotionType): void {
+                $query->where(function (Builder $q) use ($promotionType, $showOnHome, $showOnSearch, $showOnDetail): void {
                     if (Schema::hasTable('property_featured_promotions')) {
-                        $q->whereHas('featuredPromotions', function (Builder $sub) use ($promotionType): void {
+                        $q->whereHas('featuredPromotions', function (Builder $sub) use ($promotionType, $showOnHome, $showOnSearch, $showOnDetail): void {
                             $sub->whereNull('cancelled_at')
                                 ->where(function (Builder $statusQuery): void {
                                     $statusQuery->whereIn('status', [PropertyFeaturedPromotion::STATUS_ACTIVE, '1', 1, 'active', 'approved'])
@@ -1041,6 +1074,16 @@ class PropertySearchService
 
                             if ($promotionType === 'featured') {
                                 $sub->where('promotion_type', PropertyFeaturedPromotion::TYPE_FEATURED);
+                            }
+
+                            if ($showOnHome) {
+                                $sub->where('show_on_home', 1);
+                            }
+                            if ($showOnSearch) {
+                                $sub->where('show_on_search', 1);
+                            }
+                            if ($showOnDetail) {
+                                $sub->where('show_on_detail', 1);
                             }
                         });
                     }

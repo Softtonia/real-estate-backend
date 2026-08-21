@@ -79,6 +79,9 @@ class PropertySearchRequest extends FormRequest
             'sponsored',
             'is_featured',
             'featured',
+            'show_on_home',
+            'show_on_search',
+            'show_on_detail',
         ] as $boolKey) {
             if (array_key_exists($boolKey, $data) && $data[$boolKey] !== null) {
                 $val = $data[$boolKey];
@@ -227,6 +230,23 @@ class PropertySearchRequest extends FormRequest
                 'nullable',
                 'string',
                 Rule::in(['featured', 'sponsored']),
+            ],
+            'placement' => [
+                'nullable',
+                'string',
+                Rule::in(['home', 'search', 'detail']),
+            ],
+            'show_on_home' => [
+                'nullable',
+                'boolean',
+            ],
+            'show_on_search' => [
+                'nullable',
+                'boolean',
+            ],
+            'show_on_detail' => [
+                'nullable',
+                'boolean',
             ],
 
             'page' => [
