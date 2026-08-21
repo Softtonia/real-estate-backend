@@ -18,7 +18,7 @@ class PropertySearchService
     public function options(array $filters = []): array
     {
         return Cache::store('redis')->remember(
-            'frontend:property-search:options:v8',
+            'frontend:property-search:options:v9',
             now()->addHours(6),
             function (): array {
                 $purposes = $this->taxonomyOptions('purpose');
@@ -178,8 +178,14 @@ class PropertySearchService
         }
 
         foreach ($propertyTypes as $term) {
+            $termSlug = mb_strtolower((string) ($term['slug'] ?? ''));
             $termId = (int) $term['id'];
             $parentId = isset($term['parent_id']) && $term['parent_id'] !== null ? (int) $term['parent_id'] : null;
+
+            // Skip top-level group header terms themselves from being added as children
+            if (empty($parentId) && in_array($termSlug, ['residential', 'commercial', 'agricultural', 'industrial'], true)) {
+                continue;
+            }
 
             $groupSlug = null;
 
@@ -205,6 +211,11 @@ class PropertySearchService
                 } else {
                     $groupSlug = 'residential';
                 }
+            }
+
+            // Do not add top-level group header term as its own child option
+            if ($termSlug === $groupSlug && empty($parentId)) {
+                continue;
             }
 
             if (isset($standardGroups[$groupSlug])) {
