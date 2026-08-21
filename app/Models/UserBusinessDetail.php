@@ -25,6 +25,7 @@ class UserBusinessDetail extends Model
         'colony',
         'street_address',
         'business_pin_code',
+        'company_logo',
         'license_number',
         'rera_number',
         'no_of_employees',
@@ -86,5 +87,15 @@ class UserBusinessDetail extends Model
     public function setBussinessAddressAttribute($value): void
     {
         $this->attributes['business_address'] = $value;
+    }
+
+    public function getBusinessLogoAttribute(): ?string
+    {
+        return $this->attributes['company_logo'] ?? null;
+    }
+
+    public function setBusinessLogoAttribute($value): void
+    {
+        $this->attributes['company_logo'] = $value;
     }
 }

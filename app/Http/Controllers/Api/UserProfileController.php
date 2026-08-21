@@ -408,6 +408,82 @@ class UserProfileController extends Controller
         }
     }
 
+    public function updateCompanyLogo(Request $request): JsonResponse
+    {
+        $user = $this->resolveCurrentUser($request);
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invalid or expired token.',
+            ], 401);
+        }
+
+        $fileInput = $request->hasFile('company_logo') ? 'company_logo' : ($request->hasFile('business_logo') ? 'business_logo' : 'company_logo');
+
+        $validator = Validator::make($request->all(), [
+            $fileInput => [
+                'required',
+                'file',
+                'mimes:jpg,jpeg,png,webp',
+                'max:' . self::MAX_UPLOAD_KB,
+            ],
+        ], [
+            "{$fileInput}.max" => 'Company logo must not be greater than 2MB.',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        $newPath = null;
+        $oldPath = null;
+
+        try {
+            $newPath = $this->storePublicUpload(
+                file: $request->file($fileInput),
+                folder: 'business/logos',
+                prefix: 'u' . $user->id . '_company_logo'
+            );
+
+            DB::transaction(function () use ($user, $newPath, &$oldPath) {
+                $business = UserBusinessDetail::query()
+                    ->where('user_id', $user->id)
+                    ->first();
+
+                $oldPath = $business?->company_logo;
+
+                UserBusinessDetail::updateOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'user_id' => $user->id,
+                        'company_logo' => $newPath,
+                    ]
+                );
+            });
+
+            $this->deletePublicUpload($oldPath);
+
+            $freshUser = User::find($user->id);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Company logo updated successfully.',
+                'company_logo' => $this->fileUrl($newPath),
+                'business_logo' => $this->fileUrl($newPath),
+                'data' => $this->formatUserProfile($freshUser),
+            ]);
+        } catch (Throwable $e) {
+            $this->deletePublicUpload($newPath);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to update company logo.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
 
     private function resolveCurrentUser(Request $request): ?User
     {
@@ -542,6 +618,7 @@ class UserProfileController extends Controller
             $businessCountryId = $business?->country_id ?: $countryId;
             $businessStateId = $business?->state_id ?: $stateId;
             $businessCityId = $business?->city_id ?: $cityId;
+            $companyLogo = $this->fileUrl($business?->company_logo);
 
             $raw['bussiness_name'] = $business?->business_name ?? null;
             $raw['business_name'] = $business?->business_name ?? null;
@@ -551,6 +628,8 @@ class UserProfileController extends Controller
             $raw['bussiness_address'] = $business?->business_address ?? null;
             $raw['business_address'] = $business?->business_address ?? null;
             $raw['business_pin_code'] = $business?->business_pin_code ?? null;
+            $raw['company_logo'] = $companyLogo;
+            $raw['business_logo'] = $companyLogo;
             $raw['license_number'] = $business?->license_number ?? null;
             $raw['rera_number'] = $business?->rera_number ?? null;
 
@@ -1253,6 +1332,8 @@ class UserProfileController extends Controller
             'business_country_id' => 'country_id',
             'business_state_id' => 'state_id',
             'business_city_id' => 'city_id',
+            'company_logo' => 'company_logo',
+            'business_logo' => 'company_logo',
             'license_number' => 'license_number',
             'rera_number' => 'rera_number',
             'no_of_employees' => 'no_of_employees',
