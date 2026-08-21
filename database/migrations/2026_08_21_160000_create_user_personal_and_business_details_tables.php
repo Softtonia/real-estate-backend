@@ -5,8 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -88,31 +87,36 @@ return new class extends Migration
 
                 $user = DB::table('users')->where('id', $detail->user_id)->first();
 
+                // Skip orphaned records if user no longer exists in users table
+                if (!$user) {
+                    continue;
+                }
+
                 // Personal details insert/update
                 DB::table('user_personal_details')->updateOrInsert(
                     ['user_id' => $detail->user_id],
                     [
                         'alternate_number' => $detail->alternate_number ?? null,
-                        'profile_photo'    => $detail->profile_photo ?? null,
-                        'about_us'         => $detail->about_us ?? ($user->about ?? null),
-                        'country_id'       => $user->country_id ?? ($detail->country_id ?? null),
-                        'state_id'         => $user->state_id ?? ($detail->state_id ?? null),
-                        'city_id'          => $user->city_id ?? ($detail->city_id ?? null),
-                        'area_locality'    => $user->area_locality ?? ($detail->area_locality ?? null),
-                        'colony'           => $user->colony ?? ($detail->colony ?? null),
-                        'street_address'   => $user->street_address ?? ($detail->street_address ?? null),
-                        'address'          => $detail->address ?? null,
-                        'pin_code'         => $user->pin_code ?? ($detail->pin_code ?? null),
-                        'created_by'       => $detail->created_by ?? ($user->created_by ?? 0),
-                        'created_at'       => $detail->created_at ?? now(),
-                        'updated_at'       => $detail->updated_at ?? now(),
+                        'profile_photo' => $detail->profile_photo ?? null,
+                        'about_us' => $detail->about_us ?? ($user->about ?? null),
+                        'country_id' => $user->country_id ?? ($detail->country_id ?? null),
+                        'state_id' => $user->state_id ?? ($detail->state_id ?? null),
+                        'city_id' => $user->city_id ?? ($detail->city_id ?? null),
+                        'area_locality' => $user->area_locality ?? ($detail->area_locality ?? null),
+                        'colony' => $user->colony ?? ($detail->colony ?? null),
+                        'street_address' => $user->street_address ?? ($detail->street_address ?? null),
+                        'address' => $detail->address ?? null,
+                        'pin_code' => $user->pin_code ?? ($detail->pin_code ?? null),
+                        'created_by' => $detail->created_by ?? ($user->created_by ?? 0),
+                        'created_at' => $detail->created_at ?? now(),
+                        'updated_at' => $detail->updated_at ?? now(),
                     ]
                 );
 
                 // Business details insert/update (if business info exists)
-                $bName    = $detail->bussiness_name ?? null;
-                $bPhone   = $detail->business_phone ?? null;
-                $bEmail   = $detail->bussiness_email ?? null;
+                $bName = $detail->bussiness_name ?? null;
+                $bPhone = $detail->business_phone ?? null;
+                $bEmail = $detail->bussiness_email ?? null;
                 $bAddress = $detail->bussiness_address ?? null;
                 $bPinCode = $detail->pin_code ?? ($user->pin_code ?? null);
 
@@ -120,24 +124,24 @@ return new class extends Migration
                     DB::table('user_business_details')->updateOrInsert(
                         ['user_id' => $detail->user_id],
                         [
-                            'business_name'     => $bName,
-                            'business_phone'    => $bPhone,
-                            'business_email'    => $bEmail,
-                            'business_address'  => $bAddress,
-                            'country_id'        => $detail->country_id ?? null,
-                            'state_id'          => $detail->state_id ?? null,
-                            'city_id'           => $detail->city_id ?? null,
-                            'area_locality'     => $detail->area_locality ?? null,
-                            'colony'            => $detail->colony ?? null,
-                            'street_address'    => $detail->street_address ?? null,
+                            'business_name' => $bName,
+                            'business_phone' => $bPhone,
+                            'business_email' => $bEmail,
+                            'business_address' => $bAddress,
+                            'country_id' => $detail->country_id ?? null,
+                            'state_id' => $detail->state_id ?? null,
+                            'city_id' => $detail->city_id ?? null,
+                            'area_locality' => $detail->area_locality ?? null,
+                            'colony' => $detail->colony ?? null,
+                            'street_address' => $detail->street_address ?? null,
                             'business_pin_code' => $bPinCode,
-                            'license_number'    => $detail->license_number ?? null,
-                            'rera_number'       => $detail->rera_number ?? null,
-                            'no_of_employees'   => $detail->no_of_employees ?? null,
-                            'about_business'    => $detail->about_us ?? null,
-                            'created_by'        => $detail->created_by ?? 0,
-                            'created_at'        => $detail->created_at ?? now(),
-                            'updated_at'        => $detail->updated_at ?? now(),
+                            'license_number' => $detail->license_number ?? null,
+                            'rera_number' => $detail->rera_number ?? null,
+                            'no_of_employees' => $detail->no_of_employees ?? null,
+                            'about_business' => $detail->about_us ?? null,
+                            'created_by' => $detail->created_by ?? 0,
+                            'created_at' => $detail->created_at ?? now(),
+                            'updated_at' => $detail->updated_at ?? now(),
                         ]
                     );
                 }
