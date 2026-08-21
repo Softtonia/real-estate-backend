@@ -475,7 +475,9 @@ class PropertySearchService
     {
         $location = trim((string) ($filters['location'] ?? ''));
 
-        $cityId = !empty($filters['city_id']) ? (int) $filters['city_id'] : null;
+        $cityId = !empty($filters['city_id']) && is_numeric($filters['city_id']) && (int) $filters['city_id'] > 0
+            ? (int) $filters['city_id']
+            : null;
 
         if (!$cityId && $location !== '') {
             if (Schema::hasTable('cities')) {
@@ -489,11 +491,11 @@ class PropertySearchService
             }
         }
 
-        if (!empty($filters['country_id'])) {
+        if (!empty($filters['country_id']) && is_numeric($filters['country_id']) && (int) $filters['country_id'] > 0) {
             $query->where('dynamic_posts.country_id', (int) $filters['country_id']);
         }
 
-        if (!empty($filters['state_id'])) {
+        if (!empty($filters['state_id']) && is_numeric($filters['state_id']) && (int) $filters['state_id'] > 0) {
             $query->where('dynamic_posts.state_id', (int) $filters['state_id']);
         }
 

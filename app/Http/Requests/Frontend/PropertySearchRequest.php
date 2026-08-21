@@ -27,6 +27,20 @@ class PropertySearchRequest extends FormRequest
             }
         }
 
+        foreach ([
+            'city_id',
+            'state_id',
+            'country_id',
+        ] as $idKey) {
+            if (isset($data[$idKey])) {
+                if (!is_numeric($data[$idKey]) || (int) $data[$idKey] <= 0) {
+                    unset($data[$idKey]);
+                } else {
+                    $data[$idKey] = (int) $data[$idKey];
+                }
+            }
+        }
+
         if (isset($data['purpose'])) {
             if (is_string($data['purpose'])) {
                 $pNorm = mb_strtolower(trim($data['purpose']));
