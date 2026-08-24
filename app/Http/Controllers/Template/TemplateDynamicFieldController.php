@@ -45,7 +45,7 @@ class TemplateDynamicFieldController extends Controller
 
         $postTypeRecord = $this->getPostTypeRecord($payload);
 
-        if (! $postTypeRecord) {
+        if (!$postTypeRecord) {
             return response()->json([
                 'status' => false,
                 'message' => 'Post type not found or inactive.',
@@ -129,9 +129,9 @@ class TemplateDynamicFieldController extends Controller
         return collect($fields)
             ->filter(function (array $field) {
                 /*
-             * Related Posts must not come from system fields.
-             * Related Posts should exist only as basic widget.
-             */
+                 * Related Posts must not come from system fields.
+                 * Related Posts should exist only as basic widget.
+                 */
                 if (($field['key'] ?? null) === 'related_posts') {
                     return false;
                 }
@@ -149,15 +149,15 @@ class TemplateDynamicFieldController extends Controller
     }
     private function getPostTypeRecord(array $payload): ?object
     {
-        if (! Schema::hasTable('post_types')) {
+        if (!Schema::hasTable('post_types')) {
             return null;
         }
 
         $query = DB::table('post_types');
 
-        if (! empty($payload['post_type_id'])) {
+        if (!empty($payload['post_type_id'])) {
             $query->where('id', $payload['post_type_id']);
-        } elseif (! empty($payload['post_type'])) {
+        } elseif (!empty($payload['post_type'])) {
             $query->where('slug', $payload['post_type']);
         }
 
@@ -175,7 +175,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getPostPreviewData(?int $entityId, object $postTypeRecord): array
     {
-        if (! $entityId || ! Schema::hasTable('dynamic_posts')) {
+        if (!$entityId || !Schema::hasTable('dynamic_posts')) {
             return [];
         }
 
@@ -187,7 +187,7 @@ class TemplateDynamicFieldController extends Controller
 
         $post = $query->first();
 
-        if (! $post) {
+        if (!$post) {
             return [];
         }
 
@@ -198,10 +198,10 @@ class TemplateDynamicFieldController extends Controller
         $featuredImageUrl = $featuredMedia['url']
             ?? $this->rawMediaUrl(
                 $row['featured_image']
-                    ?? $row['thumbnail']
-                    ?? $row['image']
-                    ?? $row['banner_image']
-                    ?? null
+                ?? $row['thumbnail']
+                ?? $row['image']
+                ?? $row['banner_image']
+                ?? null
             );
 
         $galleryMedia = $this->formatMediaFilesByIds($row['gallery_image_ids'] ?? []);
@@ -259,7 +259,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getDynamicCustomFields(object $postTypeRecord, ?int $entityId, array $selectedTermIds): array
     {
-        if (! Schema::hasTable('custom_fields')) {
+        if (!Schema::hasTable('custom_fields')) {
             return [];
         }
 
@@ -311,7 +311,7 @@ class TemplateDynamicFieldController extends Controller
                     ?? $field->name
                     ?? null;
 
-                if (! $fieldKey) {
+                if (!$fieldKey) {
                     return null;
                 }
 
@@ -402,7 +402,7 @@ class TemplateDynamicFieldController extends Controller
     {
         $fieldRules = $this->getFieldLocationRules((int) $field->id);
 
-        if (! empty($fieldRules)) {
+        if (!empty($fieldRules)) {
             return $this->evaluateLocationRules(
                 $fieldRules,
                 $postTypeRecord,
@@ -415,7 +415,7 @@ class TemplateDynamicFieldController extends Controller
         if ($groupId) {
             $groupRules = $this->getGroupLocationRules((int) $groupId);
 
-            if (! empty($groupRules)) {
+            if (!empty($groupRules)) {
                 return $this->evaluateLocationRules(
                     $groupRules,
                     $postTypeRecord,
@@ -429,7 +429,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getFieldLocationRules(int $fieldId): array
     {
-        if (! Schema::hasTable('custom_field_group_location_rules')) {
+        if (!Schema::hasTable('custom_field_group_location_rules')) {
             return [];
         }
 
@@ -455,7 +455,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getGroupLocationRules(int $groupId): array
     {
-        if (! Schema::hasTable('custom_field_group_location_rules')) {
+        if (!Schema::hasTable('custom_field_group_location_rules')) {
             return [];
         }
 
@@ -497,7 +497,7 @@ class TemplateDynamicFieldController extends Controller
             $groupMatched = true;
 
             foreach ($groupRules as $rule) {
-                if (! $this->singleRuleMatches($rule, $postTypeRecord, $selectedTermIds)) {
+                if (!$this->singleRuleMatches($rule, $postTypeRecord, $selectedTermIds)) {
                     $groupMatched = false;
                     break;
                 }
@@ -524,7 +524,7 @@ class TemplateDynamicFieldController extends Controller
         $matches = false;
 
         if ($showIf === 'post_type') {
-            $matches = ! empty($rule->post_type_id)
+            $matches = !empty($rule->post_type_id)
                 && (int) $rule->post_type_id === (int) $postTypeRecord->id;
         }
 
@@ -540,16 +540,16 @@ class TemplateDynamicFieldController extends Controller
             } elseif (empty($ruleTermIds)) {
                 $matches = true;
             } else {
-                $matches = ! empty(array_intersect($ruleTermIds, $selectedTermIds));
+                $matches = !empty(array_intersect($ruleTermIds, $selectedTermIds));
             }
         }
 
-        return $operator === 'is_not_equal_to' ? ! $matches : $matches;
+        return $operator === 'is_not_equal_to' ? !$matches : $matches;
     }
 
     private function getCustomFieldValue(int $entityId, int $customFieldId): mixed
     {
-        if (! Schema::hasTable('custom_field_values')) {
+        if (!Schema::hasTable('custom_field_values')) {
             return null;
         }
 
@@ -563,7 +563,7 @@ class TemplateDynamicFieldController extends Controller
 
         $row = $query->orderByDesc('id')->first();
 
-        if (! $row) {
+        if (!$row) {
             return null;
         }
 
@@ -572,7 +572,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getRepeaterValue(int $entityId, int $customFieldId): array
     {
-        if (! Schema::hasTable('custom_field_repeater_values')) {
+        if (!Schema::hasTable('custom_field_repeater_values')) {
             return [];
         }
 
@@ -631,11 +631,11 @@ class TemplateDynamicFieldController extends Controller
 
             $value = $this->extractStoredValue($row);
 
-            if (! empty($row->repeater_option_value)) {
+            if (!empty($row->repeater_option_value)) {
                 $value = $row->repeater_option_value;
             }
 
-            if (! isset($formatted[$rowIndex])) {
+            if (!isset($formatted[$rowIndex])) {
                 $formatted[$rowIndex] = [];
             }
 
@@ -668,7 +668,7 @@ class TemplateDynamicFieldController extends Controller
             if (is_array($value) && count($value) === 1) {
                 $first = reset($value);
 
-                if (! is_array($first) && ! is_object($first)) {
+                if (!is_array($first) && !is_object($first)) {
                     return $first;
                 }
             }
@@ -709,7 +709,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getFieldOptions(int $customFieldId): array
     {
-        if (! Schema::hasTable('custom_field_options')) {
+        if (!Schema::hasTable('custom_field_options')) {
             return [];
         }
 
@@ -740,7 +740,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getFieldRepeaters(int $customFieldId): array
     {
-        if (! Schema::hasTable('custom_field_repeaters')) {
+        if (!Schema::hasTable('custom_field_repeaters')) {
             return [];
         }
 
@@ -774,7 +774,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getRepeaterOptions(int $repeaterId): array
     {
-        if (! Schema::hasTable('custom_field_repeater_options')) {
+        if (!Schema::hasTable('custom_field_repeater_options')) {
             return [];
         }
 
@@ -829,7 +829,7 @@ class TemplateDynamicFieldController extends Controller
                 'field_key' => $key,
                 'path' => $fieldPath,
             ],
-            'settings' => ! empty($settings) ? $settings : [
+            'settings' => !empty($settings) ? $settings : [
                 'source' => 'dynamic',
                 'field' => $fieldPath,
             ],
@@ -838,11 +838,11 @@ class TemplateDynamicFieldController extends Controller
 
     private function formatMediaFileById(null|int|string $mediaId): ?array
     {
-        if (empty($mediaId) || ! is_numeric($mediaId)) {
+        if (empty($mediaId) || !is_numeric($mediaId)) {
             return null;
         }
 
-        if (! Schema::hasTable('media_files')) {
+        if (!Schema::hasTable('media_files')) {
             return null;
         }
 
@@ -855,7 +855,7 @@ class TemplateDynamicFieldController extends Controller
     {
         $ids = $this->normalizeIds($mediaIds);
 
-        if (empty($ids) || ! Schema::hasTable('media_files')) {
+        if (empty($ids) || !Schema::hasTable('media_files')) {
             return [];
         }
 
@@ -895,7 +895,7 @@ class TemplateDynamicFieldController extends Controller
             'mime_type' => $media->mime_type ?? null,
             'extension' => $media->extension ?? null,
             'size' => $media->size ?? null,
-            'size_kb' => ! empty($media->size) ? round(((int) $media->size) / 1024, 2) : null,
+            'size_kb' => !empty($media->size) ? round(((int) $media->size) / 1024, 2) : null,
             'created_at' => $media->created_at ?? null,
             'updated_at' => $media->updated_at ?? null,
         ];
@@ -916,14 +916,16 @@ class TemplateDynamicFieldController extends Controller
         if (is_string($value)) {
             $url = $this->mediaPublicUrl($value);
 
-            return $url ? [[
-                'id' => null,
-                'path' => $value,
-                'url' => $url,
-            ]] : [];
+            return $url ? [
+                [
+                    'id' => null,
+                    'path' => $value,
+                    'url' => $url,
+                ]
+            ] : [];
         }
 
-        if (! is_array($value)) {
+        if (!is_array($value)) {
             return [];
         }
 
@@ -943,9 +945,11 @@ class TemplateDynamicFieldController extends Controller
                 disk: $value['disk'] ?? null
             );
 
-            return $url ? [array_merge($value, [
-                'url' => $url,
-            ])] : [];
+            return $url ? [
+                array_merge($value, [
+                    'url' => $url,
+                ])
+            ] : [];
         }
 
         return collect($value)
@@ -957,14 +961,16 @@ class TemplateDynamicFieldController extends Controller
                 if (is_string($item)) {
                     $url = $this->mediaPublicUrl($item);
 
-                    return $url ? [[
-                        'id' => null,
-                        'path' => $item,
-                        'url' => $url,
-                    ]] : [];
+                    return $url ? [
+                        [
+                            'id' => null,
+                            'path' => $item,
+                            'url' => $url,
+                        ]
+                    ] : [];
                 }
 
-                if (! is_array($item)) {
+                if (!is_array($item)) {
                     return [];
                 }
 
@@ -979,11 +985,13 @@ class TemplateDynamicFieldController extends Controller
                     disk: $item['disk'] ?? null
                 );
 
-                return $url ? [array_merge($item, [
-                    'url' => $url,
-                ])] : [];
+                return $url ? [
+                    array_merge($item, [
+                        'url' => $url,
+                    ])
+                ] : [];
             })
-            ->filter(fn($media) => ! empty($media['url']))
+            ->filter(fn($media) => !empty($media['url']))
             ->values()
             ->toArray();
     }
@@ -996,7 +1004,7 @@ class TemplateDynamicFieldController extends Controller
             $value = $value['url'] ?? $value['path'] ?? null;
         }
 
-        if (! is_string($value) || trim($value) === '') {
+        if (!is_string($value) || trim($value) === '') {
             return null;
         }
 
@@ -1017,7 +1025,7 @@ class TemplateDynamicFieldController extends Controller
 
         $path = $path ? trim($path) : $existingUrl;
 
-        if (! $path) {
+        if (!$path) {
             return null;
         }
 
@@ -1041,9 +1049,9 @@ class TemplateDynamicFieldController extends Controller
     }
     private function getDynamicPostLocation(array $row): array
     {
-        $countryId = ! empty($row['country_id']) ? (int) $row['country_id'] : null;
-        $stateId = ! empty($row['state_id']) ? (int) $row['state_id'] : null;
-        $cityId = ! empty($row['city_id']) ? (int) $row['city_id'] : null;
+        $countryId = !empty($row['country_id']) ? (int) $row['country_id'] : null;
+        $stateId = !empty($row['state_id']) ? (int) $row['state_id'] : null;
+        $cityId = !empty($row['city_id']) ? (int) $row['city_id'] : null;
 
         $country = null;
         $state = null;
@@ -1113,7 +1121,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getDynamicPostKeywords(int $entityId): array
     {
-        if (! Schema::hasTable('keywords') || ! Schema::hasTable('keyword_dynamic_post')) {
+        if (!Schema::hasTable('keywords') || !Schema::hasTable('keyword_dynamic_post')) {
             return [];
         }
 
@@ -1146,7 +1154,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getDynamicPostRelationships(int $entityId): array
     {
-        if (! Schema::hasTable('dynamic_post_relationships')) {
+        if (!Schema::hasTable('dynamic_post_relationships')) {
             return [
                 'grouped' => [],
                 'flat' => [],
@@ -1184,17 +1192,17 @@ class TemplateDynamicFieldController extends Controller
 
         $postTypes = Schema::hasTable('post_types')
             ? DB::table('post_types')
-            ->whereIn('id', $postTypeIds)
-            ->get()
-            ->keyBy('id')
+                ->whereIn('id', $postTypeIds)
+                ->get()
+                ->keyBy('id')
             : collect();
 
         $posts = Schema::hasTable('dynamic_posts')
             ? DB::table('dynamic_posts')
-            ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
-            ->whereIn('id', $postIds)
-            ->get()
-            ->keyBy('id')
+                ->select('id', 'post_type_id', 'title', 'slug', 'status', 'live_status')
+                ->whereIn('id', $postIds)
+                ->get()
+                ->keyBy('id')
             : collect();
 
         $grouped = $rows
@@ -1301,7 +1309,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getTaxonomyFields(object $postTypeRecord, array $selectedTermIds = []): array
     {
-        if (! Schema::hasTable('taxonomies')) {
+        if (!Schema::hasTable('taxonomies')) {
             return [];
         }
 
@@ -1354,7 +1362,7 @@ class TemplateDynamicFieldController extends Controller
                      */
                     'field_value' => $selectedTerms,
                     'value' => $selectedTerms,
-                    'has_value' => ! empty($selectedTerms),
+                    'has_value' => !empty($selectedTerms),
 
                     'settings' => [
                         'source' => 'dynamic',
@@ -1368,7 +1376,7 @@ class TemplateDynamicFieldController extends Controller
 
     private function getTaxonomyTerms(int $taxonomyId): array
     {
-        if (! Schema::hasTable('taxonomy_terms')) {
+        if (!Schema::hasTable('taxonomy_terms')) {
             return [];
         }
 
@@ -1400,7 +1408,7 @@ class TemplateDynamicFieldController extends Controller
     {
         $termIds = $this->normalizeIds($payload['taxonomy_term_ids'] ?? []);
 
-        if (! $entityId || ! Schema::hasTable('post_taxonomy_terms')) {
+        if (!$entityId || !Schema::hasTable('post_taxonomy_terms')) {
             return $termIds;
         }
 
@@ -1417,7 +1425,7 @@ class TemplateDynamicFieldController extends Controller
             'term_id',
         ]);
 
-        if (! $postColumn || ! $termColumn) {
+        if (!$postColumn || !$termColumn) {
             return $termIds;
         }
 
@@ -1443,7 +1451,7 @@ class TemplateDynamicFieldController extends Controller
         $taxonomies = [];
 
         foreach ($systemFields as $field) {
-            if (! isset($field['key'])) {
+            if (!isset($field['key'])) {
                 continue;
             }
 
@@ -1451,7 +1459,7 @@ class TemplateDynamicFieldController extends Controller
         }
 
         foreach ($customFields as $field) {
-            if (! isset($field['key'])) {
+            if (!isset($field['key'])) {
                 continue;
             }
 
@@ -1459,7 +1467,7 @@ class TemplateDynamicFieldController extends Controller
         }
 
         foreach ($taxonomyFields as $field) {
-            if (! isset($field['key'])) {
+            if (!isset($field['key'])) {
                 continue;
             }
 
@@ -1537,8 +1545,8 @@ class TemplateDynamicFieldController extends Controller
             ],
 
             /*
-         * New Related Posts widget.
-         */
+             * New Related Posts widget.
+             */
             $relatedPostsWidget->sidebarItem(),
         ];
     }
@@ -1563,7 +1571,7 @@ class TemplateDynamicFieldController extends Controller
             $value = explode(',', $value);
         }
 
-        if (! is_array($value)) {
+        if (!is_array($value)) {
             return [];
         }
 
@@ -1612,11 +1620,11 @@ class TemplateDynamicFieldController extends Controller
         }
 
         if (is_array($value)) {
-            return ! empty($value);
+            return !empty($value);
         }
 
         if (is_object($value)) {
-            return ! empty((array) $value);
+            return !empty((array) $value);
         }
 
         return true;

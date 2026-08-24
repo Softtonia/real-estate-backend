@@ -855,10 +855,6 @@ class UserProfileController extends Controller
                 'label' => 'Alternate Number',
                 'section' => 'personal_information',
             ],
-            'no_of_employees' => [
-                'label' => 'Number of Employees',
-                'section' => 'personal_information',
-            ],
             'about_us' => [
                 'label' => 'About You',
                 'section' => 'personal_information',
@@ -921,6 +917,10 @@ class UserProfileController extends Controller
                     'label' => 'Business Email',
                     'section' => 'business_information',
                 ],
+                'no_of_employees' => [
+                    'label' => 'Number of Employees',
+                    'section' => 'business_information',
+                ],
                 'business_country_id' => [
                     'label' => 'Business Country',
                     'section' => 'business_address',
@@ -959,9 +959,21 @@ class UserProfileController extends Controller
                     $isCompleted = true;
                 } elseif ($field === 'colony' && ($this->hasProfileValue($data['street_address'] ?? null) || $this->hasProfileValue($data['area_locality'] ?? null))) {
                     $isCompleted = true;
-                } elseif ($field === 'business_phone' && $this->hasProfileValue($data['phone'] ?? null)) {
+                } elseif ($field === 'alternate_number' && $this->hasProfileValue($data['phone'] ?? null)) {
+                    $isCompleted = true;
+                } elseif ($field === 'business_phone' && ($this->hasProfileValue($data['phone'] ?? null) || $this->hasProfileValue($data['alternate_number'] ?? null))) {
+                    $isCompleted = true;
+                } elseif (($field === 'bussiness_email' || $field === 'business_email') && $this->hasProfileValue($data['email'] ?? null)) {
                     $isCompleted = true;
                 } elseif (($field === 'bussiness_address' || $field === 'business_address') && ($this->hasProfileValue($data['address'] ?? null) || $this->hasProfileValue($data['street_address'] ?? null))) {
+                    $isCompleted = true;
+                } elseif ($field === 'business_country_id' && $this->hasProfileValue($data['country_id'] ?? null)) {
+                    $isCompleted = true;
+                } elseif ($field === 'business_state_id' && $this->hasProfileValue($data['state_id'] ?? null)) {
+                    $isCompleted = true;
+                } elseif ($field === 'business_city_id' && $this->hasProfileValue($data['city_id'] ?? null)) {
+                    $isCompleted = true;
+                } elseif ($field === 'business_pin_code' && $this->hasProfileValue($data['pin_code'] ?? null)) {
                     $isCompleted = true;
                 }
             }
