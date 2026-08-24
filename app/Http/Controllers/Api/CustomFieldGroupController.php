@@ -1288,7 +1288,7 @@ class CustomFieldGroupController extends Controller
                 $field = CustomField::create(array_merge($fieldData, [
                     'custom_field_group_id' => $group->id,
                     'field_name_slug' => $this->resolveFieldSlug($group->id, $fieldData),
-                    'sort_order' => $fieldData['sort_order'] ?? $index,
+                    'sort_order' => $fieldData['sort_order'] ?? ($index + 1),
                     'status' => $fieldData['status'] ?? true,
                     'created_by' => Auth::id(),
                 ]));
@@ -1346,7 +1346,7 @@ class CustomFieldGroupController extends Controller
                 'media_limit' => $fieldData['media_limit'] ?? null,
                 'media_size' => $fieldData['media_size'] ?? null,
                 'media_format' => $fieldData['media_format'] ?? null,
-                'sort_order' => $fieldData['sort_order'] ?? $index,
+                'sort_order' => $fieldData['sort_order'] ?? ($index + 1),
                 'status' => $fieldData['status'] ?? true,
                 'created_by' => Auth::id(),
             ]);

@@ -178,6 +178,13 @@ $templateId = !empty($templateId) && CustomFieldUniqueCode::where('id', $templat
                 ]);
             }
 
+            if (!isset($groupSortOrders[$group->id])) {
+                $groupSortOrders[$group->id] = 1;
+            } else {
+                $groupSortOrders[$group->id]++;
+            }
+            $autoSortOrder = $groupSortOrders[$group->id];
+
             $existingField = CustomField::where('field_name_slug', $fieldSlug)->first();
 
             // Insert/Update Custom Field
@@ -198,6 +205,7 @@ $templateId = !empty($templateId) && CustomFieldUniqueCode::where('id', $templat
                     'media_format' => $mediaFormat ?: null,
                     'model_fields' => $modelFields ?: null,
                     'checkbox_type' => $checkboxType ?: null,
+                    'sort_order' => $autoSortOrder,
                 ]
             );
 
