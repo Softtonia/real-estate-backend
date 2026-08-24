@@ -333,15 +333,48 @@ class AuthController extends Controller
             $user = User::with('role:id,name')->where('api_token', $token)->first();
         }
 
-        // 2. Fallback to user ID parameter
+        // 2. Fallback to user ID parameter in request body or query string
         if (!$user && ($request->filled('id') || $request->filled('user_id'))) {
             $userId = $request->input('id') ?? $request->input('user_id');
             $user = User::with('role:id,name')->find($userId);
         }
 
-        // 3. Fallback to email parameter
+        // 3. Fallback to email parameter in request body or query string
         if (!$user && $request->filled('email')) {
             $user = User::with('role:id,name')->where('email', $request->input('email'))->first();
+        }
+
+        // 4. Fallback to HTTP Referer header URL query string (e.g. verify-otp?email=...&id=26)
+        if (!$user) {
+            $referer = $request->header('Referer');
+            if ($referer && str_contains($referer, '?')) {
+                $queryString = parse_url($referer, PHP_URL_QUERY);
+                if ($queryString) {
+                    parse_str($queryString, $queryParams);
+                    if (!empty($queryParams['id'])) {
+                        $user = User::with('role:id,name')->find($queryParams['id']);
+                    } elseif (!empty($queryParams['email'])) {
+                        $user = User::with('role:id,name')->where('email', $queryParams['email'])->first();
+                    }
+                }
+            }
+        }
+
+        // 5. Fallback to active unverified OTP matching in otps table
+        if (!$user && $request->filled('otp')) {
+            $otpRecord = DB::table('otps')
+                ->where('otp', $request->otp)
+                ->where('isOTPVerified', false)
+                ->where(function ($q) {
+                    $q->whereNull('expire_date_time')
+                        ->orWhere('expire_date_time', '>=', now());
+                })
+                ->latest('id')
+                ->first();
+
+            if ($otpRecord && !empty($otpRecord->user_id)) {
+                $user = User::with('role:id,name')->find($otpRecord->user_id);
+            }
         }
 
         if (!$user) {
