@@ -544,7 +544,7 @@ class UserProfileController extends Controller
         $streetAddress = $user->street_address ?? $personal?->street_address ?? null;
         $areaLocality = $user->area_locality ?? $personal?->area_locality ?? null;
         $colony = $user->colony ?? $personal?->colony ?? null;
-        $address = $personal?->address ?? null;
+        $address = $personal?->address ?? $user->address ?? $streetAddress ?? null;
         $pinCode = $user->pin_code ?? $personal?->pin_code ?? null;
 
         $fullAddress = collect([
@@ -622,12 +622,12 @@ class UserProfileController extends Controller
 
             $raw['bussiness_name'] = $business?->business_name ?? null;
             $raw['business_name'] = $business?->business_name ?? null;
-            $raw['business_phone'] = $business?->business_phone ?? null;
-            $raw['bussiness_email'] = $business?->business_email ?? null;
-            $raw['business_email'] = $business?->business_email ?? null;
-            $raw['bussiness_address'] = $business?->business_address ?? null;
-            $raw['business_address'] = $business?->business_address ?? null;
-            $raw['business_pin_code'] = $business?->business_pin_code ?? null;
+            $raw['business_phone'] = $business?->business_phone ?? $user->phone ?? null;
+            $raw['bussiness_email'] = $business?->business_email ?? $user->email ?? null;
+            $raw['business_email'] = $business?->business_email ?? $user->email ?? null;
+            $raw['bussiness_address'] = $business?->business_address ?? $address ?? $streetAddress ?? null;
+            $raw['business_address'] = $business?->business_address ?? $address ?? $streetAddress ?? null;
+            $raw['business_pin_code'] = $business?->business_pin_code ?? $pinCode ?? null;
             $raw['company_logo'] = $companyLogo;
             $raw['business_logo'] = $companyLogo;
             $raw['license_number'] = $business?->license_number ?? null;
@@ -941,6 +941,18 @@ class UserProfileController extends Controller
             $section = $meta['section'];
             $value = $data[$field] ?? null;
             $isCompleted = $this->hasProfileValue($value);
+
+            if (!$isCompleted) {
+                if ($field === 'address' && $this->hasProfileValue($data['street_address'] ?? null)) {
+                    $isCompleted = true;
+                } elseif ($field === 'colony' && ($this->hasProfileValue($data['street_address'] ?? null) || $this->hasProfileValue($data['area_locality'] ?? null))) {
+                    $isCompleted = true;
+                } elseif ($field === 'business_phone' && $this->hasProfileValue($data['phone'] ?? null)) {
+                    $isCompleted = true;
+                } elseif (($field === 'bussiness_address' || $field === 'business_address') && ($this->hasProfileValue($data['address'] ?? null) || $this->hasProfileValue($data['street_address'] ?? null))) {
+                    $isCompleted = true;
+                }
+            }
 
             if (!isset($sectionStats[$section])) {
                 $sectionStats[$section] = [
