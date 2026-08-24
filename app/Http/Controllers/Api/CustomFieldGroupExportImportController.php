@@ -151,6 +151,8 @@ class CustomFieldGroupExportImportController extends Controller
                     continue;
                 }
 
+                $fieldType = $this->normalizeFieldType($fieldType);
+
                 // Create/Find Group
                 $group = CustomFieldGroup::firstOrCreate(
                     ['group_name' => $groupName]
@@ -478,5 +480,52 @@ class CustomFieldGroupExportImportController extends Controller
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
+    }
+
+    private function normalizeFieldType(string $type): string
+    {
+        $type = strtolower(trim($type));
+        $type = str_replace('-', '_', $type);
+
+        $map = [
+            'text_editor' => 'texteditor',
+            'text-editor' => 'texteditor',
+            'wysiwyg' => 'texteditor',
+            'editor' => 'texteditor',
+            'rich_text' => 'texteditor',
+            'richtext' => 'texteditor',
+            'text_area' => 'textarea',
+            'date_time' => 'datetime',
+            'bool' => 'boolean',
+            'image' => 'media',
+        ];
+
+        $allowed = [
+            'text',
+            'texteditor',
+            'textarea',
+            'number',
+            'email',
+            'url',
+            'date',
+            'datetime',
+            'boolean',
+            'checkbox',
+            'radio',
+            'select',
+            'repeater',
+            'media',
+            'file'
+        ];
+
+        if (isset($map[$type])) {
+            return $map[$type];
+        }
+
+        if (in_array($type, $allowed, true)) {
+            return $type;
+        }
+
+        return 'text';
     }
 }
