@@ -315,32 +315,39 @@ class AuthController extends Controller
             ], 422);
         }
 
+        $user = null;
+
+        // 1. Check Bearer token or api_token input/header
         $authorizationHeader = $request->header('Authorization');
+        $token = null;
 
-        if (!$authorizationHeader || !str_starts_with($authorizationHeader, 'Bearer ')) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Authorization token is required. Use Bearer token.',
-            ], 401);
+        if ($authorizationHeader && str_starts_with($authorizationHeader, 'Bearer ')) {
+            $token = trim(substr($authorizationHeader, 7));
         }
 
-        $token = trim(substr($authorizationHeader, 7));
-
-        if ($token === '') {
-            return response()->json([
-                'status' => false,
-                'message' => 'API token is missing.',
-            ], 401);
+        if (!$token) {
+            $token = $request->input('api_token') ?? $request->header('X-API-TOKEN') ?? $request->header('api_token');
         }
 
-        $user = User::with('role:id,name')
-            ->where('api_token', $token)
-            ->first();
+        if ($token) {
+            $user = User::with('role:id,name')->where('api_token', $token)->first();
+        }
+
+        // 2. Fallback to user ID parameter
+        if (!$user && ($request->filled('id') || $request->filled('user_id'))) {
+            $userId = $request->input('id') ?? $request->input('user_id');
+            $user = User::with('role:id,name')->find($userId);
+        }
+
+        // 3. Fallback to email parameter
+        if (!$user && $request->filled('email')) {
+            $user = User::with('role:id,name')->where('email', $request->input('email'))->first();
+        }
 
         if (!$user) {
             return response()->json([
                 'status' => false,
-                'message' => 'Invalid API token.',
+                'message' => 'Invalid API token or user not found.',
             ], 401);
         }
 
