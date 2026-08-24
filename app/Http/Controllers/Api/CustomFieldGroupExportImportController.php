@@ -49,7 +49,7 @@ class CustomFieldGroupExportImportController extends Controller
 
             // Detect header row
             $firstRow = $rows[0] ?? [];
-            $header = array_map(fn($h) => strtolower(trim((string)$h)), $firstRow);
+            $header = array_map(fn($h) => strtolower(trim((string) $h)), $firstRow);
 
             $hasHeader = in_array('group_name', $header, true) || in_array('field_label', $header, true);
 
@@ -70,7 +70,7 @@ class CustomFieldGroupExportImportController extends Controller
                 $rowNumber = $hasHeader ? $index + 2 : $index + 1;
 
                 // Skip empty rows
-                if (count(array_filter($row, fn($v) => trim((string)$v) !== '')) === 0) {
+                if (count(array_filter($row, fn($v) => trim((string) $v) !== '')) === 0) {
                     $skipped++;
                     continue;
                 }
@@ -78,7 +78,7 @@ class CustomFieldGroupExportImportController extends Controller
                 if ($hasHeader) {
                     $getValue = function ($key, $default = null) use ($row, $headerMap) {
                         if (isset($headerMap[$key]) && array_key_exists($headerMap[$key], $row)) {
-                            return trim((string)($row[$headerMap[$key]] ?? ''));
+                            return trim((string) ($row[$headerMap[$key]] ?? ''));
                         }
                         return $default;
                     };
@@ -104,30 +104,30 @@ class CustomFieldGroupExportImportController extends Controller
                     // Positional fallback
                     $is17Cols = count($row) >= 17;
 
-                    $groupName = trim((string)($row[0] ?? ''));
-                    $fieldLabel = trim((string)($row[1] ?? ''));
-                    $fieldSlug = trim((string)($row[2] ?? ''));
-                    $fieldPlaceholder = trim((string)($row[3] ?? ''));
-                    $fieldType = trim((string)($row[4] ?? ''));
-                    $required = trim((string)($row[5] ?? ''));
-                    $defaultValue = trim((string)($row[6] ?? ''));
-                    $validationRules = trim((string)($row[7] ?? ''));
-                    $conditionalRules = trim((string)($row[8] ?? ''));
+                    $groupName = trim((string) ($row[0] ?? ''));
+                    $fieldLabel = trim((string) ($row[1] ?? ''));
+                    $fieldSlug = trim((string) ($row[2] ?? ''));
+                    $fieldPlaceholder = trim((string) ($row[3] ?? ''));
+                    $fieldType = trim((string) ($row[4] ?? ''));
+                    $required = trim((string) ($row[5] ?? ''));
+                    $defaultValue = trim((string) ($row[6] ?? ''));
+                    $validationRules = trim((string) ($row[7] ?? ''));
+                    $conditionalRules = trim((string) ($row[8] ?? ''));
                     $mediaLimit = $row[9] ?? null;
                     $mediaSize = $row[10] ?? null;
-                    $mediaFormat = trim((string)($row[11] ?? ''));
+                    $mediaFormat = trim((string) ($row[11] ?? ''));
 
                     if ($is17Cols) {
                         // Legacy 17 cols with sort_order at index 12
-                        $status = trim((string)($row[13] ?? ''));
-                        $postTypeSlugs = trim((string)($row[14] ?? ''));
+                        $status = trim((string) ($row[13] ?? ''));
+                        $postTypeSlugs = trim((string) ($row[14] ?? ''));
                         $optionsJson = $row[15] ?? null;
                         $repeatersJson = $row[16] ?? null;
                         $locationRulesJson = null;
                     } else {
                         // Standard 16 cols without sort_order
-                        $status = trim((string)($row[12] ?? ''));
-                        $postTypeSlugs = trim((string)($row[13] ?? ''));
+                        $status = trim((string) ($row[12] ?? ''));
+                        $postTypeSlugs = trim((string) ($row[13] ?? ''));
                         $optionsJson = $row[14] ?? null;
                         $repeatersJson = $row[15] ?? null;
                         $locationRulesJson = null;
@@ -272,7 +272,8 @@ class CustomFieldGroupExportImportController extends Controller
                 $repeaters = json_decode($repeatersJson, true);
                 if (is_array($repeaters)) {
                     foreach ($repeaters as $repIndex => $rep) {
-                        if (empty($rep['field_name_slug'])) continue;
+                        if (empty($rep['field_name_slug']))
+                            continue;
 
                         $repeater = CustomFieldRepeater::updateOrCreate(
                             [
