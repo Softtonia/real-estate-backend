@@ -616,7 +616,8 @@ class CustomFieldGroupController extends Controller
     {
         foreach ($customFields as $field) {
             $customField = CustomField::find($field['custom_field_id'] ?? 0);
-            if (!$customField) continue;
+            if (!$customField)
+                continue;
 
             $value = $field['value'] ?? $field['value_text'] ?? $field['value_string']
                 ?? $field['value_number'] ?? $field['value_date']
@@ -780,7 +781,8 @@ class CustomFieldGroupController extends Controller
             $taxonomy = Taxonomy::query()
                 ->select('id', 'name', 'slug')
                 ->where(function ($q) use ($taxonomyId) {
-                    if (is_numeric($taxonomyId)) $q->where('id', $taxonomyId);
+                    if (is_numeric($taxonomyId))
+                        $q->where('id', $taxonomyId);
                     $q->orWhere('slug', $taxonomyId);
                 })
                 ->first();
@@ -814,7 +816,8 @@ class CustomFieldGroupController extends Controller
         try {
             $postTypeData = PostType::query()
                 ->where(function ($q) use ($postType) {
-                    if (is_numeric($postType)) $q->where('id', $postType);
+                    if (is_numeric($postType))
+                        $q->where('id', $postType);
                     $q->orWhere('slug', $postType)->orWhere('name', $postType);
                 })
                 ->first();
@@ -850,7 +853,8 @@ class CustomFieldGroupController extends Controller
 
             $taxonomyData = Taxonomy::query()
                 ->where(function ($q) use ($taxonomy) {
-                    if (is_numeric($taxonomy)) $q->where('id', $taxonomy);
+                    if (is_numeric($taxonomy))
+                        $q->where('id', $taxonomy);
                     $q->orWhere('slug', $taxonomy)->orWhere('name', $taxonomy);
                 })
                 ->first();
@@ -859,7 +863,7 @@ class CustomFieldGroupController extends Controller
                 return $this->errorResponse('Taxonomy not found.', 404);
             }
 
-            $selectedTermIds = collect($request->taxonomy_term_ids ?? [])->map(fn($id) => (int)$id)->toArray();
+            $selectedTermIds = collect($request->taxonomy_term_ids ?? [])->map(fn($id) => (int) $id)->toArray();
 
             $groups = CustomFieldGroup::with($this->groupRelations)
                 ->where(function ($q) use ($taxonomyData, $selectedTermIds) {
@@ -1184,7 +1188,7 @@ class CustomFieldGroupController extends Controller
                 return false;
             }
 
-            $matches = (int)$contextPostTypeId === (int)$rulePostTypeId;
+            $matches = (int) $contextPostTypeId === (int) $rulePostTypeId;
             return $operator === 'is_equal_to' ? $matches : !$matches;
         }
 
@@ -1192,7 +1196,7 @@ class CustomFieldGroupController extends Controller
             $contextTaxonomyId = $context['taxonomy_id'] ?? null;
             $ruleTaxonomyId = $rule->taxonomy_id;
 
-            $taxonomyMatches = $contextTaxonomyId && $ruleTaxonomyId && (int)$contextTaxonomyId === (int)$ruleTaxonomyId;
+            $taxonomyMatches = $contextTaxonomyId && $ruleTaxonomyId && (int) $contextTaxonomyId === (int) $ruleTaxonomyId;
 
             if (!$taxonomyMatches) {
                 return $operator === 'is_not_equal_to';
@@ -1511,7 +1515,8 @@ class CustomFieldGroupController extends Controller
 
     private function formatCreator($user): ?array
     {
-        if (!$user) return null;
+        if (!$user)
+            return null;
 
         return [
             'id' => $user->id,
@@ -1531,15 +1536,20 @@ class CustomFieldGroupController extends Controller
         if (method_exists($user, 'roles')) {
             try {
                 $roleName = $user->roles()->pluck('name')->first();
-                if (!empty($roleName)) return $roleName;
+                if (!empty($roleName))
+                    return $roleName;
             } catch (Throwable $e) {
             }
         }
 
-        if (isset($user->role) && is_object($user->role)) return $user->role->name ?? null;
-        if (isset($user->role) && is_array($user->role)) return $user->role['name'] ?? null;
-        if (isset($user->role) && is_string($user->role)) return $user->role;
-        if (isset($user->role_slug) && is_string($user->role_slug)) return $user->role_slug;
+        if (isset($user->role) && is_object($user->role))
+            return $user->role->name ?? null;
+        if (isset($user->role) && is_array($user->role))
+            return $user->role['name'] ?? null;
+        if (isset($user->role) && is_string($user->role))
+            return $user->role;
+        if (isset($user->role_slug) && is_string($user->role_slug))
+            return $user->role_slug;
 
         if (isset($user->role_id)) {
             try {
@@ -1566,9 +1576,9 @@ class CustomFieldGroupController extends Controller
         $counter = 1;
         while (
             CustomField::where('custom_field_group_id', $groupId)
-            ->where('field_name_slug', $slug)
-            ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
-            ->exists()
+                ->where('field_name_slug', $slug)
+                ->when($ignoreId, fn($q) => $q->where('id', '!=', $ignoreId))
+                ->exists()
         ) {
             $slug = $baseSlug . '_' . $counter;
             $counter++;
@@ -1669,14 +1679,16 @@ class CustomFieldGroupController extends Controller
     private function successResponse(string $message, mixed $data = null, int $statusCode = 200, array $extra = []): JsonResponse
     {
         $response = array_merge(['status' => true, 'message' => $message], $extra);
-        if (!is_null($data)) $response['data'] = $data;
+        if (!is_null($data))
+            $response['data'] = $data;
         return response()->json($response, $statusCode);
     }
 
     private function errorResponse(string $message, int $statusCode = 500, mixed $error = null, array $extra = []): JsonResponse
     {
         $response = array_merge(['status' => false, 'message' => $message], $extra);
-        if (!is_null($error)) $response['error'] = $error;
+        if (!is_null($error))
+            $response['error'] = $error;
         return response()->json($response, $statusCode);
     }
 
@@ -1752,8 +1764,8 @@ class CustomFieldGroupController extends Controller
             $query = CustomFieldGroup::query()
                 ->where(function ($q) use ($cleanSlug, $underscoredSlug, $hyphenatedSlug) {
                     $q->where('group_slug', $cleanSlug)
-                      ->orWhere('group_slug', $underscoredSlug)
-                      ->orWhere('group_slug', $hyphenatedSlug);
+                        ->orWhere('group_slug', $underscoredSlug)
+                        ->orWhere('group_slug', $hyphenatedSlug);
                 });
             if ($ignoreId) {
                 $query->where('id', '!=', $ignoreId);
@@ -1763,8 +1775,8 @@ class CustomFieldGroupController extends Controller
             $query = CustomField::query()
                 ->where(function ($q) use ($cleanSlug, $underscoredSlug, $hyphenatedSlug) {
                     $q->where('field_name_slug', $cleanSlug)
-                      ->orWhere('field_name_slug', $underscoredSlug)
-                      ->orWhere('field_name_slug', $hyphenatedSlug);
+                        ->orWhere('field_name_slug', $underscoredSlug)
+                        ->orWhere('field_name_slug', $hyphenatedSlug);
                 });
 
             if ($groupId) {
