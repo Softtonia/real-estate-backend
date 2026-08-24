@@ -22,7 +22,7 @@ class CustomFieldGroupExportImportController extends Controller
      * Import Custom Field Groups from CSV
      * CSV Format: group_name, field_label, field_name_slug, field_placeholder, field_type, required, 
      *             default_value, validation_rules, conditional_rules, media_limit, media_size, media_format, 
-     *             sort_order, status, post_type_slugs, options_json, repeaters_json
+     *             status, post_type_slugs, location_rules, options, repeaters
      */
     public function importFromCsv(Request $request)
     {
@@ -65,6 +65,7 @@ class CustomFieldGroupExportImportController extends Controller
             DB::beginTransaction();
 
             $groupSortOrders = [];
+            $processedGroupLocationRules = [];
 
             foreach ($dataRows as $index => $row) {
                 $rowNumber = $hasHeader ? $index + 2 : $index + 1;
@@ -97,6 +98,7 @@ class CustomFieldGroupExportImportController extends Controller
                     $mediaFormat = $getValue('media_format', '');
                     $status = $getValue('status', '');
                     $postTypeSlugs = $getValue('post_type_slugs', '');
+                    $locationRulesJson = $getValue('location_rules') ?: $getValue('location_rules_json');
                     $optionsJson = $getValue('options') ?: $getValue('options_json');
                     $repeatersJson = $getValue('repeaters') ?: $getValue('repeaters_json');
                 } else {
@@ -117,15 +119,17 @@ class CustomFieldGroupExportImportController extends Controller
                     $mediaFormat = trim((string) ($row[11] ?? ''));
 
                     if ($is17Cols) {
-                        // Legacy 17 cols with sort_order at index 12
-                        $status = trim((string) ($row[13] ?? ''));
-                        $postTypeSlugs = trim((string) ($row[14] ?? ''));
+                        // 17 cols with location_rules at index 14
+                        $status = trim((string) ($row[12] ?? ''));
+                        $postTypeSlugs = trim((string) ($row[13] ?? ''));
+                        $locationRulesJson = $row[14] ?? null;
                         $optionsJson = $row[15] ?? null;
                         $repeatersJson = $row[16] ?? null;
                     } else {
-                        // Standard 16 cols without sort_order
+                        // Standard 16 cols without location_rules
                         $status = trim((string) ($row[12] ?? ''));
                         $postTypeSlugs = trim((string) ($row[13] ?? ''));
+                        $locationRulesJson = null;
                         $optionsJson = $row[14] ?? null;
                         $repeatersJson = $row[15] ?? null;
                     }
@@ -144,6 +148,81 @@ class CustomFieldGroupExportImportController extends Controller
                 $group = CustomFieldGroup::firstOrCreate(
                     ['group_name' => $groupName]
                 );
+
+                // Create Group Location Rules ONCE per group
+                if (!isset($processedGroupLocationRules[$group->id])) {
+                    $processedGroupLocationRules[$group->id] = true;
+
+                    $rulesArray = !empty($locationRulesJson) ? json_decode($locationRulesJson, true) : null;
+
+                    if (is_array($rulesArray) && !empty($rulesArray)) {
+                        CustomFieldGroupLocationRule::where('custom_field_group_id', $group->id)
+                            ->whereNull('custom_field_id')
+                            ->delete();
+
+                        foreach ($rulesArray as $ruleIdx => $r) {
+                            $showIf = $r['show_if'] ?? 'post_type';
+                            if (!in_array($showIf, ['post_type', 'taxonomy'], true)) {
+                                $showIf = 'post_type';
+                            }
+
+                            $postTypeId = null;
+                            if ($showIf === 'post_type') {
+                                if (!empty($r['post_type_slug'])) {
+                                    $postTypeId = PostType::where('slug', $r['post_type_slug'])->value('id');
+                                } elseif (!empty($r['post_type_id'])) {
+                                    $postTypeId = $r['post_type_id'];
+                                }
+                            }
+
+                            $taxonomyId = null;
+                            if ($showIf === 'taxonomy') {
+                                if (!empty($r['taxonomy_slug'])) {
+                                    $taxonomyId = Taxonomy::where('slug', $r['taxonomy_slug'])->value('id');
+                                } elseif (!empty($r['taxonomy_id'])) {
+                                    $taxonomyId = $r['taxonomy_id'];
+                                }
+                            }
+
+                            CustomFieldGroupLocationRule::create([
+                                'custom_field_group_id' => $group->id,
+                                'custom_field_id' => null,
+                                'logic_operator' => $r['logic_operator'] ?? ($ruleIdx === 0 ? null : 'and'),
+                                'rule_group' => $r['rule_group'] ?? 1,
+                                'show_if' => $showIf,
+                                'operator' => $r['operator'] ?? 'is_equal_to',
+                                'match_type' => $r['match_type'] ?? 'specific',
+                                'post_type_id' => $postTypeId,
+                                'taxonomy_id' => $taxonomyId,
+                                'taxonomy_term_ids' => $r['taxonomy_term_ids'] ?? [],
+                                'status' => true,
+                                'sort_order' => $ruleIdx + 1,
+                            ]);
+                        }
+                    } elseif (!empty($postTypeSlugs)) {
+                        CustomFieldGroupLocationRule::where('custom_field_group_id', $group->id)
+                            ->whereNull('custom_field_id')
+                            ->delete();
+
+                        $slugs = array_map('trim', explode(',', $postTypeSlugs));
+                        $postTypes = PostType::whereIn('slug', $slugs)->get();
+
+                        foreach ($postTypes as $ruleIdx => $postType) {
+                            CustomFieldGroupLocationRule::create([
+                                'custom_field_group_id' => $group->id,
+                                'custom_field_id' => null,
+                                'logic_operator' => $ruleIdx === 0 ? null : 'and',
+                                'rule_group' => 1,
+                                'show_if' => 'post_type',
+                                'match_type' => 'specific',
+                                'operator' => 'is_equal_to',
+                                'post_type_id' => $postType->id,
+                                'status' => true,
+                                'sort_order' => $ruleIdx + 1,
+                            ]);
+                        }
+                    }
+                }
 
                 // Auto-increment sort_order sequentially per group
                 if (!isset($groupSortOrders[$group->id])) {
@@ -180,28 +259,6 @@ class CustomFieldGroupExportImportController extends Controller
                         'created_by' => Auth::id(),
                     ]
                 );
-
-                // Create Location Rules for Post Types
-                if (!empty($postTypeSlugs)) {
-                    $slugs = array_map('trim', explode(',', $postTypeSlugs));
-                    $postTypes = PostType::whereIn('slug', $slugs)->get();
-
-                    foreach ($postTypes as $ruleIdx => $postType) {
-                        CustomFieldGroupLocationRule::updateOrCreate(
-                            [
-                                'custom_field_group_id' => $group->id,
-                                'post_type_id' => $postType->id,
-                            ],
-                            [
-                                'show_if' => 'post_type',
-                                'match_type' => 'specific',
-                                'operator' => 'is_equal_to',
-                                'status' => true,
-                                'sort_order' => $ruleIdx + 1,
-                            ]
-                        );
-                    }
-                }
 
                 // Handle Options
                 $options = json_decode($optionsJson, true);
@@ -307,7 +364,8 @@ class CustomFieldGroupExportImportController extends Controller
                 'fields' => fn($q) => $q->orderBy('sort_order', 'asc')->orderBy('id', 'asc'),
                 'fields.options',
                 'fields.repeaters.options',
-                'locationRules.postType'
+                'locationRules.postType',
+                'locationRules.taxonomy',
             ])->get();
 
             if ($groups->isEmpty()) {
@@ -319,12 +377,32 @@ class CustomFieldGroupExportImportController extends Controller
 
             $rows = [];
             foreach ($groups as $group) {
-                // Get post type slugs from location rules
+                // Post type slugs from location rules
                 $postTypeSlugs = $group->locationRules
+                    ->whereNull('custom_field_id')
                     ->whereNotNull('post_type_id')
                     ->pluck('postType.slug')
                     ->filter()
                     ->implode(', ');
+
+                // Full group-level location rules JSON
+                $groupLocationRules = $group->locationRules
+                    ->whereNull('custom_field_id')
+                    ->sortBy('sort_order')
+                    ->values()
+                    ->map(function ($rule) {
+                        return [
+                            'show_if' => $rule->show_if,
+                            'logic_operator' => $rule->logic_operator,
+                            'operator' => $rule->operator ?? 'is_equal_to',
+                            'match_type' => $rule->match_type ?? 'specific',
+                            'post_type_slug' => $rule->postType?->slug,
+                            'taxonomy_slug' => $rule->taxonomy?->slug,
+                            'taxonomy_term_ids' => $rule->taxonomy_term_ids ?? [],
+                        ];
+                    })->values()->toArray();
+
+                $locationRulesJson = !empty($groupLocationRules) ? json_encode($groupLocationRules, JSON_UNESCAPED_UNICODE) : '';
 
                 foreach ($group->fields as $field) {
                     // Options
@@ -367,6 +445,7 @@ class CustomFieldGroupExportImportController extends Controller
                         'media_format' => $field->media_format,
                         'status' => $field->status,
                         'post_type_slugs' => $postTypeSlugs,
+                        'location_rules' => $locationRulesJson,
                         'options' => json_encode($options, JSON_UNESCAPED_UNICODE),
                         'repeaters' => json_encode($repeaters, JSON_UNESCAPED_UNICODE),
                     ];
