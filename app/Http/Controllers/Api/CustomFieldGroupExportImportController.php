@@ -47,11 +47,18 @@ class CustomFieldGroupExportImportController extends Controller
             $skipped = 0;
             $errors = [];
 
-            // Detect header row
+            // Detect header row with UTF-8 BOM stripping
             $firstRow = $rows[0] ?? [];
-            $header = array_map(fn($h) => strtolower(trim((string) $h)), $firstRow);
+            $header = array_map(function ($h) {
+                $str = trim((string) $h);
+                $str = preg_replace('/^\xEF\xBB\xBF/', '', $str);
+                return strtolower(trim($str));
+            }, $firstRow);
 
-            $hasHeader = in_array('group_name', $header, true) || in_array('field_label', $header, true);
+            $hasHeader = in_array('group_name', $header, true)
+                || in_array('group name', $header, true)
+                || in_array('field_label', $header, true)
+                || in_array('field label', $header, true);
 
             $headerMap = [];
             if ($hasHeader) {
