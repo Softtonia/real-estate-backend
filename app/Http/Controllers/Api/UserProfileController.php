@@ -240,6 +240,9 @@ class UserProfileController extends Controller
             $rules['bussiness_address'] = ['nullable', 'string', 'max:200'];
             $rules['business_address'] = ['nullable', 'string', 'max:200'];
             $rules['business_pin_code'] = ['nullable', 'string', 'max:20'];
+            $rules['business_area_locality'] = ['nullable', 'string', 'max:255'];
+            $rules['business_colony'] = ['nullable', 'string', 'max:255'];
+            $rules['business_street_address'] = ['nullable', 'string', 'max:255'];
         }
 
         $validator = Validator::make(
@@ -297,6 +300,15 @@ class UserProfileController extends Controller
                     }
                     if ($request->has('business_pin_code')) {
                         $businessPayload['business_pin_code'] = $request->input('business_pin_code');
+                    }
+                    if ($request->has('business_area_locality')) {
+                        $businessPayload['area_locality'] = $request->input('business_area_locality');
+                    }
+                    if ($request->has('business_colony')) {
+                        $businessPayload['colony'] = $request->input('business_colony');
+                    }
+                    if ($request->has('business_street_address')) {
+                        $businessPayload['street_address'] = $request->input('business_street_address');
                     }
 
                     if (count($businessPayload) > 1) {
