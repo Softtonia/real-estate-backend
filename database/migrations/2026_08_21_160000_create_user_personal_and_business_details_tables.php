@@ -78,6 +78,16 @@ return new class extends Migration {
 
         // 3. Migrate existing data from user_details / users into new tables
         if (Schema::hasTable('user_details')) {
+            $validCountryId = function ($id) {
+                return (!empty($id) && Schema::hasTable('countries') && DB::table('countries')->where('id', $id)->exists()) ? (int) $id : null;
+            };
+            $validStateId = function ($id) {
+                return (!empty($id) && Schema::hasTable('states') && DB::table('states')->where('id', $id)->exists()) ? (int) $id : null;
+            };
+            $validCityId = function ($id) {
+                return (!empty($id) && Schema::hasTable('cities') && DB::table('cities')->where('id', $id)->exists()) ? (int) $id : null;
+            };
+
             $existingDetails = DB::table('user_details')->get();
 
             foreach ($existingDetails as $detail) {
@@ -99,9 +109,9 @@ return new class extends Migration {
                         'alternate_number' => $detail->alternate_number ?? null,
                         'profile_photo' => $detail->profile_photo ?? null,
                         'about_us' => $detail->about_us ?? ($user->about ?? null),
-                        'country_id' => $user->country_id ?? ($detail->country_id ?? null),
-                        'state_id' => $user->state_id ?? ($detail->state_id ?? null),
-                        'city_id' => $user->city_id ?? ($detail->city_id ?? null),
+                        'country_id' => $validCountryId($user->country_id ?? ($detail->country_id ?? null)),
+                        'state_id' => $validStateId($user->state_id ?? ($detail->state_id ?? null)),
+                        'city_id' => $validCityId($user->city_id ?? ($detail->city_id ?? null)),
                         'area_locality' => $user->area_locality ?? ($detail->area_locality ?? null),
                         'colony' => $user->colony ?? ($detail->colony ?? null),
                         'street_address' => $user->street_address ?? ($detail->street_address ?? null),
@@ -128,9 +138,9 @@ return new class extends Migration {
                             'business_phone' => $bPhone,
                             'business_email' => $bEmail,
                             'business_address' => $bAddress,
-                            'country_id' => $detail->country_id ?? null,
-                            'state_id' => $detail->state_id ?? null,
-                            'city_id' => $detail->city_id ?? null,
+                            'country_id' => $validCountryId($detail->country_id ?? null),
+                            'state_id' => $validStateId($detail->state_id ?? null),
+                            'city_id' => $validCityId($detail->city_id ?? null),
                             'area_locality' => $detail->area_locality ?? null,
                             'colony' => $detail->colony ?? null,
                             'street_address' => $detail->street_address ?? null,
