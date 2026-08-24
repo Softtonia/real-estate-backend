@@ -12,6 +12,7 @@ use App\PageBuilder\DynamicData\DynamicFieldResolver;
 use App\PageBuilder\Foundation\WidgetFactory;
 use App\PageBuilder\Foundation\WidgetManager;
 use App\PageBuilder\Foundation\WidgetRegistry;
+use App\PageBuilder\Widgets\AreaSqFtWidget;
 use App\PageBuilder\Widgets\ButtonWidget;
 use App\PageBuilder\Widgets\GalleryWidget;
 use App\PageBuilder\Widgets\HeadingWidget;
@@ -61,6 +62,7 @@ class PageBuilderServiceProvider extends ServiceProvider
             RepeaterWidget::class,
             TaxonomyTermsWidget::class,
             HtmlWidget::class,
+            AreaSqFtWidget::class,
         ]);
     }
 }

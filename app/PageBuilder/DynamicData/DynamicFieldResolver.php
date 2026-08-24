@@ -18,10 +18,18 @@ class DynamicFieldResolver implements DynamicResolverInterface
     {
         $postType = $postTypeId ? $this->findPostType($postTypeId) : null;
 
+        $custom = $this->customFields($postType, $context);
+
+        $areaSqft = array_values(array_filter($custom, function ($field) {
+            $type = strtolower((string) ($field['type'] ?? 'text'));
+            return in_array($type, ['number', 'integer', 'decimal', 'float', 'text'], true);
+        }));
+
         return [
             'post_type_id' => $postTypeId,
             'system' => $this->systemFields($postType),
-            'custom' => $this->customFields($postType, $context),
+            'custom' => $custom,
+            'area_sqft' => $areaSqft,
             'repeaters' => $this->repeaterFields($postType, $context),
             'taxonomies' => $this->taxonomyFields($postType),
             'relationships' => [],

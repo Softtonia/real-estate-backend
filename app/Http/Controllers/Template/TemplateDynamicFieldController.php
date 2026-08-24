@@ -77,6 +77,22 @@ class TemplateDynamicFieldController extends Controller
             $selectedTermIds
         );
 
+        /*
+         * Collect all custom fields associated with the Post Type (without entity filtering)
+         * to extract Area Sq.Ft dynamic options even when value is null.
+         */
+        $allCustomFieldsForPostType = $entityId
+            ? $this->getDynamicCustomFields($postTypeRecord, null, $selectedTermIds)
+            : $customFields;
+
+        $areaSqFtFields = collect($allCustomFieldsForPostType)
+            ->filter(function ($field) {
+                $type = strtolower((string) ($field['type'] ?? 'text'));
+                return in_array($type, ['number', 'integer', 'decimal', 'float', 'text'], true);
+            })
+            ->values()
+            ->toArray();
+
         if ($entityId) {
             $systemFields = $this->onlyFieldsWithValue($systemFields);
             $customFields = $this->onlyFieldsWithValue($customFields);
@@ -109,6 +125,10 @@ class TemplateDynamicFieldController extends Controller
                 ],
 
                 'dynamic_custom_fields' => $customFields,
+
+                'dynamic_field_options' => [
+                    'area_sqft' => $areaSqFtFields,
+                ],
 
                 'builder_items' => $builderItems,
 
@@ -1484,6 +1504,7 @@ class TemplateDynamicFieldController extends Controller
     private function getBasicWidgets(): array
     {
         $relatedPostsWidget = app(\App\PageBuilder\Widgets\RelatedPostsWidget::class);
+        $areaSqFtWidget = app(\App\PageBuilder\Widgets\AreaSqFtWidget::class);
 
         return [
             [
@@ -1543,6 +1564,7 @@ class TemplateDynamicFieldController extends Controller
                     'target' => '_self',
                 ],
             ],
+            $areaSqFtWidget->sidebarItem(),
 
             /*
              * New Related Posts widget.
