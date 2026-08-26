@@ -59,7 +59,6 @@ class RecentlyViewedPostController extends Controller
             Log::error('Fetch recently viewed posts failed.', [
                 'error' => $e->getMessage(),
             ]);
-
             return response()->json([
                 'status' => false,
                 'message' => 'Unable to fetch recently viewed posts.',
