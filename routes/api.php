@@ -518,7 +518,7 @@ Route::middleware(['validate.api.client'])->group(function () {
     // Group Route will start from here
     Route::middleware(['throttle:60,1', 'admin.token'])->post('groups-create', [GroupController::class, 'createGroup']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('groups-update/{id}', [GroupController::class, 'updateGroup']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('groups-list', [GroupController::class, 'index']);
+    Route::middleware(['throttle:60,1', 'admin.token'])->match(['get', 'post'], 'groups-list', [GroupController::class, 'index']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('groups-delete/{id}', [GroupController::class, 'deleteGroup']);
     Route::get('/check-unique-group-name', [GroupController::class, 'checkUniqueGroupName'])->middleware(['throttle:60,1']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('groups-bulk-delete', [GroupController::class, 'bulkDeleteGroups']);
@@ -2394,7 +2394,7 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('template-builder/related-posts-widget/preview', [RelatedPostsWidgetPreviewController::class, 'preview']);
     Route::post('template-builder/related-posts-widget/candidates', [RelatedPostsWidgetCandidateController::class, 'candidates']);
 
-    Route::middleware(['throttle:30,1'])->prefix('kyc')->group(function () {
+    Route::middleware(['throttle:300,1'])->prefix('kyc')->group(function () {
         Route::get('status', [UserKycController::class, 'status']);
         Route::get('details', [UserKycController::class, 'details']);
         Route::get('documents', [UserKycController::class, 'documents']);
