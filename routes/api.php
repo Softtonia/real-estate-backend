@@ -94,6 +94,7 @@ use App\Http\Controllers\Api\DynamicPostCsvController;
 use App\Http\Controllers\Api\DynamicPostFormStepController;
 use App\Http\Controllers\Api\Frontend\PropertySearchController;
 use App\Http\Controllers\Api\FrontendLocationController;
+use App\Http\Controllers\Api\Guest\GuestAgentController;
 use App\Http\Controllers\Api\Guest\GuestDynamicPostController;
 use App\Http\Controllers\Api\Guest\RecentlyViewedPostController;
 use App\Http\Controllers\Api\KeywordExportController;
@@ -2629,6 +2630,17 @@ Route::middleware(['throttle:120,1'])->group(function () {
     Route::get('recently-viewed', [RecentlyViewedPostController::class, 'index']);
     Route::post('recently-viewed', [RecentlyViewedPostController::class, 'track']);
     Route::delete('recently-viewed', [RecentlyViewedPostController::class, 'clear']);
+});
+
+/*
+ * Dynamic Guest Agents APIs (Single Agent Details & All Agents Listing).
+ */
+Route::middleware(['throttle:120,1'])->group(function () {
+    Route::get('guest/agents', [GuestAgentController::class, 'index']);
+    Route::get('guest/agents/{agentId}', [GuestAgentController::class, 'show']);
+
+    Route::get('frontend/agents', [GuestAgentController::class, 'index']);
+    Route::get('frontend/agents/{agentId}', [GuestAgentController::class, 'show']);
 });
 
 Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);
