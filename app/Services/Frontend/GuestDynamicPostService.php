@@ -935,7 +935,7 @@ class GuestDynamicPostService
     |--------------------------------------------------------------------------
     */
 
-    private function attachCurrentFeaturedPromotions(
+    public function attachCurrentFeaturedPromotions(
         LengthAwarePaginator $paginator
     ): void {
         $posts = $paginator->getCollection();
@@ -1084,7 +1084,7 @@ class GuestDynamicPostService
     |--------------------------------------------------------------------------
     */
 
-    private function attachFeaturedMedia(
+    public function attachFeaturedMedia(
         LengthAwarePaginator $paginator
     ): void {
         $posts =

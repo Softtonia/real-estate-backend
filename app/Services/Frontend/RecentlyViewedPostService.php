@@ -189,11 +189,11 @@ class RecentlyViewedPostService
                 return $post;
             })->filter()->values();
 
-            // Attach media and featured promotions
-            $this->guestPostService->attachCurrentFeaturedPromotions($hydratedItems);
-            $this->guestPostService->attachFeaturedMedia($hydratedItems);
-
             $paginator->setCollection($hydratedItems);
+
+            // Attach media and featured promotions
+            $this->guestPostService->attachCurrentFeaturedPromotions($paginator);
+            $this->guestPostService->attachFeaturedMedia($paginator);
         }
 
         return $paginator;
