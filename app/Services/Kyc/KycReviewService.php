@@ -17,7 +17,8 @@ class KycReviewService
         private readonly KycDocumentService $documentService,
         private readonly KycActivityService $activityService,
         private readonly KycAccessService $accessService
-    ) {}
+    ) {
+    }
 
     public function handleReview(
         KycRequest $kycRequest,
@@ -72,11 +73,7 @@ class KycReviewService
         }
 
         DB::transaction(
-            function () use (
-                $kycRequest,
-                $reviewer,
-                $request
-            ) {
+            function () use ($kycRequest, $reviewer, $request) {
                 $oldStatus = $kycRequest->status;
 
                 $kycRequest->update([
@@ -96,7 +93,7 @@ class KycReviewService
                     oldStatus: $oldStatus,
                     newStatus: KycRequest::STATUS_UNDER_REVIEW,
                     remarks: $request->input('reviewer_notes')
-                        ?: 'KYC verification started.',
+                    ?: 'KYC verification started.',
                     request: $request
                 );
             }
@@ -173,11 +170,7 @@ class KycReviewService
         }
 
         DB::transaction(
-            function () use (
-                $kycRequest,
-                $reviewer,
-                $request
-            ) {
+            function () use ($kycRequest, $reviewer, $request) {
                 $oldStatus = $kycRequest->status;
 
                 $kycRequest->update([
@@ -205,7 +198,7 @@ class KycReviewService
                     oldStatus: $oldStatus,
                     newStatus: KycRequest::STATUS_APPROVED,
                     remarks: $request->input('reviewer_notes')
-                        ?: 'KYC approved.',
+                    ?: 'KYC approved.',
                     request: $request
                 );
             }
@@ -270,12 +263,7 @@ class KycReviewService
         }
 
         DB::transaction(
-            function () use (
-                $kycRequest,
-                $reviewer,
-                $request,
-                $reason
-            ) {
+            function () use ($kycRequest, $reviewer, $request, $reason) {
                 $oldStatus = $kycRequest->status;
 
                 $kycRequest->update([
@@ -377,8 +365,8 @@ class KycReviewService
                 document: $document,
                 status: $status,
                 rejectionReason: $documentReason !== ''
-                    ? $documentReason
-                    : null,
+                ? $documentReason
+                : null,
                 reviewer: $reviewer,
                 request: $request
             );
