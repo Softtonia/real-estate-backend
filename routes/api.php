@@ -2598,5 +2598,23 @@ Route::middleware([
             ->whereNumber(
                 'dynamicPostId'
             );
+
+        /*
+         * Dynamic Related Posts.
+         */
+        Route::get(
+            '{postType}/{dynamicPostId}/related',
+            [
+                GuestDynamicPostController::class,
+                'related',
+            ]
+        )
+            ->whereNumber(
+                'dynamicPostId'
+            );
     });
+
+Route::middleware(['throttle:120,1'])->get('guest/related-posts', [GuestDynamicPostController::class, 'relatedPosts']);
+Route::middleware(['throttle:120,1'])->get('related-posts', [GuestDynamicPostController::class, 'relatedPosts']);
+
 Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);

@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Guest\GuestDynamicPostListRequest;
 use App\Http\Resources\Guest\GuestDynamicPostCardResource;
 use App\Http\Resources\Guest\GuestDynamicPostDetailResource;
+use App\Models\DynamicPost;
+use App\Models\PostType;
 use App\Services\Frontend\GuestDynamicPostService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -337,6 +339,127 @@ class GuestDynamicPostController extends Controller
 
                 'error' =>
                     'Internal server error.',
+            ], 500);
+        }
+    }
+
+    public function related(
+        Request $request,
+        string $postType,
+        int $dynamicPostId
+    ): JsonResponse {
+        try {
+            $currentPost = DynamicPost::query()
+                ->where('id', $dynamicPostId)
+                ->first();
+
+            if (!$currentPost) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Post not found.',
+                    'data' => [],
+                ], 404);
+            }
+
+            $options = [
+                'limit' => (int) $request->input('limit', $request->input('per_page', 6)),
+                'per_page' => (int) $request->input('per_page', $request->input('limit', 6)),
+                'page' => (int) $request->input('page', 1),
+                'target_post_type' => $request->input('target_post_type', $request->input('type')),
+            ];
+
+            $paginator = $this->service->getRelatedPostsForDetail($currentPost, $options);
+
+            $items = GuestDynamicPostCardResource::collection(
+                $paginator->getCollection()
+            )->resolve($request);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Related posts fetched successfully.',
+                'data' => $items,
+                'pagination' => [
+                    'current_page' => $paginator->currentPage(),
+                    'per_page' => $paginator->perPage(),
+                    'total' => $paginator->total(),
+                    'last_page' => $paginator->lastPage(),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            Log::error('Related posts fetch failed.', [
+                'post_type' => $postType,
+                'dynamic_post_id' => $dynamicPostId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch related posts.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function relatedPosts(Request $request): JsonResponse
+    {
+        try {
+            $postId = $request->integer('post_id') ?: $request->integer('dynamic_post_id') ?: $request->integer('id');
+            $postTypeSlug = $request->input('post_type') ?: $request->input('type');
+
+            $query = DynamicPost::query();
+
+            if ($postId > 0) {
+                $query->where('id', $postId);
+            } elseif ($postTypeSlug) {
+                $pType = PostType::query()->where('slug', trim((string) $postTypeSlug))->first();
+                if ($pType) {
+                    $query->where('post_type_id', (int) $pType->id);
+                }
+            }
+
+            $currentPost = $query->first();
+
+            if (!$currentPost) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Current post not found.',
+                    'data' => [],
+                ], 404);
+            }
+
+            $options = [
+                'limit' => (int) $request->input('limit', $request->input('per_page', 6)),
+                'per_page' => (int) $request->input('per_page', $request->input('limit', 6)),
+                'page' => (int) $request->input('page', 1),
+                'target_post_type' => $request->input('target_post_type'),
+            ];
+
+            $paginator = $this->service->getRelatedPostsForDetail($currentPost, $options);
+
+            $items = GuestDynamicPostCardResource::collection(
+                $paginator->getCollection()
+            )->resolve($request);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Related posts fetched successfully.',
+                'data' => $items,
+                'pagination' => [
+                    'current_page' => $paginator->currentPage(),
+                    'per_page' => $paginator->perPage(),
+                    'total' => $paginator->total(),
+                    'last_page' => $paginator->lastPage(),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            Log::error('Related posts fetch failed.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to fetch related posts.',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

@@ -1631,4 +1631,153 @@ class GuestDynamicPostService
             return null;
         }
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dynamic Related Posts
+    |--------------------------------------------------------------------------
+    */
+
+    public function getRelatedPostsForDetail(
+        DynamicPost $currentPost,
+        array $options = []
+    ): LengthAwarePaginator {
+        $limit = max(1, min((int) ($options['limit'] ?? $options['per_page'] ?? 6), 100));
+        $page = max(1, (int) ($options['page'] ?? 1));
+        $targetPostTypeSlug = $options['target_post_type'] ?? $options['type'] ?? null;
+
+        $targetPostTypeId = null;
+        if ($targetPostTypeSlug) {
+            $tPostType = PostType::query()->where('slug', trim((string) $targetPostTypeSlug))->first();
+            if ($tPostType) {
+                $targetPostTypeId = (int) $tPostType->id;
+            }
+        }
+
+        // 1. Explicit relationships in dynamic_post_relationships table (Property <-> Project <-> Developer)
+        $explicitPostIds = [];
+        if (Schema::hasTable('dynamic_post_relationships')) {
+            $explicitPostIds = DB::table('dynamic_post_relationships')
+                ->where(function ($q) use ($currentPost) {
+                    $q->where('dynamic_post_id', (int) $currentPost->id)
+                      ->orWhere('related_post_id', (int) $currentPost->id);
+                })
+                ->pluck('related_post_id')
+                ->concat(
+                    DB::table('dynamic_post_relationships')
+                        ->where('related_post_id', (int) $currentPost->id)
+                        ->pluck('dynamic_post_id')
+                )
+                ->map(fn($id) => (int) $id)
+                ->filter(fn($id) => $id > 0 && $id !== (int) $currentPost->id)
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        $matchedIds = [];
+        if (!empty($explicitPostIds)) {
+            $q = DynamicPost::query()->whereIn('id', $explicitPostIds);
+            $this->applyPublicVisibility($q);
+            if ($targetPostTypeId) {
+                $q->where('post_type_id', $targetPostTypeId);
+            }
+            $matchedIds = $q->pluck('id')->map(fn($id) => (int) $id)->toArray();
+        }
+
+        // 2. Fallback to location, taxonomy, and post_type matches if candidates are fewer than limit
+        if (count($matchedIds) < $limit) {
+            $fallbackQuery = DynamicPost::query()
+                ->select('dynamic_posts.id')
+                ->where('dynamic_posts.id', '!=', (int) $currentPost->id);
+
+            $this->applyPublicVisibility($fallbackQuery);
+
+            if ($targetPostTypeId) {
+                $fallbackQuery->where('dynamic_posts.post_type_id', $targetPostTypeId);
+            } else {
+                $fallbackQuery->where('dynamic_posts.post_type_id', (int) $currentPost->post_type_id);
+            }
+
+            if (!empty($matchedIds)) {
+                $fallbackQuery->whereNotIn('dynamic_posts.id', $matchedIds);
+            }
+
+            if ($currentPost->city_id || $currentPost->state_id || $currentPost->area_locality) {
+                $fallbackQuery->where(function ($q) use ($currentPost) {
+                    if ($currentPost->city_id) {
+                        $q->orWhere('dynamic_posts.city_id', (int) $currentPost->city_id);
+                    }
+                    if ($currentPost->state_id) {
+                        $q->orWhere('dynamic_posts.state_id', (int) $currentPost->state_id);
+                    }
+                    if ($currentPost->area_locality) {
+                        $q->orWhere('dynamic_posts.area_locality', $currentPost->area_locality);
+                    }
+                });
+            }
+
+            $currentTermIds = [];
+            if (Schema::hasTable('post_taxonomy_terms')) {
+                $currentTermIds = DB::table('post_taxonomy_terms')
+                    ->where('dynamic_post_id', (int) $currentPost->id)
+                    ->pluck('taxonomy_term_id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
+            }
+
+            if (!empty($currentTermIds)) {
+                $fallbackQuery->whereExists(function ($q) use ($currentTermIds) {
+                    $q->select(DB::raw(1))
+                        ->from('post_taxonomy_terms')
+                        ->whereColumn('post_taxonomy_terms.dynamic_post_id', 'dynamic_posts.id')
+                        ->whereIn('post_taxonomy_terms.taxonomy_term_id', $currentTermIds);
+                });
+            }
+
+            $additionalCount = $limit - count($matchedIds);
+            $fallbackIds = $fallbackQuery->latest('dynamic_posts.created_at')
+                ->limit($additionalCount * 3)
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->toArray();
+
+            $matchedIds = array_values(array_unique(array_merge($matchedIds, $fallbackIds)));
+        }
+
+        // 3. Final Paginated Builder
+        $finalQuery = DynamicPost::query()
+            ->leftJoin('countries as guest_countries', 'guest_countries.id', '=', 'dynamic_posts.country_id')
+            ->leftJoin('states as guest_states', 'guest_states.id', '=', 'dynamic_posts.state_id')
+            ->leftJoin('cities as guest_cities', 'guest_cities.id', '=', 'dynamic_posts.city_id')
+            ->select($this->listingSelectColumns())
+            ->addSelect([
+                'guest_countries.name as guest_country_name',
+                'guest_states.name as guest_state_name',
+                'guest_cities.name as guest_city_name',
+            ])
+            ->with(['postType', 'taxonomyTerms.taxonomy'])
+            ->where('dynamic_posts.id', '!=', (int) $currentPost->id);
+
+        $this->applyPublicVisibility($finalQuery);
+
+        if (!empty($matchedIds)) {
+            $finalQuery->whereIn('dynamic_posts.id', $matchedIds);
+        } else {
+            if ($targetPostTypeId) {
+                $finalQuery->where('dynamic_posts.post_type_id', $targetPostTypeId);
+            } else {
+                $finalQuery->where('dynamic_posts.post_type_id', (int) $currentPost->post_type_id);
+            }
+        }
+
+        $paginator = $finalQuery->latest('dynamic_posts.created_at')->paginate($limit, ['*'], 'page', $page);
+
+        foreach ($paginator->items() as $post) {
+            $this->attachCurrentFeaturedPromotionToPost($post);
+            $this->attachDetailMedia($post);
+        }
+
+        return $paginator;
+    }
 }
