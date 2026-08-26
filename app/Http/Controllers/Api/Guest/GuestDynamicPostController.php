@@ -44,10 +44,10 @@ class GuestDynamicPostController extends Controller
                 $this->service
                     ->paginate(
                         postTypeSlug:
-                        $postType,
+                            $postType,
 
                         filters:
-                        $validated
+                            $validated
                     );
 
             $paginator =
@@ -66,16 +66,16 @@ class GuestDynamicPostController extends Controller
                     $paginator
                         ->getCollection()
                 )->resolve(
-                        $request
-                    );
+                    $request
+                );
 
             return response()->json([
                 'status' => true,
 
                 'message' =>
                     $featuredOnly
-                    ? 'Featured posts fetched successfully.'
-                    : 'Posts fetched successfully.',
+                        ? 'Featured posts fetched successfully.'
+                        : 'Posts fetched successfully.',
 
                 'data' => [
                     /*
@@ -249,10 +249,10 @@ class GuestDynamicPostController extends Controller
                 $this->service
                     ->detail(
                         postTypeSlug:
-                        $postType,
+                            $postType,
 
                         dynamicPostId:
-                        $dynamicPostId
+                            $dynamicPostId
                     );
 
             $post =
@@ -280,8 +280,8 @@ class GuestDynamicPostController extends Controller
                                 $post
                             )
                         )->resolve(
-                                $request
-                            ),
+                            $request
+                        ),
 
                     /*
                     |--------------------------------------------------------------------------
@@ -298,21 +298,6 @@ class GuestDynamicPostController extends Controller
 
                     'has_template' =>
                         $template !== null,
-
-                    'hasTemplate' =>
-                        $template !== null,
-
-                    'template_data' =>
-                        $template,
-
-                    'templateData' =>
-                        $template,
-
-                    'template_html' =>
-                        $template['rendered']['html_with_styles'] ?? ($template['rendered']['html'] ?? null),
-
-                    'templateHtml' =>
-                        $template['rendered']['html_with_styles'] ?? ($template['rendered']['html'] ?? null),
                 ],
             ]);
         } catch (
