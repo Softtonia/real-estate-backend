@@ -44,6 +44,10 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Cache;
 use App\Models\DynamicPost;
 use App\Models\MediaFile;
+use App\Models\KycRequest;
+use App\Models\KycDocument;
+use App\Models\KycActivity;
+use App\Models\KycUserExemption;
 use Illuminate\Http\UploadedFile;
 
 class UserController extends Controller
@@ -59,6 +63,41 @@ class UserController extends Controller
             Cache::store('redis')->forget("user_details_admin_{$userId}");
             Cache::store('redis')->forget("user_details_website_{$userId}");
         }
+    }
+
+    private function cleanUserAssociatedData(int $userId): void
+    {
+        if (Schema::hasTable('user_personal_details')) {
+            UserPersonalDetail::where('user_id', $userId)->delete();
+        }
+        if (Schema::hasTable('user_business_details')) {
+            UserBusinessDetail::where('user_id', $userId)->delete();
+        }
+        if (Schema::hasTable('user_details')) {
+            UserDetail::where('user_id', $userId)->delete();
+        }
+        if (Schema::hasTable('kyc_documents')) {
+            KycDocument::where('user_id', $userId)->delete();
+        }
+        if (Schema::hasTable('kyc_activities')) {
+            KycActivity::where('user_id', $userId)->delete();
+        }
+        if (Schema::hasTable('kyc_user_exemptions')) {
+            KycUserExemption::where('user_id', $userId)->delete();
+        }
+        if (Schema::hasTable('kyc_requests')) {
+            KycRequest::where('user_id', $userId)->delete();
+        }
+        if (Schema::hasTable('api_tokens')) {
+            DB::table('api_tokens')->where('user_id', $userId)->delete();
+        }
+
+        Cache::forget("user_details_admin_{$userId}");
+        Cache::forget("user_details_{$userId}");
+        Cache::forget("user_details_website_{$userId}");
+        Cache::store('redis')->forget("kyc:user:{$userId}:access");
+        Cache::store('redis')->forget("user_details_admin_{$userId}");
+        Cache::store('redis')->forget("user_details_{$userId}");
     }
     private function normalizeUserRequestBeforeValidation(Request $request): void
     {
@@ -1685,18 +1724,12 @@ class UserController extends Controller
                 }
             }
 
-            // Delete User Details & User record
-            UserDetail::where('user_id', $userId)->delete();
-
-            if (Schema::hasTable('api_tokens')) {
-                DB::table('api_tokens')->where('user_id', $userId)->delete();
-            }
+            // Delete all associated user details, KYC data, and caches
+            $this->cleanUserAssociatedData((int) $userId);
 
             if ($targetUser->api_token) {
                 Cache::forget('api_token_user:' . $targetUser->api_token);
             }
-            Cache::forget("user_details_admin_{$userId}");
-            Cache::forget("user_details_{$userId}");
 
             $targetUser->delete();
 
@@ -1807,7 +1840,7 @@ class UserController extends Controller
                     }
                 }
 
-                UserDetail::where('user_id', $userId)->delete();
+                $this->cleanUserAssociatedData((int) $userId);
                 $user->delete();
                 $deletedCount++;
             }
