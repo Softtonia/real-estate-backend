@@ -56,11 +56,19 @@ class TemplatePublishValidationService
 
         foreach ($includeConditions as $condition) {
             if (($condition->source_type ?? null) === 'post_type') {
+                $postTypeId = $condition->post_type_id
+                    ?? $template->post_type_id
+                    ?? null;
+
+                $postTypeSlug = $condition->post_type_slug
+                    ?? $template->post_type_slug
+                    ?? (is_string($condition->condition_value ?? null) ? $condition->condition_value : null)
+                    ?? (is_string($condition->value ?? null) ? $condition->value : null)
+                    ?? null;
+
                 if (
-                    empty($condition->post_type_id)
-                    && empty($condition->post_type_slug)
-                    && empty($template->post_type_id)
-                    && empty($template->post_type_slug)
+                    empty($postTypeId)
+                    && empty($postTypeSlug)
                 ) {
                     $errors[] = 'Include condition for post type is incomplete.';
                 }
