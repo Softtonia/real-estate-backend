@@ -253,6 +253,22 @@ class KycReviewService
             $request
         );
 
+        $documents = KycDocument::query()
+            ->where('kyc_request_id', $kycRequest->id)
+            ->get();
+
+        foreach ($documents as $document) {
+            if ($document->status !== KycDocument::STATUS_REJECTED) {
+                $this->documentService->reviewDocument(
+                    document: $document,
+                    status: KycDocument::STATUS_REJECTED,
+                    rejectionReason: $reason,
+                    reviewer: $reviewer,
+                    request: $request
+                );
+            }
+        }
+
         DB::transaction(
             function () use (
                 $kycRequest,
