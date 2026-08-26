@@ -1586,6 +1586,20 @@ class GuestDynamicPostService
         DynamicPost $post
     ): mixed {
         try {
+            $post->loadMissing([
+                'postType',
+                'taxonomyTerms',
+            ]);
+
+            $taxonomyTermIds = [];
+            if ($post->relationLoaded('taxonomyTerms') && $post->taxonomyTerms) {
+                $taxonomyTermIds = $post->taxonomyTerms
+                    ->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->values()
+                    ->all();
+            }
+
             return $this
                 ->templateResolveService
                 ->resolve([
@@ -1620,14 +1634,7 @@ class GuestDynamicPostService
                         ?? null,
 
                     'taxonomy_term_ids' =>
-                    $post->taxonomyTerms
-                        ->pluck('id')
-                        ->map(
-                            fn($id) =>
-                            (int) $id
-                        )
-                        ->values()
-                        ->all(),
+                    $taxonomyTermIds,
 
                     'render_for' =>
                     'frontend',

@@ -31,7 +31,10 @@ class TemplateResolveService
             'layout',
             'postType',
         ])
-            ->where('status', 'active')
+            ->where(function ($query) {
+                $query->whereIn('status', ['active', 'published', 1, true])
+                    ->orWhere('status', '1');
+            })
             ->where('template_type', $templateType)
             ->orderBy('priority', 'desc')
             ->orderBy('id', 'desc')
@@ -164,12 +167,48 @@ class TemplateResolveService
             return true;
         }
 
-        if (! empty($template->post_type_id) && ! empty($payload['_post_type_id'])) {
-            return (int) $template->post_type_id === (int) $payload['_post_type_id'];
+        $payloadPostTypeId = ! empty($payload['_post_type_id']) ? (int) $payload['_post_type_id'] : null;
+        $payloadPostTypeSlug = ! empty($payload['_post_type_slug']) ? strtolower(trim((string) $payload['_post_type_slug'])) : null;
+
+        $templatePostTypeId = ! empty($template->post_type_id) ? (int) $template->post_type_id : null;
+        $templatePostTypeSlug = ! empty($template->post_type_slug)
+            ? strtolower(trim((string) $template->post_type_slug))
+            : ($template->postType?->slug ? strtolower(trim((string) $template->postType->slug)) : null);
+
+        // 1. Direct post_type_id match
+        if ($templatePostTypeId && $payloadPostTypeId && $templatePostTypeId === $payloadPostTypeId) {
+            return true;
         }
 
-        if (! empty($template->post_type_slug) && ! empty($payload['_post_type_slug'])) {
-            return (string) $template->post_type_slug === (string) $payload['_post_type_slug'];
+        // 2. Direct post_type_slug match
+        if ($templatePostTypeSlug && $payloadPostTypeSlug && $templatePostTypeSlug === $payloadPostTypeSlug) {
+            return true;
+        }
+
+        // 3. Check if template display conditions have post_type matching this payload
+        $conditions = $template->conditions;
+        if ($conditions && $conditions->isNotEmpty()) {
+            $hasPostTypeCondition = $conditions->contains(function ($cond) use ($payloadPostTypeId, $payloadPostTypeSlug) {
+                $sourceType = $cond->source_type ?? $cond->show_if ?? null;
+                if ($sourceType === 'post_type') {
+                    if ($payloadPostTypeId && ! empty($cond->post_type_id) && (int) $cond->post_type_id === $payloadPostTypeId) {
+                        return true;
+                    }
+                    if ($payloadPostTypeSlug && ! empty($cond->post_type_slug) && strtolower(trim((string) $cond->post_type_slug)) === $payloadPostTypeSlug) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+
+            if ($hasPostTypeCondition) {
+                return true;
+            }
+        }
+
+        // 4. Global single_post template (no post type restriction)
+        if (empty($templatePostTypeId) && empty($templatePostTypeSlug)) {
+            return true;
         }
 
         return false;

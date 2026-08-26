@@ -298,6 +298,21 @@ class GuestDynamicPostController extends Controller
 
                     'has_template' =>
                         $template !== null,
+
+                    'hasTemplate' =>
+                        $template !== null,
+
+                    'template_data' =>
+                        $template,
+
+                    'templateData' =>
+                        $template,
+
+                    'template_html' =>
+                        $template['rendered']['html_with_styles'] ?? ($template['rendered']['html'] ?? null),
+
+                    'templateHtml' =>
+                        $template['rendered']['html_with_styles'] ?? ($template['rendered']['html'] ?? null),
                 ],
             ]);
         } catch (

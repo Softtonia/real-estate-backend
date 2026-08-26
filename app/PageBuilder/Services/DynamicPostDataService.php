@@ -199,13 +199,9 @@ class DynamicPostDataService
         if ($postType) {
             if (Schema::hasColumn('dynamic_posts', 'post_type_id')) {
                 $query->where('post_type_id', $postType->id);
-            }
-
-            if (Schema::hasColumn('dynamic_posts', 'post_type_slug')) {
+            } elseif (Schema::hasColumn('dynamic_posts', 'post_type_slug')) {
                 $query->where('post_type_slug', $postType->slug);
-            }
-
-            if (Schema::hasColumn('dynamic_posts', 'post_type')) {
+            } elseif (Schema::hasColumn('dynamic_posts', 'post_type')) {
                 $query->where('post_type', $postType->slug);
             }
         }
