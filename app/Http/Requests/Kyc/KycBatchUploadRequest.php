@@ -423,30 +423,34 @@ class KycBatchUploadRequest extends FormRequest
             }
         }
 
-        // 2. Check documents already stored in the DB for this user's latest
-        //    KYC request (covers resubmissions where the file was previously
-        //    approved and does not need to be re-uploaded).
+        // 2. Check documents already stored in the DB across any of the user's
+        //    active KYC requests (draft or rejected).
+        //
+        //    WHY: On resubmission the batch-upload service creates a new DRAFT
+        //    request and copies non-rejected docs from the previous request into
+        //    it BEFORE this validator runs — so the DRAFT already contains them.
+        //    We also fall back to checking the rejected request directly to be
+        //    safe against race conditions or future flow changes.
         $user = $this->currentUser();
 
         if ($user && Schema::hasTable('kyc_requests') && Schema::hasTable('kyc_documents')) {
-            $latestRequest = KycRequest::query()
-                ->where('user_id', $user->id)
+            $exists = KycDocument::query()
+                ->whereHas('kycRequest', function ($q) use ($user) {
+                    $q->where('user_id', $user->id)
+                      ->whereIn('status', [
+                          KycRequest::STATUS_DRAFT,
+                          KycRequest::STATUS_REJECTED,
+                      ]);
+                })
+                ->where('document_type', $documentType)
                 ->whereIn('status', [
-                    KycRequest::STATUS_DRAFT,
-                    KycRequest::STATUS_REJECTED,
+                    KycDocument::STATUS_APPROVED,
+                    KycDocument::STATUS_PENDING,
                 ])
-                ->latest('id')
-                ->first();
+                ->exists();
 
-            if ($latestRequest) {
-                $existsInDb = KycDocument::query()
-                    ->where('kyc_request_id', $latestRequest->id)
-                    ->where('document_type', $documentType)
-                    ->exists();
-
-                if ($existsInDb) {
-                    return true;
-                }
+            if ($exists) {
+                return true;
             }
         }
 

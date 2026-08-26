@@ -440,22 +440,36 @@ class KycBatchUploadService
             return;
         }
 
-        $approvedDocs = KycDocument::query()
+        /*
+         * Carry over every document that was NOT explicitly rejected by the
+         * admin.  This covers:
+         *   - STATUS_APPROVED – individually approved documents
+         *   - STATUS_PENDING  – documents never individually reviewed
+         *                       (common when the admin rejects the whole KYC
+         *                        request without reviewing each document)
+         *
+         * Only STATUS_REJECTED documents are excluded; the user must
+         * re-upload those.
+         */
+        $carryOverDocs = KycDocument::query()
             ->where('kyc_request_id', $latestRequest->id)
-            ->where('status', KycDocument::STATUS_APPROVED)
+            ->whereIn('status', [
+                KycDocument::STATUS_APPROVED,
+                KycDocument::STATUS_PENDING,
+            ])
             ->get();
 
-        foreach ($approvedDocs as $approvedDoc) {
+        foreach ($carryOverDocs as $doc) {
             $alreadyExists = KycDocument::query()
                 ->where('kyc_request_id', $newKycRequest->id)
-                ->where('document_type', $approvedDoc->document_type)
+                ->where('document_type', $doc->document_type)
                 ->exists();
 
             if (!$alreadyExists) {
-                $cloned = $approvedDoc->replicate();
+                $cloned = $doc->replicate();
                 $cloned->kyc_request_id = $newKycRequest->id;
-                $cloned->version = $newKycRequest->version;
-                $cloned->status = KycDocument::STATUS_APPROVED;
+                $cloned->version       = $newKycRequest->version;
+                $cloned->status        = $doc->status;
                 $cloned->save();
             }
         }
