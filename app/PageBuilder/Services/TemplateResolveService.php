@@ -32,10 +32,19 @@ class TemplateResolveService
             'postType',
         ])
             ->where(function ($query) {
-                $query->whereIn('status', ['active', 'published', 1, true])
+                $query->whereIn('status', ['active', 'published', 1, true, 'draft'])
                     ->orWhere('status', '1');
             })
-            ->where('template_type', $templateType)
+            ->where(function ($q) use ($templateType, $payload) {
+                $q->where('template_type', $templateType)
+                    ->orWhere('template_type', 'single_post')
+                    ->orWhere('template_type', 'single');
+
+                if (! empty($payload['_post_type_slug'])) {
+                    $q->orWhere('template_type', $payload['_post_type_slug']);
+                }
+            })
+            ->orderByRaw("CASE WHEN status IN ('active', 'published', '1', 1) THEN 1 ELSE 0 END DESC")
             ->orderBy('priority', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -185,7 +194,19 @@ class TemplateResolveService
             return true;
         }
 
-        // 3. Check if template display conditions have post_type matching this payload
+        // 3. Normalized slug comparison (e.g. 'property-listing' vs 'property_listing' vs 'property' vs 'properties')
+        if ($templatePostTypeSlug && $payloadPostTypeSlug) {
+            $normTemplate = str_replace(['-', '_', ' '], '', $templatePostTypeSlug);
+            $normPayload = str_replace(['-', '_', ' '], '', $payloadPostTypeSlug);
+            if ($normTemplate === $normPayload) {
+                return true;
+            }
+            if (str_starts_with($normTemplate, 'property') && str_starts_with($normPayload, 'property')) {
+                return true;
+            }
+        }
+
+        // 4. Check if template display conditions have post_type matching this payload
         $conditions = $template->conditions;
         if ($conditions && $conditions->isNotEmpty()) {
             $hasPostTypeCondition = $conditions->contains(function ($cond) use ($payloadPostTypeId, $payloadPostTypeSlug) {
@@ -194,8 +215,11 @@ class TemplateResolveService
                     if ($payloadPostTypeId && ! empty($cond->post_type_id) && (int) $cond->post_type_id === $payloadPostTypeId) {
                         return true;
                     }
-                    if ($payloadPostTypeSlug && ! empty($cond->post_type_slug) && strtolower(trim((string) $cond->post_type_slug)) === $payloadPostTypeSlug) {
-                        return true;
+                    if ($payloadPostTypeSlug && ! empty($cond->post_type_slug)) {
+                        $condSlug = strtolower(trim((string) $cond->post_type_slug));
+                        if ($condSlug === $payloadPostTypeSlug || str_replace(['-', '_'], '', $condSlug) === str_replace(['-', '_'], '', $payloadPostTypeSlug)) {
+                            return true;
+                        }
                     }
                 }
                 return false;
@@ -206,7 +230,7 @@ class TemplateResolveService
             }
         }
 
-        // 4. Global single_post template (no post type restriction)
+        // 5. Global single_post template (no post type restriction)
         if (empty($templatePostTypeId) && empty($templatePostTypeSlug)) {
             return true;
         }
@@ -276,7 +300,17 @@ class TemplateResolveService
         }
 
         if (! empty($condition->post_type_slug) && ! empty($payload['_post_type_slug'])) {
-            return (string) $condition->post_type_slug === (string) $payload['_post_type_slug'];
+            $condSlug = strtolower(trim((string) $condition->post_type_slug));
+            $payloadSlug = strtolower(trim((string) $payload['_post_type_slug']));
+
+            if ($condSlug === $payloadSlug) {
+                return true;
+            }
+
+            $normCond = str_replace(['-', '_', ' '], '', $condSlug);
+            $normPayload = str_replace(['-', '_', ' '], '', $payloadSlug);
+
+            return $normCond === $normPayload;
         }
 
         return false;
