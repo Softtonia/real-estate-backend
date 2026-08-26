@@ -19,7 +19,8 @@ class KycSubmissionService
         private readonly KycDocumentService $documentService,
         private readonly KycActivityService $activityService,
         private readonly KycAccessService $accessService
-    ) {}
+    ) {
+    }
 
     public function submit(User $user, KycSubmitRequest $request): KycRequest
     {

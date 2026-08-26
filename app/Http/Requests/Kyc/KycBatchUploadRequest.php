@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Kyc;
 
 use App\Models\KycDocument;
+use App\Models\KycRequest;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
@@ -143,6 +144,11 @@ class KycBatchUploadRequest extends FormRequest
 
             /*
              * GST number and GST certificate must be provided together.
+             *
+             * NOTE: hasDocumentType() checks both newly uploaded files in this
+             * request AND documents already saved in the DB for the user's
+             * active KYC request, so resubmissions that carry over a
+             * previously approved GST certificate are not falsely rejected.
              */
             $hasGstNumber = $this->filled('gst_number');
             $hasGstCertificate = $this->hasDocumentType(
@@ -410,12 +416,37 @@ class KycBatchUploadRequest extends FormRequest
 
     private function hasDocumentType(string $documentType): bool
     {
+        // 1. Check files being uploaded in the current request.
         foreach ($this->kycDocumentFiles() as $filePayload) {
-            if (
-                ($filePayload['document_type'] ?? null)
-                === $documentType
-            ) {
+            if (($filePayload['document_type'] ?? null) === $documentType) {
                 return true;
+            }
+        }
+
+        // 2. Check documents already stored in the DB for this user's latest
+        //    KYC request (covers resubmissions where the file was previously
+        //    approved and does not need to be re-uploaded).
+        $user = $this->currentUser();
+
+        if ($user && Schema::hasTable('kyc_requests') && Schema::hasTable('kyc_documents')) {
+            $latestRequest = KycRequest::query()
+                ->where('user_id', $user->id)
+                ->whereIn('status', [
+                    KycRequest::STATUS_DRAFT,
+                    KycRequest::STATUS_REJECTED,
+                ])
+                ->latest('id')
+                ->first();
+
+            if ($latestRequest) {
+                $existsInDb = KycDocument::query()
+                    ->where('kyc_request_id', $latestRequest->id)
+                    ->where('document_type', $documentType)
+                    ->exists();
+
+                if ($existsInDb) {
+                    return true;
+                }
             }
         }
 
