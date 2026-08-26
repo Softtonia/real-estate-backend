@@ -755,8 +755,18 @@ class CustomFieldGroupController extends Controller
         }
 
         $keys = [
-            'ids', 'id', 'field_id', 'field_ids', 'custom_field_id', 'custom_field_ids',
-            'fieldId', 'fieldIds', 'customFieldId', 'customFieldIds', 'items', 'data'
+            'ids',
+            'id',
+            'field_id',
+            'field_ids',
+            'custom_field_id',
+            'custom_field_ids',
+            'fieldId',
+            'fieldIds',
+            'customFieldId',
+            'customFieldIds',
+            'items',
+            'data'
         ];
 
         foreach ($keys as $key) {
