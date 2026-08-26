@@ -24,6 +24,10 @@ class KycDocumentResource extends JsonResource
             'file_size_human' => $this->humanFileSize((int) $this->file_size),
 
             'status' => $this->status,
+            'status_label' => ucfirst($this->status),
+            'is_rejected' => $this->status === 'rejected',
+            'is_approved' => $this->status === 'approved',
+            'needs_reupload' => $this->status === 'rejected',
             'rejection_reason' => $this->rejection_reason,
 
             'version' => (int) $this->version,

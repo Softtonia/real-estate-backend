@@ -47,6 +47,14 @@ class KycRequestResource extends JsonResource
                 $this->whenLoaded('documents')
             ),
 
+            'rejected_document_types' => $this->whenLoaded('documents', function () {
+                return $this->documents->where('status', 'rejected')->pluck('document_type')->values()->all();
+            }),
+
+            'approved_document_types' => $this->whenLoaded('documents', function () {
+                return $this->documents->where('status', 'approved')->pluck('document_type')->values()->all();
+            }),
+
             'activities' => KycActivityResource::collection(
                 $this->whenLoaded('activities')
             ),
