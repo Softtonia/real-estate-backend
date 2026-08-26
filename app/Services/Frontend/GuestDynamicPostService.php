@@ -1773,10 +1773,8 @@ class GuestDynamicPostService
 
         $paginator = $finalQuery->latest('dynamic_posts.created_at')->paginate($limit, ['*'], 'page', $page);
 
-        foreach ($paginator->items() as $post) {
-            $this->attachCurrentFeaturedPromotionToPost($post);
-            $this->attachDetailMedia($post);
-        }
+        $this->attachCurrentFeaturedPromotions($paginator);
+        $this->attachFeaturedMedia($paginator);
 
         return $paginator;
     }
