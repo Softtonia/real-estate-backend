@@ -437,10 +437,10 @@ class KycBatchUploadRequest extends FormRequest
             $exists = KycDocument::query()
                 ->whereHas('kycRequest', function ($q) use ($user) {
                     $q->where('user_id', $user->id)
-                      ->whereIn('status', [
-                          KycRequest::STATUS_DRAFT,
-                          KycRequest::STATUS_REJECTED,
-                      ]);
+                        ->whereIn('status', [
+                            KycRequest::STATUS_DRAFT,
+                            KycRequest::STATUS_REJECTED,
+                        ]);
                 })
                 ->where('document_type', $documentType)
                 ->whereIn('status', [
