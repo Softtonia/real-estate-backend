@@ -19,7 +19,8 @@ class GuestDynamicPostService
 {
     public function __construct(
         private TemplateResolveService $templateResolveService
-    ) {}
+    ) {
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -250,11 +251,7 @@ class GuestDynamicPostService
         $paginator
             ->getCollection()
             ->each(
-                function (
-                    DynamicPost $post
-                ) use (
-                    $postType
-                ) {
+                function (DynamicPost $post) use ($postType) {
                     $post->setRelation(
                         'postType',
                         $postType
@@ -277,13 +274,13 @@ class GuestDynamicPostService
 
         return [
             'post_type' =>
-            $postType,
+                $postType,
 
             'featured_only' =>
-            $featuredOnly,
+                $featuredOnly,
 
             'paginator' =>
-            $paginator,
+                $paginator,
         ];
     }
 
@@ -488,10 +485,10 @@ class GuestDynamicPostService
 
         return [
             'post' =>
-            $post,
+                $post,
 
             'template' =>
-            $template,
+                $template,
         ];
     }
 
@@ -648,14 +645,7 @@ class GuestDynamicPostService
         }
 
         $query->where(
-            function (
-                Builder $availabilityQuery
-            ) use (
-                $now,
-                $soldVisibleFrom,
-                $hasPublicUntil,
-                $hasSoldAt
-            ) {
+            function (Builder $availabilityQuery) use ($now, $soldVisibleFrom, $hasPublicUntil, $hasSoldAt) {
                 /*
                  * Available / Reserved
                  */
@@ -676,14 +666,7 @@ class GuestDynamicPostService
                     || $hasSoldAt
                 ) {
                     $availabilityQuery->orWhere(
-                        function (
-                            Builder $soldQuery
-                        ) use (
-                            $now,
-                            $soldVisibleFrom,
-                            $hasPublicUntil,
-                            $hasSoldAt
-                        ) {
+                        function (Builder $soldQuery) use ($now, $soldVisibleFrom, $hasPublicUntil, $hasSoldAt) {
                             $soldQuery->where(
                                 'dynamic_posts.availability_status',
                                 'sold'
@@ -694,12 +677,7 @@ class GuestDynamicPostService
                                 && $hasSoldAt
                             ) {
                                 $soldQuery->where(
-                                    function (
-                                        Builder $windowQuery
-                                    ) use (
-                                        $now,
-                                        $soldVisibleFrom
-                                    ) {
+                                    function (Builder $windowQuery) use ($now, $soldVisibleFrom) {
                                         $windowQuery
                                             ->where(
                                                 'dynamic_posts.availability_public_until',
@@ -707,11 +685,7 @@ class GuestDynamicPostService
                                                 $now
                                             )
                                             ->orWhere(
-                                                function (
-                                                    Builder $fallbackQuery
-                                                ) use (
-                                                    $soldVisibleFrom
-                                                ) {
+                                                function (Builder $fallbackQuery) use ($soldVisibleFrom) {
                                                     $fallbackQuery
                                                         ->whereNull(
                                                             'dynamic_posts.availability_public_until'
@@ -773,11 +747,7 @@ class GuestDynamicPostService
         }
 
         $query->where(
-            function (
-                Builder $searchQuery
-            ) use (
-                $search
-            ) {
+            function (Builder $searchQuery) use ($search) {
                 $searchQuery
                     ->where(
                         'dynamic_posts.title',
@@ -885,47 +855,47 @@ class GuestDynamicPostService
 
         $priorityQuery =
             PropertyFeaturedPromotion::query()
-            ->select('priority')
-            ->whereColumn(
-                'dynamic_post_id',
-                'dynamic_posts.id'
-            )
-            ->whereNull(
-                'cancelled_at'
-            )
-            ->where(
-                'status',
-                PropertyFeaturedPromotion::STATUS_ACTIVE
-            )
-            ->where(
-                function ($startQuery) use ($now) {
-                    $startQuery
-                        ->whereNull('starts_at')
-                        ->orWhere(
-                            'starts_at',
-                            '<=',
-                            $now
-                        );
-                }
-            )
-            ->where(
-                function ($endQuery) use ($now) {
-                    $endQuery
-                        ->whereNull('ends_at')
-                        ->orWhere(
-                            'ends_at',
-                            '>',
-                            $now
-                        );
-                }
-            )
-            ->orderByDesc('priority')
-            ->orderByDesc('id')
-            ->limit(1);
+                ->select('priority')
+                ->whereColumn(
+                    'dynamic_post_id',
+                    'dynamic_posts.id'
+                )
+                ->whereNull(
+                    'cancelled_at'
+                )
+                ->where(
+                    'status',
+                    PropertyFeaturedPromotion::STATUS_ACTIVE
+                )
+                ->where(
+                    function ($startQuery) use ($now) {
+                        $startQuery
+                            ->whereNull('starts_at')
+                            ->orWhere(
+                                'starts_at',
+                                '<=',
+                                $now
+                            );
+                    }
+                )
+                ->where(
+                    function ($endQuery) use ($now) {
+                        $endQuery
+                            ->whereNull('ends_at')
+                            ->orWhere(
+                                'ends_at',
+                                '>',
+                                $now
+                            );
+                    }
+                )
+                ->orderByDesc('priority')
+                ->orderByDesc('id')
+                ->limit(1);
 
         $query->addSelect([
             'guest_featured_priority' =>
-            $priorityQuery,
+                $priorityQuery,
         ]);
     }
 
@@ -956,59 +926,57 @@ class GuestDynamicPostService
 
         $promotions =
             PropertyFeaturedPromotion::query()
-            ->whereIn(
-                'dynamic_post_id',
-                $postIds
-            )
-            ->whereNull(
-                'cancelled_at'
-            )
-            ->where(
-                'status',
-                PropertyFeaturedPromotion::STATUS_ACTIVE
-            )
-            ->where(
-                function ($startQuery) use ($now) {
-                    $startQuery
-                        ->whereNull('starts_at')
-                        ->orWhere(
-                            'starts_at',
-                            '<=',
-                            $now
-                        );
-                }
-            )
-            ->where(
-                function ($endQuery) use ($now) {
-                    $endQuery
-                        ->whereNull('ends_at')
-                        ->orWhere(
-                            'ends_at',
-                            '>',
-                            $now
-                        );
-                }
-            )
-            ->orderByDesc('priority')
-            ->orderByDesc('id')
-            ->get([
-                'id',
-                'dynamic_post_id',
-                'source',
-                'status',
-                'starts_at',
-                'ends_at',
-                'priority',
-            ])
-            ->groupBy('dynamic_post_id')
-            ->map(
-                fn($items) => $items->first()
-            );
+                ->whereIn(
+                    'dynamic_post_id',
+                    $postIds
+                )
+                ->whereNull(
+                    'cancelled_at'
+                )
+                ->where(
+                    'status',
+                    PropertyFeaturedPromotion::STATUS_ACTIVE
+                )
+                ->where(
+                    function ($startQuery) use ($now) {
+                        $startQuery
+                            ->whereNull('starts_at')
+                            ->orWhere(
+                                'starts_at',
+                                '<=',
+                                $now
+                            );
+                    }
+                )
+                ->where(
+                    function ($endQuery) use ($now) {
+                        $endQuery
+                            ->whereNull('ends_at')
+                            ->orWhere(
+                                'ends_at',
+                                '>',
+                                $now
+                            );
+                    }
+                )
+                ->orderByDesc('priority')
+                ->orderByDesc('id')
+                ->get([
+                    'id',
+                    'dynamic_post_id',
+                    'source',
+                    'status',
+                    'starts_at',
+                    'ends_at',
+                    'priority',
+                ])
+                ->groupBy('dynamic_post_id')
+                ->map(
+                    fn($items) => $items->first()
+                );
 
         $posts->each(
-            function (
-                DynamicPost $post
-            ) use ($promotions) {
+            function (DynamicPost $post) use ($promotions) {
                 $post->setAttribute(
                     '_guest_featured_promotion',
                     $promotions->get(
@@ -1032,45 +1000,45 @@ class GuestDynamicPostService
 
         $promotion =
             PropertyFeaturedPromotion::query()
-            ->where(
-                'dynamic_post_id',
-                (int) $post->id
-            )
-            ->whereIn(
-                'status',
-                [
-                    PropertyFeaturedPromotion::STATUS_ACTIVE,
-                    PropertyFeaturedPromotion::STATUS_SCHEDULED,
-                ]
-            )
-            ->where(
-                'starts_at',
-                '<=',
-                $now
-            )
-            ->where(
-                'ends_at',
-                '>',
-                $now
-            )
-            ->orderByDesc(
-                'priority'
-            )
-            ->orderByDesc(
-                'starts_at'
-            )
-            ->orderByDesc(
-                'id'
-            )
-            ->first([
-                'id',
-                'dynamic_post_id',
-                'source',
-                'status',
-                'starts_at',
-                'ends_at',
-                'priority',
-            ]);
+                ->where(
+                    'dynamic_post_id',
+                    (int) $post->id
+                )
+                ->whereIn(
+                    'status',
+                    [
+                        PropertyFeaturedPromotion::STATUS_ACTIVE,
+                        PropertyFeaturedPromotion::STATUS_SCHEDULED,
+                    ]
+                )
+                ->where(
+                    'starts_at',
+                    '<=',
+                    $now
+                )
+                ->where(
+                    'ends_at',
+                    '>',
+                    $now
+                )
+                ->orderByDesc(
+                    'priority'
+                )
+                ->orderByDesc(
+                    'starts_at'
+                )
+                ->orderByDesc(
+                    'id'
+                )
+                ->first([
+                    'id',
+                    'dynamic_post_id',
+                    'source',
+                    'status',
+                    'starts_at',
+                    'ends_at',
+                    'priority',
+                ]);
 
         $post->setAttribute(
             '_guest_featured_promotion',
@@ -1110,29 +1078,25 @@ class GuestDynamicPostService
         $mediaMap = empty($mediaIds)
             ? collect()
             : MediaFile::query()
-            ->whereIn(
-                'id',
-                $mediaIds
-            )
-            ->get()
-            ->keyBy(
-                'id'
-            );
+                ->whereIn(
+                    'id',
+                    $mediaIds
+                )
+                ->get()
+                ->keyBy(
+                    'id'
+                );
 
         $posts->each(
-            function (
-                DynamicPost $post
-            ) use (
-                $mediaMap
-            ) {
+            function (DynamicPost $post) use ($mediaMap) {
                 $post->setAttribute(
                     '_guest_featured_media',
                     !empty($post->featured_image_id)
-                        ? $mediaMap->get(
-                            (int) $post
-                                ->featured_image_id
-                        )
-                        : null
+                    ? $mediaMap->get(
+                        (int) $post
+                            ->featured_image_id
+                    )
+                    : null
                 );
             }
         );
@@ -1155,7 +1119,7 @@ class GuestDynamicPostService
         $galleryIds =
             $this->normalizeMediaIds(
                 $post->gallery_image_ids
-                    ?? null
+                ?? null
             );
 
         $customFieldMediaIds = [];
@@ -1166,7 +1130,7 @@ class GuestDynamicPostService
         ) {
             $fieldType =
                 $meta->customField
-                ?->field_type;
+                        ?->field_type;
 
             if (
                 !in_array(
@@ -1186,7 +1150,7 @@ class GuestDynamicPostService
                     $customFieldMediaIds,
                     $this->extractMediaIds(
                         $meta->value_json
-                            ?? null
+                        ?? null
                     )
                 );
         }
@@ -1195,33 +1159,33 @@ class GuestDynamicPostService
             collect(
                 array_merge(
                     $featuredImageId
-                        ? [$featuredImageId]
-                        : [],
+                    ? [$featuredImageId]
+                    : [],
                     $galleryIds,
                     $customFieldMediaIds
                 )
             )
-            ->filter()
-            ->map(
-                fn($id) =>
-                (int) $id
-            )
-            ->unique()
-            ->values()
-            ->all();
+                ->filter()
+                ->map(
+                    fn($id) =>
+                    (int) $id
+                )
+                ->unique()
+                ->values()
+                ->all();
 
         $mediaMap =
             empty($allMediaIds)
             ? collect()
             : MediaFile::query()
-            ->whereIn(
-                'id',
-                $allMediaIds
-            )
-            ->get()
-            ->keyBy(
-                'id'
-            );
+                ->whereIn(
+                    'id',
+                    $allMediaIds
+                )
+                ->get()
+                ->keyBy(
+                    'id'
+                );
 
         $post->setAttribute(
             '_guest_media_map',
@@ -1231,10 +1195,10 @@ class GuestDynamicPostService
         $post->setAttribute(
             '_guest_featured_media',
             $featuredImageId
-                ? $mediaMap->get(
-                    $featuredImageId
-                )
-                : null
+            ? $mediaMap->get(
+                $featuredImageId
+            )
+            : null
         );
 
         $post->setAttribute(
@@ -1531,18 +1495,16 @@ class GuestDynamicPostService
             collect(
                 $grouped
             )->map(
-                function (
-                    array $repeaterRows
-                ) {
-                    ksort(
-                        $repeaterRows
-                    );
+                    function (array $repeaterRows) {
+                        ksort(
+                            $repeaterRows
+                        );
 
-                    return array_values(
-                        $repeaterRows
-                    );
-                }
-            );
+                        return array_values(
+                            $repeaterRows
+                        );
+                    }
+                );
 
         $post->setAttribute(
             '_guest_repeater_values',
@@ -1604,40 +1566,40 @@ class GuestDynamicPostService
                 ->templateResolveService
                 ->resolve([
                     'template_type' =>
-                    'single_post',
+                        'single_post',
 
                     'post_type_id' =>
-                    (int) $post->post_type_id,
+                        (int) $post->post_type_id,
 
                     'post_type' =>
-                    $post->postType?->slug,
+                        $post->postType?->slug,
 
                     'post_id' =>
-                    (int) $post->id,
+                        (int) $post->id,
 
                     'dynamic_post_id' =>
-                    (int) $post->id,
+                        (int) $post->id,
 
                     'id' =>
-                    (int) $post->id,
+                        (int) $post->id,
 
                     'title' =>
-                    $post->title
+                        $post->title
                         ?? null,
 
                     'slug' =>
-                    $post->slug
+                        $post->slug
                         ?? null,
 
                     'status' =>
-                    $post->status
+                        $post->status
                         ?? null,
 
                     'taxonomy_term_ids' =>
-                    $taxonomyTermIds,
+                        $taxonomyTermIds,
 
                     'render_for' =>
-                    'frontend',
+                        'frontend',
                 ]);
         } catch (Throwable $e) {
             /*
@@ -1648,13 +1610,13 @@ class GuestDynamicPostService
                 'Guest DynamicPost template resolution failed.',
                 [
                     'dynamic_post_id' =>
-                    (int) $post->id,
+                        (int) $post->id,
 
                     'post_type_id' =>
-                    (int) $post->post_type_id,
+                        (int) $post->post_type_id,
 
                     'error' =>
-                    $e->getMessage(),
+                        $e->getMessage(),
                 ]
             );
 
@@ -1690,7 +1652,7 @@ class GuestDynamicPostService
             $explicitPostIds = DB::table('dynamic_post_relationships')
                 ->where(function ($q) use ($currentPost) {
                     $q->where('dynamic_post_id', (int) $currentPost->id)
-                      ->orWhere('related_post_id', (int) $currentPost->id);
+                        ->orWhere('related_post_id', (int) $currentPost->id);
                 })
                 ->pluck('related_post_id')
                 ->concat(
