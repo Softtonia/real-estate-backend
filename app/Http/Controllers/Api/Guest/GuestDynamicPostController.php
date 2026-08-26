@@ -44,10 +44,10 @@ class GuestDynamicPostController extends Controller
                 $this->service
                     ->paginate(
                         postTypeSlug:
-                            $postType,
+                        $postType,
 
                         filters:
-                            $validated
+                        $validated
                     );
 
             $paginator =
@@ -66,16 +66,16 @@ class GuestDynamicPostController extends Controller
                     $paginator
                         ->getCollection()
                 )->resolve(
-                    $request
-                );
+                        $request
+                    );
 
             return response()->json([
                 'status' => true,
 
                 'message' =>
                     $featuredOnly
-                        ? 'Featured posts fetched successfully.'
-                        : 'Posts fetched successfully.',
+                    ? 'Featured posts fetched successfully.'
+                    : 'Posts fetched successfully.',
 
                 'data' => [
                     /*
@@ -249,10 +249,10 @@ class GuestDynamicPostController extends Controller
                 $this->service
                     ->detail(
                         postTypeSlug:
-                            $postType,
+                        $postType,
 
                         dynamicPostId:
-                            $dynamicPostId
+                        $dynamicPostId
                     );
 
             $post =
@@ -280,8 +280,8 @@ class GuestDynamicPostController extends Controller
                                 $post
                             )
                         )->resolve(
-                            $request
-                        ),
+                                $request
+                            ),
 
                     /*
                     |--------------------------------------------------------------------------
