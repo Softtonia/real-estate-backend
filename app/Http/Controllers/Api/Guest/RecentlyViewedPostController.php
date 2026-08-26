@@ -17,7 +17,8 @@ class RecentlyViewedPostController extends Controller
 {
     public function __construct(
         private RecentlyViewedPostService $recentlyViewedService
-    ) {}
+    ) {
+    }
 
     /**
      * GET /api/guest/recently-viewed
