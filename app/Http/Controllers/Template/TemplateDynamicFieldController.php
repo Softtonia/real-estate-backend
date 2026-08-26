@@ -1505,6 +1505,7 @@ class TemplateDynamicFieldController extends Controller
     {
         $relatedPostsWidget = app(\App\PageBuilder\Widgets\RelatedPostsWidget::class);
         $areaSqFtWidget = app(\App\PageBuilder\Widgets\AreaSqFtWidget::class);
+        $breadcrumbWidget = app(\App\PageBuilder\Widgets\BreadcrumbWidget::class);
 
         return [
             [
@@ -1564,6 +1565,7 @@ class TemplateDynamicFieldController extends Controller
                     'target' => '_self',
                 ],
             ],
+            $breadcrumbWidget->sidebarItem(),
             $areaSqFtWidget->sidebarItem(),
 
             /*

@@ -19,6 +19,27 @@ class BreadcrumbWidget extends BaseWidget
 
     protected string $description = 'Display a dynamic or static breadcrumb trail.';
 
+    public function key(): string
+    {
+        return 'breadcrumb';
+    }
+
+    public function sidebarItem(): array
+    {
+        return [
+            'label' => 'Breadcrumb',
+            'key' => 'breadcrumb',
+            'source' => 'basic_widget',
+            'type' => 'breadcrumb',
+            'component_key' => 'breadcrumb',
+            'field_value' => '',
+            'value' => '',
+            'has_value' => false,
+            'settings' => $this->defaultSettings(),
+            'settings_schema' => $this->schema(),
+        ];
+    }
+
     public function defaultSettings(): array
     {
         return [
