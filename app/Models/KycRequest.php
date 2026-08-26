@@ -152,9 +152,11 @@ class KycRequest extends Model
     public function canBeReviewed(): bool
     {
         return in_array($this->status, [
+            self::STATUS_DRAFT,
             self::STATUS_SUBMITTED,
             self::STATUS_UNDER_REVIEW,
             self::STATUS_RESUBMITTED,
+            self::STATUS_REJECTED,
         ], true);
     }
 }
