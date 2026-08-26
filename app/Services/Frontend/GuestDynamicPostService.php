@@ -1623,7 +1623,6 @@ class GuestDynamicPostService
             return null;
         }
     }
-
     /*
     |--------------------------------------------------------------------------
     | Dynamic Related Posts
