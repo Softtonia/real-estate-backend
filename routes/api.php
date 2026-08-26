@@ -95,6 +95,7 @@ use App\Http\Controllers\Api\DynamicPostFormStepController;
 use App\Http\Controllers\Api\Frontend\PropertySearchController;
 use App\Http\Controllers\Api\FrontendLocationController;
 use App\Http\Controllers\Api\Guest\GuestDynamicPostController;
+use App\Http\Controllers\Api\Guest\RecentlyViewedPostController;
 use App\Http\Controllers\Api\KeywordExportController;
 use App\Http\Controllers\Api\KeywordImportController;
 use App\Http\Controllers\Api\Kyc\AdminKycController;
@@ -2616,5 +2617,18 @@ Route::middleware([
 
 Route::middleware(['throttle:120,1'])->get('guest/related-posts', [GuestDynamicPostController::class, 'relatedPosts']);
 Route::middleware(['throttle:120,1'])->get('related-posts', [GuestDynamicPostController::class, 'relatedPosts']);
+
+/*
+ * Dynamic Recently Viewed Posts.
+ */
+Route::middleware(['throttle:120,1'])->group(function () {
+    Route::get('guest/recently-viewed', [RecentlyViewedPostController::class, 'index']);
+    Route::post('guest/recently-viewed', [RecentlyViewedPostController::class, 'track']);
+    Route::delete('guest/recently-viewed', [RecentlyViewedPostController::class, 'clear']);
+
+    Route::get('recently-viewed', [RecentlyViewedPostController::class, 'index']);
+    Route::post('recently-viewed', [RecentlyViewedPostController::class, 'track']);
+    Route::delete('recently-viewed', [RecentlyViewedPostController::class, 'clear']);
+});
 
 Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);

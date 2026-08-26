@@ -455,6 +455,29 @@ class GuestDynamicPostService
 
         /*
         |--------------------------------------------------------------------------
+        | Auto-track Recently Viewed
+        |--------------------------------------------------------------------------
+        */
+
+        try {
+            $recentlyViewedService = app(\App\Services\Frontend\RecentlyViewedPostService::class);
+            $request = request();
+            $user = auth()->user();
+            $guestSessionId = $request->header('X-Guest-Session-ID')
+                ?: $request->header('guest-session-id')
+                ?: $request->header('guest_session_id')
+                ?: $request->header('X-Visitor-ID')
+                ?: $request->input('guest_session_id')
+                ?: $request->input('visitor_id')
+                ?: ('guest_' . substr(md5(($request->ip() ?: '127.0.0.1') . '_' . ($request->userAgent() ?: 'agent')), 0, 24));
+
+            $recentlyViewedService->trackView($user, $guestSessionId, (int) $post->id);
+        } catch (\Throwable $e) {
+            // Ignore tracking errors to prevent blocking post detail response
+        }
+
+        /*
+        |--------------------------------------------------------------------------
         | Template Builder
         |--------------------------------------------------------------------------
         */
