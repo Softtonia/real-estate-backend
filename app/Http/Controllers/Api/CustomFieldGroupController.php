@@ -681,37 +681,40 @@ class CustomFieldGroupController extends Controller
 
     public function deleteCustomFieldsById(Request $request, int|string|null $fieldId = null): JsonResponse
     {
-        $id = $fieldId ?? $request->input('field_id') ?? $request->input('id') ?? $request->input('custom_field_id');
-
-        if (!$id && $request->has('ids')) {
-            return $this->bulkDeleteFields($request);
-        }
-
-        if (!$id) {
-            return $this->errorResponse('Field ID is required.', 400);
-        }
-
-        return $this->destroyFieldById($id);
+        return $this->bulkDeleteFieldsWithRouteId($request, $fieldId);
     }
+
     public function bulkDeleteFields(Request $request): JsonResponse
     {
+        return $this->bulkDeleteFieldsWithRouteId($request, null);
+    }
+
+    private function bulkDeleteFieldsWithRouteId(Request $request, int|string|null $routeId = null): JsonResponse
+    {
         try {
-            $request->validate([
-                'ids' => ['required', 'array', 'min:1'],
-                'ids.*' => ['required', 'integer', 'exists:custom_fields,id'],
-            ]);
+            $ids = $this->parseCustomFieldIdsFromRequest($request, $routeId);
 
-            $ids = array_values(array_unique($request->ids));
+            if (empty($ids)) {
+                return $this->errorResponse('Field ID is required.', 400);
+            }
 
-            $deletedCount = DB::transaction(function () use ($ids) {
+            $existingFields = CustomField::whereIn('id', $ids)->get();
+
+            if ($existingFields->isEmpty()) {
+                return $this->errorResponse('Custom field not found.', 404);
+            }
+
+            $existingIds = $existingFields->pluck('id')->toArray();
+
+            $deletedCount = DB::transaction(function () use ($existingIds) {
                 // Delete field location rules
-                CustomFieldGroupLocationRule::whereIn('custom_field_id', $ids)->delete();
+                CustomFieldGroupLocationRule::whereIn('custom_field_id', $existingIds)->delete();
 
                 // Delete field options
-                CustomFieldOption::whereIn('custom_field_id', $ids)->delete();
+                CustomFieldOption::whereIn('custom_field_id', $existingIds)->delete();
 
                 // Delete repeater options first
-                $repeaterIds = CustomFieldRepeater::whereIn('custom_field_id', $ids)
+                $repeaterIds = CustomFieldRepeater::whereIn('custom_field_id', $existingIds)
                     ->pluck('id')
                     ->toArray();
 
@@ -720,24 +723,104 @@ class CustomFieldGroupController extends Controller
                 }
 
                 // Delete repeaters
-                CustomFieldRepeater::whereIn('custom_field_id', $ids)->delete();
+                CustomFieldRepeater::whereIn('custom_field_id', $existingIds)->delete();
 
                 // Delete field conditions
-                CustomFieldCondition::whereIn('custom_field_id', $ids)->delete();
+                CustomFieldCondition::whereIn('custom_field_id', $existingIds)->delete();
 
                 // Delete custom fields
-                return CustomField::whereIn('id', $ids)->delete();
+                return CustomField::whereIn('id', $existingIds)->delete();
             });
 
-            return $this->successResponse('Selected custom fields deleted successfully.', null, 200, [
+            $message = count($existingIds) === 1
+                ? 'Custom field deleted successfully.'
+                : 'Selected custom fields deleted successfully.';
+
+            return $this->successResponse($message, null, 200, [
                 'deleted_count' => $deletedCount,
             ]);
-        } catch (ValidationException $e) {
-            return $this->validationErrorResponse($e);
         } catch (QueryException $e) {
-            return $this->databaseErrorResponse($e, 'Database error while deleting selected custom fields.');
+            return $this->databaseErrorResponse($e, 'Database error while deleting custom field.');
         } catch (Throwable $e) {
-            return $this->errorResponse('Unable to delete selected custom fields.', 500, $e->getMessage());
+            return $this->errorResponse('Unable to delete custom field.', 500, $e->getMessage());
+        }
+    }
+
+    private function parseCustomFieldIdsFromRequest(Request $request, int|string|null $routeId = null): array
+    {
+        $rawCandidates = [];
+
+        if (!is_null($routeId) && $routeId !== '') {
+            $rawCandidates[] = $routeId;
+        }
+
+        $keys = [
+            'ids', 'id', 'field_id', 'field_ids', 'custom_field_id', 'custom_field_ids',
+            'fieldId', 'fieldIds', 'customFieldId', 'customFieldIds', 'items', 'data'
+        ];
+
+        foreach ($keys as $key) {
+            if ($request->has($key)) {
+                $val = $request->input($key);
+                if (!is_null($val) && $val !== '') {
+                    $rawCandidates[] = $val;
+                }
+            }
+        }
+
+        if (empty($rawCandidates)) {
+            $all = $request->all();
+            foreach ($all as $k => $v) {
+                if (!is_null($v) && $v !== '') {
+                    $rawCandidates[] = $v;
+                }
+            }
+        }
+
+        $ids = [];
+        foreach ($rawCandidates as $item) {
+            $this->extractCustomFieldIdsFromItem($item, $ids);
+        }
+
+        return array_values(array_unique(array_filter($ids, fn($id) => is_int($id) && $id > 0)));
+    }
+
+    private function extractCustomFieldIdsFromItem(mixed $item, array &$ids): void
+    {
+        if (is_array($item)) {
+            foreach ($item as $subItem) {
+                $this->extractCustomFieldIdsFromItem($subItem, $ids);
+            }
+        } elseif (is_numeric($item)) {
+            $ids[] = (int) $item;
+        } elseif (is_string($item)) {
+            $item = trim($item);
+            if ($item === '') {
+                return;
+            }
+
+            if (str_starts_with($item, '[') && str_ends_with($item, ']')) {
+                $decoded = json_decode($item, true);
+                if (is_array($decoded)) {
+                    foreach ($decoded as $subItem) {
+                        $this->extractCustomFieldIdsFromItem($subItem, $ids);
+                    }
+                    return;
+                }
+            }
+
+            if (str_contains($item, ',')) {
+                $parts = explode(',', $item);
+                foreach ($parts as $p) {
+                    $this->extractCustomFieldIdsFromItem($p, $ids);
+                }
+                return;
+            }
+
+            $cleaned = trim($item, " \t\n\r\0\x0B\"'[]");
+            if (is_numeric($cleaned)) {
+                $ids[] = (int) $cleaned;
+            }
         }
     }
 
