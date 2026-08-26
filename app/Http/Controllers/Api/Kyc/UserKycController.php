@@ -150,7 +150,13 @@ class UserKycController extends Controller
                 ->latest('id')
                 ->first();
 
-            if (!$latestRequest || !$latestRequest->isRejected()) {
+            $isRejected = ($latestRequest && $latestRequest->isRejected())
+                || (int) ($user->kyc ?? 0) === 3
+                || strtolower((string) ($user->kyc ?? '')) === 'rejected'
+                || !empty($user->reject_reason)
+                || ($latestRequest && $latestRequest->documents()->where('status', 'rejected')->exists());
+
+            if (!$isRejected) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Only rejected KYC can be resubmitted.',
