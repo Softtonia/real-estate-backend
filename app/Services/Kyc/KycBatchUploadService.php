@@ -400,7 +400,7 @@ class KycBatchUploadService
 
             $nextVersion = ((int) $maxVersion) + 1;
 
-            return KycRequest::query()->create(
+            $newRequest = KycRequest::query()->create(
                 array_merge(
                     $payload,
                     [
@@ -415,6 +415,10 @@ class KycBatchUploadService
                     ]
                 )
             );
+
+            $this->copyApprovedDocumentsFromPreviousRequest($latestRequest, $newRequest);
+
+            return $newRequest;
         }
 
         return KycRequest::query()->create(
@@ -426,6 +430,35 @@ class KycBatchUploadService
                 ]
             )
         );
+    }
+
+    private function copyApprovedDocumentsFromPreviousRequest(
+        ?KycRequest $latestRequest,
+        KycRequest $newKycRequest
+    ): void {
+        if (!$latestRequest) {
+            return;
+        }
+
+        $approvedDocs = KycDocument::query()
+            ->where('kyc_request_id', $latestRequest->id)
+            ->where('status', KycDocument::STATUS_APPROVED)
+            ->get();
+
+        foreach ($approvedDocs as $approvedDoc) {
+            $alreadyExists = KycDocument::query()
+                ->where('kyc_request_id', $newKycRequest->id)
+                ->where('document_type', $approvedDoc->document_type)
+                ->exists();
+
+            if (!$alreadyExists) {
+                $cloned = $approvedDoc->replicate();
+                $cloned->kyc_request_id = $newKycRequest->id;
+                $cloned->version = $newKycRequest->version;
+                $cloned->status = KycDocument::STATUS_APPROVED;
+                $cloned->save();
+            }
+        }
     }
 
     private function documentNumberForType(

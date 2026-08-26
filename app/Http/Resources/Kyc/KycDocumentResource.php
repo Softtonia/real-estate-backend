@@ -16,7 +16,7 @@ class KycDocumentResource extends JsonResource
             'kyc_request_id' => (int) $this->kyc_request_id,
 
             'document_type' => $this->document_type,
-            'document_number' => $this->maskDocumentNumber($this->document_number, $this->document_type),
+            'document_number' => $this->document_number,
 
             'file_original_name' => $this->file_original_name,
             'mime_type' => $this->mime_type,

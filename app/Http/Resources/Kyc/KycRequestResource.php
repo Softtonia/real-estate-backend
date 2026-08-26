@@ -19,7 +19,7 @@ class KycRequestResource extends JsonResource
             'status' => $this->status,
             'status_label' => $this->statusLabel($this->status),
 
-            'aadhaar_number' => $this->maskAadhaar($this->aadhaar_number),
+            'aadhaar_number' => $this->aadhaar_number,
             'gst_number' => $this->gst_number,
             'rera_number' => $this->rera_number,
             'business_name' => $this->business_name,
