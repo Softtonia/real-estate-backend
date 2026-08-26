@@ -2177,6 +2177,8 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
         ->whereNumber('fieldId');
 
     // Delete & slug check aliases
+    Route::match(['delete', 'post', 'get'], 'bulk-delete-custom-fields-by-id/{fieldId?}', [CustomFieldGroupController::class, 'deleteCustomFieldsById']);
+    Route::match(['delete', 'post', 'get'], 'bulk-delete-custom-fields/{fieldId?}', [CustomFieldGroupController::class, 'deleteCustomFieldsById']);
     Route::match(['delete', 'post', 'get'], 'delete-custom-fields-by-id/{fieldId?}', [CustomFieldGroupController::class, 'deleteCustomFieldsById']);
     Route::match(['delete', 'post', 'get'], 'delete-custom-fields/{fieldId?}', [CustomFieldGroupController::class, 'deleteCustomFieldsById']);
     Route::match(['delete', 'post', 'get'], 'delete-custom-field-group-by-id/{id?}', [CustomFieldGroupController::class, 'destroy']);
