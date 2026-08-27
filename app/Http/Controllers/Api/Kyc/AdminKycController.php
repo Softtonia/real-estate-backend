@@ -78,10 +78,10 @@ class AdminKycController extends Controller
                 ->withCount('documents')
                 ->latest('id');
 
-            $canAssign = $this->assignmentService->canAssign($reviewer);
+            $isSystemAdmin = $this->assignmentService->isSystemAdmin($reviewer);
 
-            // Reviewers without assign permission only see their assigned KYC requests
-            if (!$canAssign) {
+            // Non-admin users/verifiers MUST ONLY see their own assigned KYC requests
+            if (!$isSystemAdmin) {
                 $query->where('assigned_to', (int) $reviewer->id);
             } elseif ($request->filled('assigned_to')) {
                 $assignedToParam = trim((string) $request->input('assigned_to'));
@@ -677,14 +677,13 @@ class AdminKycController extends Controller
 
         try {
             $isSuperAdmin = $this->assignmentService->isSystemAdmin($reviewer);
-            $canAssign = $this->assignmentService->canAssign($reviewer);
 
             $statsQuery = KycRequest::query();
-            if (!$canAssign && !$isSuperAdmin) {
+            if (!$isSuperAdmin) {
                 $statsQuery->where('assigned_to', (int) $reviewer->id);
             }
 
-            $cacheKey = ($canAssign || $isSuperAdmin) ? 'kyc:admin:stats' : 'kyc:verifier:' . $reviewer->id . ':stats';
+            $cacheKey = $isSuperAdmin ? 'kyc:admin:stats' : 'kyc:verifier:' . $reviewer->id . ':stats';
 
             $stats = Cache::store('redis')->remember(
                 $cacheKey,

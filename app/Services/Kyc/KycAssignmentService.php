@@ -380,22 +380,23 @@ class KycAssignmentService
     /**
      * Check if actor has permission to review the KYC request.
      * Admin has unrestricted access without needing assignment.
+     * All other users can ONLY review requests assigned to themselves.
      */
     public function assertCanReview(KycRequest $kycRequest, User $actor): void
     {
-        // Admin has full unrestricted access
-        if ($this->isSystemAdmin($actor) || $this->canAssign($actor)) {
+        // Only main system admin has unrestricted bypass
+        if ($this->isSystemAdmin($actor)) {
             return;
         }
 
-        // Assigned verifier can review
+        // Assigned verifier can review their own assigned request
         if (!empty($kycRequest->assigned_to) && (int) $kycRequest->assigned_to === (int) $actor->id) {
             return;
         }
 
         throw new AuthorizationException(
             empty($kycRequest->assigned_to)
-                ? 'This KYC request has not been assigned to you for review.'
+                ? 'This KYC request is not assigned to you for review.'
                 : 'This KYC request is assigned to another verifier.'
         );
     }
@@ -403,25 +404,25 @@ class KycAssignmentService
     /**
      * Check if actor has permission to view the KYC request details.
      * Admin has unrestricted access.
+     * All other users can ONLY view requests assigned to themselves.
      */
     public function assertCanView(KycRequest $kycRequest, User $actor): void
     {
-        // Admin or users with assign permissions can view all
-        if ($this->isSystemAdmin($actor) || $this->canAssign($actor)) {
+        // Only main system admin has unrestricted bypass
+        if ($this->isSystemAdmin($actor)) {
             return;
         }
 
-        // If user has general read permission without restrictions, or is assigned
-        if ($this->userHasPermission($actor, 'kyc_requests.read') && empty($kycRequest->assigned_to)) {
-            // Can view unassigned if they have read permissions
-            return;
-        }
-
+        // Assigned verifier can view their own assigned request
         if (!empty($kycRequest->assigned_to) && (int) $kycRequest->assigned_to === (int) $actor->id) {
             return;
         }
 
-        throw new AuthorizationException('You are not authorized to view this KYC request.');
+        throw new AuthorizationException(
+            empty($kycRequest->assigned_to)
+                ? 'This KYC request is not assigned to you.'
+                : 'This KYC request is assigned to another verifier.'
+        );
     }
 
     /**
