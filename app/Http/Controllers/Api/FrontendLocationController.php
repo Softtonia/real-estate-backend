@@ -267,8 +267,10 @@ class FrontendLocationController extends Controller
         $countryId = $this->resolveIndiaCountryId($request->filled('country_id') ? (int) $request->country_id : null);
         $stateId = $request->input('state_id');
 
-        $isAll = $request->boolean('all') || $request->input('limit') === 'all' || $request->input('limit') === '-1';
-        $limit = $isAll ? null : min(max((int) $request->input('limit', 100), 1), 500);
+        $limit = null;
+        if ($request->has('limit') && !in_array($request->input('limit'), ['all', '-1', '0', 'false'], true) && !$request->boolean('all')) {
+            $limit = max((int) $request->input('limit'), 1);
+        }
 
         $hasPopularColumn = Schema::hasColumn('cities', 'is_popular');
 
@@ -441,8 +443,10 @@ class FrontendLocationController extends Controller
         $countryId = $this->resolveIndiaCountryId($request->filled('country_id') ? (int) $request->country_id : null);
         $search = trim((string) $request->input('search', ''));
 
-        $isAll = $request->boolean('all') || $request->input('limit') === 'all' || $request->input('limit') === '-1';
-        $limit = $isAll ? null : min(max((int) $request->input('limit', 100), 1), 500);
+        $limit = null;
+        if ($request->has('limit') && !in_array($request->input('limit'), ['all', '-1', '0', 'false'], true) && !$request->boolean('all')) {
+            $limit = max((int) $request->input('limit'), 1);
+        }
 
         $hasPopularColumn = Schema::hasColumn('cities', 'is_popular');
         $hasNearbyColumn = Schema::hasColumn('cities', 'is_nearby');
