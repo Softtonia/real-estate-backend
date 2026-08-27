@@ -240,25 +240,31 @@ class KycReviewService
             ]);
         }
 
-        $this->applyDocumentReviews(
-            $kycRequest,
-            $reviewer,
-            $request
-        );
+        $providedDocuments = (array) $request->input('documents', []);
 
-        $documents = KycDocument::query()
-            ->where('kyc_request_id', $kycRequest->id)
-            ->get();
+        if (!empty($providedDocuments)) {
+            // Only update the documents explicitly selected/provided in the request
+            $this->applyDocumentReviews(
+                $kycRequest,
+                $reviewer,
+                $request
+            );
+        } else {
+            // If no specific documents array was provided, reject all documents for this request
+            $documents = KycDocument::query()
+                ->where('kyc_request_id', $kycRequest->id)
+                ->get();
 
-        foreach ($documents as $document) {
-            if ($document->status !== KycDocument::STATUS_REJECTED) {
-                $this->documentService->reviewDocument(
-                    document: $document,
-                    status: KycDocument::STATUS_REJECTED,
-                    rejectionReason: $reason,
-                    reviewer: $reviewer,
-                    request: $request
-                );
+            foreach ($documents as $document) {
+                if ($document->status !== KycDocument::STATUS_REJECTED) {
+                    $this->documentService->reviewDocument(
+                        document: $document,
+                        status: KycDocument::STATUS_REJECTED,
+                        rejectionReason: $reason,
+                        reviewer: $reviewer,
+                        request: $request
+                    );
+                }
             }
         }
 
