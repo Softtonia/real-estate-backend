@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Models\MediaFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class DynamicPost extends Model
 {
@@ -75,6 +77,95 @@ class DynamicPost extends Model
         static::updating(function ($post) {
             if (empty($post->slug)) {
                 $post->slug = Str::slug($post->title);
+            }
+        });
+
+        static::deleting(function ($post) {
+            $postId = (int) ($post->id ?? 0);
+            if ($postId <= 0) {
+                return;
+            }
+
+            // 1. Detach / delete taxonomy terms
+            if (method_exists($post, 'taxonomyTerms')) {
+                try {
+                    $post->taxonomyTerms()->detach();
+                } catch (\Throwable) {
+                }
+            }
+            if (Schema::hasTable('post_taxonomy_terms')) {
+                DB::table('post_taxonomy_terms')->where('dynamic_post_id', $postId)->delete();
+            }
+
+            // 2. Custom field values
+            if (Schema::hasTable('custom_field_values')) {
+                DB::table('custom_field_values')
+                    ->where('entity_type', 'post')
+                    ->where('entity_id', $postId)
+                    ->delete();
+            }
+
+            // 3. Custom field repeater values
+            if (Schema::hasTable('custom_field_repeater_values')) {
+                DB::table('custom_field_repeater_values')
+                    ->where('entity_type', 'post')
+                    ->where('entity_id', $postId)
+                    ->delete();
+            }
+
+            // 4. Dynamic post relationships
+            if (Schema::hasTable('dynamic_post_relationships')) {
+                DB::table('dynamic_post_relationships')
+                    ->where('dynamic_post_id', $postId)
+                    ->orWhere('related_post_id', $postId)
+                    ->delete();
+            }
+
+            // 5. Keywords
+            if (Schema::hasTable('keyword_dynamic_post')) {
+                DB::table('keyword_dynamic_post')
+                    ->where('dynamic_post_id', $postId)
+                    ->delete();
+            }
+
+            // 6. User assignment (dynamic_post_user)
+            if (Schema::hasTable('dynamic_post_user')) {
+                DB::table('dynamic_post_user')
+                    ->where('dynamic_post_id', $postId)
+                    ->delete();
+            }
+
+            // 7. Property featured promotions
+            if (Schema::hasTable('property_featured_promotions')) {
+                DB::table('property_featured_promotions')
+                    ->where('dynamic_post_id', $postId)
+                    ->delete();
+            }
+
+            // 8. Property verification revisions & audits
+            if (Schema::hasTable('property_verification_revisions')) {
+                DB::table('property_verification_revisions')
+                    ->where('dynamic_post_id', $postId)
+                    ->delete();
+            }
+            if (Schema::hasTable('property_verification_audits')) {
+                DB::table('property_verification_audits')
+                    ->where('dynamic_post_id', $postId)
+                    ->delete();
+            }
+
+            // 9. Recently viewed posts
+            if (Schema::hasTable('user_recently_viewed_posts')) {
+                DB::table('user_recently_viewed_posts')
+                    ->where('dynamic_post_id', $postId)
+                    ->delete();
+            }
+
+            // 10. Leads referencing this post
+            if (Schema::hasTable('leads') && Schema::hasColumn('leads', 'dynamic_post_id')) {
+                DB::table('leads')
+                    ->where('dynamic_post_id', $postId)
+                    ->update(['dynamic_post_id' => null]);
             }
         });
     }

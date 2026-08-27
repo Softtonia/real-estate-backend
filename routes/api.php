@@ -1997,7 +1997,7 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
         ->whereNumber('id');
     Route::get('template-conflicts/{id}', [TemplateConflictController::class, 'check'])
         ->whereNumber('id');
-    Route::post('template-preview/{template_id}', [TemplatePreviewController::class, 'preview'])
+    Route::match(['get', 'post'], 'template-preview/{template_id}', [TemplatePreviewController::class, 'preview'])
         ->whereNumber('template_id');
 
     // Template trash

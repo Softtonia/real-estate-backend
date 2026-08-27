@@ -1184,14 +1184,48 @@ class DynamicPostController extends Controller
                         ->delete();
                 }
 
-                DB::table('post_taxonomy_terms')
-                    ->whereIn('dynamic_post_id', $existingIds)
-                    ->delete();
+                if (Schema::hasTable('post_taxonomy_terms')) {
+                    DB::table('post_taxonomy_terms')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->delete();
+                }
+
                 if (Schema::hasTable('dynamic_post_user')) {
                     DB::table('dynamic_post_user')
                         ->whereIn('dynamic_post_id', $existingIds)
                         ->delete();
                 }
+
+                if (Schema::hasTable('property_featured_promotions')) {
+                    DB::table('property_featured_promotions')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->delete();
+                }
+
+                if (Schema::hasTable('property_verification_revisions')) {
+                    DB::table('property_verification_revisions')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->delete();
+                }
+
+                if (Schema::hasTable('property_verification_audits')) {
+                    DB::table('property_verification_audits')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->delete();
+                }
+
+                if (Schema::hasTable('user_recently_viewed_posts')) {
+                    DB::table('user_recently_viewed_posts')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->delete();
+                }
+
+                if (Schema::hasTable('leads') && Schema::hasColumn('leads', 'dynamic_post_id')) {
+                    DB::table('leads')
+                        ->whereIn('dynamic_post_id', $existingIds)
+                        ->update(['dynamic_post_id' => null]);
+                }
+
                 return DynamicPost::whereIn('id', $existingIds)->delete();
             });
 
