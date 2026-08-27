@@ -273,11 +273,9 @@ class FrontendLocationController extends Controller
         }
 
         $hasPopularColumn = Schema::hasColumn('cities', 'is_popular');
+        $hasNearbyColumn = Schema::hasColumn('cities', 'is_nearby');
 
-        /*
-         * 1. Fetch Popular Cities for India
-         */
-        $popularQuery = DB::table('cities')
+        $baseQuery = DB::table('cities')
             ->join('states', 'cities.state_id', '=', 'states.id')
             ->join('countries', 'states.country_id', '=', 'countries.id')
             ->select(
@@ -286,145 +284,56 @@ class FrontendLocationController extends Controller
                 'cities.state_id',
                 'states.name as state_name',
                 'states.country_id',
-                'countries.name as country_name'
+                'countries.name as country_name',
+                $hasPopularColumn ? DB::raw('IFNULL(cities.is_popular, 0) as is_popular') : DB::raw('0 as is_popular'),
+                $hasNearbyColumn ? DB::raw('IFNULL(cities.is_nearby, 0) as is_nearby') : DB::raw('0 as is_nearby')
             );
 
         if (Schema::hasColumn('cities', 'status')) {
-            $popularQuery->where('cities.status', 1);
+            $baseQuery->where('cities.status', 1);
         }
 
         if ($countryId) {
-            $popularQuery->where('states.country_id', $countryId);
+            $baseQuery->where('states.country_id', $countryId);
         }
 
         if ($stateId) {
-            $popularQuery->where('cities.state_id', (int) $stateId);
-        }
-
-        if ($hasPopularColumn) {
-            $popularQuery->where('cities.is_popular', 1);
+            $baseQuery->where('cities.state_id', (int) $stateId);
         }
 
         if ($search !== '') {
-            $popularQuery->where('cities.name', 'like', "%{$search}%");
-        }
-
-        $popularCities = $popularQuery
-            ->orderByRaw('LOWER(cities.name) ASC')
-            ->get()
-            ->map(fn($c) => $this->mapCityFormat($c))
-            ->values();
-
-        if ($popularCities->isEmpty() && $search === '') {
-            $majorCityNames = [
-                'ahmedabad',
-                'bangalore',
-                'bengaluru',
-                'chennai',
-                'delhi',
-                'new delhi',
-                'ghaziabad',
-                'gurgaon',
-                'gurugram',
-                'hyderabad',
-                'indore',
-                'jaipur',
-                'kolkata',
-                'lucknow',
-                'mumbai',
-                'navi mumbai',
-                'noida',
-                'greater noida',
-                'pune',
-                'thane'
-            ];
-
-            $fallbackQuery = DB::table('cities')
-                ->join('states', 'cities.state_id', '=', 'states.id')
-                ->join('countries', 'states.country_id', '=', 'countries.id')
-                ->select(
-                    'cities.id',
-                    'cities.name',
-                    'cities.state_id',
-                    'states.name as state_name',
-                    'states.country_id',
-                    'countries.name as country_name'
-                )
-                ->whereIn(DB::raw('LOWER(cities.name)'), $majorCityNames);
-
-            if ($countryId) {
-                $fallbackQuery->where('states.country_id', $countryId);
-            }
-
-            if ($stateId) {
-                $fallbackQuery->where('cities.state_id', (int) $stateId);
-            }
-
-            $popularCities = $fallbackQuery
-                ->orderByRaw('LOWER(cities.name) ASC')
-                ->get()
-                ->map(fn($c) => $this->mapCityFormat($c))
-                ->values();
-        }
-
-        /*
-         * 2. Fetch Other Cities in India
-         */
-        $popularIds = $popularCities->pluck('id')->all();
-
-        $otherQuery = DB::table('cities')
-            ->join('states', 'cities.state_id', '=', 'states.id')
-            ->join('countries', 'states.country_id', '=', 'countries.id')
-            ->select(
-                'cities.id',
-                'cities.name',
-                'cities.state_id',
-                'states.name as state_name',
-                'states.country_id',
-                'countries.name as country_name'
-            );
-
-        if (Schema::hasColumn('cities', 'status')) {
-            $otherQuery->where('cities.status', 1);
-        }
-
-        if ($countryId) {
-            $otherQuery->where('states.country_id', $countryId);
-        }
-
-        if ($stateId) {
-            $otherQuery->where('cities.state_id', (int) $stateId);
-        }
-
-        if (!empty($popularIds)) {
-            $otherQuery->whereNotIn('cities.id', $popularIds);
-        }
-
-        if ($search !== '') {
-            $otherQuery->where(function ($q) use ($search) {
+            $baseQuery->where(function ($q) use ($search) {
                 $q->where('cities.name', 'like', "%{$search}%")
                     ->orWhere('states.name', 'like', "%{$search}%");
             });
         }
 
-        $otherQuery->orderByRaw('LOWER(cities.name) ASC');
+        $allCities = $baseQuery->orderByRaw('LOWER(cities.name) ASC')->get();
+
+        $nearbyCities = $allCities->where('is_nearby', 1)->map(fn($c) => $this->mapCityFormat($c))->values();
+        $popularCities = $allCities->where('is_popular', 1)->map(fn($c) => $this->mapCityFormat($c))->values();
+
+        $popularIds = $popularCities->pluck('id')->all();
+        $nearbyIds = $nearbyCities->pluck('id')->all();
+        $excludeIds = array_unique(array_merge($popularIds, $nearbyIds));
+
+        $otherCitiesCollection = $allCities->reject(fn($c) => in_array((int) $c->id, $excludeIds, true));
 
         if ($limit !== null) {
-            $otherQuery->limit($limit);
+            $otherCitiesCollection = $otherCitiesCollection->take($limit);
         }
 
-        $otherCities = $otherQuery
-            ->get()
-            ->map(fn($c) => $this->mapCityFormat($c))
-            ->values();
+        $otherCities = $otherCitiesCollection->map(fn($c) => $this->mapCityFormat($c))->values();
 
         return response()->json([
             'status' => true,
-            'message' => 'Indian popular and other cities fetched successfully.',
+            'message' => 'Indian popular, nearby, and other cities fetched successfully.',
             'country_id' => $countryId,
             'popular_count' => $popularCities->count(),
+            'nearby_count' => $nearbyCities->count(),
             'other_count' => $otherCities->count(),
             'data' => [
+                'nearby_cities' => $nearbyCities,
                 'popular_cities' => $popularCities,
                 'other_cities' => $otherCities,
             ],
@@ -442,6 +351,7 @@ class FrontendLocationController extends Controller
 
         $countryId = $this->resolveIndiaCountryId($request->filled('country_id') ? (int) $request->country_id : null);
         $search = trim((string) $request->input('search', ''));
+        $stateId = $request->input('state_id');
 
         $limit = null;
         if ($request->has('limit') && !in_array($request->input('limit'), ['all', '-1', '0', 'false'], true) && !$request->boolean('all')) {
@@ -473,6 +383,10 @@ class FrontendLocationController extends Controller
             $baseQuery->where('states.country_id', $countryId);
         }
 
+        if ($stateId) {
+            $baseQuery->where('cities.state_id', (int) $stateId);
+        }
+
         if ($search !== '') {
             $baseQuery->where(function ($q) use ($search) {
                 $q->where('cities.name', 'like', "%{$search}%")
@@ -484,36 +398,6 @@ class FrontendLocationController extends Controller
 
         $nearbyCities = $allCities->where('is_nearby', 1)->map(fn($c) => $this->mapCityFormat($c))->values();
         $popularCities = $allCities->where('is_popular', 1)->map(fn($c) => $this->mapCityFormat($c))->values();
-
-        if ($popularCities->isEmpty() && $search === '') {
-            $majorCityNames = [
-                'ahmedabad',
-                'bangalore',
-                'bengaluru',
-                'chennai',
-                'delhi',
-                'new delhi',
-                'ghaziabad',
-                'gurgaon',
-                'gurugram',
-                'hyderabad',
-                'indore',
-                'jaipur',
-                'kolkata',
-                'lucknow',
-                'mumbai',
-                'navi mumbai',
-                'noida',
-                'greater noida',
-                'pune',
-                'thane'
-            ];
-
-            $popularCities = $allCities
-                ->filter(fn($c) => in_array(strtolower($c->name), $majorCityNames, true))
-                ->map(fn($c) => $this->mapCityFormat($c))
-                ->values();
-        }
 
         $popularIds = $popularCities->pluck('id')->all();
         $nearbyIds = $nearbyCities->pluck('id')->all();
@@ -531,6 +415,9 @@ class FrontendLocationController extends Controller
             'status' => true,
             'message' => 'Header location cities fetched successfully.',
             'country_id' => $countryId,
+            'nearby_count' => $nearbyCities->count(),
+            'popular_count' => $popularCities->count(),
+            'other_count' => $otherCities->count(),
             'data' => [
                 'nearby_cities' => $nearbyCities,
                 'popular_cities' => $popularCities,
