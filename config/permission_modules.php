@@ -281,7 +281,7 @@ return [
 
         'kyc_requests' => [
             'label' => 'KYC Requests',
-            'actions' => ['read', 'create', 'edit', 'delete', 'approve', 'reject'],
+            'actions' => ['read', 'create', 'edit', 'delete', 'assign', 'approve', 'reject'],
         ],
 
         'kyc_settings' => [

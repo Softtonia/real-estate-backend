@@ -19,6 +19,9 @@ class KycActivity extends Model
     public const ACTION_DOCUMENT_REJECTED = 'document_rejected';
     public const ACTION_EXEMPTION_CREATED = 'exemption_created';
     public const ACTION_EXEMPTION_REVOKED = 'exemption_revoked';
+    public const ACTION_ASSIGNED = 'assigned';
+    public const ACTION_UNASSIGNED = 'unassigned';
+    public const ACTION_REASSIGNED = 'reassigned';
 
     public $timestamps = false;
 
@@ -55,6 +58,9 @@ class KycActivity extends Model
             self::ACTION_DOCUMENT_REJECTED,
             self::ACTION_EXEMPTION_CREATED,
             self::ACTION_EXEMPTION_REVOKED,
+            self::ACTION_ASSIGNED,
+            self::ACTION_UNASSIGNED,
+            self::ACTION_REASSIGNED,
         ];
     }
 

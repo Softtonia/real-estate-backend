@@ -429,6 +429,8 @@ class KycReviewService
                 'user:id,first_name,last_name,email,phone,role_id,kyc,reject_reason',
                 'role:id,name',
                 'reviewer:id,first_name,last_name,email',
+                'assignedVerifier:id,first_name,last_name,email',
+                'assigner:id,first_name,last_name,email',
                 'documents.reviewer:id,first_name,last_name,email',
                 'documents.uploader:id,first_name,last_name,email',
                 'activities.performer:id,first_name,last_name,email',

@@ -11,8 +11,10 @@ use App\Models\KycActivity;
 use App\Models\KycDocument;
 use App\Models\KycRequest;
 use App\Models\User;
+use App\Services\Kyc\KycAssignmentService;
 use App\Services\Kyc\KycDocumentService;
 use App\Services\Kyc\KycReviewService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +31,8 @@ class AdminKycController extends Controller
 {
     public function __construct(
         private readonly KycReviewService $reviewService,
-        private readonly KycDocumentService $documentService
+        private readonly KycDocumentService $documentService,
+        private readonly KycAssignmentService $assignmentService
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -45,6 +48,7 @@ class AdminKycController extends Controller
             'role_id' => ['nullable', 'integer', 'exists:roles,id'],
             'user_id' => ['nullable', 'integer', 'exists:users,id'],
             'reviewed_by' => ['nullable', 'integer', 'exists:users,id'],
+            'assigned_to' => ['nullable', 'string'],
             'search' => ['nullable', 'string', 'max:100'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
@@ -63,9 +67,27 @@ class AdminKycController extends Controller
                     'user:id,first_name,last_name,email,phone,role_id,reject_reason',
                     'role:id,name',
                     'reviewer:id,first_name,last_name,email',
+                    'assignedVerifier:id,first_name,last_name,email',
+                    'assigner:id,first_name,last_name,email',
                 ])
                 ->withCount('documents')
                 ->latest('id');
+
+            $canAssign = $this->assignmentService->canAssign($reviewer);
+
+            // Reviewers without assign permission only see their assigned KYC requests
+            if (!$canAssign) {
+                $query->where('assigned_to', (int) $reviewer->id);
+            } elseif ($request->filled('assigned_to')) {
+                $assignedToParam = trim((string) $request->input('assigned_to'));
+                if ($assignedToParam === 'me') {
+                    $query->where('assigned_to', (int) $reviewer->id);
+                } elseif ($assignedToParam === 'unassigned' || $assignedToParam === 'none') {
+                    $query->whereNull('assigned_to');
+                } elseif (is_numeric($assignedToParam)) {
+                    $query->where('assigned_to', (int) $assignedToParam);
+                }
+            }
 
             if ($request->filled('status')) {
                 $query->where('status', $request->input('status'));
@@ -132,10 +154,14 @@ class AdminKycController extends Controller
         }
 
         try {
+            $this->assignmentService->assertCanView($kycRequest, $reviewer);
+
             $kycRequest->load([
                 'user:id,first_name,last_name,email,phone,role_id,reject_reason',
                 'role:id,name',
                 'reviewer:id,first_name,last_name,email',
+                'assignedVerifier:id,first_name,last_name,email',
+                'assigner:id,first_name,last_name,email',
                 'documents.uploader:id,first_name,last_name,email',
                 'documents.reviewer:id,first_name,last_name,email',
                 'activities.performer:id,first_name,last_name,email',
@@ -146,8 +172,234 @@ class AdminKycController extends Controller
                 'message' => 'KYC request fetched successfully.',
                 'data' => new KycRequestResource($kycRequest),
             ]);
+        } catch (AuthorizationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 403);
         } catch (Throwable $e) {
             return $this->serverErrorResponse('Unable to fetch KYC request.', $e);
+        }
+    }
+
+    public function verifierRoles(Request $request): JsonResponse
+    {
+        $actor = $this->resolveCurrentAdmin($request);
+
+        if (!$actor) {
+            return $this->unauthenticatedResponse();
+        }
+
+        try {
+            $roles = $this->assignmentService->getEligibleRoles();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Eligible KYC verifier roles fetched successfully.',
+                'data' => [
+                    'count' => $roles->count(),
+                    'options' => $roles,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverErrorResponse('Unable to fetch verifier roles.', $e);
+        }
+    }
+
+    public function verifiers(Request $request): JsonResponse
+    {
+        $actor = $this->resolveCurrentAdmin($request);
+
+        if (!$actor) {
+            return $this->unauthenticatedResponse();
+        }
+
+        $validator = Validator::make($request->all(), [
+            'role_id' => ['nullable', 'integer', 'exists:roles,id'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $roleId = $request->filled('role_id') ? (int) $request->input('role_id') : null;
+            $search = $request->filled('search') ? (string) $request->input('search') : null;
+            $limit = (int) $request->input('limit', 100);
+
+            $verifiers = $this->assignmentService->getEligibleVerifiers($roleId, $search, $limit);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Eligible KYC verifiers fetched successfully.',
+                'data' => [
+                    'count' => $verifiers->count(),
+                    'selected_role_id' => $roleId,
+                    'options' => $verifiers,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverErrorResponse('Unable to fetch eligible verifiers.', $e);
+        }
+    }
+
+    public function myAssigned(Request $request): JsonResponse
+    {
+        $request->merge([
+            'assigned_to' => 'me',
+        ]);
+
+        return $this->index($request);
+    }
+
+    public function assign(Request $request, KycRequest $kycRequest): JsonResponse
+    {
+        $actor = $this->resolveCurrentAdmin($request);
+
+        if (!$actor) {
+            return $this->unauthenticatedResponse();
+        }
+
+        $validator = Validator::make($request->all(), [
+            'verifier_id' => ['nullable', 'integer', 'exists:users,id'],
+            'user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $verifierId = $request->input('verifier_id') ?? $request->input('user_id');
+            $verifier = $verifierId ? User::findOrFail((int) $verifierId) : null;
+            $notes = $request->input('notes');
+
+            $updatedRequest = $this->assignmentService->assign(
+                kycRequest: $kycRequest,
+                verifier: $verifier,
+                assigner: $actor,
+                notes: $notes
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => $verifier ? 'KYC request assigned successfully.' : 'KYC assignment removed successfully.',
+                'data' => new KycRequestResource($updatedRequest),
+            ]);
+        } catch (ValidationException $e) {
+            return $this->validationResponse($e->validator);
+        } catch (Throwable $e) {
+            return $this->serverErrorResponse('Unable to assign KYC request.', $e);
+        }
+    }
+
+    public function bulkAssign(Request $request): JsonResponse
+    {
+        $actor = $this->resolveCurrentAdmin($request);
+
+        if (!$actor) {
+            return $this->unauthenticatedResponse();
+        }
+
+        $validator = Validator::make($request->all(), [
+            'kyc_request_ids' => ['required', 'array', 'min:1', 'max:200'],
+            'kyc_request_ids.*' => ['required', 'integer', 'distinct', 'exists:kyc_requests,id'],
+            'verifier_id' => ['required', 'integer', 'exists:users,id'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $verifier = User::findOrFail((int) $request->input('verifier_id'));
+            $kycRequestIds = array_map('intval', (array) $request->input('kyc_request_ids'));
+            $notes = $request->input('notes');
+
+            $updatedRequests = $this->assignmentService->bulkAssign(
+                kycRequestIds: $kycRequestIds,
+                verifier: $verifier,
+                assigner: $actor,
+                notes: $notes
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'KYC requests assigned successfully.',
+                'data' => [
+                    'assigned_count' => $updatedRequests->count(),
+                    'verifier' => [
+                        'id' => (int) $verifier->id,
+                        'name' => trim(($verifier->first_name ?? '') . ' ' . ($verifier->last_name ?? '')) ?: $verifier->email,
+                        'email' => $verifier->email,
+                    ],
+                    'requests' => KycRequestResource::collection($updatedRequests),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverErrorResponse('Unable to bulk assign KYC requests.', $e);
+        }
+    }
+
+    public function assignAllOpen(Request $request): JsonResponse
+    {
+        $actor = $this->resolveCurrentAdmin($request);
+
+        if (!$actor) {
+            return $this->unauthenticatedResponse();
+        }
+
+        $validator = Validator::make($request->all(), [
+            'verifier_id' => ['required', 'integer', 'exists:users,id'],
+            'role_id' => ['nullable', 'integer', 'exists:roles,id'],
+            'status' => ['nullable', 'string', 'in:' . implode(',', KycRequest::statuses())],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationResponse($validator);
+        }
+
+        try {
+            $verifier = User::findOrFail((int) $request->input('verifier_id'));
+            $notes = $request->input('notes');
+
+            $filters = [];
+            if ($request->filled('role_id')) {
+                $filters['role_id'] = (int) $request->input('role_id');
+            }
+            if ($request->filled('status')) {
+                $filters['status'] = (string) $request->input('status');
+            }
+
+            $updatedRequests = $this->assignmentService->assignAllOpen(
+                verifier: $verifier,
+                assigner: $actor,
+                filters: $filters,
+                notes: $notes
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => $updatedRequests->isEmpty()
+                    ? 'No open unassigned KYC requests found.'
+                    : 'All open KYC requests assigned successfully.',
+                'data' => [
+                    'assigned_count' => $updatedRequests->count(),
+                    'verifier' => [
+                        'id' => (int) $verifier->id,
+                        'name' => trim(($verifier->first_name ?? '') . ' ' . ($verifier->last_name ?? '')) ?: $verifier->email,
+                        'email' => $verifier->email,
+                    ],
+                    'requests' => KycRequestResource::collection($updatedRequests),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            return $this->serverErrorResponse('Unable to assign all open KYC requests.', $e);
         }
     }
 
@@ -187,6 +439,8 @@ class AdminKycController extends Controller
         }
 
         try {
+            $this->assignmentService->assertCanView($kycRequest, $reviewer);
+
             $perPage = max(1, min((int) $request->input('per_page', 20), 100));
 
             $documents = KycDocument::query()
@@ -203,6 +457,11 @@ class AdminKycController extends Controller
                 'message' => 'KYC documents fetched successfully.',
                 'data' => KycDocumentResource::collection($documents),
             ]);
+        } catch (AuthorizationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 403);
         } catch (Throwable $e) {
             return $this->serverErrorResponse('Unable to fetch KYC documents.', $e);
         }
@@ -217,6 +476,8 @@ class AdminKycController extends Controller
         }
 
         try {
+            $this->assignmentService->assertCanView($kycRequest, $reviewer);
+
             $perPage = max(1, min((int) $request->input('per_page', 20), 100));
 
             $activities = KycActivity::query()
@@ -231,6 +492,11 @@ class AdminKycController extends Controller
                 'message' => 'KYC timeline fetched successfully.',
                 'data' => KycActivityResource::collection($activities),
             ]);
+        } catch (AuthorizationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 403);
         } catch (Throwable $e) {
             return $this->serverErrorResponse('Unable to fetch KYC timeline.', $e);
         }
@@ -245,6 +511,13 @@ class AdminKycController extends Controller
         }
 
         try {
+            if ($document->kyc_request_id) {
+                $kycRequest = KycRequest::find($document->kyc_request_id);
+                if ($kycRequest) {
+                    $this->assignmentService->assertCanView($kycRequest, $reviewer);
+                }
+            }
+
             if (empty($document->file_disk) || empty($document->file_path)) {
                 return response()->json([
                     'status' => false,
@@ -273,6 +546,11 @@ class AdminKycController extends Controller
                     'X-Content-Type-Options' => 'nosniff',
                 ]
             );
+        } catch (AuthorizationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 403);
         } catch (Throwable $e) {
             return $this->serverErrorResponse('Unable to view KYC document.', $e);
         }
@@ -287,18 +565,29 @@ class AdminKycController extends Controller
         }
 
         try {
+            $isSuperAdmin = $this->assignmentService->isSystemAdmin($reviewer);
+            $canAssign = $this->assignmentService->canAssign($reviewer);
+
+            $statsQuery = KycRequest::query();
+            if (!$canAssign && !$isSuperAdmin) {
+                $statsQuery->where('assigned_to', (int) $reviewer->id);
+            }
+
+            $cacheKey = ($canAssign || $isSuperAdmin) ? 'kyc:admin:stats' : 'kyc:verifier:' . $reviewer->id . ':stats';
+
             $stats = Cache::store('redis')->remember(
-                'kyc:admin:stats',
+                $cacheKey,
                 now()->addMinutes(5),
-                function () {
+                function () use ($statsQuery) {
                     return [
-                        'total' => KycRequest::query()->count(),
-                        'draft' => KycRequest::query()->where('status', KycRequest::STATUS_DRAFT)->count(),
-                        'submitted' => KycRequest::query()->where('status', KycRequest::STATUS_SUBMITTED)->count(),
-                        'under_review' => KycRequest::query()->where('status', KycRequest::STATUS_UNDER_REVIEW)->count(),
-                        'approved' => KycRequest::query()->where('status', KycRequest::STATUS_APPROVED)->count(),
-                        'rejected' => KycRequest::query()->where('status', KycRequest::STATUS_REJECTED)->count(),
-                        'resubmitted' => KycRequest::query()->where('status', KycRequest::STATUS_RESUBMITTED)->count(),
+                        'total' => (clone $statsQuery)->count(),
+                        'draft' => (clone $statsQuery)->where('status', KycRequest::STATUS_DRAFT)->count(),
+                        'submitted' => (clone $statsQuery)->where('status', KycRequest::STATUS_SUBMITTED)->count(),
+                        'under_review' => (clone $statsQuery)->where('status', KycRequest::STATUS_UNDER_REVIEW)->count(),
+                        'approved' => (clone $statsQuery)->where('status', KycRequest::STATUS_APPROVED)->count(),
+                        'rejected' => (clone $statsQuery)->where('status', KycRequest::STATUS_REJECTED)->count(),
+                        'resubmitted' => (clone $statsQuery)->where('status', KycRequest::STATUS_RESUBMITTED)->count(),
+                        'unassigned' => (clone $statsQuery)->whereNull('assigned_to')->count(),
                     ];
                 }
             );
@@ -325,6 +614,9 @@ class AdminKycController extends Controller
         }
 
         try {
+            // Admin has unrestricted access; non-admin reviewer must be assigned to this request
+            $this->assignmentService->assertCanReview($kycRequest, $reviewer);
+
             $updatedRequest = $this->reviewService->handleReview(
                 kycRequest: $kycRequest,
                 reviewer: $reviewer,
@@ -335,6 +627,8 @@ class AdminKycController extends Controller
                 'user:id,first_name,last_name,email,phone,role_id,reject_reason',
                 'role:id,name',
                 'reviewer:id,first_name,last_name,email',
+                'assignedVerifier:id,first_name,last_name,email',
+                'assigner:id,first_name,last_name,email',
                 'documents.uploader:id,first_name,last_name,email',
                 'documents.reviewer:id,first_name,last_name,email',
                 'activities.performer:id,first_name,last_name,email',
@@ -347,6 +641,11 @@ class AdminKycController extends Controller
                 'message' => $successMessage,
                 'data' => new KycRequestResource($updatedRequest),
             ]);
+        } catch (AuthorizationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 403);
         } catch (ValidationException $e) {
             return response()->json([
                 'status' => false,
@@ -405,4 +704,4 @@ class AdminKycController extends Controller
             'error' => $e->getMessage(),
         ], 500);
     }
-}
+}

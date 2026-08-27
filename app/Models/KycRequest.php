@@ -30,6 +30,10 @@ class KycRequest extends Model
         'review_started_at',
         'reviewed_at',
         'reviewed_by',
+        'assigned_to',
+        'assigned_by',
+        'assigned_at',
+        'assign_notes',
         'rejection_reason',
         'reviewer_notes',
         'resubmission_count',
@@ -43,6 +47,7 @@ class KycRequest extends Model
         'submitted_at' => 'datetime',
         'review_started_at' => 'datetime',
         'reviewed_at' => 'datetime',
+        'assigned_at' => 'datetime',
     ];
 
     public static function statuses(): array
@@ -92,6 +97,16 @@ class KycRequest extends Model
         return $this->belongsTo(User::class, 'reviewed_by');
     }
 
+    public function assignedVerifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    public function assigner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_by');
+    }
+
     public function scopePendingReview(Builder $query): Builder
     {
         return $query->whereIn('status', [
@@ -114,6 +129,16 @@ class KycRequest extends Model
     public function scopeForUser(Builder $query, int $userId): Builder
     {
         return $query->where('user_id', $userId);
+    }
+
+    public function scopeAssignedTo(Builder $query, int $userId): Builder
+    {
+        return $query->where('assigned_to', $userId);
+    }
+
+    public function scopeUnassigned(Builder $query): Builder
+    {
+        return $query->whereNull('assigned_to');
     }
 
     public function isDraft(): bool

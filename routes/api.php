@@ -990,11 +990,30 @@ Route::middleware(['admin.token'])
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('stats', [AdminKycController::class, 'stats']);
 
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+            ->get('verifier-roles', [AdminKycController::class, 'verifierRoles']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+            ->get('verifiers', [AdminKycController::class, 'verifiers']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+            ->get('my-assigned', [AdminKycController::class, 'myAssigned']);
+
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('requests', [AdminKycController::class, 'index']);
 
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+            ->post('requests/bulk-assign', [AdminKycController::class, 'bulkAssign']);
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+            ->post('requests/assign-all', [AdminKycController::class, 'assignAllOpen']);
+
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('requests/{kycRequest}', [AdminKycController::class, 'show'])
+            ->whereNumber('kycRequest');
+
+        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+            ->post('requests/{kycRequest}/assign', [AdminKycController::class, 'assign'])
             ->whereNumber('kycRequest');
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
@@ -1020,9 +1039,6 @@ Route::middleware(['admin.token'])
             ->whereNumber('kycRequest')
             ->defaults('review_action', 'reject');
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
-            ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
-            ->whereNumber('document');
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
             ->whereNumber('document');

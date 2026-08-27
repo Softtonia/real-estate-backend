@@ -28,6 +28,11 @@ class KycRequestResource extends JsonResource
             'reviewer_notes' => $this->reviewer_notes,
             'resubmission_count' => (int) $this->resubmission_count,
 
+            'assigned_to' => $this->assigned_to ? (int) $this->assigned_to : null,
+            'assigned_by' => $this->assigned_by ? (int) $this->assigned_by : null,
+            'assigned_at' => optional($this->assigned_at)->toDateTimeString(),
+            'assign_notes' => $this->assign_notes,
+
             'user' => $this->whenLoaded('user', function () {
                 return $this->userMini($this->user);
             }),
@@ -41,6 +46,14 @@ class KycRequestResource extends JsonResource
 
             'reviewer' => $this->whenLoaded('reviewer', function () {
                 return $this->userMini($this->reviewer);
+            }),
+
+            'assigned_verifier' => $this->whenLoaded('assignedVerifier', function () {
+                return $this->userMini($this->assignedVerifier);
+            }),
+
+            'assigner' => $this->whenLoaded('assigner', function () {
+                return $this->userMini($this->assigner);
             }),
 
             'documents' => KycDocumentResource::collection(
