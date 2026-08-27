@@ -39,54 +39,43 @@ class KycAssignmentService
 
     /**
      * Get all roles eligible to review/verify KYC requests.
+     * Returns all roles with admin login permission (is_admin_login_permission = 1),
+     * excluding the main admin role.
      */
     public function getEligibleRoles(): Collection
     {
-        $requiredPermissions = $this->requiredVerifierPermissions();
-        $guardName = config('permission_modules.guard', 'sanctum');
-
         $roleNameColumn = Schema::hasColumn('roles', 'name')
             ? 'roles.name'
             : (Schema::hasColumn('roles', 'role_name') ? 'roles.role_name' : 'roles.id');
 
-        $hasPermissionsTable = Schema::hasTable('permissions') && Schema::hasTable('role_has_permissions');
+        $query = DB::table('roles')
+            ->leftJoin('users', function ($join) {
+                $join->on('users.role_id', '=', 'roles.id');
+                if (Schema::hasColumn('users', 'isapproved')) {
+                    $join->where('users.isapproved', 1);
+                }
+            });
 
-        if ($hasPermissionsTable) {
-            $query = DB::table('roles')
-                ->join('role_has_permissions as rhp', 'rhp.role_id', '=', 'roles.id')
-                ->join('permissions as p', 'p.id', '=', 'rhp.permission_id')
-                ->join('users', 'users.role_id', '=', 'roles.id')
-                ->where('p.guard_name', $guardName)
-                ->whereIn('p.name', $requiredPermissions);
-
-            if (Schema::hasColumn('users', 'isapproved')) {
-                $query->where('users.isapproved', 1);
-            }
-
-            if (Schema::hasColumn('roles', 'is_admin_login_permission')) {
-                $query->where('roles.is_admin_login_permission', 1);
-            }
-
-            $roles = $query
-                ->selectRaw('roles.id as role_id, ' . $roleNameColumn . ' as role_name, COUNT(DISTINCT users.id) as eligible_users_count')
-                ->groupBy('roles.id', $roleNameColumn)
-                ->havingRaw('COUNT(DISTINCT p.name) >= ?', [1]) // At least has KYC permissions
-                ->orderBy($roleNameColumn)
-                ->get();
-        } else {
-            $query = DB::table('roles')
-                ->join('users', 'users.role_id', '=', 'roles.id');
-
-            if (Schema::hasColumn('users', 'isapproved')) {
-                $query->where('users.isapproved', 1);
-            }
-
-            $roles = $query
-                ->selectRaw('roles.id as role_id, ' . $roleNameColumn . ' as role_name, COUNT(DISTINCT users.id) as eligible_users_count')
-                ->groupBy('roles.id', $roleNameColumn)
-                ->orderBy($roleNameColumn)
-                ->get();
+        // Filter: only roles with admin login permission
+        if (Schema::hasColumn('roles', 'is_admin_login_permission')) {
+            $query->where('roles.is_admin_login_permission', 1);
         }
+
+        // Exclude the main Admin role (role id 1 or names like admin/super-admin)
+        $query->where('roles.id', '!=', 1);
+        $query->whereNotIn(DB::raw('LOWER(' . $roleNameColumn . ')'), [
+            'admin',
+            'administrator',
+            'super-admin',
+            'superadmin',
+            'super admin',
+        ]);
+
+        $roles = $query
+            ->selectRaw('roles.id as role_id, ' . $roleNameColumn . ' as role_name, COUNT(DISTINCT users.id) as eligible_users_count')
+            ->groupBy('roles.id', $roleNameColumn)
+            ->orderBy($roleNameColumn)
+            ->get();
 
         return $roles->map(fn($role) => [
             'id' => (int) $role->role_id,
@@ -99,6 +88,7 @@ class KycAssignmentService
 
     /**
      * Get eligible verifier users for KYC assignment.
+     * Only returns approved users from roles with admin login permission (excluding main admin).
      */
     public function getEligibleVerifiers(?int $roleId = null, ?string $search = null, int $limit = 100): Collection
     {
@@ -125,6 +115,16 @@ class KycAssignmentService
         if (Schema::hasColumn('roles', 'is_admin_login_permission')) {
             $query->where('roles.is_admin_login_permission', 1);
         }
+
+        // Exclude the main Admin role
+        $query->where('roles.id', '!=', 1);
+        $query->whereNotIn(DB::raw('LOWER(' . $roleNameColumn . ')'), [
+            'admin',
+            'administrator',
+            'super-admin',
+            'superadmin',
+            'super admin',
+        ]);
 
         if ($roleId) {
             $query->where('users.role_id', $roleId);

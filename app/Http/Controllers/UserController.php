@@ -222,8 +222,8 @@ class UserController extends Controller
 
         $extension = strtolower(
             $file->getClientOriginalExtension()
-                ?: $file->extension()
-                ?: 'bin'
+            ?: $file->extension()
+            ?: 'bin'
         );
 
         $fileName = Str::slug($prefix, '_')
@@ -857,7 +857,7 @@ class UserController extends Controller
                     'last_name' => $this->cleanNullableValue($userData->last_name),
                     'full_name' => trim(
                         ($this->cleanNullableValue($userData->first_name) ?? '') . ' ' .
-                            ($this->cleanNullableValue($userData->last_name) ?? '')
+                        ($this->cleanNullableValue($userData->last_name) ?? '')
                     ) ?: null,
                     'user_name' => $this->cleanNullableValue($userData->user_name),
                     'email' => $this->cleanNullableValue($userData->email),
@@ -1022,7 +1022,7 @@ class UserController extends Controller
                     'last_name' => $this->cleanNullableValue($userData->last_name),
                     'full_name' => trim(
                         ($this->cleanNullableValue($userData->first_name) ?? '') . ' ' .
-                            ($this->cleanNullableValue($userData->last_name) ?? '')
+                        ($this->cleanNullableValue($userData->last_name) ?? '')
                     ) ?: null,
                     'user_name' => $this->cleanNullableValue($userData->user_name),
                     'email' => $this->cleanNullableValue($userData->email),
@@ -4012,14 +4012,7 @@ class UserController extends Controller
                 oldFiles: $oldFiles
             );
 
-            DB::transaction(function () use (
-                $request,
-                $user,
-                $role,
-                $newFiles,
-                $removedFiles,
-                $adminMode
-            ) {
+            DB::transaction(function () use ($request, $user, $role, $newFiles, $removedFiles, $adminMode) {
                 $userPayload = $this->userPayloadFromRequest($request, $role, false);
 
                 if ($request->has('role_id')) {
@@ -4207,9 +4200,18 @@ class UserController extends Controller
     private function persistUserDetailPayload(User $user, array $payload): void
     {
         $personalKeys = [
-            'alternate_number', 'profile_photo', 'about_us', 'country_id',
-            'state_id', 'city_id', 'area_locality', 'colony', 'street_address',
-            'address', 'pin_code', 'created_by'
+            'alternate_number',
+            'profile_photo',
+            'about_us',
+            'country_id',
+            'state_id',
+            'city_id',
+            'area_locality',
+            'colony',
+            'street_address',
+            'address',
+            'pin_code',
+            'created_by'
         ];
 
         $businessKeysMap = [
