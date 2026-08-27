@@ -22,7 +22,8 @@ class KycAssignmentService
     public function __construct(
         private readonly KycActivityService $activityService,
         private readonly KycAccessService $accessService
-    ) {}
+    ) {
+    }
 
     /**
      * Required permissions for a role to be eligible for KYC verification.
@@ -396,8 +397,8 @@ class KycAssignmentService
 
         throw new AuthorizationException(
             empty($kycRequest->assigned_to)
-                ? 'This KYC request is not assigned to you for review.'
-                : 'This KYC request is assigned to another verifier.'
+            ? 'This KYC request is not assigned to you for review.'
+            : 'This KYC request is assigned to another verifier.'
         );
     }
 
@@ -420,8 +421,8 @@ class KycAssignmentService
 
         throw new AuthorizationException(
             empty($kycRequest->assigned_to)
-                ? 'This KYC request is not assigned to you.'
-                : 'This KYC request is assigned to another verifier.'
+            ? 'This KYC request is not assigned to you.'
+            : 'This KYC request is assigned to another verifier.'
         );
     }
 

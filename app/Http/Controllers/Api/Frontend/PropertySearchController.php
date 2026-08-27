@@ -68,22 +68,35 @@ class PropertySearchController extends Controller
         PropertySearchService $service
     ): JsonResponse {
         try {
-            $properties = $service->search(
-                $request->validated()
-            );
+            $filters = $request->validated();
+            $tab = mb_strtolower(trim((string) ($request->input('tab') ?: 'properties')));
+
+            if (in_array($tab, ['project', 'projects', 'new_project', 'new_projects', 'new-projects', 'new-project'], true)) {
+                $paginator = $service->searchProjects($filters);
+                $activeTabKey = 'projects';
+            } elseif (in_array($tab, ['agent', 'agents', 'top_agent', 'top_agents', 'top-agents', 'top-agent'], true)) {
+                $paginator = $service->searchAgents($filters);
+                $activeTabKey = 'agents';
+            } else {
+                $paginator = $service->search($filters);
+                $activeTabKey = 'properties';
+            }
+
+            $propertiesCount = ($activeTabKey === 'properties') ? $paginator->total() : $service->countProperties($filters);
+            $summary = $service->searchSummary($filters, $propertiesCount, $activeTabKey);
 
             return response()->json([
                 'status' => true,
                 'message' => 'Properties fetched successfully.',
-                'data' => $properties->getCollection()->values(),
-                'meta' => [
-                    'current_page' => $properties->currentPage(),
-                    'last_page' => $properties->lastPage(),
-                    'per_page' => $properties->perPage(),
-                    'total' => $properties->total(),
-                    'from' => $properties->firstItem(),
-                    'to' => $properties->lastItem(),
-                ],
+                'data' => $paginator->getCollection()->values(),
+                'meta' => array_merge([
+                    'current_page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'per_page' => $paginator->perPage(),
+                    'total' => $paginator->total(),
+                    'from' => $paginator->firstItem(),
+                    'to' => $paginator->lastItem(),
+                ], $summary),
             ]);
         } catch (Throwable $e) {
             return $this->serverError(

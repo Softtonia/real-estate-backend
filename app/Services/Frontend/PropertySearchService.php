@@ -5,6 +5,7 @@ namespace App\Services\Frontend;
 use App\Models\DynamicPost;
 use App\Models\MediaFile;
 use App\Models\PropertyFeaturedPromotion;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -2366,5 +2367,307 @@ class PropertySearchService
         return json_last_error() === JSON_ERROR_NONE
             ? $decoded
             : $value;
+    }
+
+    public function searchSummary(array $filters, int $propertiesCount, string $activeTab = 'properties'): array
+    {
+        $purpose = $this->resolvePurposeSlug($filters);
+        $isRent = ($purpose === 'rent');
+
+        $projectsCount = $isRent ? 0 : $this->countProjects($filters);
+        $agentsCount = $this->countAgents($filters);
+
+        $tabs = [
+            [
+                'key' => 'properties',
+                'label' => 'Properties',
+                'count' => $propertiesCount,
+                'is_active' => $activeTab === 'properties',
+            ],
+        ];
+
+        if (!$isRent) {
+            $tabs[] = [
+                'key' => 'projects',
+                'label' => 'New Projects',
+                'count' => $projectsCount,
+                'is_active' => $activeTab === 'projects',
+            ];
+        }
+
+        $tabs[] = [
+            'key' => 'agents',
+            'label' => 'Top Agents',
+            'count' => $agentsCount,
+            'is_active' => $activeTab === 'agents',
+        ];
+
+        $searchHeading = $this->buildSearchHeading($filters, $propertiesCount, $purpose);
+
+        return [
+            'purpose' => $purpose ?: 'sell',
+            'active_tab' => $activeTab,
+            'search_heading' => $searchHeading,
+            'tabs' => $tabs,
+            'counts' => [
+                'properties' => $propertiesCount,
+                'projects' => $projectsCount,
+                'agents' => $agentsCount,
+            ],
+        ];
+    }
+
+    public function countProperties(array $filters): int
+    {
+        $query = DynamicPost::query()
+            ->where('dynamic_posts.status', 'published')
+            ->where('dynamic_posts.live_status', 'approve');
+
+        $this->applyPostTypeFilter($query, $filters);
+        $this->applyPublicAvailabilityScope($query);
+        $this->applyLocationFilters($query, $filters);
+        $this->applyGeneralSearch($query, $filters);
+        $this->applyTaxonomyFilters($query, $filters);
+        $this->applyBedroomFilter($query, $filters);
+        $this->applyPriceFilter($query, $filters);
+        $this->applyPromotionFilters($query, $filters);
+
+        return $query->count();
+    }
+
+    public function countProjects(array $filters): int
+    {
+        $projectSlugs = ['project', 'builder-project', 'consultancy-project', 'agent-project'];
+        $postTypeIds = DB::table('post_types')->whereIn('slug', $projectSlugs)->pluck('id')->all();
+
+        if (empty($postTypeIds)) {
+            return 0;
+        }
+
+        $query = DynamicPost::query()
+            ->whereIn('dynamic_posts.post_type_id', $postTypeIds)
+            ->where('dynamic_posts.status', 'published')
+            ->where('dynamic_posts.live_status', 'approve');
+
+        $this->applyLocationFilters($query, $filters);
+        $this->applyPublicAvailabilityScope($query);
+
+        return $query->count();
+    }
+
+    public function searchProjects(array $filters): LengthAwarePaginator
+    {
+        $projectSlugs = ['project', 'builder-project', 'consultancy-project', 'agent-project'];
+        $postTypeIds = DB::table('post_types')->whereIn('slug', $projectSlugs)->pluck('id')->all();
+
+        $perPage = min(
+            max((int) ($filters['per_page'] ?? config('property_search.default_per_page', 20)), 1),
+            (int) config('property_search.max_per_page', 50)
+        );
+
+        $query = DynamicPost::query()
+            ->select('dynamic_posts.*')
+            ->leftJoin('countries as search_country', 'search_country.id', '=', 'dynamic_posts.country_id')
+            ->leftJoin('states as search_state', 'search_state.id', '=', 'dynamic_posts.state_id')
+            ->leftJoin('cities as search_city', 'search_city.id', '=', 'dynamic_posts.city_id')
+            ->addSelect([
+                'search_country.name as search_country_name',
+                'search_state.name as search_state_name',
+                'search_city.name as search_city_name',
+            ])
+            ->with($this->listingRelations())
+            ->whereIn('dynamic_posts.post_type_id', $postTypeIds ?: [0])
+            ->where('dynamic_posts.status', 'published')
+            ->where('dynamic_posts.live_status', 'approve');
+
+        $this->applyPublicAvailabilityScope($query);
+        $this->applyLocationFilters($query, $filters);
+        $this->applyGeneralSearch($query, $filters);
+        $this->applySort($query, $filters);
+
+        $paginator = $query->paginate(
+            $perPage,
+            ['*'],
+            'page',
+            max((int) ($filters['page'] ?? 1), 1)
+        );
+
+        $posts = $paginator->getCollection();
+        if ($posts->isEmpty()) {
+            return $paginator;
+        }
+
+        $postIds = $posts->pluck('id')->map(fn($id) => (int) $id)->all();
+        $mediaById = $this->mediaByIdForPosts($posts);
+        $repeaterValues = $this->repeaterValuesByPost($postIds);
+        $keywordsByPost = $this->keywordsByPost($postIds);
+        $relationshipsByPost = $this->relationshipsByPost($postIds);
+
+        $posts->transform(function (DynamicPost $post) use ($mediaById, $repeaterValues, $keywordsByPost, $relationshipsByPost): array {
+            return $this->formatCompleteListing(
+                post: $post,
+                mediaById: $mediaById,
+                repeaterValues: $repeaterValues[(int) $post->id] ?? [],
+                keywords: $keywordsByPost[(int) $post->id] ?? [],
+                relationships: $relationshipsByPost[(int) $post->id] ?? []
+            );
+        });
+
+        return $paginator;
+    }
+
+    public function countAgents(array $filters): int
+    {
+        return $this->buildAgentsQuery($filters)->count();
+    }
+
+    public function searchAgents(array $filters): LengthAwarePaginator
+    {
+        $perPage = min(
+            max((int) ($filters['per_page'] ?? config('property_search.default_per_page', 20)), 1),
+            (int) config('property_search.max_per_page', 50)
+        );
+
+        $query = $this->buildAgentsQuery($filters);
+
+        $paginator = $query->paginate(
+            $perPage,
+            ['*'],
+            'page',
+            max((int) ($filters['page'] ?? 1), 1)
+        );
+
+        $authUser = auth('sanctum')->user();
+
+        $paginator->getCollection()->transform(function ($agent) use ($authUser) {
+            $fullName = trim(($agent->first_name ?? '') . ' ' . ($agent->last_name ?? ''));
+            $email = $agent->email ?? '';
+            $phone = $agent->phone ?? '';
+
+            if (!$authUser) {
+                if (!empty($email)) {
+                    $email = preg_replace('/(?<=.{2}).(?=.*@)/', '*', $email);
+                }
+                if (!empty($phone)) {
+                    $phone = substr($phone, 0, 3) . '****' . substr($phone, -3);
+                }
+            }
+
+            return [
+                'id' => (int) $agent->id,
+                'first_name' => $agent->first_name,
+                'last_name' => $agent->last_name,
+                'full_name' => $fullName ?: $agent->email,
+                'email' => $email,
+                'phone' => $phone,
+                'unique_id' => $agent->unique_id ?? '',
+                'role_id' => (int) $agent->role_id,
+                'role_name' => optional($agent->role)->name ?? 'Agent',
+                'profile_photo' => $agent->userDetails && $agent->userDetails->profile_photo
+                    ? url($agent->userDetails->profile_photo)
+                    : null,
+                'business_name' => $agent->userDetails->bussiness_name ?? null,
+                'about' => $agent->userDetails->about ?? null,
+                'city' => $agent->userDetails && $agent->userDetails->city
+                    ? ['id' => $agent->userDetails->city->id, 'name' => $agent->userDetails->city->name]
+                    : null,
+                'state' => $agent->userDetails && $agent->userDetails->state
+                    ? ['id' => $agent->userDetails->state->id, 'name' => $agent->userDetails->state->name]
+                    : null,
+                'properties_count' => (int) ($agent->properties_count ?? 0),
+            ];
+        });
+
+        return $paginator;
+    }
+
+    private function buildAgentsQuery(array $filters): Builder
+    {
+        $query = User::query()
+            ->with(['role', 'userDetails.country', 'userDetails.state', 'userDetails.city'])
+            ->where('role_id', 3)
+            ->where('isapproved', 1);
+
+        if (!empty($filters['city_id'])) {
+            $cityId = (int) $filters['city_id'];
+            $query->where(function ($q) use ($cityId) {
+                $q->whereHas('userDetails', fn($uq) => $uq->where('city_id', $cityId))
+                  ->orWhereHas('properties', fn($pq) => $pq->where('city_id', $cityId));
+            });
+        } elseif (!empty($filters['state_id'])) {
+            $stateId = (int) $filters['state_id'];
+            $query->where(function ($q) use ($stateId) {
+                $q->whereHas('userDetails', fn($uq) => $uq->where('state_id', $stateId))
+                  ->orWhereHas('properties', fn($pq) => $pq->where('state_id', $stateId));
+            });
+        } elseif (!empty($filters['country_id'])) {
+            $countryId = (int) $filters['country_id'];
+            $query->where(function ($q) use ($countryId) {
+                $q->whereHas('userDetails', fn($uq) => $uq->where('country_id', $countryId))
+                  ->orWhereHas('properties', fn($pq) => $pq->where('country_id', $countryId));
+            });
+        }
+
+        if (!empty($filters['search'])) {
+            $search = trim($filters['search']);
+            $query->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                  ->orWhere('last_name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $query->withCount(['properties' => function ($q) use ($filters) {
+            if (!empty($filters['city_id'])) {
+                $q->where('city_id', (int) $filters['city_id']);
+            }
+            if (!empty($filters['state_id'])) {
+                $q->where('state_id', (int) $filters['state_id']);
+            }
+        }])->orderBy('properties_count', 'desc');
+
+        return $query;
+    }
+
+    public function resolvePurposeSlug(array $filters): ?string
+    {
+        $purpose = $filters['purpose'] ?? null;
+        if (is_array($purpose)) {
+            $purpose = reset($purpose);
+        }
+        if (is_string($purpose)) {
+            $p = mb_strtolower(trim($purpose));
+            if (in_array($p, ['rent', 'rental', 'lease', 'for-rent'], true)) {
+                return 'rent';
+            }
+            if (in_array($p, ['buy', 'sell', 'sale', 'for-sale', 'purchase'], true)) {
+                return 'sell';
+            }
+            return $p;
+        }
+        return null;
+    }
+
+    public function buildSearchHeading(array $filters, int $totalCount, ?string $purpose): string
+    {
+        $locationName = null;
+        if (!empty($filters['city_id'])) {
+            $city = DB::table('cities')->where('id', (int) $filters['city_id'])->value('name');
+            if ($city) {
+                $locationName = $city;
+            }
+        }
+        if (!$locationName && !empty($filters['location'])) {
+            $locationName = trim((string) $filters['location']);
+        }
+        if (!$locationName && !empty($filters['area_locality'])) {
+            $locationName = trim((string) $filters['area_locality']);
+        }
+
+        $purposeLabel = ($purpose === 'rent') ? 'Rent' : 'Sale';
+        $locationSuffix = $locationName ? " in {$locationName}" : '';
+        $formattedCount = number_format($totalCount);
+
+        return "{$formattedCount} results | Properties for {$purposeLabel}{$locationSuffix}";
     }
 }
