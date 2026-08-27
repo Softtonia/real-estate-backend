@@ -754,6 +754,15 @@ class LocationController extends Controller
     public function getAreaLocalities(Request $request)
     {
         try {
+            $this->sanitizeRequestNumericParams($request, [
+                'country_id',
+                'state_id',
+                'city_id',
+                'location_id',
+                'post_type_id',
+                'status_id',
+            ]);
+
             $request->validate([
                 'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
                 'post_type_slug' => ['nullable', 'string'],
@@ -1248,5 +1257,34 @@ class LocationController extends Controller
         }
 
         return true;
+    }
+
+    private function sanitizeRequestNumericParams(Request $request, array $keys): void
+    {
+        $input = $request->all();
+        $modified = false;
+
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input)) {
+                $val = $input[$key];
+                if (is_string($val)) {
+                    $trimmed = trim($val);
+                    if ($trimmed === '' || in_array(strtolower($trimmed), ['undefined', 'null', 'nan', 'none', 'false', 'true'], true) || !is_numeric($trimmed)) {
+                        $input[$key] = null;
+                        $modified = true;
+                    } else {
+                        $input[$key] = (int) $trimmed;
+                        $modified = true;
+                    }
+                } elseif (!is_int($val) && !is_null($val)) {
+                    $input[$key] = is_numeric($val) ? (int) $val : null;
+                    $modified = true;
+                }
+            }
+        }
+
+        if ($modified) {
+            $request->merge($input);
+        }
     }
 }

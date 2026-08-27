@@ -55,6 +55,8 @@ class FrontendLocationController extends Controller
 
     public function states(Request $request): JsonResponse
     {
+        $this->sanitizeRequestNumericParams($request, ['country_id']);
+
         $countryId = $this->resolveIndiaCountryId($request->filled('country_id') ? (int) $request->country_id : null);
 
         if (!$countryId) {
@@ -77,12 +79,13 @@ class FrontendLocationController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'states table not found.',
+                'data' => [],
             ], 500);
         }
 
         $query = DB::table('states')
             ->select('id', 'name', 'country_id')
-            ->where('country_id', (int) $request->country_id);
+            ->where('country_id', $countryId);
 
         if (Schema::hasColumn('states', 'status')) {
             $query->where('status', 1);
@@ -107,7 +110,7 @@ class FrontendLocationController extends Controller
         return response()->json([
             'status' => true,
             'message' => 'States fetched successfully.',
-            'country_id' => (int) $request->country_id,
+            'country_id' => $countryId,
             'count' => $states->count(),
             'data' => $states,
         ]);
@@ -115,6 +118,8 @@ class FrontendLocationController extends Controller
 
     public function cities(Request $request): JsonResponse
     {
+        $this->sanitizeRequestNumericParams($request, ['state_id', 'country_id']);
+
         $validator = Validator::make($request->all(), [
             'state_id' => ['required', 'integer', 'exists:states,id'],
         ]);
@@ -528,5 +533,34 @@ class FrontendLocationController extends Controller
                 'other_cities' => $otherCities,
             ],
         ]);
+    }
+
+    private function sanitizeRequestNumericParams(Request $request, array $keys): void
+    {
+        $input = $request->all();
+        $modified = false;
+
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input)) {
+                $val = $input[$key];
+                if (is_string($val)) {
+                    $trimmed = trim($val);
+                    if ($trimmed === '' || in_array(strtolower($trimmed), ['undefined', 'null', 'nan', 'none', 'false', 'true'], true) || !is_numeric($trimmed)) {
+                        $input[$key] = null;
+                        $modified = true;
+                    } else {
+                        $input[$key] = (int) $trimmed;
+                        $modified = true;
+                    }
+                } elseif (!is_int($val) && !is_null($val)) {
+                    $input[$key] = is_numeric($val) ? (int) $val : null;
+                    $modified = true;
+                }
+            }
+        }
+
+        if ($modified) {
+            $request->merge($input);
+        }
     }
 }
