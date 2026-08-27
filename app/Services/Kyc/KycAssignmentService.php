@@ -39,7 +39,7 @@ class KycAssignmentService
 
     /**
      * Get all roles eligible to review/verify KYC requests.
-     * Returns all roles with admin login permission (is_admin_login_permission = 1),
+     * Only returns roles that have been explicitly granted KYC permissions (e.g. kyc_requests.*),
      * excluding the main admin role.
      */
     public function getEligibleRoles(): Collection
@@ -48,13 +48,31 @@ class KycAssignmentService
             ? 'roles.name'
             : (Schema::hasColumn('roles', 'role_name') ? 'roles.role_name' : 'roles.id');
 
-        $query = DB::table('roles')
-            ->leftJoin('users', function ($join) {
-                $join->on('users.role_id', '=', 'roles.id');
-                if (Schema::hasColumn('users', 'isapproved')) {
-                    $join->where('users.isapproved', 1);
-                }
-            });
+        $hasPermissionsTable = Schema::hasTable('permissions') && Schema::hasTable('role_has_permissions');
+
+        $query = DB::table('roles');
+
+        if ($hasPermissionsTable) {
+            $query->join('role_has_permissions as rhp', 'rhp.role_id', '=', 'roles.id')
+                ->join('permissions as p', 'p.id', '=', 'rhp.permission_id')
+                ->where(function ($pQuery) {
+                    $pQuery->where('p.name', 'like', 'kyc_requests.%')
+                        ->orWhereIn('p.name', [
+                            'kyc_requests.read',
+                            'kyc_requests.edit',
+                            'kyc_requests.approve',
+                            'kyc_requests.reject',
+                            'kyc_requests.assign',
+                        ]);
+                });
+        }
+
+        $query->leftJoin('users', function ($join) {
+            $join->on('users.role_id', '=', 'roles.id');
+            if (Schema::hasColumn('users', 'isapproved')) {
+                $join->where('users.isapproved', 1);
+            }
+        });
 
         // Filter: only roles with admin login permission
         if (Schema::hasColumn('roles', 'is_admin_login_permission')) {
@@ -88,7 +106,7 @@ class KycAssignmentService
 
     /**
      * Get eligible verifier users for KYC assignment.
-     * Only returns approved users from roles with admin login permission (excluding main admin).
+     * Only returns approved users belonging to roles that have KYC permissions.
      */
     public function getEligibleVerifiers(?int $roleId = null, ?string $search = null, int $limit = 100): Collection
     {
@@ -96,8 +114,47 @@ class KycAssignmentService
             ? 'roles.name'
             : (Schema::hasColumn('roles', 'role_name') ? 'roles.role_name' : 'roles.id');
 
+        $hasPermissionsTable = Schema::hasTable('permissions') && Schema::hasTable('role_has_permissions');
+
+        $eligibleRoleIdsQuery = DB::table('roles');
+
+        if ($hasPermissionsTable) {
+            $eligibleRoleIdsQuery->join('role_has_permissions as rhp', 'rhp.role_id', '=', 'roles.id')
+                ->join('permissions as p', 'p.id', '=', 'rhp.permission_id')
+                ->where(function ($pQuery) {
+                    $pQuery->where('p.name', 'like', 'kyc_requests.%')
+                        ->orWhereIn('p.name', [
+                            'kyc_requests.read',
+                            'kyc_requests.edit',
+                            'kyc_requests.approve',
+                            'kyc_requests.reject',
+                            'kyc_requests.assign',
+                        ]);
+                });
+        }
+
+        if (Schema::hasColumn('roles', 'is_admin_login_permission')) {
+            $eligibleRoleIdsQuery->where('roles.is_admin_login_permission', 1);
+        }
+
+        $eligibleRoleIdsQuery->where('roles.id', '!=', 1);
+        $eligibleRoleIdsQuery->whereNotIn(DB::raw('LOWER(' . $roleNameColumn . ')'), [
+            'admin',
+            'administrator',
+            'super-admin',
+            'superadmin',
+            'super admin',
+        ]);
+
+        $eligibleRoleIds = $eligibleRoleIdsQuery->pluck('roles.id')->unique()->all();
+
+        if (empty($eligibleRoleIds)) {
+            return collect();
+        }
+
         $query = DB::table('users')
             ->join('roles', 'roles.id', '=', 'users.role_id')
+            ->whereIn('users.role_id', $eligibleRoleIds)
             ->select([
                 'users.id',
                 'users.first_name',
@@ -111,20 +168,6 @@ class KycAssignmentService
         if (Schema::hasColumn('users', 'isapproved')) {
             $query->where('users.isapproved', 1);
         }
-
-        if (Schema::hasColumn('roles', 'is_admin_login_permission')) {
-            $query->where('roles.is_admin_login_permission', 1);
-        }
-
-        // Exclude the main Admin role
-        $query->where('roles.id', '!=', 1);
-        $query->whereNotIn(DB::raw('LOWER(' . $roleNameColumn . ')'), [
-            'admin',
-            'administrator',
-            'super-admin',
-            'superadmin',
-            'super admin',
-        ]);
 
         if ($roleId) {
             $query->where('users.role_id', $roleId);
