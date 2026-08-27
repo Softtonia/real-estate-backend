@@ -33,7 +33,8 @@ class AdminKycController extends Controller
         private readonly KycReviewService $reviewService,
         private readonly KycDocumentService $documentService,
         private readonly KycAssignmentService $assignmentService
-    ) {}
+    ) {
+    }
 
     public function index(Request $request): JsonResponse
     {
@@ -53,6 +54,10 @@ class AdminKycController extends Controller
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ], [
+            'role_id.exists' => 'The selected role does not exist.',
+            'user_id.exists' => 'The selected user does not exist.',
+            'reviewed_by.exists' => 'The selected reviewer does not exist.',
         ]);
 
         if ($validator->fails()) {
@@ -226,6 +231,8 @@ class AdminKycController extends Controller
             'role_id' => ['nullable', 'integer', 'exists:roles,id'],
             'search' => ['nullable', 'string', 'max:100'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+        ], [
+            'role_id.exists' => 'The selected role does not exist.',
         ]);
 
         if ($validator->fails()) {
@@ -282,6 +289,9 @@ class AdminKycController extends Controller
             'verifier_id' => ['nullable', 'integer', 'exists:users,id'],
             'user_id' => ['nullable', 'integer', 'exists:users,id'],
             'notes' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'verifier_id.exists' => 'The selected verifier does not exist.',
+            'user_id.exists' => 'The selected verifier does not exist.',
         ]);
 
         if ($validator->fails()) {
@@ -325,6 +335,13 @@ class AdminKycController extends Controller
             'kyc_request_ids.*' => ['required', 'integer', 'distinct', 'exists:kyc_requests,id'],
             'verifier_id' => ['required', 'integer', 'exists:users,id'],
             'notes' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'kyc_request_ids.required' => 'Please provide at least one KYC request ID.',
+            'kyc_request_ids.array' => 'KYC request IDs must be an array.',
+            'kyc_request_ids.*.exists' => 'The selected KYC request does not exist.',
+            'kyc_request_ids.*.distinct' => 'Duplicate KYC request IDs provided.',
+            'verifier_id.required' => 'Please select a verifier to assign.',
+            'verifier_id.exists' => 'The selected verifier does not exist.',
         ]);
 
         if ($validator->fails()) {
@@ -374,6 +391,10 @@ class AdminKycController extends Controller
             'role_id' => ['nullable', 'integer', 'exists:roles,id'],
             'status' => ['nullable', 'string', 'in:' . implode(',', KycRequest::statuses())],
             'notes' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'verifier_id.required' => 'Please select a verifier to assign.',
+            'verifier_id.exists' => 'The selected verifier does not exist.',
+            'role_id.exists' => 'The selected role does not exist.',
         ]);
 
         if ($validator->fails()) {
@@ -794,4 +815,4 @@ class AdminKycController extends Controller
             'error' => $e->getMessage(),
         ], 500);
     }
-}
+}
