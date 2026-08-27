@@ -586,6 +586,17 @@ class UserProfileController extends Controller
             'kyc' => $user->kyc ?? 0,
             'kyc_status' => $kycSummary['status_label'],
             'admin_kyc_status' => $kycSummary['admin_status'],
+            'aadhaar_number' => $kycSummary['aadhaar_number'],
+            'aadhar_number' => $kycSummary['aadhar_number'],
+            'aadhaar_no' => $kycSummary['aadhaar_number'],
+            'aadhar_no' => $kycSummary['aadhar_number'],
+            'aadhaar_front' => $kycSummary['aadhaar_front'],
+            'aadhar_front' => $kycSummary['aadhar_front'],
+            'aadhaar_back' => $kycSummary['aadhaar_back'],
+            'aadhar_back' => $kycSummary['aadhar_back'],
+            'pan_number' => $kycSummary['pan_number'],
+            'gst_number' => $kycSummary['gst_number'],
+            'rera_number' => $kycSummary['rera_number'],
             'kyc_module' => $kycSummary,
             'is_otp_verified' => $user->is_otp_verified ?? false,
 
@@ -1467,10 +1478,20 @@ class UserProfileController extends Controller
             'status' => 'not_started',
             'status_label' => 'Incomplete',
             'admin_status' => 'Not Submitted',
+            'aadhaar_number' => null,
+            'aadhar_number' => null,
+            'pan_number' => null,
+            'gst_number' => null,
+            'rera_number' => null,
+            'aadhaar_front' => null,
+            'aadhar_front' => null,
+            'aadhaar_back' => null,
+            'aadhar_back' => null,
             'documents_count' => 0,
             'pending_documents_count' => 0,
             'approved_documents_count' => 0,
             'rejected_documents_count' => 0,
+            'documents' => [],
             'submitted_at' => null,
             'approved_at' => null,
             'rejected_at' => null,
@@ -1488,7 +1509,89 @@ class UserProfileController extends Controller
             ->latest('id')
             ->first();
 
+        $aadhaarNumber = null;
+        $panNumber = null;
+        $gstNumber = null;
+        $reraNumber = null;
+        $aadhaarFront = null;
+        $aadhaarBack = null;
+        $documentsList = [];
+
+        if ($kycRequest) {
+            $aadhaarNumber = $kycRequest->aadhaar_number ?? $kycRequest->aadhar_number ?? null;
+            $panNumber = $kycRequest->pan_number ?? null;
+            $gstNumber = $kycRequest->gst_number ?? null;
+            $reraNumber = $kycRequest->rera_number ?? null;
+
+            if (Schema::hasTable('kyc_documents')) {
+                $docs = KycDocument::query()
+                    ->where('kyc_request_id', (int) $kycRequest->id)
+                    ->get();
+
+                foreach ($docs as $doc) {
+                    $fileUrl = $this->fileUrl($doc->file_path);
+                    $docType = $doc->document_type;
+
+                    if (in_array($docType, ['aadhaar_front', 'aadhar_front'], true)) {
+                        $aadhaarFront = $fileUrl;
+                    } elseif (in_array($docType, ['aadhaar_back', 'aadhar_back'], true)) {
+                        $aadhaarBack = $fileUrl;
+                    } elseif (in_array($docType, ['aadhaar', 'aadhar'], true)) {
+                        if (empty($aadhaarFront)) {
+                            $aadhaarFront = $fileUrl;
+                        }
+                    }
+
+                    $documentsList[] = [
+                        'id' => (int) $doc->id,
+                        'document_type' => $docType,
+                        'file_url' => $fileUrl,
+                        'file_name' => $doc->file_original_name ?: basename($doc->file_path),
+                        'status' => $doc->status,
+                        'rejection_reason' => $doc->rejection_reason ?? null,
+                    ];
+                }
+            }
+        }
+
+        // Fallback to user_details if kyc_requests did not have aadhaar details
+        if (empty($aadhaarNumber) && Schema::hasTable('user_details')) {
+            $userDetail = DB::table('user_details')->where('user_id', $user->id)->first();
+            if ($userDetail) {
+                $aadhaarNumber = $userDetail->aadhaar_number ?? $userDetail->aadhar_number ?? null;
+                if (empty($aadhaarFront) && !empty($userDetail->aadhaar_front)) {
+                    $aadhaarFront = $this->fileUrl($userDetail->aadhaar_front);
+                }
+                if (empty($aadhaarBack) && !empty($userDetail->aadhaar_back)) {
+                    $aadhaarBack = $this->fileUrl($userDetail->aadhaar_back);
+                }
+                if (empty($panNumber) && !empty($userDetail->pan_number)) {
+                    $panNumber = $userDetail->pan_number;
+                }
+                if (empty($gstNumber) && !empty($userDetail->gst_number)) {
+                    $gstNumber = $userDetail->gst_number;
+                }
+                if (empty($reraNumber) && !empty($userDetail->rera_number)) {
+                    $reraNumber = $userDetail->rera_number;
+                }
+            }
+        }
+
+        // Fallback to users table columns if present
+        if (empty($aadhaarNumber)) {
+            $aadhaarNumber = $user->aadhaar_number ?? $user->aadhar_number ?? null;
+        }
+
         if (!$kycRequest) {
+            $default['aadhaar_number'] = $aadhaarNumber;
+            $default['aadhar_number'] = $aadhaarNumber;
+            $default['aadhaar_front'] = $aadhaarFront;
+            $default['aadhar_front'] = $aadhaarFront;
+            $default['aadhaar_back'] = $aadhaarBack;
+            $default['aadhar_back'] = $aadhaarBack;
+            $default['pan_number'] = $panNumber;
+            $default['gst_number'] = $gstNumber;
+            $default['rera_number'] = $reraNumber;
             return $default;
         }
 
@@ -1500,10 +1603,21 @@ class UserProfileController extends Controller
             'status_label' => $this->kycModuleStatusLabel($status),
             'admin_status' => $this->adminKycStatusLabel($status),
 
-            'documents_count' => 0,
-            'pending_documents_count' => 0,
-            'approved_documents_count' => 0,
-            'rejected_documents_count' => 0,
+            'aadhaar_number' => $aadhaarNumber,
+            'aadhar_number' => $aadhaarNumber,
+            'pan_number' => $panNumber,
+            'gst_number' => $gstNumber,
+            'rera_number' => $reraNumber,
+            'aadhaar_front' => $aadhaarFront,
+            'aadhar_front' => $aadhaarFront,
+            'aadhaar_back' => $aadhaarBack,
+            'aadhar_back' => $aadhaarBack,
+
+            'documents_count' => count($documentsList),
+            'pending_documents_count' => collect($documentsList)->where('status', 'pending')->count(),
+            'approved_documents_count' => collect($documentsList)->where('status', 'approved')->count(),
+            'rejected_documents_count' => collect($documentsList)->where('status', 'rejected')->count(),
+            'documents' => $documentsList,
 
             'submitted_at' => optional($kycRequest->submitted_at ?? null)->toDateTimeString(),
             'approved_at' => optional($kycRequest->approved_at ?? null)->toDateTimeString(),
@@ -1516,16 +1630,6 @@ class UserProfileController extends Controller
             'can_submit' => in_array($status, ['draft', 'pending', 'not_started'], true),
             'can_resubmit' => in_array($status, ['rejected'], true),
         ];
-
-        if (Schema::hasTable('kyc_documents')) {
-            $documentQuery = KycDocument::query()
-                ->where('kyc_request_id', (int) $kycRequest->id);
-
-            $summary['documents_count'] = (clone $documentQuery)->count();
-            $summary['pending_documents_count'] = (clone $documentQuery)->where('status', 'pending')->count();
-            $summary['approved_documents_count'] = (clone $documentQuery)->where('status', 'approved')->count();
-            $summary['rejected_documents_count'] = (clone $documentQuery)->where('status', 'rejected')->count();
-        }
 
         return array_merge($default, $summary);
     }

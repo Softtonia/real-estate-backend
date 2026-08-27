@@ -579,18 +579,22 @@ class LocationController extends Controller
     {
         try {
             $request->validate([
-                'country_id' => ['required', 'integer', 'exists:countries,id'],
+                'country_id' => ['nullable', 'integer', 'exists:countries,id'],
                 'post_type_id' => ['nullable', 'integer', 'exists:post_types,id'],
                 'post_type_slug' => ['nullable', 'string'],
                 'post_type' => ['nullable', 'string'],
                 'search' => ['nullable', 'string', 'max:255'],
             ]);
 
+            $countryId = $request->filled('country_id')
+                ? (int) $request->country_id
+                : (int) (DB::table('countries')->whereRaw('LOWER(name) = ?', ['india'])->orWhereRaw('LOWER(name) = ?', ['in'])->value('id') ?? 101);
+
             $postType = $this->validateAndResolvePostType($request);
 
             $states = $this->statesQuery(
                 postType: $postType,
-                countryId: (int) $request->country_id,
+                countryId: $countryId,
                 search: $request->input('search')
             )->get();
 
@@ -759,6 +763,7 @@ class LocationController extends Controller
                 'state_id' => ['nullable', 'integer', 'exists:states,id'],
                 'city_id' => ['nullable', 'integer', 'exists:cities,id'],
                 'location_id' => ['nullable', 'integer'],
+                'status_id' => ['nullable'],
                 'search' => ['nullable', 'string', 'max:255'],
             ]);
 

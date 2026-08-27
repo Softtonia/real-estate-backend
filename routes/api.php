@@ -790,6 +790,10 @@ Route::middleware(['validate.api.client'])->group(function () {
     Route::get('cities/{stateId}', [LocationController::class, 'getCitiesByState'])->middleware(['throttle:60,1']);
     Route::get('get-localities-filter-by-location-id', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
     Route::get('get-area-localities', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
+    Route::get('get-locality', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
+    Route::get('get-localities', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
+    Route::get('locations/localities', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
+    Route::get('locations/locality', [LocationController::class, 'getAreaLocalities'])->middleware(['throttle:60,1']);
 
     Route::middleware(['throttle:60,1', 'admin.token'])->get('/get-location-countries', [LocationController::class, 'getLocationCountries']);
     Route::middleware(['throttle:60,1', 'admin.token'])->get('/get-location-states', [LocationController::class, 'getLocationStates']);

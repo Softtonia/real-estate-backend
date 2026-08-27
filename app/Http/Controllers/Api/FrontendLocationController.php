@@ -55,16 +55,22 @@ class FrontendLocationController extends Controller
 
     public function states(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'country_id' => ['required', 'integer', 'exists:countries,id'],
-        ]);
+        $countryId = $this->resolveIndiaCountryId($request->filled('country_id') ? (int) $request->country_id : null);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
+        if (!$countryId) {
+            $validator = Validator::make($request->all(), [
+                'country_id' => ['required', 'integer', 'exists:countries,id'],
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $countryId = (int) $request->country_id;
         }
 
         if (!Schema::hasTable('states')) {
