@@ -145,7 +145,7 @@ class AdminKycController extends Controller
         }
     }
 
-    public function show(Request $request, KycRequest $kycRequest): JsonResponse
+    public function show(Request $request, $kycRequest): JsonResponse
     {
         $reviewer = $this->resolveCurrentAdmin($request);
 
@@ -153,10 +153,18 @@ class AdminKycController extends Controller
             return $this->unauthenticatedResponse();
         }
 
-        try {
-            $this->assignmentService->assertCanView($kycRequest, $reviewer);
+        $record = $this->resolveKycRequest($kycRequest);
+        if (!$record) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC request not found.',
+            ], 404);
+        }
 
-            $kycRequest->load([
+        try {
+            $this->assignmentService->assertCanView($record, $reviewer);
+
+            $record->load([
                 'user:id,first_name,last_name,email,phone,role_id,reject_reason',
                 'role:id,name',
                 'reviewer:id,first_name,last_name,email',
@@ -170,7 +178,7 @@ class AdminKycController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'KYC request fetched successfully.',
-                'data' => new KycRequestResource($kycRequest),
+                'data' => new KycRequestResource($record),
             ]);
         } catch (AuthorizationException $e) {
             return response()->json([
@@ -254,12 +262,20 @@ class AdminKycController extends Controller
         return $this->index($request);
     }
 
-    public function assign(Request $request, KycRequest $kycRequest): JsonResponse
+    public function assign(Request $request, $kycRequest): JsonResponse
     {
         $actor = $this->resolveCurrentAdmin($request);
 
         if (!$actor) {
             return $this->unauthenticatedResponse();
+        }
+
+        $record = $this->resolveKycRequest($kycRequest);
+        if (!$record) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC request not found.',
+            ], 404);
         }
 
         $validator = Validator::make($request->all(), [
@@ -278,7 +294,7 @@ class AdminKycController extends Controller
             $notes = $request->input('notes');
 
             $updatedRequest = $this->assignmentService->assign(
-                kycRequest: $kycRequest,
+                kycRequest: $record,
                 verifier: $verifier,
                 assigner: $actor,
                 notes: $notes
@@ -403,34 +419,58 @@ class AdminKycController extends Controller
         }
     }
 
-    public function startReview(KycReviewRequest $request, KycRequest $kycRequest): JsonResponse
+    public function startReview(KycReviewRequest $request, $kycRequest): JsonResponse
     {
+        $record = $this->resolveKycRequest($kycRequest);
+        if (!$record) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC request not found.',
+            ], 404);
+        }
+
         return $this->handleReviewAction(
             $request,
-            $kycRequest,
+            $record,
             'KYC review started successfully.'
         );
     }
 
-    public function approve(KycReviewRequest $request, KycRequest $kycRequest): JsonResponse
+    public function approve(KycReviewRequest $request, $kycRequest): JsonResponse
     {
+        $record = $this->resolveKycRequest($kycRequest);
+        if (!$record) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC request not found.',
+            ], 404);
+        }
+
         return $this->handleReviewAction(
             $request,
-            $kycRequest,
+            $record,
             'KYC approved successfully.'
         );
     }
 
-    public function reject(KycReviewRequest $request, KycRequest $kycRequest): JsonResponse
+    public function reject(KycReviewRequest $request, $kycRequest): JsonResponse
     {
+        $record = $this->resolveKycRequest($kycRequest);
+        if (!$record) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC request not found.',
+            ], 404);
+        }
+
         return $this->handleReviewAction(
             $request,
-            $kycRequest,
+            $record,
             'KYC rejected successfully.'
         );
     }
 
-    public function documents(Request $request, KycRequest $kycRequest): JsonResponse
+    public function documents(Request $request, $kycRequest): JsonResponse
     {
         $reviewer = $this->resolveCurrentAdmin($request);
 
@@ -438,8 +478,16 @@ class AdminKycController extends Controller
             return $this->unauthenticatedResponse();
         }
 
+        $record = $this->resolveKycRequest($kycRequest);
+        if (!$record) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC request not found.',
+            ], 404);
+        }
+
         try {
-            $this->assignmentService->assertCanView($kycRequest, $reviewer);
+            $this->assignmentService->assertCanView($record, $reviewer);
 
             $perPage = max(1, min((int) $request->input('per_page', 20), 100));
 
@@ -448,7 +496,7 @@ class AdminKycController extends Controller
                     'uploader:id,first_name,last_name,email',
                     'reviewer:id,first_name,last_name,email',
                 ])
-                ->where('kyc_request_id', (int) $kycRequest->id)
+                ->where('kyc_request_id', (int) $record->id)
                 ->latest('id')
                 ->paginate($perPage);
 
@@ -467,7 +515,7 @@ class AdminKycController extends Controller
         }
     }
 
-    public function timeline(Request $request, KycRequest $kycRequest): JsonResponse
+    public function timeline(Request $request, $kycRequest): JsonResponse
     {
         $reviewer = $this->resolveCurrentAdmin($request);
 
@@ -475,14 +523,22 @@ class AdminKycController extends Controller
             return $this->unauthenticatedResponse();
         }
 
+        $record = $this->resolveKycRequest($kycRequest);
+        if (!$record) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC request not found.',
+            ], 404);
+        }
+
         try {
-            $this->assignmentService->assertCanView($kycRequest, $reviewer);
+            $this->assignmentService->assertCanView($record, $reviewer);
 
             $perPage = max(1, min((int) $request->input('per_page', 20), 100));
 
             $activities = KycActivity::query()
                 ->with('performer:id,first_name,last_name,email')
-                ->where('kyc_request_id', (int) $kycRequest->id)
+                ->where('kyc_request_id', (int) $record->id)
                 ->latest('created_at')
                 ->latest('id')
                 ->paginate($perPage);
@@ -502,7 +558,7 @@ class AdminKycController extends Controller
         }
     }
 
-    public function viewDocument(Request $request, KycDocument $document): StreamedResponse|JsonResponse
+    public function viewDocument(Request $request, $document): StreamedResponse|JsonResponse
     {
         $reviewer = $this->resolveCurrentAdmin($request);
 
@@ -510,39 +566,47 @@ class AdminKycController extends Controller
             return $this->unauthenticatedResponse();
         }
 
+        $docRecord = $this->resolveKycDocument($document);
+        if (!$docRecord) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KYC document not found.',
+            ], 404);
+        }
+
         try {
-            if ($document->kyc_request_id) {
-                $kycRequest = KycRequest::find($document->kyc_request_id);
+            if ($docRecord->kyc_request_id) {
+                $kycRequest = KycRequest::find($docRecord->kyc_request_id);
                 if ($kycRequest) {
                     $this->assignmentService->assertCanView($kycRequest, $reviewer);
                 }
             }
 
-            if (empty($document->file_disk) || empty($document->file_path)) {
+            if (empty($docRecord->file_disk) || empty($docRecord->file_path)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'KYC document file not available.',
                 ], 404);
             }
 
-            if (!$this->documentService->fileExists($document)) {
+            if (!$this->documentService->fileExists($docRecord)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'KYC document file not found.',
                     'debug' => [
-                        'document_id' => (int) $document->id,
-                        'file_disk' => $document->file_disk,
-                        'file_path' => $document->file_path,
+                        'document_id' => (int) $docRecord->id,
+                        'file_disk' => $docRecord->file_disk,
+                        'file_path' => $docRecord->file_path,
                     ],
                 ], 404);
             }
 
-            return Storage::disk($document->file_disk)->response(
-                $document->file_path,
-                $document->file_original_name ?: basename($document->file_path),
+            return Storage::disk($docRecord->file_disk)->response(
+                $docRecord->file_path,
+                $docRecord->file_original_name ?: basename($docRecord->file_path),
                 [
-                    'Content-Type' => $document->mime_type ?: 'application/octet-stream',
-                    'Content-Disposition' => 'inline; filename="' . ($document->file_original_name ?: basename($document->file_path)) . '"',
+                    'Content-Type' => $docRecord->mime_type ?: 'application/octet-stream',
+                    'Content-Disposition' => 'inline; filename="' . ($docRecord->file_original_name ?: basename($docRecord->file_path)) . '"',
                     'X-Content-Type-Options' => 'nosniff',
                 ]
             );
@@ -554,6 +618,32 @@ class AdminKycController extends Controller
         } catch (Throwable $e) {
             return $this->serverErrorResponse('Unable to view KYC document.', $e);
         }
+    }
+
+    private function resolveKycRequest($kycRequest): ?KycRequest
+    {
+        if ($kycRequest instanceof KycRequest) {
+            return $kycRequest->exists ? $kycRequest : null;
+        }
+
+        if (is_numeric($kycRequest)) {
+            return KycRequest::find((int) $kycRequest);
+        }
+
+        return null;
+    }
+
+    private function resolveKycDocument($document): ?KycDocument
+    {
+        if ($document instanceof KycDocument) {
+            return $document->exists ? $document : null;
+        }
+
+        if (is_numeric($document)) {
+            return KycDocument::find((int) $document);
+        }
+
+        return null;
     }
 
     public function stats(Request $request): JsonResponse

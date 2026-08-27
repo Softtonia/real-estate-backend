@@ -1010,38 +1010,46 @@ Route::middleware(['admin.token'])
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('requests/{kycRequest}', [AdminKycController::class, 'show'])
-            ->whereNumber('kycRequest');
+            ->whereNumber('kycRequest')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
             ->post('requests/{kycRequest}/assign', [AdminKycController::class, 'assign'])
-            ->whereNumber('kycRequest');
+            ->whereNumber('kycRequest')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('requests/{kycRequest}/documents', [AdminKycController::class, 'documents'])
-            ->whereNumber('kycRequest');
+            ->whereNumber('kycRequest')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('requests/{kycRequest}/timeline', [AdminKycController::class, 'timeline'])
-            ->whereNumber('kycRequest');
+            ->whereNumber('kycRequest')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,edit'])
             ->post('requests/{kycRequest}/start-review', [AdminKycController::class, 'startReview'])
             ->whereNumber('kycRequest')
-            ->defaults('review_action', 'start_review');
+            ->defaults('review_action', 'start_review')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,approve'])
             ->post('requests/{kycRequest}/approve', [AdminKycController::class, 'approve'])
             ->whereNumber('kycRequest')
-            ->defaults('review_action', 'approve');
+            ->defaults('review_action', 'approve')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,reject'])
             ->post('requests/{kycRequest}/reject', [AdminKycController::class, 'reject'])
             ->whereNumber('kycRequest')
-            ->defaults('review_action', 'reject');
+            ->defaults('review_action', 'reject')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
         Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
             ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
-            ->whereNumber('document');
+            ->whereNumber('document')
+            ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC document not found.'], 404));
     });
 
 Route::middleware(['admin.token'])
