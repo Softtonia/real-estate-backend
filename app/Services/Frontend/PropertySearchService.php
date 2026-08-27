@@ -2374,8 +2374,17 @@ class PropertySearchService
         $purpose = $this->resolvePurposeSlug($filters);
         $isRent = ($purpose === 'rent');
 
-        $projectsCount = $isRent ? 0 : $this->countProjects($filters);
-        $agentsCount = $this->countAgents($filters);
+        try {
+            $projectsCount = $isRent ? 0 : $this->countProjects($filters);
+        } catch (\Throwable) {
+            $projectsCount = 0;
+        }
+
+        try {
+            $agentsCount = $this->countAgents($filters);
+        } catch (\Throwable) {
+            $agentsCount = 0;
+        }
 
         $tabs = [
             [
@@ -2553,6 +2562,14 @@ class PropertySearchService
                 }
             }
 
+            $personal = $agent->personalDetail;
+            $business = $agent->businessDetail;
+
+            $profilePhoto = null;
+            if ($personal && $personal->profile_photo) {
+                $profilePhoto = url($personal->profile_photo);
+            }
+
             return [
                 'id' => (int) $agent->id,
                 'first_name' => $agent->first_name,
@@ -2563,16 +2580,14 @@ class PropertySearchService
                 'unique_id' => $agent->unique_id ?? '',
                 'role_id' => (int) $agent->role_id,
                 'role_name' => optional($agent->role)->name ?? 'Agent',
-                'profile_photo' => $agent->userDetails && $agent->userDetails->profile_photo
-                    ? url($agent->userDetails->profile_photo)
+                'profile_photo' => $profilePhoto,
+                'business_name' => $business?->business_name ?? null,
+                'about' => $personal?->about_us ?? null,
+                'city' => $personal && $personal->city
+                    ? ['id' => $personal->city->id, 'name' => $personal->city->name]
                     : null,
-                'business_name' => $agent->userDetails->bussiness_name ?? null,
-                'about' => $agent->userDetails->about ?? null,
-                'city' => $agent->userDetails && $agent->userDetails->city
-                    ? ['id' => $agent->userDetails->city->id, 'name' => $agent->userDetails->city->name]
-                    : null,
-                'state' => $agent->userDetails && $agent->userDetails->state
-                    ? ['id' => $agent->userDetails->state->id, 'name' => $agent->userDetails->state->name]
+                'state' => $personal && $personal->state
+                    ? ['id' => $personal->state->id, 'name' => $personal->state->name]
                     : null,
                 'properties_count' => (int) ($agent->properties_count ?? 0),
             ];
@@ -2584,26 +2599,29 @@ class PropertySearchService
     private function buildAgentsQuery(array $filters): Builder
     {
         $query = User::query()
-            ->with(['role', 'userDetails.country', 'userDetails.state', 'userDetails.city'])
+            ->with(['role', 'personalDetail.country', 'personalDetail.state', 'personalDetail.city', 'businessDetail'])
             ->where('role_id', 3)
             ->where('isapproved', 1);
 
         if (!empty($filters['city_id'])) {
             $cityId = (int) $filters['city_id'];
             $query->where(function ($q) use ($cityId) {
-                $q->whereHas('userDetails', fn($uq) => $uq->where('city_id', $cityId))
+                $q->where('users.city_id', $cityId)
+                  ->orWhereHas('personalDetail', fn($uq) => $uq->where('city_id', $cityId))
                   ->orWhereHas('properties', fn($pq) => $pq->where('city_id', $cityId));
             });
         } elseif (!empty($filters['state_id'])) {
             $stateId = (int) $filters['state_id'];
             $query->where(function ($q) use ($stateId) {
-                $q->whereHas('userDetails', fn($uq) => $uq->where('state_id', $stateId))
+                $q->where('users.state_id', $stateId)
+                  ->orWhereHas('personalDetail', fn($uq) => $uq->where('state_id', $stateId))
                   ->orWhereHas('properties', fn($pq) => $pq->where('state_id', $stateId));
             });
         } elseif (!empty($filters['country_id'])) {
             $countryId = (int) $filters['country_id'];
             $query->where(function ($q) use ($countryId) {
-                $q->whereHas('userDetails', fn($uq) => $uq->where('country_id', $countryId))
+                $q->where('users.country_id', $countryId)
+                  ->orWhereHas('personalDetail', fn($uq) => $uq->where('country_id', $countryId))
                   ->orWhereHas('properties', fn($pq) => $pq->where('country_id', $countryId));
             });
         }

@@ -269,6 +269,24 @@ class User extends Authenticatable implements CanResetPassword
             ->withTimestamps();
     }
 
+    public function dynamicPosts(): HasMany
+    {
+        return $this->hasMany(
+            DynamicPost::class,
+            'author_id',
+            'id'
+        );
+    }
+
+    public function properties(): HasMany
+    {
+        return $this->hasMany(
+            DynamicPost::class,
+            'author_id',
+            'id'
+        );
+    }
+
     /**
      * Full-name accessor.
      *
