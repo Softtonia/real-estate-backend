@@ -791,15 +791,19 @@ Route::middleware(['validate.api.client'])->group(function () {
 
     Route::middleware(['throttle:60,1', 'allrole.token'])->post('business-role-update-profile', [UserController::class, 'updateProfile']);
 
-    // Menu Managements
-
+    // Menu Management (WordPress Drag-and-Drop Navigation)
     Route::prefix('menus')->group(function () {
         Route::get('/', [MenuController::class, 'index'])->middleware(['throttle:60,1']);
+        Route::get('/locations', [MenuController::class, 'locations'])->middleware(['throttle:60,1']);
+        Route::get('/sources', [MenuController::class, 'sources'])->middleware(['throttle:60,1']);
         Route::get('/show/{id}', [MenuController::class, 'show'])->middleware(['throttle:60,1']);
         Route::middleware(['throttle:60,1', 'admin.token'])->post('/store', [MenuController::class, 'store']);
+        Route::middleware(['throttle:60,1', 'admin.token'])->post('/add-items', [MenuController::class, 'addItems']);
+        Route::middleware(['throttle:60,1', 'admin.token'])->post('/save-tree', [MenuController::class, 'saveTree']);
+        Route::middleware(['throttle:60,1', 'admin.token'])->post('/reorder', [MenuController::class, 'reorder']);
         Route::middleware(['throttle:60,1', 'admin.token'])->post('/update/{id}', [MenuController::class, 'update']);
         Route::middleware(['throttle:60,1', 'admin.token'])->delete('/delete/{id}', [MenuController::class, 'destroy']);
-        Route::middleware(['throttle:60,1', 'admin.token'])->post('/reorder', [MenuController::class, 'reorder']); // Nested reorder
+        Route::middleware(['throttle:60,1', 'admin.token'])->post('/bulk-delete', [MenuController::class, 'bulkDestroy']);
     });
 
 
