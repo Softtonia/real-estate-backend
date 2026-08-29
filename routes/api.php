@@ -16,7 +16,6 @@ use App\Http\Controllers\Lead\LeadTypeController;
 use App\Http\Controllers\OvervewAnalytics\AdminDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\BusinessDashboardAnalyticsController;
 use App\Http\Controllers\OvervewAnalytics\OwnerDashboardAnalyticsController;
-use App\Http\Controllers\Page\PageController;
 use App\Http\Controllers\SearchEngine\SearchEngineController;
 use App\Http\Controllers\SiteSetting\SiteSettingController;
 use App\Http\Controllers\Subscribe\SubscribeController;
@@ -46,7 +45,6 @@ use App\Http\Controllers\FaqCategoryController;
 use App\Http\Controllers\FaqController;
 use App\Http\Controllers\Page\servicescontroller;
 use App\Http\Controllers\Page\AboutusController;
-use App\Http\Controllers\Page\PropertyValuationController;
 use App\Http\Controllers\Help\HelpCategoryController;
 use App\Http\Controllers\Help\HelpSubcategoryController;
 use App\Http\Controllers\Help\HelpChildcategoryController;
@@ -662,33 +660,10 @@ Route::middleware(['validate.api.client'])->group(function () {
     // Media Route will end from here
 
 
-    // =========Page=======
-
-    // =========16-07-2025=======
-
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('get-all-pages-list', [PageController::class, 'index']);
-    Route::get('get-pages-by-id', [PageController::class, 'show'])->middleware(['throttle:60,1']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('create-pages', [PageController::class, 'store']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('update-pages-by-id/{id}', [PageController::class, 'update']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->delete('delete-pages-by-id/{id}', [PageController::class, 'destroy']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('bulk-delete-pages', [PageController::class, 'bulkDestroy']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->get('search-pages', [PageController::class, 'searchPage']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('check-unique-pages', [PageController::class, 'checkUnique']);
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('update-page-status/{id}', [PageController::class, 'updatePageStatus']);
-
-
-
-
-
     // =========About us========
 
     Route::get('/about-us', [AboutUsController::class, 'show'])->middleware(['throttle:60,1']);
     Route::middleware(['throttle:60,1', 'admin.token'])->post('/about-us', [AboutUsController::class, 'storeOrUpdate']);
-
-
-    // =========Property Valuation========
-    Route::middleware(['throttle:60,1', 'admin.token'])->post('property-valuation-update', [PropertyValuationController::class, 'update']);
-    Route::get('property-valuation-list', [PropertyValuationController::class, 'index'])->middleware(['throttle:60,1']);
 
 
     // =========Help Cat========

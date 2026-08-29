@@ -19,7 +19,6 @@ use App\Models\CompanyConsultancyProject;
 use App\Models\SiteSetting;
 use App\Models\SubscribedEmail;
 use App\Models\TopFeature;
-use App\Models\Page;
 use App\Models\Location;
 use Hash;
 use Auth;

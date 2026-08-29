@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Page;
 use App\Http\Controllers\Controller;
 use App\Models\AboutUs;
 use Illuminate\Http\Request;
-use App\Models\Page;
 use App\Models\User;
 use DB;
 use Illuminate\Support\Facades\File;
