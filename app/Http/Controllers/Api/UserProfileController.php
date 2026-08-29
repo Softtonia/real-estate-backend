@@ -1459,6 +1459,15 @@ class UserProfileController extends Controller
                 'password' => Hash::make($request->new_password),
             ]);
 
+            try {
+                \App\Models\Notification\UserNotification::create([
+                    'user_id' => $user->id,
+                    'type' => 'system',
+                    'title' => 'Password Changed',
+                    'body' => 'Your password was changed successfully.',
+                ]);
+            } catch (Throwable) {}
+
             return response()->json([
                 'status' => true,
                 'message' => 'Password updated successfully.',
