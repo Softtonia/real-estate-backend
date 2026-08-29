@@ -63,6 +63,7 @@ use App\Http\Controllers\Api\Admin\Notification\AdminNotificationTemplateControl
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationTopicController;
 use App\Http\Controllers\Api\Admin\Notification\AdminUserNotificationsController;
 use App\Http\Controllers\Api\Admin\Notification\NotificationConfigController;
+use App\Http\Controllers\Api\Admin\UserActivityLogController;
 use App\Http\Controllers\Api\Admin\Notification\NotificationPayloadOptionController;
 use App\Http\Controllers\Api\Admin\Payment\PaymentGatewayController;
 use App\Http\Controllers\Api\CustomFieldGroupController;
@@ -964,6 +965,15 @@ Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/n
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-notifications', [AdminUserNotificationsController::class, 'store']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-notifications/{notification}/read', [AdminUserNotificationsController::class, 'markAsRead']);
 Route::middleware(['throttle:60,1', 'admin.token'])->delete('admin/user-notifications/{notification}', [AdminUserNotificationsController::class, 'destroy']);
+
+// Admin User Activity Logs
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-activities', [UserActivityLogController::class, 'index']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-activity-log', [UserActivityLogController::class, 'index']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/activities', [UserActivityLogController::class, 'index'])->whereNumber('userId');
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/activity-log', [UserActivityLogController::class, 'index'])->whereNumber('userId');
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-activities/{activity}', [UserActivityLogController::class, 'show']);
+Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-activities', [UserActivityLogController::class, 'store']);
+Route::middleware(['throttle:60,1', 'admin.token'])->delete('admin/user-activities/{activity}', [UserActivityLogController::class, 'destroy']);
 
 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('/business-enquiries', [BusinessEnquiryController::class, 'index']);

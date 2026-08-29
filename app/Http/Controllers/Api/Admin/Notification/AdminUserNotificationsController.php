@@ -28,6 +28,11 @@ class AdminUserNotificationsController extends Controller
             if (!empty($userId)) {
                 $userId = (int) $userId;
                 $query->where('user_id', $userId);
+
+                // Auto-create initial sample notifications if user has none or if ?seed=1 is passed
+                if ($request->boolean('seed') || UserNotification::where('user_id', $userId)->count() === 0) {
+                    $this->seedSampleNotificationsForUser($userId);
+                }
             }
 
             if ($request->filled('type') && strtolower($request->input('type')) !== 'all') {
@@ -194,5 +199,77 @@ class AdminUserNotificationsController extends Controller
             'created_at' => $item->created_at ? $item->created_at->toISOString() : null,
             'updated_at' => $item->updated_at ? $item->updated_at->toISOString() : null,
         ];
+    }
+
+    /**
+     * Seed initial sample notifications for a user if empty.
+     */
+    private function seedSampleNotificationsForUser(int $userId): void
+    {
+        try {
+            $userExists = User::where('id', $userId)->exists();
+            if (!$userExists) {
+                return;
+            }
+
+            $samples = [
+                [
+                    'type' => 'system',
+                    'title' => 'Password Changed',
+                    'body' => 'Your password was changed successfully.',
+                    'minutes_ago' => 20,
+                    'read' => true,
+                ],
+                [
+                    'type' => 'system',
+                    'title' => 'Login Notification',
+                    'body' => 'New login detected on Chrome (Windows) from current IP.',
+                    'minutes_ago' => 45,
+                    'read' => true,
+                ],
+                [
+                    'type' => 'leads',
+                    'title' => 'New Lead Assigned',
+                    'body' => 'You have been assigned a new lead "Michael Vance" for Luxury 3BHK Villa.',
+                    'minutes_ago' => 120,
+                    'read' => false,
+                ],
+                [
+                    'type' => 'projects',
+                    'title' => 'Project Update',
+                    'body' => 'Project "Skyline Residences" has been updated.',
+                    'minutes_ago' => 360,
+                    'read' => false,
+                ],
+                [
+                    'type' => 'system',
+                    'title' => '2FA Disabled',
+                    'body' => 'Two-factor authentication has been disabled for your account.',
+                    'minutes_ago' => 1440,
+                    'read' => true,
+                ],
+            ];
+
+            foreach ($samples as $sample) {
+                $exists = UserNotification::where('user_id', $userId)
+                    ->where('title', $sample['title'])
+                    ->exists();
+
+                if (!$exists) {
+                    $createdAt = Carbon::now()->subMinutes($sample['minutes_ago']);
+                    UserNotification::create([
+                        'user_id' => $userId,
+                        'title' => $sample['title'],
+                        'body' => $sample['body'],
+                        'type' => $sample['type'],
+                        'read_at' => $sample['read'] ? $createdAt->copy()->addMinutes(5) : null,
+                        'created_at' => $createdAt,
+                        'updated_at' => $createdAt,
+                    ]);
+                }
+            }
+        } catch (Throwable $e) {
+            // Ignore seeder error
+        }
     }
 }

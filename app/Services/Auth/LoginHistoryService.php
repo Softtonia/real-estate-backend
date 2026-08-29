@@ -58,29 +58,25 @@ class LoginHistoryService
 
             $log = UserIpLog::create($payload);
 
-            // Record real in-app Login Notification for the user
-            try {
-                if (Schema::hasTable('user_notifications')) {
-                    \App\Models\Notification\UserNotification::create([
-                        'user_id' => $userId,
-                        'type' => 'system',
-                        'title' => 'Login Notification',
-                        'body' => "New login detected on {$deviceInfo['browser']} ({$deviceInfo['os']}) from IP {$ip}.",
-                        'data' => [
-                            'ip' => $ip,
-                            'device' => $deviceInfo['device'],
-                            'browser' => $deviceInfo['browser'],
-                            'os' => $deviceInfo['os'],
-                            'login_method' => $loginMethod,
-                            'location' => $locationData['city'] ?? 'Unknown',
-                        ],
-                    ]);
-                }
-            } catch (Throwable $e) {
-                // Non-fatal
-            }
-
             $this->clearUserIpLogsCache($userId, $ip);
+
+            try {
+                app(\App\Services\Activity\UserActivityService::class)->log(
+                    user: $userId,
+                    action: 'Logged in',
+                    module: 'Auth',
+                    description: "User logged in successfully via {$loginMethod}",
+                    referenceId: "IP-{$ip}",
+                    metadata: [
+                        'login_method' => $loginMethod,
+                        'ip' => $ip,
+                        'device' => $deviceInfo['device'],
+                        'browser' => $deviceInfo['browser'],
+                        'os' => $deviceInfo['os'],
+                    ],
+                    request: $request
+                );
+            } catch (Throwable $e) {}
 
             return $log;
         } catch (Throwable $e) {
