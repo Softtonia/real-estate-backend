@@ -928,6 +928,38 @@ class UserController extends Controller
                 ], 401);
             }
 
+            if (is_array($response)) {
+                $response['notifications'] = \App\Models\Notification\UserNotification::where('user_id', $userId)
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->take(50)
+                    ->get()
+                    ->map(function ($item) {
+                        return [
+                            'id' => $item->id,
+                            'user_id' => $item->user_id,
+                            'title' => $item->title,
+                            'message' => $item->body,
+                            'body' => $item->body,
+                            'type' => ucfirst($item->type ?? 'System'),
+                            'type_slug' => strtolower($item->type ?? 'system'),
+                            'image_url' => $item->image_url,
+                            'data' => $item->data,
+                            'is_read' => !empty($item->read_at),
+                            'read_at' => $item->read_at ? $item->read_at->format('M d, Y h:i A') : null,
+                            'date_time' => $item->created_at ? $item->created_at->format('M d, Y h:i A') : null,
+                            'created_at' => $item->created_at,
+                            'updated_at' => $item->updated_at,
+                        ];
+                    });
+
+                $response['login_history'] = \App\Models\UserIpLog::where('user_id', $userId)
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->take(50)
+                    ->get();
+            }
+
             return response()->json($response, 200);
         } catch (\Throwable $th) {
             \Log::error('Error fetching user details:', [
@@ -3911,6 +3943,29 @@ class UserController extends Controller
                     ->orderByDesc('id')
                     ->take(50)
                     ->get(),
+                'notifications' => \App\Models\Notification\UserNotification::where('user_id', $user->id)
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->take(50)
+                    ->get()
+                    ->map(function ($item) {
+                        return [
+                            'id' => $item->id,
+                            'user_id' => $item->user_id,
+                            'title' => $item->title,
+                            'message' => $item->body,
+                            'body' => $item->body,
+                            'type' => ucfirst($item->type ?? 'System'),
+                            'type_slug' => strtolower($item->type ?? 'system'),
+                            'image_url' => $item->image_url,
+                            'data' => $item->data,
+                            'is_read' => !empty($item->read_at),
+                            'read_at' => $item->read_at ? $item->read_at->format('M d, Y h:i A') : null,
+                            'date_time' => $item->created_at ? $item->created_at->format('M d, Y h:i A') : null,
+                            'created_at' => $item->created_at,
+                            'updated_at' => $item->updated_at,
+                        ];
+                    }),
             ];
 
             return response()->json([
@@ -3918,6 +3973,7 @@ class UserController extends Controller
                 'message' => 'User details retrieved successfully',
                 'user' => $userData,
                 'login_history' => $userData['login_history'],
+                'notifications' => $userData['notifications'],
             ], 200);
         } catch (\Throwable $th) {
             \Log::error('Error fetching user details by id:', ['error' => $th->getMessage()]);

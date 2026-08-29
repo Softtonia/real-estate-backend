@@ -61,6 +61,7 @@ use App\Http\Controllers\Api\Admin\Notification\AdminNotificationRetryController
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationSendController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationTemplateController;
 use App\Http\Controllers\Api\Admin\Notification\AdminNotificationTopicController;
+use App\Http\Controllers\Api\Admin\Notification\AdminUserNotificationsController;
 use App\Http\Controllers\Api\Admin\Notification\NotificationConfigController;
 use App\Http\Controllers\Api\Admin\Notification\NotificationPayloadOptionController;
 use App\Http\Controllers\Api\Admin\Payment\PaymentGatewayController;
@@ -956,6 +957,13 @@ Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/login-history', 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/login-history', [IpLogController::class, 'getByUserId'])->whereNumber('userId');
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/ip-logs-by-id', [IpLogController::class, 'getById']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/ip-logs-update-status-by-ip', [IpLogController::class, 'updateStatusByIp']);
+
+// Admin User Notifications
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-notifications', [AdminUserNotificationsController::class, 'index']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/notifications', [AdminUserNotificationsController::class, 'index'])->whereNumber('userId');
+Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-notifications', [AdminUserNotificationsController::class, 'store']);
+Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-notifications/{notification}/read', [AdminUserNotificationsController::class, 'markAsRead']);
+Route::middleware(['throttle:60,1', 'admin.token'])->delete('admin/user-notifications/{notification}', [AdminUserNotificationsController::class, 'destroy']);
 
 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('/business-enquiries', [BusinessEnquiryController::class, 'index']);
