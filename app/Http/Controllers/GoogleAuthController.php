@@ -775,6 +775,12 @@ class GoogleAuthController extends Controller
             $user->token_created_at = now();
             $user->save();
         }
+
+        try {
+            app(\App\Services\Auth\LoginHistoryService::class)->recordLogin($user, request(), 'Google OAuth');
+        } catch (\Throwable $e) {
+            \Log::error('Google login history recording failed: ' . $e->getMessage());
+        }
     }
 
     /**

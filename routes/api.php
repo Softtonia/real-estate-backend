@@ -951,6 +951,9 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/ip-logs-update-
 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/ip-logs-by-ip-address', [IpLogController::class, 'getByIpAddress']);
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/ip-logs-by-user-id', [IpLogController::class, 'getByUserId']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-login-history', [IpLogController::class, 'getByUserId']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/login-history', [IpLogController::class, 'index']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/login-history', [IpLogController::class, 'getByUserId'])->whereNumber('userId');
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/ip-logs-by-id', [IpLogController::class, 'getById']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/ip-logs-update-status-by-ip', [IpLogController::class, 'updateStatusByIp']);
 

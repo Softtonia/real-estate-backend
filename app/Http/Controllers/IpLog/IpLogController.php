@@ -4,117 +4,203 @@ namespace App\Http\Controllers\IpLog;
 
 use App\Http\Controllers\Controller;
 use App\Models\UserIpLog;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 class IpLogController extends Controller
 {
-    protected $cacheTTL = 300; // 5 minutes TTL
+    protected int $cacheTTL = 300; // 5 minutes TTL
 
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
         $perPage = (int) $request->get('per_page', 10);
         $currentPage = (int) $request->get('page', 1);
-        $cacheKey = "iplogs_page_{$currentPage}_perpage_{$perPage}";
+        $userId = $request->input('user_id');
+        $fromDate = $request->input('from_date') ?? $request->input('start_date') ?? $request->input('from');
+        $toDate = $request->input('to_date') ?? $request->input('end_date') ?? $request->input('to');
+        $search = $request->input('search');
 
-        $paginator = Cache::store('redis')->remember($cacheKey, $this->cacheTTL, function () use ($perPage, $currentPage) {
-            // Use groupBy to avoid only_full_group_by SQL error
-            $iplogs = UserIpLog::select('id','user_id','ip_address','country','city','region','country_code','region_code','lat','lon','timezone','isp','org','as','query','status','blocked_at','blocked_reason','created_at','updated_at')
-                ->with(['user:id,user_name,first_name,last_name,email'])
-                ->groupBy('user_id', 'ip_address', 'id','country','city','region','country_code','region_code','lat','lon','timezone','isp','org','as','status','blocked_at','blocked_reason','created_at','updated_at')
-                ->orderByDesc('id')
-                ->get();
+        $query = UserIpLog::query()
+            ->with(['user:id,user_name,first_name,last_name,email'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
 
-            $currentPageItems = $iplogs->forPage($currentPage, $perPage);
+        if (!empty($userId)) {
+            $query->where('user_id', $userId);
+        }
 
-            return new LengthAwarePaginator(
-                $currentPageItems,
-                $iplogs->count(),
-                $perPage,
-                $currentPage,
-                ['path' => url()->current(), 'query' => request()->query()]
-            );
-        });
+        if (!empty($fromDate)) {
+            try {
+                $query->whereDate('created_at', '>=', Carbon::parse($fromDate)->toDateString());
+            } catch (Throwable) {}
+        }
+
+        if (!empty($toDate)) {
+            try {
+                $query->whereDate('created_at', '<=', Carbon::parse($toDate)->toDateString());
+            } catch (Throwable) {}
+        }
+
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('ip_address', 'like', "%{$search}%")
+                    ->orWhere('city', 'like', "%{$search}%")
+                    ->orWhere('country', 'like', "%{$search}%")
+                    ->orWhere('device', 'like', "%{$search}%")
+                    ->orWhere('browser', 'like', "%{$search}%")
+                    ->orWhere('os', 'like', "%{$search}%");
+            });
+        }
+
+        $paginator = $query->paginate($perPage, ['*'], 'page', $currentPage);
 
         return response()->json($paginator);
     }
 
-    public function updateIpStatus(Request $request)
+    public function updateIpStatus(Request $request): JsonResponse
     {
         $id = $request->input('id');
         $action = $request->input('status');
 
         $ip = UserIpLog::find($id);
-        if (!$ip) return response()->json(['error' => 'IP not found'], 200);
+        if (!$ip) {
+            return response()->json(['error' => 'IP not found'], 404);
+        }
 
         $ip->status = $action === 'block' ? 'blocked' : 'active';
+        $ip->blocked_at = $ip->status === 'blocked' ? now() : null;
+        $ip->blocked_reason = $ip->status === 'blocked' ? ($request->input('reason') ?? 'Blocked by admin') : null;
         $ip->save();
 
-        // Invalidate cache
-        Cache::store('redis')->flush();
+        $this->flushIpLogsCache();
 
-        return response()->json(['message' => "IP {$ip->status} successfully."]);
+        return response()->json([
+            'status' => true,
+            'message' => "IP {$ip->status} successfully.",
+            'data' => $ip,
+        ]);
     }
 
-    public function getByIpAddress(Request $request)
+    public function getByIpAddress(Request $request): JsonResponse
     {
         $ip = $request->input('ip');
-        $cacheKey = "iplogs_ip_{$ip}";
 
-        $iplogs = Cache::store('redis')->remember($cacheKey, $this->cacheTTL, function () use ($ip) {
-            return UserIpLog::where('ip_address', $ip)
-                ->with(['user:id,user_name,first_name,last_name,email'])
-                ->orderByDesc('id')
-                ->get();
-        });
+        $iplogs = UserIpLog::where('ip_address', $ip)
+            ->with(['user:id,user_name,first_name,last_name,email'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get();
 
         return response()->json($iplogs);
     }
 
-    public function getByUserId(Request $request)
+    public function getByUserId(Request $request, ?int $routeUserId = null): JsonResponse
     {
-        $userId = $request->input('user_id');
-        $cacheKey = "iplogs_user_{$userId}";
+        $userId = $routeUserId ?? $request->input('user_id') ?? $request->input('id');
 
-        $iplogs = Cache::store('redis')->remember($cacheKey, $this->cacheTTL, function () use ($userId) {
-            return UserIpLog::where('user_id', $userId)
-                ->with(['user:id,user_name,first_name,last_name,email'])
-                ->orderByDesc('id')
-                ->get();
-        });
+        if (!$userId) {
+            return response()->json([
+                'status' => false,
+                'message' => 'User ID is required.',
+                'data' => [],
+            ], 422);
+        }
+
+        $fromDate = $request->input('from_date') ?? $request->input('start_date') ?? $request->input('from');
+        $toDate = $request->input('to_date') ?? $request->input('end_date') ?? $request->input('to');
+        $search = $request->input('search');
+
+        $query = UserIpLog::query()
+            ->where('user_id', $userId)
+            ->with(['user:id,user_name,first_name,last_name,email'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+
+        if (!empty($fromDate)) {
+            try {
+                $query->whereDate('created_at', '>=', Carbon::parse($fromDate)->toDateString());
+            } catch (Throwable) {}
+        }
+
+        if (!empty($toDate)) {
+            try {
+                $query->whereDate('created_at', '<=', Carbon::parse($toDate)->toDateString());
+            } catch (Throwable) {}
+        }
+
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('ip_address', 'like', "%{$search}%")
+                    ->orWhere('city', 'like', "%{$search}%")
+                    ->orWhere('country', 'like', "%{$search}%")
+                    ->orWhere('device', 'like', "%{$search}%")
+                    ->orWhere('browser', 'like', "%{$search}%")
+                    ->orWhere('os', 'like', "%{$search}%")
+                    ->orWhere('login_method', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->has('per_page') || $request->has('page')) {
+            $perPage = (int) $request->get('per_page', 10);
+            $paginator = $query->paginate($perPage);
+            return response()->json($paginator);
+        }
+
+        $iplogs = $query->get();
 
         return response()->json($iplogs);
     }
 
-    public function getById(Request $request)
+    public function getById(Request $request): JsonResponse
     {
         $id = $request->input('id');
-        $cacheKey = "iplogs_id_{$id}";
 
-        $iplog = Cache::store('redis')->remember($cacheKey, $this->cacheTTL, function () use ($id) {
-            return UserIpLog::with(['user:id,user_name,first_name,last_name,email'])->find($id);
-        });
+        $iplog = UserIpLog::with(['user:id,user_name,first_name,last_name,email'])->find($id);
 
-        if (!$iplog) return response()->json(['error' => 'IP log not found.'], 200);
+        if (!$iplog) {
+            return response()->json(['error' => 'IP log not found.'], 404);
+        }
 
         return response()->json($iplog);
     }
 
-    public function updateStatusByIp(Request $request)
+    public function updateStatusByIp(Request $request): JsonResponse
     {
         $ipAddress = $request->input('ip');
         $action = $request->input('status');
 
-        $ipLog = UserIpLog::where('ip_address', $ipAddress)->first();
-        if (!$ipLog) return response()->json(['error' => 'IP not found.'], 200);
+        $ipLogs = UserIpLog::where('ip_address', $ipAddress)->get();
+        if ($ipLogs->isEmpty()) {
+            return response()->json(['error' => 'IP not found.'], 404);
+        }
 
-        $ipLog->status = $action === 'block' ? 'blocked' : 'active';
-        $ipLog->save();
+        $status = $action === 'block' ? 'blocked' : 'active';
+        $blockedAt = $status === 'blocked' ? now() : null;
+        $reason = $status === 'blocked' ? ($request->input('reason') ?? 'Blocked by admin') : null;
 
-        // Invalidate cache
-        Cache::store('redis')->flush();
+        UserIpLog::where('ip_address', $ipAddress)->update([
+            'status' => $status,
+            'blocked_at' => $blockedAt,
+            'blocked_reason' => $reason,
+        ]);
 
-        return response()->json(['message' => "IP {$ipLog->status} successfully."]);
+        $this->flushIpLogsCache();
+
+        return response()->json(['message' => "IP {$status} successfully."]);
+    }
+
+    private function flushIpLogsCache(): void
+    {
+        try {
+            Cache::flush();
+        } catch (Throwable) {}
+
+        try {
+            Cache::store('redis')->flush();
+        } catch (Throwable) {}
     }
 }

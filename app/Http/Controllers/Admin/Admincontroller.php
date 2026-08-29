@@ -89,6 +89,13 @@ class AdminController extends Controller
                 $user->save();
             }
 
+            // Record login history
+            try {
+                app(\App\Services\Auth\LoginHistoryService::class)->recordLogin($user, $request, 'Admin Login');
+            } catch (\Throwable $e) {
+                \Log::error('Admin login history recording failed: ' . $e->getMessage());
+            }
+
             return response()->json([
                 'message' => 'User logged in successfully',
                 'token' => $user->api_token,

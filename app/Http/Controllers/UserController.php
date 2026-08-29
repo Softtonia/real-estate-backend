@@ -3900,13 +3900,24 @@ class UserController extends Controller
                 'no_of_employees' => $user->no_of_employees,
                 'about_us' => $user->about_us,
                 'created_at' => $user->created_at,
-                'updated_at' => $user->updated_at
+                'updated_at' => $user->updated_at,
+                'login_history' => \App\Models\UserIpLog::where('user_id', $user->id)
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->take(50)
+                    ->get(),
+                'ip_logs' => \App\Models\UserIpLog::where('user_id', $user->id)
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->take(50)
+                    ->get(),
             ];
 
             return response()->json([
                 'success' => true,
                 'message' => 'User details retrieved successfully',
-                'user' => $userData
+                'user' => $userData,
+                'login_history' => $userData['login_history'],
             ], 200);
         } catch (\Throwable $th) {
             \Log::error('Error fetching user details by id:', ['error' => $th->getMessage()]);

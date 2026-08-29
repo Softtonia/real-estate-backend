@@ -258,6 +258,13 @@ class AuthController extends Controller
             'token_created_at' => now(),
         ])->save();
 
+        // Record login history
+        try {
+            app(\App\Services\Auth\LoginHistoryService::class)->recordLogin($user, $request, 'Password');
+        } catch (\Throwable $e) {
+            \Log::error('Login history recording failed in login: ' . $e->getMessage());
+        }
+
         return response()->json([
             'status' => true,
             'message' => 'Login successful',
