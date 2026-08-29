@@ -988,97 +988,97 @@ Route::prefix('admin')
                     'throttle:property-availability-admin',
                 ]);
     });
-Route::middleware(['admin.token'])
+Route::middleware(['admin.token', 'throttle:kyc-admin'])
     ->prefix('admin/kyc')
     ->group(function () {
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+        Route::middleware(['permission.check:kyc_requests,read'])
             ->get('stats', [AdminKycController::class, 'stats']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+        Route::middleware(['permission.check:kyc_requests,assign'])
             ->get('verifier-roles', [AdminKycController::class, 'verifierRoles']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+        Route::middleware(['permission.check:kyc_requests,assign'])
             ->get('verifiers', [AdminKycController::class, 'verifiers']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+        Route::middleware(['permission.check:kyc_requests,read'])
             ->get('my-assigned', [AdminKycController::class, 'myAssigned']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+        Route::middleware(['permission.check:kyc_requests,read'])
             ->get('requests', [AdminKycController::class, 'index']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+        Route::middleware(['permission.check:kyc_requests,assign'])
             ->post('requests/bulk-assign', [AdminKycController::class, 'bulkAssign']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+        Route::middleware(['permission.check:kyc_requests,assign'])
             ->post('requests/assign-all', [AdminKycController::class, 'assignAllOpen']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+        Route::middleware(['permission.check:kyc_requests,read'])
             ->get('requests/{kycRequest}', [AdminKycController::class, 'show'])
             ->whereNumber('kycRequest')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,assign'])
+        Route::middleware(['permission.check:kyc_requests,assign'])
             ->post('requests/{kycRequest}/assign', [AdminKycController::class, 'assign'])
             ->whereNumber('kycRequest')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+        Route::middleware(['permission.check:kyc_requests,read'])
             ->get('requests/{kycRequest}/documents', [AdminKycController::class, 'documents'])
             ->whereNumber('kycRequest')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+        Route::middleware(['permission.check:kyc_requests,read'])
             ->get('requests/{kycRequest}/timeline', [AdminKycController::class, 'timeline'])
             ->whereNumber('kycRequest')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,edit'])
+        Route::middleware(['permission.check:kyc_requests,edit'])
             ->post('requests/{kycRequest}/start-review', [AdminKycController::class, 'startReview'])
             ->whereNumber('kycRequest')
             ->defaults('review_action', 'start_review')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,approve'])
+        Route::middleware(['permission.check:kyc_requests,approve'])
             ->post('requests/{kycRequest}/approve', [AdminKycController::class, 'approve'])
             ->whereNumber('kycRequest')
             ->defaults('review_action', 'approve')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,reject'])
+        Route::middleware(['permission.check:kyc_requests,reject'])
             ->post('requests/{kycRequest}/reject', [AdminKycController::class, 'reject'])
             ->whereNumber('kycRequest')
             ->defaults('review_action', 'reject')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC request not found.'], 404));
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_requests,read'])
+        Route::middleware(['permission.check:kyc_requests,read'])
             ->get('documents/{document}/view', [AdminKycController::class, 'viewDocument'])
             ->whereNumber('document')
             ->missing(fn() => response()->json(['status' => false, 'message' => 'KYC document not found.'], 404));
     });
 
-Route::middleware(['admin.token'])
+Route::middleware(['admin.token', 'throttle:kyc-admin'])
     ->prefix('kyc/settings')
     ->group(function () {
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+        Route::middleware(['permission.check:kyc_settings,read'])
             ->get('roles', [KycSettingsController::class, 'availableRoles']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+        Route::middleware(['permission.check:kyc_settings,read'])
             ->get('role-rules', [KycSettingsController::class, 'roleRules']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,edit'])
+        Route::middleware(['permission.check:kyc_settings,edit'])
             ->post('role-rules', [KycSettingsController::class, 'updateRoleRule']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+        Route::middleware(['permission.check:kyc_settings,read'])
             ->get('user-exemptions', [KycSettingsController::class, 'userExemptions']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,edit'])
+        Route::middleware(['permission.check:kyc_settings,edit'])
             ->post('user-exemptions', [KycSettingsController::class, 'createUserExemption']);
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,edit'])
+        Route::middleware(['permission.check:kyc_settings,edit'])
             ->post('user-exemptions/{exemption}/revoke', [KycSettingsController::class, 'revokeUserExemption'])
             ->whereNumber('exemption');
 
-        Route::middleware(['throttle:60,1', 'permission.check:kyc_settings,read'])
+        Route::middleware(['permission.check:kyc_settings,read'])
             ->get('users/{userId}/access-status', [KycSettingsController::class, 'userAccessStatus'])
             ->whereNumber('userId');
     });
@@ -2307,7 +2307,7 @@ Route::middleware(['throttle:60,1', 'validate.api.client'])->group(function () {
     );
 });
 
-Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
+Route::middleware(['validate.api.client'])->group(function () {
     /*
     |--------------------------------------------------------------------------
     | Authentication and User Profile
@@ -2348,6 +2348,7 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
         Route::get('locations/header-cities', [FrontendLocationController::class, 'headerCities']);
         Route::get('/taxonomies', [FrontendListingController::class, 'taxonomies'])->name('taxonomies');
     });
+
     Route::get('get-popular-cities', [FrontendLocationController::class, 'popularCities']);
     Route::get('get-header-cities', [FrontendLocationController::class, 'headerCities']);
     Route::prefix('frontend')
@@ -2424,14 +2425,16 @@ Route::middleware(['validate.api.client', 'throttle:60,1'])->group(function () {
     Route::post('template-builder/related-posts-widget/preview', [RelatedPostsWidgetPreviewController::class, 'preview']);
     Route::post('template-builder/related-posts-widget/candidates', [RelatedPostsWidgetCandidateController::class, 'candidates']);
 
-    Route::middleware(['throttle:300,1'])->prefix('kyc')->group(function () {
+    Route::middleware(['throttle:kyc-user'])->prefix('kyc')->group(function () {
         Route::get('status', [UserKycController::class, 'status']);
         Route::get('details', [UserKycController::class, 'details']);
         Route::get('documents', [UserKycController::class, 'documents']);
         Route::get('timeline', [UserKycController::class, 'timeline']);
 
-        Route::post('uploads/start', [UserKycController::class, 'startBatchUpload']);
-        Route::get('uploads/{uploadId}/progress', [UserKycController::class, 'uploadProgress']);
+        Route::middleware(['throttle:kyc-upload'])->group(function () {
+            Route::post('uploads/start', [UserKycController::class, 'startBatchUpload']);
+            Route::get('uploads/{uploadId}/progress', [UserKycController::class, 'uploadProgress']);
+        });
 
         Route::post('submit', [UserKycController::class, 'submit']);
         Route::post('resubmit', [UserKycController::class, 'resubmit']);

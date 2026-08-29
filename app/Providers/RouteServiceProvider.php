@@ -86,6 +86,29 @@ class RouteServiceProvider extends ServiceProvider
 
         /*
         |--------------------------------------------------------------------------
+        | KYC limiters
+        |--------------------------------------------------------------------------
+        */
+        RateLimiter::for('kyc-admin', function (Request $request) {
+            return Limit::perMinute(1200)
+                ->by($this->throttleKey($request, 'kyc-admin'))
+                ->response(fn () => $this->tooManyAttemptsResponse());
+        });
+
+        RateLimiter::for('kyc-user', function (Request $request) {
+            return Limit::perMinute(600)
+                ->by($this->throttleKey($request, 'kyc-user'))
+                ->response(fn () => $this->tooManyAttemptsResponse());
+        });
+
+        RateLimiter::for('kyc-upload', function (Request $request) {
+            return Limit::perMinute(300)
+                ->by($this->throttleKey($request, 'kyc-upload'))
+                ->response(fn () => $this->tooManyAttemptsResponse());
+        });
+
+        /*
+        |--------------------------------------------------------------------------
         | Routes
         |--------------------------------------------------------------------------
         */
