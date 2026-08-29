@@ -36,7 +36,36 @@ return [
 
         'users' => [
             'label' => 'Users',
-            'actions' => ['read', 'create', 'edit', 'delete'],
+            'actions' => [
+                'read',
+                'create',
+                'edit',
+                'delete',
+                'view_overview',
+                'view_roles_permissions',
+                'view_activity_log',
+                'view_login_history',
+                'view_notifications',
+                'view_business_details',
+                'view_property_listings',
+                'view_project_listings',
+                'view_developer_listings',
+            ],
+        ],
+
+        'user_view_tabs' => [
+            'label' => 'View User Tabs',
+            'actions' => [
+                'overview',
+                'roles_permissions',
+                'activity_log',
+                'login_history',
+                'notifications',
+                'business_details',
+                'property_listings',
+                'project_listings',
+                'developer_listings',
+            ],
         ],
 
         'roles' => [

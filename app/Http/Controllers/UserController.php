@@ -975,6 +975,15 @@ class UserController extends Controller
                 } else {
                     $response['allowed_listing_tabs'] = [];
                 }
+
+                $response['tabs'] = [
+                    ['key' => 'overview', 'name' => 'Overview', 'permission' => 'user_view_tabs.overview', 'is_listing_tab' => false],
+                    ['key' => 'roles_permissions', 'name' => 'Roles & Permissions', 'permission' => 'user_view_tabs.roles_permissions', 'is_listing_tab' => false],
+                    ['key' => 'activity_log', 'name' => 'Activity Log', 'permission' => 'user_view_tabs.activity_log', 'is_listing_tab' => false],
+                    ['key' => 'login_history', 'name' => 'Login History', 'permission' => 'user_view_tabs.login_history', 'is_listing_tab' => false],
+                    ['key' => 'notifications', 'name' => 'Notifications', 'permission' => 'user_view_tabs.notifications', 'is_listing_tab' => false],
+                    ['key' => 'business_details', 'name' => 'Business Details', 'permission' => 'user_view_tabs.business_details', 'is_listing_tab' => false],
+                ];
             }
 
             return response()->json($response, 200);
@@ -3994,12 +4003,21 @@ class UserController extends Controller
                     ->take(50)
                     ->get(),
                 'allowed_listing_tabs' => app(\App\Http\Controllers\Api\Admin\UserListingController::class)->resolveAllowedTabsForUser($user),
+                'tabs' => [
+                    ['key' => 'overview', 'name' => 'Overview', 'permission' => 'user_view_tabs.overview', 'is_listing_tab' => false],
+                    ['key' => 'roles_permissions', 'name' => 'Roles & Permissions', 'permission' => 'user_view_tabs.roles_permissions', 'is_listing_tab' => false],
+                    ['key' => 'activity_log', 'name' => 'Activity Log', 'permission' => 'user_view_tabs.activity_log', 'is_listing_tab' => false],
+                    ['key' => 'login_history', 'name' => 'Login History', 'permission' => 'user_view_tabs.login_history', 'is_listing_tab' => false],
+                    ['key' => 'notifications', 'name' => 'Notifications', 'permission' => 'user_view_tabs.notifications', 'is_listing_tab' => false],
+                    ['key' => 'business_details', 'name' => 'Business Details', 'permission' => 'user_view_tabs.business_details', 'is_listing_tab' => false],
+                ],
             ];
 
             return response()->json([
                 'success' => true,
                 'message' => 'User details retrieved successfully',
                 'user' => $userData,
+                'tabs' => $userData['tabs'],
                 'login_history' => $userData['login_history'],
                 'notifications' => $userData['notifications'],
                 'activity_log' => $userData['activity_log'],
