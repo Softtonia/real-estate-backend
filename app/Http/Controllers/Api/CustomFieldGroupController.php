@@ -327,6 +327,7 @@ class CustomFieldGroupController extends Controller
                         'media_limit',
                         'media_size',
                         'media_format',
+                        'has_featured',
                         'sort_order',
                         'status'
                     ] as $key
@@ -516,6 +517,7 @@ class CustomFieldGroupController extends Controller
                         'media_limit',
                         'media_size',
                         'media_format',
+                        'has_featured',
                         'sort_order',
                         'status'
                     ] as $key
@@ -1007,6 +1009,7 @@ class CustomFieldGroupController extends Controller
             'repeaters.*.media_limit' => ['nullable', 'integer', 'min:1'],
             'repeaters.*.media_size' => ['nullable', 'string', 'max:100'],
             'repeaters.*.media_format' => ['nullable', 'string', 'max:255'],
+            'repeaters.*.has_featured' => ['nullable', 'boolean'],
             'repeaters.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'repeaters.*.status' => ['nullable', 'boolean'],
             'repeaters.*.options' => ['nullable', 'array'],
@@ -1052,6 +1055,7 @@ class CustomFieldGroupController extends Controller
             'fields.*.media_limit' => ['nullable', 'integer', 'min:1'],
             'fields.*.media_size' => ['nullable', 'string', 'max:100'],
             'fields.*.media_format' => ['nullable', 'string', 'max:255'],
+            'fields.*.has_featured' => ['nullable', 'boolean'],
             'fields.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'fields.*.status' => ['nullable', 'boolean'],
 
@@ -1092,6 +1096,7 @@ class CustomFieldGroupController extends Controller
             'fields.*.repeaters.*.media_limit' => ['nullable', 'integer', 'min:1'],
             'fields.*.repeaters.*.media_size' => ['nullable', 'string', 'max:100'],
             'fields.*.repeaters.*.media_format' => ['nullable', 'string', 'max:255'],
+            'fields.*.repeaters.*.has_featured' => ['nullable', 'boolean'],
             'fields.*.repeaters.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'fields.*.repeaters.*.status' => ['nullable', 'boolean'],
             'fields.*.repeaters.*.options' => ['nullable', 'array'],
@@ -1133,6 +1138,7 @@ class CustomFieldGroupController extends Controller
             'fields.*.media_limit' => ['nullable', 'integer', 'min:1'],
             'fields.*.media_size' => ['nullable', 'string', 'max:100'],
             'fields.*.media_format' => ['nullable', 'string', 'max:255'],
+            'fields.*.has_featured' => ['nullable', 'boolean'],
             'fields.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'fields.*.status' => ['nullable', 'boolean'],
 
@@ -1160,6 +1166,7 @@ class CustomFieldGroupController extends Controller
             'media_limit' => ['nullable', 'integer', 'min:1'],
             'media_size' => ['nullable', 'string', 'max:100'],
             'media_format' => ['nullable', 'string', 'max:255'],
+            'has_featured' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'status' => ['nullable', 'boolean'],
         ];
@@ -1443,6 +1450,7 @@ class CustomFieldGroupController extends Controller
                 'media_limit' => $fieldData['media_limit'] ?? null,
                 'media_size' => $fieldData['media_size'] ?? null,
                 'media_format' => $fieldData['media_format'] ?? null,
+                'has_featured' => $fieldData['has_featured'] ?? false,
                 'sort_order' => $fieldData['sort_order'] ?? ($index + 1),
                 'status' => $fieldData['status'] ?? true,
                 'created_by' => Auth::id(),
@@ -1486,6 +1494,7 @@ class CustomFieldGroupController extends Controller
                 'media_limit' => $repeaterData['media_limit'] ?? null,
                 'media_size' => $repeaterData['media_size'] ?? null,
                 'media_format' => $repeaterData['media_format'] ?? null,
+                'has_featured' => $repeaterData['has_featured'] ?? false,
                 'sort_order' => $repeaterData['sort_order'] ?? $index,
                 'status' => $repeaterData['status'] ?? true,
             ]);
@@ -1563,6 +1572,7 @@ class CustomFieldGroupController extends Controller
             'media_limit' => $field->media_limit,
             'media_size' => $field->media_size,
             'media_format' => $field->media_format,
+            'has_featured' => (bool) ($field->has_featured ?? false),
             'sort_order' => $field->sort_order,
             'status' => $field->status,
             'created_by' => $field->created_by,

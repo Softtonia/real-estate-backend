@@ -16,6 +16,7 @@ class CustomFieldRepeater extends Model
         'media_limit',
         'media_size',
         'media_format',
+        'has_featured',
         'sort_order',
         'status',
     ];
@@ -23,6 +24,7 @@ class CustomFieldRepeater extends Model
     protected $casts = [
         'sort_order' => 'integer',
         'media_limit' => 'integer',
+        'has_featured' => 'boolean',
         'status' => 'boolean',
     ];
 

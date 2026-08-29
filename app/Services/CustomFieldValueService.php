@@ -302,32 +302,62 @@ class CustomFieldValueService
         }
 
         if (is_array($rawValue)) {
+            // Support wrapper structure: { images: [...], featured: 123 }
+            if (isset($rawValue['images']) && is_array($rawValue['images'])) {
+                $featuredRef = $rawValue['featured'] ?? $rawValue['featured_id'] ?? $rawValue['featured_url'] ?? null;
+                $normalizedImages = [];
+                foreach ($rawValue['images'] as $idx => $img) {
+                    $item = is_array($img) ? $img : (is_numeric($img) ? ['id' => (int) $img] : ['url' => (string) $img]);
+                    $isFeatured = false;
+                    if (isset($item['is_featured'])) {
+                        $isFeatured = (bool) $item['is_featured'];
+                    } elseif ($featuredRef !== null) {
+                        $isFeatured = (isset($item['id']) && (int) $item['id'] === (int) $featuredRef)
+                            || (isset($item['url']) && $item['url'] === (string) $featuredRef)
+                            || ($featuredRef === $idx);
+                    }
+                    $item['is_featured'] = $isFeatured;
+                    $normalizedImages[] = $item;
+                }
+                return $normalizedImages;
+            }
+
             if (isset($rawValue['id']) || isset($rawValue['url']) || isset($rawValue['path'])) {
-                return $rawValue;
+                return [[
+                    'id' => isset($rawValue['id']) ? (int) $rawValue['id'] : null,
+                    'url' => $rawValue['url'] ?? $rawValue['path'] ?? null,
+                    'is_featured' => (bool) ($rawValue['is_featured'] ?? $rawValue['featured'] ?? false),
+                ]];
             }
 
             if (isset($rawValue[0]) && is_array($rawValue[0])) {
-                return $rawValue;
+                return array_map(function ($item) {
+                    return [
+                        'id' => isset($item['id']) ? (int) $item['id'] : null,
+                        'url' => $item['url'] ?? $item['path'] ?? null,
+                        'is_featured' => (bool) ($item['is_featured'] ?? $item['featured'] ?? false),
+                    ];
+                }, $rawValue);
             }
 
             return array_map(function ($item) {
                 if (is_numeric($item)) {
-                    return ['id' => (int) $item];
+                    return ['id' => (int) $item, 'is_featured' => false];
                 }
 
-                return ['url' => (string) $item];
+                return ['url' => (string) $item, 'is_featured' => false];
             }, $rawValue);
         }
 
         if (is_numeric($rawValue)) {
-            return [['id' => (int) $rawValue]];
+            return [['id' => (int) $rawValue, 'is_featured' => true]];
         }
 
         if (filter_var($rawValue, FILTER_VALIDATE_URL) || str_starts_with((string) $rawValue, 'http')) {
-            return [['url' => (string) $rawValue]];
+            return [['url' => (string) $rawValue, 'is_featured' => true]];
         }
 
-        return [['url' => (string) $rawValue]];
+        return [['url' => (string) $rawValue, 'is_featured' => true]];
     }
 
     public static function formatValue(CustomFieldValue $value): array

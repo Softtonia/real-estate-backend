@@ -324,9 +324,12 @@ class UserListingController extends Controller
                         if (is_array($raw)) {
                             foreach ($raw as $val) {
                                 $url = $this->resolveSingleMediaUrl($val);
+                                $isItemFeatured = is_array($val) && (!empty($val['is_featured']) || !empty($val['featured']));
                                 if ($url) {
                                     $gallery[] = $url;
-                                    if (!$primaryImage) {
+                                    if ($isItemFeatured) {
+                                        $primaryImage = $url;
+                                    } elseif (!$primaryImage) {
                                         $primaryImage = $url;
                                     }
                                 }
@@ -362,6 +365,19 @@ class UserListingController extends Controller
     private function resolveSingleMediaUrl(mixed $value): ?string
     {
         if (empty($value)) {
+            return null;
+        }
+
+        if (is_array($value)) {
+            if (!empty($value['url'])) {
+                return $this->resolveSingleMediaUrl($value['url']);
+            }
+            if (!empty($value['path'])) {
+                return $this->resolveSingleMediaUrl($value['path']);
+            }
+            if (!empty($value['id'])) {
+                return $this->resolveSingleMediaUrl($value['id']);
+            }
             return null;
         }
 

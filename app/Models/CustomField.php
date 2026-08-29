@@ -21,6 +21,7 @@ class CustomField extends Model
         'media_limit',
         'media_size',
         'media_format',
+        'has_featured',
         'sort_order',
         'status',
         'created_by',
@@ -31,6 +32,7 @@ class CustomField extends Model
         'conditional_rules' => 'array',
         'sort_order' => 'integer',
         'media_limit' => 'integer',
+        'has_featured' => 'boolean',
         'status' => 'boolean',
     ];
 
