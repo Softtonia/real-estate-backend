@@ -748,29 +748,7 @@ class DynamicPostFormStepService
                 ],
             ],
 
-            'step-4' => [
-                [
-                    'key' => 'featured_image_id',
-                    'field_name_slug' => 'featured_image_id',
-                    'request_key' => 'featured_image_id',
-                    'field_label' => 'Featured Image',
-                    'label' => 'Featured Image',
-                    'field_type' => 'media',
-                    'type' => 'media',
-                    'is_base_field' => true,
-                ],
-                [
-                    'key' => 'gallery_image_ids',
-                    'field_name_slug' => 'gallery_image_ids',
-                    'request_key' => 'gallery_image_ids',
-                    'field_label' => 'Gallery',
-                    'label' => 'Gallery',
-                    'field_type' => 'gallery',
-                    'type' => 'gallery',
-                    'multiple' => true,
-                    'is_base_field' => true,
-                ],
-            ],
+            'step-4' => [],
         ];
 
         return $baseFields[$stepKey] ?? [];

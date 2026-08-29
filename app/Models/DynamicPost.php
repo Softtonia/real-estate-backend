@@ -23,8 +23,6 @@ class DynamicPost extends Model
         'slug',
         'excerpt',
         'content',
-        'featured_image_id',
-        'gallery_image_ids',
         'status',
         'live_status',
         'author_id',
@@ -42,8 +40,6 @@ class DynamicPost extends Model
 
     protected $casts = [
         'post_type_id' => 'integer',
-        'featured_image_id' => 'integer',
-        'gallery_image_ids' => 'array',
         'author_id' => 'integer',
         'parent_id' => 'integer',
         'published_at' => 'datetime',

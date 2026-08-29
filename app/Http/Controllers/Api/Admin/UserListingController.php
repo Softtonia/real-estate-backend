@@ -245,7 +245,7 @@ class UserListingController extends Controller
      */
     private function formatPostItem(DynamicPost $post): array
     {
-        $featuredImageUrl = $this->resolveMediaUrl($post->featured_image_id);
+        $customMedia = $this->resolveMediaFromCustomFields($post);
 
         $locationParts = array_filter([
             $post->area_locality,
@@ -253,6 +253,19 @@ class UserListingController extends Controller
             $post->state?->name,
             $post->country?->name,
         ]);
+
+        $customFields = [];
+        if ($post->relationLoaded('meta')) {
+            foreach ($post->meta as $meta) {
+                if ($meta->customField) {
+                    $slug = $meta->customField->slug ?? $meta->customField->name;
+                    $value = $meta->value_string ?? $meta->value_text ?? $meta->value_number ?? $meta->value_json ?? null;
+                    if ($slug) {
+                        $customFields[$slug] = $value;
+                    }
+                }
+            }
+        }
 
         return [
             'id' => $post->id,
@@ -264,7 +277,11 @@ class UserListingController extends Controller
             'post_type_slug' => $post->postType?->slug,
             'status' => $post->status,
             'live_status' => $post->live_status,
-            'featured_image' => $featuredImageUrl,
+            'image' => $customMedia['image'],
+            'featured_image' => $customMedia['image'],
+            'gallery' => $customMedia['gallery'],
+            'gallery_images' => $customMedia['gallery'],
+            'custom_fields' => $customFields,
             'location' => implode(', ', $locationParts) ?: null,
             'city' => $post->city?->name,
             'state' => $post->state?->name,
@@ -279,24 +296,97 @@ class UserListingController extends Controller
     }
 
     /**
-     * Resolve media file URL from media_files table.
+     * Resolve image and gallery dynamically from custom fields without hardcoding.
      */
-    private function resolveMediaUrl(?int $mediaId): ?string
+    private function resolveMediaFromCustomFields(DynamicPost $post): array
     {
-        if (empty($mediaId)) {
+        $primaryImage = null;
+        $gallery = [];
+
+        if ($post->relationLoaded('meta')) {
+            foreach ($post->meta as $meta) {
+                $cf = $meta->customField;
+                if (!$cf) continue;
+
+                $type = strtolower($cf->type ?? '');
+                $slug = strtolower($cf->slug ?? '');
+                $isMediaField = in_array($type, ['image', 'gallery', 'file', 'media'])
+                    || str_contains($slug, 'image')
+                    || str_contains($slug, 'photo')
+                    || str_contains($slug, 'gallery')
+                    || str_contains($slug, 'featured')
+                    || str_contains($slug, 'cover')
+                    || str_contains($slug, 'thumbnail');
+
+                if ($isMediaField) {
+                    $raw = $meta->value_json ?? $meta->value_string ?? $meta->value_text;
+                    if (!empty($raw)) {
+                        if (is_array($raw)) {
+                            foreach ($raw as $val) {
+                                $url = $this->resolveSingleMediaUrl($val);
+                                if ($url) {
+                                    $gallery[] = $url;
+                                    if (!$primaryImage) {
+                                        $primaryImage = $url;
+                                    }
+                                }
+                            }
+                        } else {
+                            $url = $this->resolveSingleMediaUrl($raw);
+                            if ($url) {
+                                $gallery[] = $url;
+                                if (!$primaryImage) {
+                                    $primaryImage = $url;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to post hardcoded column if custom field had no images
+        if (!$primaryImage && !empty($post->featured_image_id)) {
+            $primaryImage = $this->resolveSingleMediaUrl($post->featured_image_id);
+        }
+
+        return [
+            'image' => $primaryImage,
+            'gallery' => array_values(array_unique($gallery)),
+        ];
+    }
+
+    /**
+     * Resolve single media URL from ID, path, or direct URL.
+     */
+    private function resolveSingleMediaUrl(mixed $value): ?string
+    {
+        if (empty($value)) {
             return null;
         }
 
-        $media = MediaFile::find($mediaId);
-        if (!$media || empty($media->file_path)) {
+        if (is_numeric($value)) {
+            $media = MediaFile::find((int) $value);
+            if ($media && !empty($media->file_path)) {
+                $path = $media->file_path;
+                if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+                    return $path;
+                }
+                return Storage::disk('public')->url($path);
+            }
             return null;
         }
 
-        $path = $media->file_path;
-        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
-            return $path;
+        if (is_string($value)) {
+            $value = trim($value);
+            if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+                return $value;
+            }
+            if (!empty($value)) {
+                return Storage::disk('public')->url($value);
+            }
         }
 
-        return Storage::disk('public')->url($path);
+        return null;
     }
 }

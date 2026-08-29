@@ -2586,8 +2586,6 @@ class DynamicPostController extends Controller
             'slug',
             'excerpt',
             'content',
-            'featured_image_id',
-            'gallery_image_ids',
             'status',
             'live_status',
             'author_id',
