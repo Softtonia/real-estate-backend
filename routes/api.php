@@ -64,6 +64,7 @@ use App\Http\Controllers\Api\Admin\Notification\AdminNotificationTopicController
 use App\Http\Controllers\Api\Admin\Notification\AdminUserNotificationsController;
 use App\Http\Controllers\Api\Admin\Notification\NotificationConfigController;
 use App\Http\Controllers\Api\Admin\UserActivityLogController;
+use App\Http\Controllers\Api\Admin\UserListingController as AdminUserListingController;
 use App\Http\Controllers\Api\Admin\Notification\NotificationPayloadOptionController;
 use App\Http\Controllers\Api\Admin\Payment\PaymentGatewayController;
 use App\Http\Controllers\Api\CustomFieldGroupController;
@@ -974,6 +975,12 @@ Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/a
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-activities/{activity}', [UserActivityLogController::class, 'show']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-activities', [UserActivityLogController::class, 'store']);
 Route::middleware(['throttle:60,1', 'admin.token'])->delete('admin/user-activities/{activity}', [UserActivityLogController::class, 'destroy']);
+
+// Role-Based User Listings & Tabs (Property Listing, Project Listing, etc.)
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/listings', [AdminUserListingController::class, 'index'])->whereNumber('userId');
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/listing-tabs', [AdminUserListingController::class, 'allowedTabs'])->whereNumber('userId');
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/get-listing-by-userid', [AdminUserListingController::class, 'index']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('get-listing-by-userid', [AdminUserListingController::class, 'index']);
 
 
 Route::middleware(['throttle:60,1', 'admin.token'])->get('/business-enquiries', [BusinessEnquiryController::class, 'index']);

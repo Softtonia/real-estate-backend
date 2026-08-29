@@ -969,6 +969,13 @@ class UserController extends Controller
 
                 $response['activity_log'] = $activityLogs;
                 $response['activities'] = $activityLogs;
+
+                $targetUser = \App\Models\User::with('role')->find($userId);
+                if ($targetUser) {
+                    $response['allowed_listing_tabs'] = app(\App\Http\Controllers\Api\Admin\UserListingController::class)->resolveAllowedTabsForUser($targetUser);
+                } else {
+                    $response['allowed_listing_tabs'] = [];
+                }
             }
 
             return response()->json($response, 200);
@@ -3987,6 +3994,7 @@ class UserController extends Controller
                     ->orderByDesc('id')
                     ->take(50)
                     ->get(),
+                'allowed_listing_tabs' => app(\App\Http\Controllers\Api\Admin\UserListingController::class)->resolveAllowedTabsForUser($user),
             ];
 
             return response()->json([
@@ -3997,6 +4005,7 @@ class UserController extends Controller
                 'notifications' => $userData['notifications'],
                 'activity_log' => $userData['activity_log'],
                 'activities' => $userData['activities'],
+                'allowed_listing_tabs' => $userData['allowed_listing_tabs'],
             ], 200);
         } catch (\Throwable $th) {
             \Log::error('Error fetching user details by id:', ['error' => $th->getMessage()]);
