@@ -4104,23 +4104,19 @@ class DynamicPostController extends Controller
     {
         $files = [];
 
-        $singleFile = $request->file("custom_fields.{$index}.file");
+        foreach (['file', 'files', 'value', 'value_json', 'media', 'media_files'] as $key) {
+            $inputFiles = $request->file("custom_fields.{$index}.{$key}");
 
-        if ($singleFile) {
-            $files[] = $singleFile;
-        }
-
-        $multipleFiles = $request->file("custom_fields.{$index}.files");
-
-        if ($multipleFiles) {
-            if (is_array($multipleFiles)) {
-                foreach ($multipleFiles as $file) {
-                    if ($file) {
-                        $files[] = $file;
+            if ($inputFiles) {
+                if (is_array($inputFiles)) {
+                    foreach ($inputFiles as $file) {
+                        if ($file) {
+                            $files[] = $file;
+                        }
                     }
+                } else {
+                    $files[] = $inputFiles;
                 }
-            } else {
-                $files[] = $multipleFiles;
             }
         }
 
