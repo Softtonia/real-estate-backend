@@ -85,7 +85,7 @@ class CustomFieldValueService
     private function resolveValue(CustomField $customField, array $field): array
     {
         $fieldType = $customField->field_type;
-        $rawValue = $this->resolveLegacyValue($field);
+        $rawValue = $this->resolveLegacyValue($field, $customField);
 
         $record = [
             'custom_field_option_id' => null,
@@ -154,6 +154,12 @@ class CustomFieldValueService
             case 'media':
             case 'file':
                 $record['value_json'] = $this->normalizeMediaValue($rawValue);
+                if (is_array($record['value_json']) && !empty($record['value_json'])) {
+                    $firstMedia = $record['value_json'][0] ?? null;
+                    $firstUrl = is_array($firstMedia) ? ($firstMedia['url'] ?? $firstMedia['path'] ?? null) : (string) $firstMedia;
+                    $record['value_string'] = $firstUrl;
+                    $record['value_text'] = $firstUrl;
+                }
                 break;
 
             default:
@@ -179,15 +185,46 @@ class CustomFieldValueService
     /**
      * Resolve old and new payload keys.
      */
-    private function resolveLegacyValue(array $field): mixed
+    private function resolveLegacyValue(array $field, ?CustomField $customField = null): mixed
     {
+        $fieldType = $customField?->field_type;
+
+        // If this is a JSON-based field type (media, file, checkbox), prioritize value_json
+        if ($fieldType && in_array($fieldType, self::JSON_FIELD_TYPES, true)) {
+            if (isset($field['value_json']) && $field['value_json'] !== '' && $field['value_json'] !== null) {
+                return $field['value_json'];
+            }
+            if (isset($field['media']) && $field['media'] !== '' && $field['media'] !== null) {
+                return $field['media'];
+            }
+            if (isset($field['media_files']) && $field['media_files'] !== '' && $field['media_files'] !== null) {
+                return $field['media_files'];
+            }
+            if (isset($field['files']) && $field['files'] !== '' && $field['files'] !== null) {
+                return $field['files'];
+            }
+            if (isset($field['file']) && $field['file'] !== '' && $field['file'] !== null) {
+                return $field['file'];
+            }
+            if (isset($field['value']) && $field['value'] !== '' && $field['value'] !== null) {
+                return $field['value'];
+            }
+        }
+
+        // Check non-empty keys in priority order
+        foreach (['value', 'value_json', 'value_text', 'value_string', 'value_number', 'value_date', 'value_datetime'] as $key) {
+            if (isset($field[$key]) && $field[$key] !== '' && $field[$key] !== null) {
+                return $field[$key];
+            }
+        }
+
         return $field['value']
+            ?? $field['value_json']
             ?? $field['value_text']
             ?? $field['value_string']
             ?? $field['value_number']
             ?? $field['value_date']
             ?? $field['value_datetime']
-            ?? $field['value_json']
             ?? null;
     }
 
@@ -236,19 +273,31 @@ class CustomFieldValueService
 
     private function resolveOptionValue(CustomField $customField, mixed $rawValue, array $record): array
     {
-        $option = $customField->options()
-            ->where(function ($q) use ($rawValue) {
-                $q->where('value', (string) $rawValue)
-                    ->orWhere('id', is_numeric($rawValue) ? (int) $rawValue : 0)
-                    ->orWhere('name', (string) $rawValue);
-            })
-            ->first();
+        if (empty($rawValue)) {
+            return $record;
+        }
+
+        $options = $customField->options ?? collect();
+
+        $option = null;
+
+        if (is_numeric($rawValue)) {
+            $option = $options->firstWhere('id', (int) $rawValue);
+        }
+
+        if (!$option) {
+            $option = $options->firstWhere('value', $rawValue);
+        }
+
+        if (!$option) {
+            $option = $options->firstWhere('name', $rawValue);
+        }
 
         if ($option) {
             $record['custom_field_option_id'] = $option->id;
-            $record['value_string'] = $option->value;
+            $record['value_string'] = $option->value ?? $option->name;
         } else {
-            $record['value_string'] = (string) $rawValue;
+            $record['value_string'] = is_array($rawValue) ? json_encode($rawValue, JSON_UNESCAPED_SLASHES) : (string) $rawValue;
         }
 
         return $record;
@@ -256,41 +305,53 @@ class CustomFieldValueService
 
     private function resolveCheckboxValue(CustomField $customField, mixed $rawValue, array $record): array
     {
-        $selectedValues = [];
-        $values = is_array($rawValue) ? $rawValue : [(string) $rawValue];
+        if (empty($rawValue)) {
+            return $record;
+        }
+
+        if (is_string($rawValue)) {
+            $decoded = json_decode($rawValue, true);
+            $values = is_array($decoded) ? $decoded : [$rawValue];
+        } elseif (is_array($rawValue)) {
+            $values = $rawValue;
+        } else {
+            $values = [$rawValue];
+        }
+
+        $options = $customField->options ?? collect();
+        $optionIds = [];
+        $optionValues = [];
 
         foreach ($values as $val) {
-            $option = $customField->options()
-                ->where(function ($q) use ($val) {
-                    $q->where('value', (string) $val)
-                        ->orWhere('id', is_numeric($val) ? (int) $val : 0)
-                        ->orWhere('name', (string) $val);
-                })
-                ->first();
+            $opt = null;
 
-            if ($option) {
-                $selectedValues[] = [
-                    'custom_field_option_id' => $option->id,
-                    'name' => $option->name,
-                    'value' => $option->value,
-                ];
+            if (is_numeric($val)) {
+                $opt = $options->firstWhere('id', (int) $val);
+            }
+
+            if (!$opt) {
+                $opt = $options->firstWhere('value', $val);
+            }
+
+            if (!$opt) {
+                $opt = $options->firstWhere('name', $val);
+            }
+
+            if ($opt) {
+                $optionIds[] = $opt->id;
+                $optionValues[] = $opt->value ?? $opt->name;
             } else {
-                $selectedValues[] = [
-                    'custom_field_option_id' => null,
-                    'name' => null,
-                    'value' => (string) $val,
-                ];
+                $optionValues[] = (string) $val;
             }
         }
 
-        $record['value_json'] = $selectedValues;
+        $record['value_json'] = $optionValues;
+        $record['value_text'] = json_encode($optionValues, JSON_UNESCAPED_SLASHES);
+        $record['value_string'] = implode(', ', $optionValues);
 
-        $optionIds = array_column(
-            array_filter($selectedValues, fn($v) => $v['custom_field_option_id'] !== null),
-            'custom_field_option_id'
-        );
-
-        $record['value_string'] = !empty($optionIds) ? implode(',', $optionIds) : null;
+        if (!empty($optionIds)) {
+            $record['custom_field_option_id'] = $optionIds[0];
+        }
 
         return $record;
     }
@@ -299,6 +360,20 @@ class CustomFieldValueService
     {
         if (empty($rawValue)) {
             return null;
+        }
+
+        if (is_string($rawValue)) {
+            $decoded = json_decode($rawValue, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $rawValue = $decoded;
+            } else {
+                $url = trim($rawValue);
+                return [[
+                    'id' => null,
+                    'url' => $url,
+                    'is_featured' => false,
+                ]];
+            }
         }
 
         if (is_array($rawValue)) {
@@ -323,30 +398,48 @@ class CustomFieldValueService
             }
 
             if (isset($rawValue['id']) || isset($rawValue['url']) || isset($rawValue['path'])) {
-                return [[
-                    'id' => isset($rawValue['id']) ? (int) $rawValue['id'] : null,
-                    'url' => $rawValue['url'] ?? $rawValue['path'] ?? null,
-                    'is_featured' => (bool) ($rawValue['is_featured'] ?? $rawValue['featured'] ?? false),
-                ]];
-            }
-
-            if (isset($rawValue[0]) && is_array($rawValue[0])) {
-                return array_map(function ($item) {
-                    return [
-                        'id' => isset($item['id']) ? (int) $item['id'] : null,
-                        'url' => $item['url'] ?? $item['path'] ?? null,
-                        'is_featured' => (bool) ($item['is_featured'] ?? $item['featured'] ?? false),
-                    ];
-                }, $rawValue);
-            }
-
-            return array_map(function ($item) {
-                if (is_numeric($item)) {
-                    return ['id' => (int) $item, 'is_featured' => false];
+                $path = $rawValue['path'] ?? null;
+                $url = $rawValue['url'] ?? null;
+                if (!$url && $path) {
+                    $url = \Illuminate\Support\Facades\Storage::disk($rawValue['disk'] ?? 'public')->url($path);
                 }
 
-                return ['url' => (string) $item, 'is_featured' => false];
-            }, $rawValue);
+                return [array_merge($rawValue, [
+                    'id' => isset($rawValue['id']) ? (int) $rawValue['id'] : null,
+                    'url' => $url,
+                    'path' => $path,
+                    'is_featured' => (bool) ($rawValue['is_featured'] ?? $rawValue['featured'] ?? false),
+                ])];
+            }
+
+            if (isset($rawValue[0])) {
+                return array_map(function ($item) {
+                    if (is_string($item)) {
+                        return [
+                            'id' => null,
+                            'url' => $item,
+                            'is_featured' => false,
+                        ];
+                    }
+
+                    if (is_array($item)) {
+                        $path = $item['path'] ?? null;
+                        $url = $item['url'] ?? null;
+                        if (!$url && $path) {
+                            $url = \Illuminate\Support\Facades\Storage::disk($item['disk'] ?? 'public')->url($path);
+                        }
+
+                        return array_merge($item, [
+                            'id' => isset($item['id']) ? (int) $item['id'] : null,
+                            'url' => $url,
+                            'path' => $path,
+                            'is_featured' => (bool) ($item['is_featured'] ?? $item['featured'] ?? false),
+                        ]);
+                    }
+
+                    return $item;
+                }, $rawValue);
+            }
         }
 
         if (is_numeric($rawValue)) {

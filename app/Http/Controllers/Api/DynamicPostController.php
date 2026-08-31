@@ -2350,6 +2350,12 @@ class DynamicPostController extends Controller
             'custom_fields.*.file' => ['nullable'],
             'custom_fields.*.files' => ['nullable'],
             'custom_fields.*.files.*' => ['nullable'],
+            'custom_fields.*.media' => ['nullable'],
+            'custom_fields.*.media.*' => ['nullable'],
+            'custom_fields.*.media_files' => ['nullable'],
+            'custom_fields.*.media_files.*' => ['nullable'],
+            'custom_fields.*.value' => ['nullable'],
+            'custom_fields.*.value.*' => ['nullable'],
             'custom_fields.*.repeaters' => ['nullable', 'array'],
             'custom_fields.*.repeaters.*' => ['nullable', 'array'],
             'custom_fields.*.repeaters.*.*' => ['nullable'],
@@ -2390,14 +2396,6 @@ class DynamicPostController extends Controller
 
                     if (array_key_exists('value_json', $fieldData) && $fieldData['value_json'] === '') {
                         $customFields[$index]['value_json'] = [];
-                    }
-
-                    if (array_key_exists('value_string', $fieldData) && $fieldData['value_string'] === null) {
-                        $customFields[$index]['value_string'] = '';
-                    }
-
-                    if (array_key_exists('value_text', $fieldData) && $fieldData['value_text'] === null) {
-                        $customFields[$index]['value_text'] = '';
                     }
 
                     if (array_key_exists('repeaters', $fieldData) && $fieldData['repeaters'] === '') {
@@ -3919,7 +3917,10 @@ class DynamicPostController extends Controller
             || array_key_exists('value_string', $fieldData)
             || array_key_exists('value_text', $fieldData)
             || array_key_exists('file', $fieldData)
-            || array_key_exists('files', $fieldData);
+            || array_key_exists('files', $fieldData)
+            || array_key_exists('media', $fieldData)
+            || array_key_exists('media_files', $fieldData)
+            || array_key_exists('value', $fieldData);
     }
 
     private function submittedCustomFieldMediaItems(array $fieldData, array $oldValueJson): array
@@ -3944,6 +3945,18 @@ class DynamicPostController extends Controller
 
         if (array_key_exists('files', $fieldData)) {
             $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['files']));
+        }
+
+        if (array_key_exists('media', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['media']));
+        }
+
+        if (array_key_exists('media_files', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['media_files']));
+        }
+
+        if (array_key_exists('value', $fieldData)) {
+            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value']));
         }
 
         if (empty($references)) {
