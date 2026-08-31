@@ -327,7 +327,6 @@ class CustomFieldGroupController extends Controller
                         'media_limit',
                         'media_size',
                         'media_format',
-                        'has_featured',
                         'sort_order',
                         'status'
                     ] as $key
@@ -335,6 +334,10 @@ class CustomFieldGroupController extends Controller
                     if (array_key_exists($key, $validated)) {
                         $updateData[$key] = $validated[$key];
                     }
+                }
+
+                if (array_key_exists('has_featured', $validated) || $request->has('has_featured')) {
+                    $updateData['has_featured'] = $this->normalizeBooleanValues($validated['has_featured'] ?? $request->input('has_featured'));
                 }
 
                 if (isset($validated['field_name_slug']) || isset($validated['field_label'])) {
@@ -517,7 +520,6 @@ class CustomFieldGroupController extends Controller
                         'media_limit',
                         'media_size',
                         'media_format',
-                        'has_featured',
                         'sort_order',
                         'status'
                     ] as $key
@@ -525,6 +527,10 @@ class CustomFieldGroupController extends Controller
                     if (array_key_exists($key, $validated)) {
                         $updateData[$key] = $validated[$key];
                     }
+                }
+
+                if (array_key_exists('has_featured', $validated) || $request->has('has_featured')) {
+                    $updateData['has_featured'] = $this->normalizeBooleanValues($validated['has_featured'] ?? $request->input('has_featured'));
                 }
 
                 if (isset($validated['field_name_slug'])) {
@@ -1026,8 +1032,43 @@ class CustomFieldGroupController extends Controller
         ];
     }
 
+    private function normalizeBooleanValues(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1;
+        }
+
+        if (is_string($value)) {
+            $val = strtolower(trim($value));
+            return in_array($val, ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return false;
+    }
+
     private function validateGroupStore(Request $request): array
     {
+        if ($request->has('fields') && is_array($request->input('fields'))) {
+            $fields = $request->input('fields');
+            foreach ($fields as &$f) {
+                if (isset($f['has_featured'])) {
+                    $f['has_featured'] = $this->normalizeBooleanValues($f['has_featured']);
+                }
+                if (isset($f['repeaters']) && is_array($f['repeaters'])) {
+                    foreach ($f['repeaters'] as &$r) {
+                        if (isset($r['has_featured'])) {
+                            $r['has_featured'] = $this->normalizeBooleanValues($r['has_featured']);
+                        }
+                    }
+                }
+            }
+            $request->merge(['fields' => $fields]);
+        }
+
         $rules = [
             'group_name' => ['required', 'string', 'max:200'],
             'group_slug' => ['nullable', 'string', 'max:200'],
@@ -1110,6 +1151,23 @@ class CustomFieldGroupController extends Controller
 
     private function validateGroupUpdate(Request $request, CustomFieldGroup $group): array
     {
+        if ($request->has('fields') && is_array($request->input('fields'))) {
+            $fields = $request->input('fields');
+            foreach ($fields as &$f) {
+                if (isset($f['has_featured'])) {
+                    $f['has_featured'] = $this->normalizeBooleanValues($f['has_featured']);
+                }
+                if (isset($f['repeaters']) && is_array($f['repeaters'])) {
+                    foreach ($f['repeaters'] as &$r) {
+                        if (isset($r['has_featured'])) {
+                            $r['has_featured'] = $this->normalizeBooleanValues($r['has_featured']);
+                        }
+                    }
+                }
+            }
+            $request->merge(['fields' => $fields]);
+        }
+
         $rules = [
             'group_name' => ['sometimes', 'required', 'string', 'max:200'],
             'group_slug' => ['nullable', 'string', 'max:200'],
@@ -1153,6 +1211,22 @@ class CustomFieldGroupController extends Controller
 
     private function validateFieldData(Request $request, bool $isUpdate = false): array
     {
+        if ($request->has('has_featured')) {
+            $request->merge([
+                'has_featured' => $this->normalizeBooleanValues($request->input('has_featured')),
+            ]);
+        }
+
+        if ($request->has('repeaters') && is_array($request->input('repeaters'))) {
+            $repeaters = $request->input('repeaters');
+            foreach ($repeaters as &$r) {
+                if (isset($r['has_featured'])) {
+                    $r['has_featured'] = $this->normalizeBooleanValues($r['has_featured']);
+                }
+            }
+            $request->merge(['repeaters' => $repeaters]);
+        }
+
         $rules = [
             'field_label' => [$isUpdate ? 'sometimes' : 'required', 'string', 'max:255'],
             'field_name_slug' => ['nullable', 'string', 'max:255'],
@@ -1374,6 +1448,10 @@ class CustomFieldGroupController extends Controller
             if ($field) {
                 $updateData = $fieldData;
 
+                if (array_key_exists('has_featured', $fieldData)) {
+                    $updateData['has_featured'] = $this->normalizeBooleanValues($fieldData['has_featured']);
+                }
+
                 if (array_key_exists('field_name_slug', $fieldData) || array_key_exists('field_label', $fieldData)) {
                     $updateData['field_name_slug'] = $this->resolveFieldSlug(
                         $group->id,
@@ -1389,6 +1467,10 @@ class CustomFieldGroupController extends Controller
                     $field->update($updateData);
                 }
             } else {
+                if (array_key_exists('has_featured', $fieldData)) {
+                    $fieldData['has_featured'] = $this->normalizeBooleanValues($fieldData['has_featured']);
+                }
+
                 $field = CustomField::create(array_merge($fieldData, [
                     'custom_field_group_id' => $group->id,
                     'field_name_slug' => $this->resolveFieldSlug($group->id, $fieldData),
@@ -1450,7 +1532,7 @@ class CustomFieldGroupController extends Controller
                 'media_limit' => $fieldData['media_limit'] ?? null,
                 'media_size' => $fieldData['media_size'] ?? null,
                 'media_format' => $fieldData['media_format'] ?? null,
-                'has_featured' => $fieldData['has_featured'] ?? false,
+                'has_featured' => isset($fieldData['has_featured']) ? $this->normalizeBooleanValues($fieldData['has_featured']) : false,
                 'sort_order' => $fieldData['sort_order'] ?? ($index + 1),
                 'status' => $fieldData['status'] ?? true,
                 'created_by' => Auth::id(),
@@ -1494,7 +1576,7 @@ class CustomFieldGroupController extends Controller
                 'media_limit' => $repeaterData['media_limit'] ?? null,
                 'media_size' => $repeaterData['media_size'] ?? null,
                 'media_format' => $repeaterData['media_format'] ?? null,
-                'has_featured' => $repeaterData['has_featured'] ?? false,
+                'has_featured' => isset($repeaterData['has_featured']) ? $this->normalizeBooleanValues($repeaterData['has_featured']) : false,
                 'sort_order' => $repeaterData['sort_order'] ?? $index,
                 'status' => $repeaterData['status'] ?? true,
             ]);
