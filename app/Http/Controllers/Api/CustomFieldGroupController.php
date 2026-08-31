@@ -311,7 +311,7 @@ class CustomFieldGroupController extends Controller
 
             $validated = $this->validateFieldData($request, true);
 
-            DB::transaction(function () use ($field, $validated) {
+            DB::transaction(function () use ($field, $validated, $request) {
                 $updateData = [];
 
                 foreach (
@@ -504,7 +504,7 @@ class CustomFieldGroupController extends Controller
 
             $validated = $this->validateFieldData($request, true);
 
-            DB::transaction(function () use ($field, $validated) {
+            DB::transaction(function () use ($field, $validated, $request) {
                 $updateData = [];
 
                 foreach (
