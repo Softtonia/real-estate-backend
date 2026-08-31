@@ -187,23 +187,23 @@ $templateId = !empty($templateId) && CustomFieldUniqueCode::where('id', $templat
 
             $existingField = CustomField::where('field_name_slug', $fieldSlug)->first();
 
+            $requiredNormalized = in_array(strtolower(trim((string) $required)), ['yes', '1', 'true', 'required', 'y'], true) ? 'yes' : 'no';
+
             // Insert/Update Custom Field
             $field = CustomField::updateOrCreate(
                 [
+                    'custom_field_group_id' => $group->id,
                     'field_name_slug' => $fieldSlug,
                 ],
                 [
-                    'group_id' => $group->id,
+                    'custom_field_group_id' => $group->id,
                     'field_label' => $fieldLabel,
                     'field_placeholder' => $fieldPlaceholder ?: null,
                     'field_type' => $fieldType,
-                    'required' => $required,
-                    'post_type' => $postType,
-                    'template_id' => $templateId,
-                    'media_limit' => $mediaLimit ?: null,
+                    'required' => $requiredNormalized,
+                    'media_limit' => is_numeric($mediaLimit) ? (int)$mediaLimit : null,
                     'media_size' => $mediaSize ?: null,
                     'media_format' => $mediaFormat ?: null,
-                    'model_fields' => $modelFields ?: null,
                     'checkbox_type' => $checkboxType ?: null,
                     'sort_order' => $autoSortOrder,
                 ]
