@@ -491,6 +491,7 @@ class DynamicPostFormStepService
             'media_limit' => $field->media_limit ?? null,
             'media_size' => $field->media_size ?? null,
             'media_format' => $field->media_format ?? null,
+            'has_featured' => (bool) ($field->has_featured ?? false),
 
             'sort_order' => (int) ($field->sort_order ?? 0),
             'status' => $field->status ?? null,
@@ -509,6 +510,10 @@ class DynamicPostFormStepService
                 'field_label' => $repeater->field_label ?? null,
                 'field_name_slug' => $repeater->field_name_slug ?? null,
                 'field_type' => $repeater->field_type ?? null,
+                'media_limit' => $repeater->media_limit ?? null,
+                'media_size' => $repeater->media_size ?? null,
+                'media_format' => $repeater->media_format ?? null,
+                'has_featured' => (bool) ($repeater->has_featured ?? false),
                 'required' => (bool) ($repeater->required ?? false),
                 'sort_order' => (int) ($repeater->sort_order ?? 0),
                 'options' => collect($repeater->options ?? [])->map(fn($option) => [

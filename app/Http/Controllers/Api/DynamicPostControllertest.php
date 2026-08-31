@@ -4962,6 +4962,7 @@ class DynamicPostController extends Controller
             'media_limit' => $field->media_limit,
             'media_size' => $field->media_size,
             'media_format' => $field->media_format,
+            'has_featured' => (bool) ($field->has_featured ?? false),
             'sort_order' => $field->sort_order,
             'status' => $field->status,
             'location_rules' => ($field->locationRules ?? collect())->map(fn($rule) => [
@@ -4993,6 +4994,7 @@ class DynamicPostController extends Controller
                 'media_limit' => $repeater->media_limit,
                 'media_size' => $repeater->media_size,
                 'media_format' => $repeater->media_format,
+                'has_featured' => (bool) ($repeater->has_featured ?? false),
                 'sort_order' => $repeater->sort_order,
                 'options' => ($repeater->options ?? collect())->map(fn($option) => [
                     'id' => $option->id,
