@@ -3773,47 +3773,6 @@ class DynamicPostController extends Controller
 
     private function appendMissingMediaCustomFieldDeletes(DynamicPost $post, array $customFields): array
     {
-        $submittedFieldIds = collect($customFields)
-            ->pluck('custom_field_id')
-            ->filter()
-            ->map(fn($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->toArray();
-
-        $mediaFieldIds = CustomField::whereIn('field_type', ['media', 'file'])
-            ->pluck('id')
-            ->map(fn($id) => (int) $id)
-            ->toArray();
-
-        if (empty($mediaFieldIds)) {
-            return $customFields;
-        }
-
-        $existingMediaValues = CustomFieldValue::where('entity_type', 'post')
-            ->where('entity_id', $post->id)
-            ->whereIn('custom_field_id', $mediaFieldIds)
-            ->get();
-
-        foreach ($existingMediaValues as $existingValue) {
-            $fieldId = (int) $existingValue->custom_field_id;
-
-            if (in_array($fieldId, $submittedFieldIds, true)) {
-                continue;
-            }
-
-            $oldValueJson = $this->normalizeCustomFieldValueJson($existingValue->value_json ?? []);
-
-            if (!empty($oldValueJson)) {
-                $this->deleteStoredCustomFieldFiles($oldValueJson);
-            }
-
-            $customFields[] = [
-                'custom_field_id' => $fieldId,
-                'value_json' => [],
-            ];
-        }
-
         return $customFields;
     }
 
