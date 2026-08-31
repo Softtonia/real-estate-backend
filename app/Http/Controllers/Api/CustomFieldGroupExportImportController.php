@@ -47,58 +47,25 @@ class CustomFieldGroupExportImportController extends Controller
             $skipped = 0;
             $errors = [];
 
-            $fieldAliases = [
-                'group_name' => ['group_name', 'group_title', 'group', 'groupname', 'field_group', 'field_group_name', 'custom_field_group', 'acf_group'],
-                'group_id' => ['group_id', 'custom_field_group_id', 'id'],
-                'field_label' => ['field_label', 'label', 'field_title', 'title', 'field_heading'],
-                'field_name_slug' => ['field_name_slug', 'field_slug', 'slug', 'name_slug', 'field_name', 'name', 'key'],
-                'field_placeholder' => ['field_placeholder', 'placeholder', 'field_help'],
-                'field_type' => ['field_type', 'type', 'input_type'],
-                'required' => ['required', 'is_required', 'mandatory'],
-                'default_value' => ['default_value', 'default', 'initial_value'],
-                'validation_rules' => ['validation_rules', 'validation', 'rules'],
-                'conditional_rules' => ['conditional_rules', 'conditional_logic', 'conditions'],
-                'media_limit' => ['media_limit', 'limit', 'max_media'],
-                'media_size' => ['media_size', 'max_size', 'size_limit'],
-                'media_format' => ['media_format', 'format', 'allowed_formats', 'formats'],
-                'status' => ['status', 'is_active', 'active', 'state'],
-                'post_type_slugs' => ['post_type_slugs', 'post_type', 'post_types', 'posttype', 'posttypes'],
-                'location_rules' => ['location_rules', 'location_rules_json', 'location_rules_array', 'location_logic'],
-                'options' => ['options', 'options_json', 'choices', 'field_options', 'values'],
-                'repeaters' => ['repeaters', 'repeaters_json', 'repeater', 'repeater_fields', 'sub_fields'],
-                'checkbox_type' => ['checkbox_type', 'checkbox_mode'],
-                'has_featured' => ['has_featured', 'featured'],
-            ];
-
             // Detect header row with UTF-8 BOM stripping
             $firstRow = $rows[0] ?? [];
-            $normalizedHeaderMap = [];
-            $headerRecognizedCount = 0;
+            $header = array_map(function ($h) {
+                $str = trim((string) $h);
+                $str = preg_replace('/^\xEF\xBB\xBF/', '', $str);
+                return strtolower(trim($str));
+            }, $firstRow);
 
-            foreach ($firstRow as $colIdx => $colName) {
-                $cleanHeader = strtolower(trim((string) $colName));
-                $cleanHeader = preg_replace('/^\xEF\xBB\xBF/', '', $cleanHeader); // strip BOM
-                $cleanHeader = strtolower(preg_replace('/[^a-z0-9_]/', '', str_replace([' ', '-'], '_', $cleanHeader)));
-                if ($cleanHeader !== '') {
-                    $normalizedHeaderMap[$cleanHeader] = $colIdx;
-                    foreach ($fieldAliases as $key => $aliases) {
-                        foreach ($aliases as $alias) {
-                            $cleanAlias = strtolower(preg_replace('/[^a-z0-9_]/', '', str_replace([' ', '-'], '_', $alias)));
-                            if ($cleanHeader === $cleanAlias) {
-                                $headerRecognizedCount++;
-                                break 2;
-                            }
-                        }
-                    }
+            $hasHeader = in_array('group_name', $header, true)
+                || in_array('group name', $header, true)
+                || in_array('field_label', $header, true)
+                || in_array('field label', $header, true);
+
+            $headerMap = [];
+            if ($hasHeader) {
+                foreach ($header as $colIdx => $colName) {
+                    $headerMap[$colName] = $colIdx;
                 }
             }
-
-            $hasHeader = $headerRecognizedCount >= 2 
-                || isset($normalizedHeaderMap['group_name']) 
-                || isset($normalizedHeaderMap['group'])
-                || isset($normalizedHeaderMap['field_label']) 
-                || isset($normalizedHeaderMap['field_name_slug'])
-                || isset($normalizedHeaderMap['label']);
 
             $dataRows = $hasHeader ? array_slice($rows, 1) : $rows;
 
@@ -117,102 +84,74 @@ class CustomFieldGroupExportImportController extends Controller
                 }
 
                 if ($hasHeader) {
-                    $getValue = function (array $aliases, $default = null) use ($row, $normalizedHeaderMap) {
-                        foreach ($aliases as $alias) {
-                            $cleanAlias = strtolower(preg_replace('/[^a-z0-9_]/', '', str_replace([' ', '-'], '_', $alias)));
-                            if (isset($normalizedHeaderMap[$cleanAlias])) {
-                                $colIdx = $normalizedHeaderMap[$cleanAlias];
-                                if (array_key_exists($colIdx, $row)) {
-                                    $val = trim((string) $row[$colIdx]);
-                                    if ($val !== '') {
-                                        return $val;
-                                    }
-                                }
-                            }
+                    $getValue = function ($key, $default = null) use ($row, $headerMap) {
+                        if (isset($headerMap[$key]) && array_key_exists($headerMap[$key], $row)) {
+                            return trim((string) ($row[$headerMap[$key]] ?? ''));
                         }
                         return $default;
                     };
 
-                    $groupName = $getValue($fieldAliases['group_name'], '');
-                    $fieldLabel = $getValue($fieldAliases['field_label'], '');
-                    $fieldSlug = $getValue($fieldAliases['field_name_slug'], '');
-                    $fieldPlaceholder = $getValue($fieldAliases['field_placeholder'], '');
-                    $fieldType = $getValue($fieldAliases['field_type'], 'text');
-                    $required = $getValue($fieldAliases['required'], 'no');
-                    $defaultValue = $getValue($fieldAliases['default_value'], '');
-                    $validationRules = $getValue($fieldAliases['validation_rules'], '');
-                    $conditionalRules = $getValue($fieldAliases['conditional_rules'], '');
-                    $mediaLimit = $getValue($fieldAliases['media_limit']);
-                    $mediaSize = $getValue($fieldAliases['media_size']);
-                    $mediaFormat = $getValue($fieldAliases['media_format'], '');
-                    $status = $getValue($fieldAliases['status'], '1');
-                    $postTypeSlugs = $getValue($fieldAliases['post_type_slugs'], '');
-                    $locationRulesJson = $getValue($fieldAliases['location_rules']);
-                    $optionsJson = $getValue($fieldAliases['options']);
-                    $repeatersJson = $getValue($fieldAliases['repeaters']);
-                    $checkboxType = $getValue($fieldAliases['checkbox_type']);
-                    $hasFeatured = $getValue($fieldAliases['has_featured'], '0');
+                    $groupName = $getValue('group_name', '');
+                    $fieldLabel = $getValue('field_label', '');
+                    $fieldSlug = $getValue('field_name_slug', '');
+                    $fieldPlaceholder = $getValue('field_placeholder', '');
+                    $fieldType = $getValue('field_type', '');
+                    $required = $getValue('required', '');
+                    $defaultValue = $getValue('default_value', '');
+                    $validationRules = $getValue('validation_rules', '');
+                    $conditionalRules = $getValue('conditional_rules', '');
+                    $mediaLimit = $getValue('media_limit');
+                    $mediaSize = $getValue('media_size');
+                    $mediaFormat = $getValue('media_format', '');
+                    $status = $getValue('status', '');
+                    $postTypeSlugs = $getValue('post_type_slugs', '');
+                    $locationRulesJson = $getValue('location_rules') ?: $getValue('location_rules_json');
+                    $optionsJson = $getValue('options') ?: $getValue('options_json');
+                    $repeatersJson = $getValue('repeaters') ?: $getValue('repeaters_json');
                 } else {
                     // Positional fallback
-                    // If col 0 is numeric, col 1 is group name (format with group_id as first column)
-                    $isCol0GroupId = is_numeric(trim((string)($row[0] ?? ''))) && !empty($row[1]);
-                    $offset = $isCol0GroupId ? 1 : 0;
+                    $is17Cols = count($row) >= 17;
 
-                    $groupName = trim((string) ($row[$offset + 0] ?? ''));
-                    $fieldLabel = trim((string) ($row[$offset + 1] ?? ''));
-                    $fieldSlug = trim((string) ($row[$offset + 2] ?? ''));
-                    $fieldPlaceholder = trim((string) ($row[$offset + 3] ?? ''));
-                    $fieldType = trim((string) ($row[$offset + 4] ?? 'text'));
-                    $required = trim((string) ($row[$offset + 5] ?? 'no'));
-                    $defaultValue = trim((string) ($row[$offset + 6] ?? ''));
-                    $validationRules = trim((string) ($row[$offset + 7] ?? ''));
-                    $conditionalRules = trim((string) ($row[$offset + 8] ?? ''));
-                    $mediaLimit = $row[$offset + 9] ?? null;
-                    $mediaSize = $row[$offset + 10] ?? null;
-                    $mediaFormat = trim((string) ($row[$offset + 11] ?? ''));
-                    $status = trim((string) ($row[$offset + 12] ?? '1'));
-                    $postTypeSlugs = trim((string) ($row[$offset + 13] ?? ''));
-                    $locationRulesJson = $row[$offset + 14] ?? null;
-                    $optionsJson = $row[$offset + 15] ?? null;
-                    $repeatersJson = $row[$offset + 16] ?? null;
-                    $checkboxType = null;
-                    $hasFeatured = '0';
+                    $groupName = trim((string) ($row[0] ?? ''));
+                    $fieldLabel = trim((string) ($row[1] ?? ''));
+                    $fieldSlug = trim((string) ($row[2] ?? ''));
+                    $fieldPlaceholder = trim((string) ($row[3] ?? ''));
+                    $fieldType = trim((string) ($row[4] ?? ''));
+                    $required = trim((string) ($row[5] ?? ''));
+                    $defaultValue = trim((string) ($row[6] ?? ''));
+                    $validationRules = trim((string) ($row[7] ?? ''));
+                    $conditionalRules = trim((string) ($row[8] ?? ''));
+                    $mediaLimit = $row[9] ?? null;
+                    $mediaSize = $row[10] ?? null;
+                    $mediaFormat = trim((string) ($row[11] ?? ''));
+
+                    if ($is17Cols) {
+                        // 17 cols with location_rules at index 14
+                        $status = trim((string) ($row[12] ?? ''));
+                        $postTypeSlugs = trim((string) ($row[13] ?? ''));
+                        $locationRulesJson = $row[14] ?? null;
+                        $optionsJson = $row[15] ?? null;
+                        $repeatersJson = $row[16] ?? null;
+                    } else {
+                        // Standard 16 cols without location_rules
+                        $status = trim((string) ($row[12] ?? ''));
+                        $postTypeSlugs = trim((string) ($row[13] ?? ''));
+                        $locationRulesJson = null;
+                        $optionsJson = $row[14] ?? null;
+                        $repeatersJson = $row[15] ?? null;
+                    }
                 }
 
-                if (empty($groupName) || (empty($fieldLabel) && empty($fieldSlug))) {
+                if (empty($groupName) || empty($fieldLabel) || empty($fieldSlug) || empty($fieldType)) {
                     $skipped++;
                     $errors[] = [
                         'row_number' => $rowNumber,
-                        'message' => 'Required fields missing: group_name and at least field_label or field_name_slug.',
+                        'message' => 'Required fields missing: group_name, field_label, field_name_slug, field_type.',
                     ];
                     continue;
                 }
 
-                // If label is missing but slug exists, generate label
-                if (empty($fieldLabel) && !empty($fieldSlug)) {
-                    $fieldLabel = ucwords(str_replace(['_', '-'], ' ', $fieldSlug));
-                }
-
-                // Ensure clean slug
-                if (empty($fieldSlug) && !empty($fieldLabel)) {
-                    $fieldSlug = \Illuminate\Support\Str::slug($fieldLabel, '_');
-                } else {
-                    $fieldSlug = \Illuminate\Support\Str::slug($fieldSlug, '_');
-                }
-
                 $fieldType = $this->normalizeFieldType($fieldType);
-
-                // Normalize required enum to 'yes' or 'no'
-                $cleanRequired = strtolower(trim((string) $required));
-                $requiredNormalized = in_array($cleanRequired, ['yes', '1', 'true', 'required', 'y'], true) ? 'yes' : 'no';
-
-                // Normalize status
-                $statusVal = strtolower(trim((string) $status));
-                $statusNormalized = !in_array($statusVal, ['0', 'false', 'no', 'inactive'], true);
-
-                // Normalize has_featured
-                $featuredVal = strtolower(trim((string) $hasFeatured));
-                $hasFeaturedNormalized = in_array($featuredVal, ['1', 'true', 'yes'], true);
 
                 // Create/Find Group
                 $group = CustomFieldGroup::firstOrCreate(
@@ -310,65 +249,36 @@ class CustomFieldGroupExportImportController extends Controller
                     $existingField = CustomField::where('field_name_slug', $fieldSlug)->first();
                 }
 
-                $valRulesParsed = !empty($validationRules) ? (is_array($validationRules) ? $validationRules : json_decode($validationRules, true)) : null;
-                $condRulesParsed = !empty($conditionalRules) ? (is_array($conditionalRules) ? $conditionalRules : json_decode($conditionalRules, true)) : null;
-
-                $isMediaType = in_array($fieldType, ['media', 'file'], true);
-                $cleanMediaLimit = ($isMediaType && is_numeric($mediaLimit)) ? (int)$mediaLimit : null;
-                $cleanMediaSize = ($isMediaType && !empty($mediaSize) && !str_starts_with(trim((string)$mediaSize), '{') && !str_starts_with(trim((string)$mediaSize), '[')) 
-                    ? mb_substr(trim((string) $mediaSize), 0, 100) 
-                    : null;
-                $cleanMediaFormat = ($isMediaType && !empty($mediaFormat) && !str_starts_with(trim((string)$mediaFormat), '{') && !str_starts_with(trim((string)$mediaFormat), '[')) 
-                    ? mb_substr(trim((string) $mediaFormat), 0, 255) 
-                    : null;
-
-                $fieldPayload = [
-                    'custom_field_group_id' => $group->id,
-                    'field_label' => mb_substr(trim((string) $fieldLabel), 0, 255),
-                    'field_placeholder' => !empty($fieldPlaceholder) ? mb_substr(trim((string) $fieldPlaceholder), 0, 255) : null,
-                    'field_type' => $fieldType,
-                    'required' => $requiredNormalized,
-                    'checkbox_type' => !empty($checkboxType) ? mb_substr(trim((string) $checkboxType), 0, 100) : null,
-                    'default_value' => $defaultValue !== '' && $defaultValue !== null ? (string) $defaultValue : null,
-                    'validation_rules' => is_array($valRulesParsed) ? $valRulesParsed : null,
-                    'conditional_rules' => is_array($condRulesParsed) ? $condRulesParsed : null,
-                    'media_limit' => $cleanMediaLimit,
-                    'media_size' => $cleanMediaSize,
-                    'media_format' => $cleanMediaFormat,
-                    'has_featured' => $hasFeaturedNormalized,
-                    'sort_order' => $autoSortOrder,
-                    'status' => $statusNormalized,
-                    'created_by' => Auth::id() ?? 1,
-                ];
-
                 $field = CustomField::updateOrCreate(
+                    ['field_name_slug' => $fieldSlug],
                     [
                         'custom_field_group_id' => $group->id,
-                        'field_name_slug' => mb_substr(trim((string) $fieldSlug), 0, 255),
-                    ],
-                    $fieldPayload
+                        'field_label' => $fieldLabel,
+                        'field_placeholder' => $fieldPlaceholder ?: null,
+                        'field_type' => $fieldType,
+                        'required' => !empty($required) ? $required : 'no',
+                        'default_value' => $defaultValue ?: null,
+                        'validation_rules' => !empty($validationRules) ? json_decode($validationRules, true) : null,
+                        'conditional_rules' => !empty($conditionalRules) ? json_decode($conditionalRules, true) : null,
+                        'media_limit' => $mediaLimit ?: null,
+                        'media_size' => $mediaSize ?: null,
+                        'media_format' => $mediaFormat ?: null,
+                        'sort_order' => $autoSortOrder,
+                        'status' => filter_var($status, FILTER_VALIDATE_BOOLEAN) ?? true,
+                        'created_by' => Auth::id(),
+                    ]
                 );
 
                 // Handle Options
-                $options = !empty($optionsJson) ? (is_array($optionsJson) ? $optionsJson : json_decode($optionsJson, true)) : null;
-                if (!is_array($options) && !empty($optionsJson)) {
-                    $rawOpts = array_filter(array_map('trim', explode(',', (string)$optionsJson)));
-                    if (!empty($rawOpts)) {
-                        $options = array_map(fn($opt) => [
-                            'label' => $opt,
-                            'value' => \Illuminate\Support\Str::slug($opt, '_'),
-                        ], $rawOpts);
-                    }
-                }
-
+                $options = json_decode($optionsJson, true);
                 if (is_array($options)) {
                     CustomFieldOption::where('custom_field_id', $field->id)->delete();
                     foreach ($options as $optIndex => $opt) {
                         CustomFieldOption::create([
                             'custom_field_id' => $field->id,
                             'type' => $fieldType,
-                            'name' => mb_substr(trim((string)($opt['label'] ?? $opt['name'] ?? '')), 0, 255) ?: null,
-                            'value' => mb_substr(trim((string)($opt['value'] ?? '')), 0, 255) ?: null,
+                            'name' => $opt['label'] ?? $opt['name'] ?? null,
+                            'value' => $opt['value'] ?? null,
                             'sort_order' => $optIndex + 1,
                             'status' => true,
                         ]);
@@ -376,36 +286,26 @@ class CustomFieldGroupExportImportController extends Controller
                 }
 
                 // Handle Repeaters
-                $repeaters = !empty($repeatersJson) ? (is_array($repeatersJson) ? $repeatersJson : json_decode($repeatersJson, true)) : null;
+                $repeaters = json_decode($repeatersJson, true);
                 if (is_array($repeaters)) {
                     foreach ($repeaters as $repIndex => $rep) {
                         if (empty($rep['field_name_slug']))
                             continue;
 
-                        $repFieldType = $this->normalizeFieldType($rep['fieldType'] ?? $rep['field_type'] ?? 'text');
-                        $repIsMedia = in_array($repFieldType, ['media', 'file'], true);
-                        $repMediaFormat = isset($rep['fieldMediaFormat'])
-                            ? (is_array($rep['fieldMediaFormat']) ? implode(',', $rep['fieldMediaFormat']) : (string)$rep['fieldMediaFormat'])
-                            : (string)($rep['media_format'] ?? '');
-
                         $repeater = CustomFieldRepeater::updateOrCreate(
                             [
                                 'custom_field_id' => $field->id,
-                                'field_name_slug' => mb_substr(trim((string)$rep['field_name_slug']), 0, 255),
+                                'field_name_slug' => $rep['field_name_slug'],
                             ],
                             [
-                                'field_label' => mb_substr(trim((string)($rep['fieldName'] ?? $rep['field_label'] ?? '')), 0, 255) ?: null,
-                                'field_type' => $repFieldType,
-                                'field_placeholder' => !empty($rep['fieldPlaceholder'] ?? $rep['field_placeholder'] ?? null) 
-                                    ? mb_substr(trim((string)($rep['fieldPlaceholder'] ?? $rep['field_placeholder'])), 0, 255) 
-                                    : null,
-                                'media_format' => ($repIsMedia && !empty($repMediaFormat)) ? mb_substr(trim($repMediaFormat), 0, 255) : null,
-                                'media_limit' => ($repIsMedia && isset($rep['fieldMediaLimit']) && is_numeric($rep['fieldMediaLimit'])) 
-                                    ? (int)$rep['fieldMediaLimit'] 
-                                    : (($repIsMedia && isset($rep['media_limit']) && is_numeric($rep['media_limit'])) ? (int)$rep['media_limit'] : null),
-                                'media_size' => ($repIsMedia && !empty($rep['fieldMediaSize'] ?? $rep['media_size'] ?? null)) 
-                                    ? mb_substr(trim((string)($rep['fieldMediaSize'] ?? $rep['media_size'])), 0, 100) 
-                                    : null,
+                                'field_label' => $rep['fieldName'] ?? $rep['field_label'] ?? null,
+                                'field_type' => $rep['fieldType'] ?? $rep['field_type'] ?? null,
+                                'field_placeholder' => $rep['fieldPlaceholder'] ?? $rep['field_placeholder'] ?? null,
+                                'media_format' => isset($rep['fieldMediaFormat'])
+                                    ? (is_array($rep['fieldMediaFormat']) ? implode(',', $rep['fieldMediaFormat']) : $rep['fieldMediaFormat'])
+                                    : ($rep['media_format'] ?? null),
+                                'media_limit' => $rep['fieldMediaLimit'] ?? $rep['media_limit'] ?? null,
+                                'media_size' => $rep['fieldMediaSize'] ?? $rep['media_size'] ?? null,
                                 'sort_order' => $repIndex + 1,
                                 'status' => true,
                             ]
@@ -416,9 +316,9 @@ class CustomFieldGroupExportImportController extends Controller
                             foreach ($rep['fieldOptions'] as $optIndex => $opt) {
                                 CustomFieldRepeaterOption::create([
                                     'custom_field_repeater_id' => $repeater->id,
-                                    'type' => $repFieldType,
-                                    'name' => mb_substr(trim((string)($opt['name'] ?? $opt['label'] ?? '')), 0, 255) ?: null,
-                                    'value' => mb_substr(trim((string)($opt['value'] ?? '')), 0, 255) ?: null,
+                                    'type' => $rep['fieldType'] ?? $rep['field_type'] ?? null,
+                                    'name' => $opt['name'] ?? $opt['label'] ?? null,
+                                    'value' => $opt['value'] ?? null,
                                     'sort_order' => $optIndex + 1,
                                     'status' => true,
                                 ]);
