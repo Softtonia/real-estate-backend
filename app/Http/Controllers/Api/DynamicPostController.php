@@ -4701,17 +4701,6 @@ class DynamicPostController extends Controller
     {
         return [
             [
-                'key' => 'featured_image_id',
-                'field_name_slug' => 'featured_image_id',
-                'request_key' => 'featured_image_id',
-                'label' => 'Featured Image',
-                'field_label' => 'Featured Image',
-                'type' => 'media',
-                'field_type' => 'media',
-                'enabled' => $supports['featured_image'] ?? false,
-                'is_base_field' => true,
-            ],
-            [
                 'key' => 'title',
                 'field_name_slug' => 'title',
                 'request_key' => 'title',
@@ -4742,18 +4731,6 @@ class DynamicPostController extends Controller
                 'type' => 'textarea',
                 'field_type' => 'textarea',
                 'enabled' => $supports['excerpt'] ?? false,
-                'is_base_field' => true,
-            ],
-            [
-                'key' => 'gallery_image_ids',
-                'field_name_slug' => 'gallery_image_ids',
-                'request_key' => 'gallery_image_ids',
-                'label' => 'Gallery',
-                'field_label' => 'Gallery',
-                'type' => 'gallery',
-                'field_type' => 'gallery',
-                'enabled' => $supports['gallery'] ?? false,
-                'multiple' => true,
                 'is_base_field' => true,
             ],
             [
