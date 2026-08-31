@@ -313,19 +313,28 @@ class CustomFieldGroupExportImportController extends Controller
                 $valRulesParsed = !empty($validationRules) ? (is_array($validationRules) ? $validationRules : json_decode($validationRules, true)) : null;
                 $condRulesParsed = !empty($conditionalRules) ? (is_array($conditionalRules) ? $conditionalRules : json_decode($conditionalRules, true)) : null;
 
+                $isMediaType = in_array($fieldType, ['media', 'file'], true);
+                $cleanMediaLimit = ($isMediaType && is_numeric($mediaLimit)) ? (int)$mediaLimit : null;
+                $cleanMediaSize = ($isMediaType && !empty($mediaSize) && !str_starts_with(trim((string)$mediaSize), '{') && !str_starts_with(trim((string)$mediaSize), '[')) 
+                    ? mb_substr(trim((string) $mediaSize), 0, 100) 
+                    : null;
+                $cleanMediaFormat = ($isMediaType && !empty($mediaFormat) && !str_starts_with(trim((string)$mediaFormat), '{') && !str_starts_with(trim((string)$mediaFormat), '[')) 
+                    ? mb_substr(trim((string) $mediaFormat), 0, 255) 
+                    : null;
+
                 $fieldPayload = [
                     'custom_field_group_id' => $group->id,
-                    'field_label' => $fieldLabel,
-                    'field_placeholder' => $fieldPlaceholder ?: null,
+                    'field_label' => mb_substr(trim((string) $fieldLabel), 0, 255),
+                    'field_placeholder' => !empty($fieldPlaceholder) ? mb_substr(trim((string) $fieldPlaceholder), 0, 255) : null,
                     'field_type' => $fieldType,
                     'required' => $requiredNormalized,
-                    'checkbox_type' => $checkboxType ?: null,
-                    'default_value' => $defaultValue ?: null,
+                    'checkbox_type' => !empty($checkboxType) ? mb_substr(trim((string) $checkboxType), 0, 100) : null,
+                    'default_value' => $defaultValue !== '' && $defaultValue !== null ? (string) $defaultValue : null,
                     'validation_rules' => is_array($valRulesParsed) ? $valRulesParsed : null,
                     'conditional_rules' => is_array($condRulesParsed) ? $condRulesParsed : null,
-                    'media_limit' => is_numeric($mediaLimit) ? (int)$mediaLimit : null,
-                    'media_size' => $mediaSize ?: null,
-                    'media_format' => $mediaFormat ?: null,
+                    'media_limit' => $cleanMediaLimit,
+                    'media_size' => $cleanMediaSize,
+                    'media_format' => $cleanMediaFormat,
                     'has_featured' => $hasFeaturedNormalized,
                     'sort_order' => $autoSortOrder,
                     'status' => $statusNormalized,
@@ -335,7 +344,7 @@ class CustomFieldGroupExportImportController extends Controller
                 $field = CustomField::updateOrCreate(
                     [
                         'custom_field_group_id' => $group->id,
-                        'field_name_slug' => $fieldSlug,
+                        'field_name_slug' => mb_substr(trim((string) $fieldSlug), 0, 255),
                     ],
                     $fieldPayload
                 );
@@ -358,8 +367,8 @@ class CustomFieldGroupExportImportController extends Controller
                         CustomFieldOption::create([
                             'custom_field_id' => $field->id,
                             'type' => $fieldType,
-                            'name' => $opt['label'] ?? $opt['name'] ?? null,
-                            'value' => $opt['value'] ?? null,
+                            'name' => mb_substr(trim((string)($opt['label'] ?? $opt['name'] ?? '')), 0, 255) ?: null,
+                            'value' => mb_substr(trim((string)($opt['value'] ?? '')), 0, 255) ?: null,
                             'sort_order' => $optIndex + 1,
                             'status' => true,
                         ]);
@@ -373,20 +382,30 @@ class CustomFieldGroupExportImportController extends Controller
                         if (empty($rep['field_name_slug']))
                             continue;
 
+                        $repFieldType = $this->normalizeFieldType($rep['fieldType'] ?? $rep['field_type'] ?? 'text');
+                        $repIsMedia = in_array($repFieldType, ['media', 'file'], true);
+                        $repMediaFormat = isset($rep['fieldMediaFormat'])
+                            ? (is_array($rep['fieldMediaFormat']) ? implode(',', $rep['fieldMediaFormat']) : (string)$rep['fieldMediaFormat'])
+                            : (string)($rep['media_format'] ?? '');
+
                         $repeater = CustomFieldRepeater::updateOrCreate(
                             [
                                 'custom_field_id' => $field->id,
-                                'field_name_slug' => $rep['field_name_slug'],
+                                'field_name_slug' => mb_substr(trim((string)$rep['field_name_slug']), 0, 255),
                             ],
                             [
-                                'field_label' => $rep['fieldName'] ?? $rep['field_label'] ?? null,
-                                'field_type' => $rep['fieldType'] ?? $rep['field_type'] ?? null,
-                                'field_placeholder' => $rep['fieldPlaceholder'] ?? $rep['field_placeholder'] ?? null,
-                                'media_format' => isset($rep['fieldMediaFormat'])
-                                    ? (is_array($rep['fieldMediaFormat']) ? implode(',', $rep['fieldMediaFormat']) : $rep['fieldMediaFormat'])
-                                    : ($rep['media_format'] ?? null),
-                                'media_limit' => isset($rep['fieldMediaLimit']) ? (int)$rep['fieldMediaLimit'] : ($rep['media_limit'] ?? null),
-                                'media_size' => $rep['fieldMediaSize'] ?? $rep['media_size'] ?? null,
+                                'field_label' => mb_substr(trim((string)($rep['fieldName'] ?? $rep['field_label'] ?? '')), 0, 255) ?: null,
+                                'field_type' => $repFieldType,
+                                'field_placeholder' => !empty($rep['fieldPlaceholder'] ?? $rep['field_placeholder'] ?? null) 
+                                    ? mb_substr(trim((string)($rep['fieldPlaceholder'] ?? $rep['field_placeholder'])), 0, 255) 
+                                    : null,
+                                'media_format' => ($repIsMedia && !empty($repMediaFormat)) ? mb_substr(trim($repMediaFormat), 0, 255) : null,
+                                'media_limit' => ($repIsMedia && isset($rep['fieldMediaLimit']) && is_numeric($rep['fieldMediaLimit'])) 
+                                    ? (int)$rep['fieldMediaLimit'] 
+                                    : (($repIsMedia && isset($rep['media_limit']) && is_numeric($rep['media_limit'])) ? (int)$rep['media_limit'] : null),
+                                'media_size' => ($repIsMedia && !empty($rep['fieldMediaSize'] ?? $rep['media_size'] ?? null)) 
+                                    ? mb_substr(trim((string)($rep['fieldMediaSize'] ?? $rep['media_size'])), 0, 100) 
+                                    : null,
                                 'sort_order' => $repIndex + 1,
                                 'status' => true,
                             ]
@@ -397,9 +416,9 @@ class CustomFieldGroupExportImportController extends Controller
                             foreach ($rep['fieldOptions'] as $optIndex => $opt) {
                                 CustomFieldRepeaterOption::create([
                                     'custom_field_repeater_id' => $repeater->id,
-                                    'type' => $rep['fieldType'] ?? $rep['field_type'] ?? null,
-                                    'name' => $opt['name'] ?? $opt['label'] ?? null,
-                                    'value' => $opt['value'] ?? null,
+                                    'type' => $repFieldType,
+                                    'name' => mb_substr(trim((string)($opt['name'] ?? $opt['label'] ?? '')), 0, 255) ?: null,
+                                    'value' => mb_substr(trim((string)($opt['value'] ?? '')), 0, 255) ?: null,
                                     'sort_order' => $optIndex + 1,
                                     'status' => true,
                                 ]);
