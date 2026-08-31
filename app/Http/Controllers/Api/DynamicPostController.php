@@ -638,7 +638,7 @@ class DynamicPostController extends Controller
                 }
 
                 /*
-                 * These are workflow states, not direct admin CRUD statuses.
+                 * Direct updates for under_review, modify_review, submit are allowed for admin.
                  */
                 if (
                     in_array(
@@ -647,11 +647,7 @@ class DynamicPostController extends Controller
                         true
                     )
                 ) {
-                    throw ValidationException::withMessages([
-                        'live_status' => [
-                            'Use the property verification workflow to change this verification status.',
-                        ],
-                    ]);
+                    $workflowAction = null;
                 }
 
                 /*
