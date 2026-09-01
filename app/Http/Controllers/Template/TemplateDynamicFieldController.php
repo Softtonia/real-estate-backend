@@ -93,12 +93,7 @@ class TemplateDynamicFieldController extends Controller
             ->values()
             ->toArray();
 
-        if ($entityId) {
-            $systemFields = $this->onlyFieldsWithValue($systemFields);
-            $customFields = $this->onlyFieldsWithValue($customFields);
-            $taxonomyFields = $this->onlyFieldsWithValue($taxonomyFields);
-        }
-
+        // All dynamic fields must remain visible in builder palette so users can drag & drop them
         $builderItems = array_merge(
             $basicWidgets,
             $systemFields,
@@ -374,7 +369,7 @@ class TemplateDynamicFieldController extends Controller
 
                     'source' => 'custom_field',
                     'type' => $fieldType,
-                    'component_key' => $this->mapFieldTypeToComponent($fieldType),
+                    'component_key' => $this->mapFieldTypeToComponent($fieldType, $fieldKey),
 
                     'binding' => [
                         'source' => 'custom_field',
@@ -1575,11 +1570,17 @@ class TemplateDynamicFieldController extends Controller
         ];
     }
 
-    private function mapFieldTypeToComponent(string $type): string
+    private function mapFieldTypeToComponent(string $type, ?string $slug = null): string
     {
-        return match (strtolower($type)) {
+        $type = strtolower($type);
+        $slug = strtolower((string) $slug);
+
+        if ($type === 'gallery' || str_contains($slug, 'gallery')) {
+            return 'gallery';
+        }
+
+        return match ($type) {
             'image', 'media', 'file' => 'image',
-            'gallery' => 'gallery',
             'repeater' => 'repeater',
             'textarea', 'texteditor', 'editor', 'wysiwyg' => 'text',
             'url', 'link' => 'button',

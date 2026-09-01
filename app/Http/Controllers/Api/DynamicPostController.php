@@ -5059,6 +5059,10 @@ class DynamicPostController extends Controller
             return true;
         }
 
+        if (empty($selectedTermIds)) {
+            return true;
+        }
+
         $includeTermIds = $conditions
             ->filter(fn($condition) => ($condition->operator ?? 'include') === 'include')
             ->pluck('taxonomy_term_id')
