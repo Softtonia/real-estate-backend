@@ -1,0 +1,477 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Media;
+
+use App\Events\Media\BatchUploadCompleted;
+use App\Events\Media\BatchUploadStarted;
+use App\Events\Media\FileUploadProgress;
+use App\Jobs\Media\ProcessDynamicPostMediaJob;
+use App\Models\CustomField;
+use App\Models\CustomFieldValue;
+use App\Models\DynamicPost;
+use App\Models\MediaBatchItem;
+use App\Models\MediaFile;
+use App\Models\MediaUploadBatch;
+use App\Models\PostType;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Throwable;
+
+class MediaBatchService
+{
+    /**
+     * Handle batch or single file upload.
+     */
+    public function handleBatchUpload(Request $request, ?User $user = null): array
+    {
+        $user = $user ?: Auth::user() ?: User::first();
+        $userId = $user ? (int) $user->id : 1;
+
+        $batchUuid = $request->input('batch_uuid') ?: Str::uuid()->toString();
+        $dynamicPostId = $request->filled('dynamic_post_id') ? (int) $request->input('dynamic_post_id') : null;
+        $customFieldId = $request->filled('custom_field_id') ? (int) $request->input('custom_field_id') : null;
+        $fieldSlug = $request->input('field_slug');
+        $expectedCount = (int) $request->input('expected_count', 1);
+
+        $customField = null;
+        if ($customFieldId) {
+            $customField = CustomField::find($customFieldId);
+        } elseif ($fieldSlug) {
+            $customField = CustomField::where('field_name_slug', $fieldSlug)->first();
+            if ($customField) {
+                $customFieldId = (int) $customField->id;
+            }
+        }
+
+        $postTypeSlug = 'common';
+        if ($dynamicPostId) {
+            $post = DynamicPost::with('postType')->find($dynamicPostId);
+            if ($post && $post->postType) {
+                $postTypeSlug = Str::slug($post->postType->slug ?? $post->postType->name ?? 'common', '-');
+            }
+        }
+
+        // 1. Get or create the batch record atomically
+        $batch = MediaUploadBatch::firstOrCreate(
+            ['batch_uuid' => $batchUuid],
+            [
+                'user_id' => $userId,
+                'dynamic_post_id' => $dynamicPostId,
+                'post_type_slug' => $postTypeSlug,
+                'custom_field_id' => $customFieldId,
+                'field_slug' => $fieldSlug ?: ($customField?->field_name_slug),
+                'context' => 'custom-fields',
+                'expected_count' => max($expectedCount, 1),
+                'uploaded_count' => 0,
+                'processed_count' => 0,
+                'failed_count' => 0,
+                'status' => 'uploading',
+                'progress_percent' => 0.00,
+                'expires_at' => now()->addHours(24),
+            ]
+        );
+
+        if ($batch->wasRecentlyCreated) {
+            event(new BatchUploadStarted($batch));
+        }
+
+        // 2. Normalize incoming files array
+        $rawFiles = $request->file('files');
+        if (empty($rawFiles) && $request->hasFile('file')) {
+            $rawFiles = [$request->file('file')];
+        }
+
+        if (empty($rawFiles)) {
+            throw ValidationException::withMessages([
+                'files' => ['No valid file(s) provided for upload.'],
+            ]);
+        }
+
+        if (!is_array($rawFiles)) {
+            $rawFiles = [$rawFiles];
+        }
+
+        $clientFileIds = $request->input('client_file_ids', []);
+        if (!is_array($clientFileIds)) {
+            $clientFileIds = [$request->input('client_file_id', Str::uuid()->toString())];
+        }
+
+        $isFeaturedFlags = $request->input('is_featured', []);
+        if (!is_array($isFeaturedFlags)) {
+            $isFeaturedFlags = [$request->input('is_featured', false)];
+        }
+
+        $uploadedItems = [];
+        $newMediaRecords = [];
+
+        $fieldLabel = $customField?->field_label ?: ($fieldSlug ?: 'Media Gallery');
+        $allowedExtensions = $this->resolveAllowedExtensions($customField);
+        $maxSizeKb = $this->resolveMaxFileSizeKb($customField);
+
+        $directory = implode('/', [
+            'uploads',
+            'custom-fields',
+            $postTypeSlug,
+            Str::slug($fieldSlug ?: ($customField?->field_name_slug ?: 'gallery'), '-'),
+            now()->format('Y'),
+            now()->format('m'),
+        ]);
+
+        foreach ($rawFiles as $idx => $file) {
+            if (!$file instanceof UploadedFile || !$file->isValid()) {
+                throw ValidationException::withMessages([
+                    'files' => ["File upload failed: " . ($file ? $file->getErrorMessage() : 'Invalid file.')],
+                ]);
+            }
+
+            $clientFileId = (string) ($clientFileIds[$idx] ?? $clientFileIds[0] ?? Str::uuid()->toString());
+            $isItemFeatured = filter_var($isFeaturedFlags[$idx] ?? $isFeaturedFlags[0] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            // Check for idempotency: if already uploaded in this batch, return existing item
+            $existingItem = MediaBatchItem::where('batch_id', $batch->id)
+                ->where('client_file_id', $clientFileId)
+                ->first();
+
+            if ($existingItem) {
+                $uploadedItems[] = $existingItem;
+                continue;
+            }
+
+            $extension = strtolower($file->getClientOriginalExtension());
+            if (!empty($allowedExtensions) && !in_array($extension, $allowedExtensions, true)) {
+                throw ValidationException::withMessages([
+                    'files' => ["Invalid format for {$fieldLabel}. Allowed: " . implode(', ', $allowedExtensions)],
+                ]);
+            }
+
+            $fileSize = $file->getSize();
+            if ($maxSizeKb > 0 && ($fileSize / 1024) > $maxSizeKb) {
+                throw ValidationException::withMessages([
+                    'files' => ["File exceeds the maximum allowed size of {$maxSizeKb} KB."],
+                ]);
+            }
+
+            $originalName = $file->getClientOriginalName();
+            $mimeType = $file->getMimeType() ?: 'application/octet-stream';
+            $fileName = Str::uuid()->toString() . '.' . $extension;
+
+            $path = $file->storeAs($directory, $fileName, 'public');
+
+            if (empty($path)) {
+                throw new \RuntimeException("Could not write file to local disk: {$directory}/{$fileName}");
+            }
+
+            $url = Storage::disk('public')->url($path);
+
+            // Create persistent MediaFile record
+            $mediaRecord = MediaFile::firstOrCreate(
+                ['path' => $path],
+                [
+                    'disk' => 'public',
+                    'context' => 'custom-fields',
+                    'post_type_slug' => $postTypeSlug,
+                    'field_slug' => $fieldSlug ?: ($customField?->field_name_slug ?: 'gallery'),
+                    'directory' => $directory,
+                    'file_name' => $fileName,
+                    'original_name' => $originalName,
+                    'mime_type' => $mimeType,
+                    'extension' => $extension,
+                    'size' => $fileSize,
+                    'uploaded_by' => $userId,
+                ]
+            );
+
+            // Create MediaBatchItem record
+            $batchItem = MediaBatchItem::create([
+                'batch_id' => $batch->id,
+                'client_file_id' => $clientFileId,
+                'media_file_id' => $mediaRecord->id,
+                'file_name' => $fileName,
+                'original_name' => $originalName,
+                'mime_type' => $mimeType,
+                'extension' => $extension,
+                'size' => $fileSize,
+                'path' => $path,
+                'url' => $url,
+                'is_featured' => $isItemFeatured,
+                'sort_order' => $idx,
+                'status' => 'uploaded',
+            ]);
+
+            $uploadedItems[] = $batchItem;
+            $newMediaRecords[] = [
+                'id' => (int) $mediaRecord->id,
+                'url' => $url,
+                'path' => $path,
+                'file_name' => $fileName,
+                'original_name' => $originalName,
+                'mime_type' => $mimeType,
+                'extension' => $extension,
+                'size' => $fileSize,
+                'is_featured' => $isItemFeatured,
+            ];
+
+            // Dispatch background queue job for optimization and thumbnail creation
+            ProcessDynamicPostMediaJob::dispatch((int) $batchItem->id);
+
+            event(new FileUploadProgress($batch, $batchItem));
+        }
+
+        // 3. Update batch counters atomically
+        $uploadedCount = MediaBatchItem::where('batch_id', $batch->id)->count();
+        $expectedCount = max((int) $batch->expected_count, $uploadedCount);
+        $progress = round(($uploadedCount / $expectedCount) * 100, 2);
+
+        $batch->update([
+            'uploaded_count' => $uploadedCount,
+            'expected_count' => $expectedCount,
+            'progress_percent' => min(100.00, $progress),
+            'status' => ($uploadedCount >= $expectedCount) ? 'completed' : 'uploading',
+        ]);
+
+        // 4. Attach new media to custom_field_values if dynamic_post_id is provided
+        $allSavedMedia = [];
+        if ($dynamicPostId && $customFieldId) {
+            $allSavedMedia = $this->syncBatchMediaToCustomFieldValue(
+                dynamicPostId: $dynamicPostId,
+                customFieldId: $customFieldId,
+                newMedia: $newMediaRecords,
+                fieldSlug: $fieldSlug ?: ($customField?->field_name_slug)
+            );
+        }
+
+        if ($batch->status === 'completed') {
+            event(new BatchUploadCompleted($batch, $allSavedMedia));
+        }
+
+        return [
+            'batch_uuid' => $batch->batch_uuid,
+            'status' => $batch->status,
+            'progress_percent' => (float) $batch->progress_percent,
+            'uploaded_count' => (int) $batch->uploaded_count,
+            'expected_count' => (int) $batch->expected_count,
+            'uploaded_items' => collect($uploadedItems)->map(fn($item) => [
+                'client_file_id' => $item->client_file_id,
+                'media_file_id' => $item->media_file_id,
+                'url' => $item->url,
+                'path' => $item->path,
+                'file_name' => $item->file_name,
+                'original_name' => $item->original_name,
+                'is_featured' => (bool) $item->is_featured,
+                'status' => $item->status,
+            ])->values()->toArray(),
+            'saved_media' => $allSavedMedia,
+        ];
+    }
+
+    /**
+     * Get live status and details of a batch.
+     */
+    public function getBatchStatus(string $batchUuid): ?array
+    {
+        $batch = MediaUploadBatch::with('items')->where('batch_uuid', $batchUuid)->first();
+
+        if (!$batch) {
+            return null;
+        }
+
+        return [
+            'batch_uuid' => $batch->batch_uuid,
+            'dynamic_post_id' => $batch->dynamic_post_id,
+            'custom_field_id' => $batch->custom_field_id,
+            'status' => $batch->status,
+            'progress_percent' => (float) $batch->progress_percent,
+            'uploaded_count' => (int) $batch->uploaded_count,
+            'processed_count' => (int) $batch->processed_count,
+            'failed_count' => (int) $batch->failed_count,
+            'expected_count' => (int) $batch->expected_count,
+            'items' => $batch->items->map(fn($item) => [
+                'id' => $item->id,
+                'client_file_id' => $item->client_file_id,
+                'media_file_id' => $item->media_file_id,
+                'url' => $item->url,
+                'path' => $item->path,
+                'file_name' => $item->file_name,
+                'original_name' => $item->original_name,
+                'is_featured' => (bool) $item->is_featured,
+                'status' => $item->status,
+                'error_message' => $item->error_message,
+            ])->values()->toArray(),
+        ];
+    }
+
+    /**
+     * Merge new batch media into custom_field_values without losing existing files.
+     */
+    private function syncBatchMediaToCustomFieldValue(
+        int $dynamicPostId,
+        int $customFieldId,
+        array $newMedia,
+        ?string $fieldSlug = null
+    ): array {
+        $cfValue = CustomFieldValue::where('entity_id', $dynamicPostId)
+            ->where('entity_type', 'post')
+            ->where('custom_field_id', $customFieldId)
+            ->first();
+
+        $existingMedia = [];
+        if ($cfValue && !empty($cfValue->value_json)) {
+            $raw = $cfValue->value_json;
+            $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+            if (is_array($decoded)) {
+                $existingMedia = isset($decoded[0]) ? $decoded : [$decoded];
+            }
+        }
+
+        $mergedByPath = [];
+        foreach ($existingMedia as $item) {
+            if (is_array($item) && !empty($item['path'])) {
+                $mergedByPath[$item['path']] = $item;
+            }
+        }
+
+        foreach ($newMedia as $newItem) {
+            if (!empty($newItem['path'])) {
+                $mergedByPath[$newItem['path']] = $newItem;
+            }
+        }
+
+        $finalItems = array_values($mergedByPath);
+
+        // Normalize is_featured: exactly one item should be true if featured was chosen
+        $featuredCount = 0;
+        foreach ($finalItems as $item) {
+            if (!empty($item['is_featured'])) {
+                $featuredCount++;
+            }
+        }
+        if ($featuredCount === 0 && !empty($finalItems)) {
+            $finalItems[0]['is_featured'] = true;
+        } elseif ($featuredCount > 1) {
+            $lastFeaturedKey = null;
+            foreach ($finalItems as $k => $item) {
+                if (!empty($item['is_featured'])) {
+                    $lastFeaturedKey = $k;
+                }
+            }
+            foreach ($finalItems as $k => $item) {
+                $finalItems[$k]['is_featured'] = ($k === $lastFeaturedKey);
+            }
+        }
+
+        $firstFeatured = collect($finalItems)->firstWhere('is_featured', true) ?: ($finalItems[0] ?? null);
+        $featuredUrl = $firstFeatured['url'] ?? null;
+
+        CustomFieldValue::updateOrCreate(
+            [
+                'entity_id' => $dynamicPostId,
+                'entity_type' => 'post',
+                'custom_field_id' => $customFieldId,
+            ],
+            [
+                'value_json' => $finalItems,
+                'value_string' => $featuredUrl,
+                'value_text' => $featuredUrl,
+            ]
+        );
+
+        return $finalItems;
+    }
+
+    /**
+     * Clean up abandoned batches and orphaned files older than X hours.
+     */
+    public function cleanupAbandonedBatches(int $hours = 24): int
+    {
+        $threshold = now()->subHours($hours);
+
+        $expiredBatches = MediaUploadBatch::with('items')
+            ->where('status', '!=', 'completed')
+            ->where(function ($q) use ($threshold) {
+                $q->where('expires_at', '<', now())
+                    ->orWhere('created_at', '<', $threshold);
+            })
+            ->get();
+
+        $cleanedCount = 0;
+
+        foreach ($expiredBatches as $batch) {
+            // Delete incomplete batch files from disk
+            foreach ($batch->items as $item) {
+                if ($item->status !== 'completed' && !empty($item->path)) {
+                    if (Storage::disk('public')->exists($item->path)) {
+                        Storage::disk('public')->delete($item->path);
+                    }
+                    if ($item->media_file_id) {
+                        MediaFile::where('id', $item->media_file_id)->delete();
+                    }
+                }
+            }
+
+            $batch->update(['status' => 'abandoned']);
+            $batch->items()->delete();
+            $batch->delete();
+            $cleanedCount++;
+        }
+
+        return $cleanedCount;
+    }
+
+    private function resolveAllowedExtensions(?CustomField $field): array
+    {
+        if (!$field) {
+            return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm', 'pdf', 'docx'];
+        }
+
+        if (!empty($field->media_format)) {
+            if (is_array($field->media_format)) {
+                return array_map('strtolower', $field->media_format);
+            }
+            return array_values(array_filter(array_map('trim', explode(',', strtolower((string) $field->media_format)))));
+        }
+
+        $type = strtolower((string) ($field->field_type ?? ''));
+        if (in_array($type, ['image', 'gallery'], true)) {
+            return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm'];
+        }
+
+        if ($type === 'video') {
+            return ['mp4', 'mov', 'webm', 'mkv', 'avi'];
+        }
+
+        return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm', 'pdf', 'docx', 'xlsx'];
+    }
+
+    private function resolveMaxFileSizeKb(?CustomField $field): int
+    {
+        if (!$field || empty($field->media_size)) {
+            return 512000; // 500 MB default max for videos/media
+        }
+
+        $size = trim((string) $field->media_size);
+        if (is_numeric($size)) {
+            return (int) $size;
+        }
+
+        if (preg_match('/^(\d+(?:\.\d+)?)\s*(kb|mb|gb)?$/i', $size, $matches)) {
+            $num = (float) $matches[1];
+            $unit = strtolower($matches[2] ?? 'kb');
+            return match ($unit) {
+                'mb' => (int) round($num * 1024),
+                'gb' => (int) round($num * 1024 * 1024),
+                default => (int) round($num),
+            };
+        }
+
+        return 512000;
+    }
+}

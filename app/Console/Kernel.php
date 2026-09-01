@@ -16,6 +16,7 @@ class Kernel extends ConsoleKernel
         ProcessScheduledNotificationsCommand::class,
         \App\Console\Commands\DispatchExpiredSoldPropertyVisibilityJobs::class,
         \App\Console\Commands\MembershipActivatePaidOrdersCommand::class,
+        \App\Console\Commands\CleanupAbandonedMediaBatchesCommand::class,
     ];
     /**
      * Define the application's command schedule.
@@ -28,6 +29,7 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/tokens_clean.log'));
 
         $schedule->command('api-security:cleanup')->hourly();
+        $schedule->command('media:cleanup-abandoned-batches')->hourly();
         $schedule->command('membership:process-expirations')
             ->everyFifteenMinutes()
             ->withoutOverlapping()

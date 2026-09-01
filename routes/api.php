@@ -2079,6 +2079,10 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('dynamic-post-assignment/users', [DynamicPostController::class, 'assignmentUserDropdown']);
     Route::get('dynamic-post-assignment/roles', [DynamicPostController::class, 'assignmentRoleDropdown']);
 
+    // Media Batch Upload System (Fast Asynchronous Local Uploads)
+    Route::post('media/batch-upload', [\App\Http\Controllers\Api\Media\MediaBatchController::class, 'upload']);
+    Route::get('media/batch-status/{batch_uuid}', [\App\Http\Controllers\Api\Media\MediaBatchController::class, 'status']);
+
     // Dynamic post bulk and CSV routes
     Route::post('dynamic-posts/bulk-delete', [DynamicPostController::class, 'bulkDelete']);
     Route::get('dynamic-posts/template-csv', [DynamicPostCsvController::class, 'template']);
