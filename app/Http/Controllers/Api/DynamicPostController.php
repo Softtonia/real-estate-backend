@@ -3443,16 +3443,21 @@ class DynamicPostController extends Controller
                         ->toArray();
 
                     // Normalize is_featured based on submitted targets or existing flags
-                    $featuredIndex = $fieldData['featured_index'] ?? $fieldData['featured_file_index'] ?? null;
-                    $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? null;
-                    $featuredUrl = $fieldData['featured_url'] ?? $fieldData['featured_path'] ?? null;
+                    $featuredIndex = $fieldData['featured_index'] ?? $fieldData['featured_file_index'] ?? $request->input('featured_index') ?? null;
+                    $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? $request->input('featured_file_name') ?? $request->input('featured_name') ?? null;
+                    $featuredUrl = $fieldData['featured_url'] ?? $fieldData['featured_path'] ?? $request->input('featured_url') ?? $request->input('featured_path') ?? ($request->has('featured_image') && is_string($request->input('featured_image')) ? $request->input('featured_image') : null);
 
-                    if ($featuredIndex !== null || $featuredName !== null || $featuredUrl !== null) {
+                    if ($featuredIndex !== null || $featuredName !== null || (!empty($featuredUrl) && is_string($featuredUrl))) {
                         foreach ($newValueJson as $k => $item) {
                             $isMatch = (
                                 ($featuredIndex !== null && (string) $k === (string) $featuredIndex)
-                                || ($featuredName !== null && ($item['original_name'] ?? '') === $featuredName)
-                                || ($featuredUrl !== null && (($item['url'] ?? '') === $featuredUrl || ($item['path'] ?? '') === $featuredUrl))
+                                || ($featuredName !== null && (($item['original_name'] ?? '') === $featuredName || ($item['file_name'] ?? '') === $featuredName))
+                                || (!empty($featuredUrl) && is_string($featuredUrl) && (
+                                    ($item['url'] ?? '') === $featuredUrl
+                                    || ($item['path'] ?? '') === $featuredUrl
+                                    || (!empty($item['path']) && basename($item['path']) === basename($featuredUrl))
+                                    || (!empty($item['file_name']) && $item['file_name'] === basename($featuredUrl))
+                                ))
                             );
                             $newValueJson[$k]['is_featured'] = $isMatch;
                         }
