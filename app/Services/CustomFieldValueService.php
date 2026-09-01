@@ -189,8 +189,17 @@ class CustomFieldValueService
     {
         $fieldType = $customField?->field_type;
 
-        // If this is a JSON-based field type (media, file, checkbox), prioritize value_json
+        // If this is a JSON-based field type (media, file, checkbox), prioritize value_json or batch upload
         if ($fieldType && in_array($fieldType, self::JSON_FIELD_TYPES, true)) {
+            $batchUuid = $field['media_batch_id'] ?? $field['batch_uuid'] ?? $field['batch_id'] ?? null;
+            if (!empty($batchUuid) && is_string($batchUuid)) {
+                $batchMedia = app(\App\Services\Media\MediaBatchService::class)->resolveBatchToMediaArray($batchUuid);
+                if (!empty($batchMedia)) {
+                    $existingJson = isset($field['value_json']) && is_array($field['value_json']) ? $field['value_json'] : [];
+                    return array_merge($existingJson, $batchMedia);
+                }
+            }
+
             if (isset($field['value_json']) && $field['value_json'] !== '' && $field['value_json'] !== null) {
                 return $field['value_json'];
             }

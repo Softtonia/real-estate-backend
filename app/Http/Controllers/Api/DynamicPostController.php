@@ -3435,6 +3435,15 @@ class DynamicPostController extends Controller
                         );
                     }
 
+                    // Check if batch upload session was submitted
+                    $batchUuid = $fieldData['media_batch_id'] ?? $fieldData['batch_uuid'] ?? $fieldData['batch_id'] ?? null;
+                    if (!empty($batchUuid) && is_string($batchUuid)) {
+                        $batchMedia = app(\App\Services\Media\MediaBatchService::class)->resolveBatchToMediaArray($batchUuid);
+                        if (!empty($batchMedia)) {
+                            $uploaded = array_merge($uploaded, $batchMedia);
+                        }
+                    }
+
                     $newValueJson = collect($retainedFiles)
                         ->merge($uploaded)
                         ->filter(fn($item) => is_array($item) && !empty($item['path']))

@@ -2085,6 +2085,13 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::get('dynamic-posts/export-csv', [DynamicPostCsvController::class, 'export']);
     Route::post('dynamic-posts/import-csv', [DynamicPostCsvController::class, 'import']);
 
+    // Generic Batch Upload Routes
+    Route::post('media/batches/init', [\App\Http\Controllers\Api\Media\MediaBatchController::class, 'init']);
+    Route::post('media/batches/{batchUuid}/upload', [\App\Http\Controllers\Api\Media\MediaBatchController::class, 'upload']);
+    Route::get('media/batches/{batchUuid}/status', [\App\Http\Controllers\Api\Media\MediaBatchController::class, 'status']);
+    Route::post('media/batches/{batchUuid}/complete', [\App\Http\Controllers\Api\Media\MediaBatchController::class, 'complete']);
+    Route::post('media/batches/{batchUuid}/cancel', [\App\Http\Controllers\Api\Media\MediaBatchController::class, 'cancel']);
+
     // Dynamic post CRUD
     Route::post('dynamic-posts', [DynamicPostController::class, 'store']);
     Route::get('dynamic-posts', [DynamicPostController::class, 'index']);
