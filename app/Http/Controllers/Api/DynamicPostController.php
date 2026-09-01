@@ -3443,14 +3443,16 @@ class DynamicPostController extends Controller
                         ->toArray();
 
                     // Normalize is_featured based on submitted targets or existing flags
+                    $featuredId = $fieldData['featured_id'] ?? $fieldData['featured_media_id'] ?? $request->input('featured_id') ?? $request->input('featured_media_id') ?? $request->input('featured_image_id') ?? null;
                     $featuredIndex = $fieldData['featured_index'] ?? $fieldData['featured_file_index'] ?? $request->input('featured_index') ?? null;
                     $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? $request->input('featured_file_name') ?? $request->input('featured_name') ?? null;
                     $featuredUrl = $fieldData['featured_url'] ?? $fieldData['featured_path'] ?? $request->input('featured_url') ?? $request->input('featured_path') ?? ($request->has('featured_image') && is_string($request->input('featured_image')) ? $request->input('featured_image') : null);
 
-                    if ($featuredIndex !== null || $featuredName !== null || (!empty($featuredUrl) && is_string($featuredUrl))) {
+                    if ($featuredId !== null || $featuredIndex !== null || $featuredName !== null || (!empty($featuredUrl) && is_string($featuredUrl))) {
                         foreach ($newValueJson as $k => $item) {
                             $isMatch = (
-                                ($featuredIndex !== null && (string) $k === (string) $featuredIndex)
+                                ($featuredId !== null && isset($item['id']) && (int) $item['id'] === (int) $featuredId)
+                                || ($featuredIndex !== null && (string) $k === (string) $featuredIndex)
                                 || ($featuredName !== null && (($item['original_name'] ?? '') === $featuredName || ($item['file_name'] ?? '') === $featuredName))
                                 || (!empty($featuredUrl) && is_string($featuredUrl) && (
                                     ($item['url'] ?? '') === $featuredUrl
@@ -3981,7 +3983,26 @@ class DynamicPostController extends Controller
             $path = null;
             $url = null;
 
-            if (is_array($reference)) {
+            if (is_numeric($reference)) {
+                $media = MediaFile::find((int) $reference);
+                if ($media) {
+                    $path = $media->path;
+                    $url = $media->url ?: Storage::disk($media->disk ?: 'public')->url($media->path);
+                    $reference = [
+                        'id' => (int) $media->id,
+                        'disk' => $media->disk ?: 'public',
+                        'path' => $media->path,
+                        'url' => $url,
+                        'file_name' => $media->file_name,
+                        'original_name' => $media->original_name,
+                        'mime_type' => $media->mime_type,
+                        'extension' => $media->extension,
+                        'size' => $media->size,
+                        'size_kb' => $media->size ? round($media->size / 1024, 2) : null,
+                        'is_featured' => false,
+                    ];
+                }
+            } elseif (is_array($reference)) {
                 $path = $reference['path'] ?? null;
                 $url = $reference['url'] ?? null;
 
@@ -3997,10 +4018,23 @@ class DynamicPostController extends Controller
                 continue;
             }
 
+            $id = is_array($reference) && !empty($reference['id']) ? (int) $reference['id'] : null;
+            if (!$id && $oldFilesByPath->has($path)) {
+                $id = $oldFilesByPath->get($path)['id'] ?? null;
+            }
+            if (!$id) {
+                $mediaRec = MediaFile::where('path', $path)->orWhere('file_name', basename($path))->first();
+                if ($mediaRec) {
+                    $id = (int) $mediaRec->id;
+                }
+            }
+
             if ($oldFilesByPath->has($path)) {
                 $oldItem = $oldFilesByPath->get($path);
                 $submittedProps = is_array($reference) ? array_filter($reference, fn($v) => !is_null($v)) : [];
                 $mergedItem = array_merge($oldItem, $submittedProps);
+
+                $mergedItem['id'] = $id;
 
                 if (isset($submittedProps['is_featured'])) {
                     $mergedItem['is_featured'] = filter_var($submittedProps['is_featured'], FILTER_VALIDATE_BOOLEAN);
@@ -4016,11 +4050,11 @@ class DynamicPostController extends Controller
             }
 
             $items[] = [
-                'id' => is_array($reference) && isset($reference['id']) ? (int) $reference['id'] : null,
+                'id' => $id,
                 'disk' => 'public',
                 'path' => $path,
-                'url' => Storage::disk('public')->url($path),
-                'file_name' => basename($path),
+                'url' => is_array($reference) && !empty($reference['url']) ? $reference['url'] : Storage::disk('public')->url($path),
+                'file_name' => is_array($reference) && !empty($reference['file_name']) ? $reference['file_name'] : basename($path),
                 'original_name' => (is_array($reference) && !empty($reference['original_name'])) ? $reference['original_name'] : basename($path),
                 'mime_type' => (is_array($reference) && !empty($reference['mime_type'])) ? $reference['mime_type'] : null,
                 'extension' => pathinfo($path, PATHINFO_EXTENSION),
@@ -4035,10 +4069,15 @@ class DynamicPostController extends Controller
             ->values()
             ->toArray();
     }
+
     private function normalizeSubmittedMediaReferences(mixed $value): array
     {
         if (is_null($value)) {
             return [];
+        }
+
+        if (is_numeric($value)) {
+            return [(int) $value];
         }
 
         if (is_string($value)) {
@@ -4050,15 +4089,45 @@ class DynamicPostController extends Controller
 
             $decoded = json_decode($value, true);
 
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            if (json_last_error() === JSON_ERROR_NONE && (is_array($decoded) || is_numeric($decoded))) {
                 return $this->normalizeSubmittedMediaReferences($decoded);
+            }
+
+            if (str_contains($value, ',')) {
+                $parts = array_values(array_filter(array_map('trim', explode(',', $value))));
+                $items = [];
+                foreach ($parts as $part) {
+                    $items = array_merge($items, $this->normalizeSubmittedMediaReferences($part));
+                }
+                return $items;
             }
 
             return [$value];
         }
 
         if (is_array($value)) {
-            if (array_key_exists('path', $value) || array_key_exists('url', $value)) {
+            if (array_key_exists('path', $value) || array_key_exists('url', $value) || array_key_exists('id', $value)) {
+                $url = (string) ($value['url'] ?? '');
+                $path = (string) ($value['path'] ?? '');
+
+                if (str_contains($url, ',') || str_contains($path, ',')) {
+                    $urls = array_values(array_filter(array_map('trim', explode(',', $url))));
+                    $paths = array_values(array_filter(array_map('trim', explode(',', $path))));
+                    $count = max(count($urls), count($paths));
+                    $splitItems = [];
+                    for ($i = 0; $i < $count; $i++) {
+                        $u = $urls[$i] ?? ($paths[$i] ?? null);
+                        $p = $paths[$i] ?? ($urls[$i] ?? null);
+                        $splitItems[] = [
+                            'id' => null,
+                            'url' => $u,
+                            'path' => $p,
+                            'is_featured' => ($i === 0 && !empty($value['is_featured'])),
+                        ];
+                    }
+                    return $splitItems;
+                }
+
                 return [$value];
             }
 
@@ -4378,7 +4447,25 @@ class DynamicPostController extends Controller
                 $isItemFeatured = true;
             }
 
+            $mediaRecord = MediaFile::firstOrCreate(
+                ['path' => $path],
+                [
+                    'disk' => 'public',
+                    'context' => 'custom-fields',
+                    'post_type_slug' => Str::slug($postType->slug ?? $postType->name ?? 'common', '-'),
+                    'field_slug' => Str::slug($field->field_name_slug ?: ('custom-field-' . $field->id), '-'),
+                    'directory' => $directory,
+                    'file_name' => $fileName,
+                    'original_name' => $originalName,
+                    'mime_type' => $mimeType,
+                    'extension' => $extension,
+                    'size' => $fileSize,
+                    'uploaded_by' => Auth::id() ?: 1,
+                ]
+            );
+
             $uploaded[] = [
+                'id' => (int) $mediaRecord->id,
                 'disk' => 'public',
                 'path' => $path,
                 'url' => Storage::disk('public')->url($path),
