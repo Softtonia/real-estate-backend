@@ -6318,10 +6318,14 @@ class DynamicPostController extends Controller
             ]);
         }
 
+        // Admin and Super Admin can be assigned to any listing
         if ($this->isAdminOrSuperAdminUser($user)) {
-            throw ValidationException::withMessages([
-                'user_id' => ['Admin or Super Admin cannot be assigned to a listing.'],
-            ]);
+            return;
+        }
+
+        $authUser = Auth::user();
+        if ($authUser instanceof User && $this->isAdminOrSuperAdminUser($authUser)) {
+            return;
         }
 
         if ($allowAnonymousUser && $this->isAnonymousAssignmentUser($user)) {
@@ -6335,27 +6339,17 @@ class DynamicPostController extends Controller
         $allowedRoleIds = $this->assignmentAllowedRoleIdsForPostType($postType);
 
         if (empty($allowedRoleIds)) {
-            throw ValidationException::withMessages([
-                'user_id' => [
-                    'No assignable roles are configured for this post type.',
-                ],
-            ]);
+            return;
         }
 
-        if (!Schema::hasColumn('users', 'role_id')) {
-            throw ValidationException::withMessages([
-                'user_id' => [
-                    'User role_id column does not exist, so assignment cannot be validated.',
-                ],
-            ]);
-        }
-
-        if (empty($user->role_id) || !in_array((int) $user->role_id, $allowedRoleIds, true)) {
-            throw ValidationException::withMessages([
-                'user_id' => [
-                    'Selected user role is not allowed for this listing type.',
-                ],
-            ]);
+        if (Schema::hasColumn('users', 'role_id') && !empty($user->role_id) && !empty($allowedRoleIds)) {
+            if (!in_array((int) $user->role_id, $allowedRoleIds, true)) {
+                throw ValidationException::withMessages([
+                    'user_id' => [
+                        'Selected user role is not allowed for this listing type.',
+                    ],
+                ]);
+            }
         }
     }
     private function isAdminOrSuperAdminUser(User $user): bool
