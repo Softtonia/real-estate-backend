@@ -3287,24 +3287,26 @@ class DynamicPostController extends Controller
 
     private function storeDynamicPostMediaFile($file, PostType $postType, string $type): MediaFile
     {
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp', 'mp4', 'mov', 'webm', 'avi', 'mkv'];
         $extension = strtolower($file->getClientOriginalExtension());
 
         if (!in_array($extension, $allowedExtensions, true)) {
             throw ValidationException::withMessages([
                 $type === 'featured-image' ? 'featured_image' : 'gallery_images' => [
-                    'Invalid image format. Allowed formats: ' . implode(', ', $allowedExtensions)
+                    'Invalid file format. Allowed formats: ' . implode(', ', $allowedExtensions)
                 ],
             ]);
         }
 
-        $maxSizeKb = 5120;
+        $isVideo = in_array($extension, ['mp4', 'mov', 'webm', 'avi', 'mkv', 'ogg'], true);
+        $maxSizeKb = $isVideo ? 102400 : 20480;
         $fileSize = $file->getSize();
 
         if (($fileSize / 1024) > $maxSizeKb) {
+            $maxMb = round($maxSizeKb / 1024);
             throw ValidationException::withMessages([
                 $type === 'featured-image' ? 'featured_image' : 'gallery_images' => [
-                    'Image size must not be greater than 5MB.'
+                    "File size must not be greater than {$maxMb}MB."
                 ],
             ]);
         }
@@ -3715,10 +3717,10 @@ class DynamicPostController extends Controller
         }
 
         if ($repeater->field_type === 'media') {
-            return ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+            return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp', 'mp4', 'mov', 'webm', 'avi', 'mkv'];
         }
 
-        return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt'];
+        return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp', 'mp4', 'mov', 'webm', 'avi', 'mkv', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt'];
     }
 
     private function mergeRepeaterValuesIntoValueJson(mixed $currentValueJson, mixed $repeaters): array
@@ -4328,16 +4330,16 @@ class DynamicPostController extends Controller
         }
 
         if ($field->field_type === 'media') {
-            return ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+            return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp', 'mp4', 'mov', 'webm', 'avi', 'mkv'];
         }
 
-        return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt'];
+        return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp', 'mp4', 'mov', 'webm', 'avi', 'mkv', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt'];
     }
 
     private function parseCustomFieldMediaSizeToKb(?string $size): int
     {
         if (empty($size)) {
-            return 10240;
+            return 102400;
         }
 
         $size = strtolower(trim($size));

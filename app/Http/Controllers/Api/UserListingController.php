@@ -3227,23 +3227,25 @@ class UserListingController extends Controller
             throw new \Exception($fieldSlug . ' upload failed.');
         }
 
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp', 'mp4', 'mov', 'webm', 'avi', 'mkv'];
         $extension = strtolower($file->getClientOriginalExtension());
 
         if (!in_array($extension, $allowedExtensions, true)) {
             throw ValidationException::withMessages([
                 $fieldSlug => [
-                    'Invalid image format. Allowed formats: ' . implode(', ', $allowedExtensions),
+                    'Invalid file format. Allowed formats: ' . implode(', ', $allowedExtensions),
                 ],
             ]);
         }
 
-        $maxSizeKb = 10240;
+        $isVideo = in_array($extension, ['mp4', 'mov', 'webm', 'avi', 'mkv', 'ogg'], true);
+        $maxSizeKb = $isVideo ? 102400 : 20480;
 
         if (($file->getSize() / 1024) > $maxSizeKb) {
+            $maxMb = round($maxSizeKb / 1024);
             throw ValidationException::withMessages([
                 $fieldSlug => [
-                    'Image size must not be greater than 10MB.',
+                    "File size must not be greater than {$maxMb}MB.",
                 ],
             ]);
         }
