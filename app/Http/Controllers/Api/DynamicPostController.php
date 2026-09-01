@@ -3435,15 +3435,6 @@ class DynamicPostController extends Controller
                         );
                     }
 
-                    // Check if batch upload session was submitted
-                    $batchUuid = $fieldData['media_batch_id'] ?? $fieldData['batch_uuid'] ?? $fieldData['batch_id'] ?? null;
-                    if (!empty($batchUuid) && is_string($batchUuid)) {
-                        $batchMedia = app(\App\Services\Media\MediaBatchService::class)->resolveBatchToMediaArray($batchUuid);
-                        if (!empty($batchMedia)) {
-                            $uploaded = array_merge($uploaded, $batchMedia);
-                        }
-                    }
-
                     $newValueJson = collect($retainedFiles)
                         ->merge($uploaded)
                         ->filter(fn($item) => is_array($item) && !empty($item['path']))
@@ -3499,7 +3490,7 @@ class DynamicPostController extends Controller
                         ]);
                     }
 
-                    $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson, $fieldData, $request);
+                    $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
                     $customFields[$index]['value_json'] = $newValueJson;
 
                     $featuredItem = collect($newValueJson)->firstWhere('is_featured', true) ?? ($newValueJson[0] ?? null);
@@ -4170,77 +4161,18 @@ class DynamicPostController extends Controller
         return [];
     }
 
-    private function deleteRemovedCustomFieldFiles(array $oldFiles, array $newFiles, array $fieldData = [], ?Request $request = null): void
+    private function deleteRemovedCustomFieldFiles(array $oldFiles, array $newFiles): void
     {
-        // 1. Explicit removed_media_ids support
-        $explicitRemovedIds = collect([
-            $fieldData['removed_media_ids'] ?? null,
-            $fieldData['deleted_media_ids'] ?? null,
-            $fieldData['removed_ids'] ?? null,
-            $fieldData['deleted_ids'] ?? null,
-            $request?->input('removed_media_ids'),
-            $request?->input('deleted_media_ids'),
-        ])->flatten()->filter()->map(fn($id) => (int) $id)->unique()->values()->toArray();
-
-        if (!empty($explicitRemovedIds)) {
-            foreach ($oldFiles as $oldFile) {
-                if (!is_array($oldFile)) {
-                    continue;
-                }
-                $id = !empty($oldFile['id']) ? (int) $oldFile['id'] : null;
-                if ($id && in_array($id, $explicitRemovedIds, true)) {
-                    $this->deleteStoredCustomFieldFileItem($oldFile);
-                }
-            }
-            return;
-        }
-
-        // 2. ID-first and clean path comparison
-        $newIds = collect($newFiles)
-            ->pluck('id')
-            ->filter()
-            ->map(fn($id) => (int) $id)
-            ->values()
-            ->toArray();
-
         $newPaths = collect($newFiles)
             ->pluck('path')
             ->filter()
-            ->map(fn($p) => trim((string) $p))
-            ->values()
-            ->toArray();
-
-        $newFileNames = collect($newFiles)
-            ->pluck('file_name')
-            ->filter()
-            ->map(fn($fn) => trim((string) $fn))
             ->values()
             ->toArray();
 
         foreach ($oldFiles as $oldFile) {
-            if (!is_array($oldFile)) {
-                continue;
-            }
+            $oldPath = $oldFile['path'] ?? null;
 
-            $oldId = !empty($oldFile['id']) ? (int) $oldFile['id'] : null;
-            $oldPath = trim((string) ($oldFile['path'] ?? ''));
-            $oldFileName = trim((string) ($oldFile['file_name'] ?? ($oldPath ? basename($oldPath) : '')));
-
-            // Never delete comma-separated malformed string as a single path
-            if (str_contains($oldPath, ',')) {
-                continue;
-            }
-
-            // Retained if ID, Path, or FileName matches
-            if ($oldId && in_array($oldId, $newIds, true)) {
-                continue;
-            }
-
-            if ($oldPath !== '' && in_array($oldPath, $newPaths, true)) {
-                continue;
-            }
-
-            if ($oldFileName !== '' && in_array($oldFileName, $newFileNames, true)) {
+            if (!$oldPath || in_array($oldPath, $newPaths, true)) {
                 continue;
             }
 
@@ -4259,20 +4191,13 @@ class DynamicPostController extends Controller
     {
         $path = $file['path'] ?? null;
         $disk = $file['disk'] ?? 'public';
-        $id = $file['id'] ?? null;
 
-        if (!$path && !$id) {
+        if (!$path) {
             return;
         }
 
-        if ($path && Storage::disk($disk)->exists($path)) {
+        if (Storage::disk($disk)->exists($path)) {
             Storage::disk($disk)->delete($path);
-        }
-
-        if ($id) {
-            MediaFile::where('id', (int) $id)->delete();
-        } elseif ($path) {
-            MediaFile::where('path', $path)->delete();
         }
     }
 
