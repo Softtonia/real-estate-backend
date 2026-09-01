@@ -88,6 +88,7 @@ class TemplateRenderService
         $resolvedLayoutJson = $this->hydrateLayoutValues($normalizedLayoutJson, $fields);
 
         $html = $this->renderLayout($resolvedLayoutJson, $context);
+        $layoutSettings = is_array($layoutJson['settings'] ?? null) ? $layoutJson['settings'] : [];
 
         return [
             'template' => [
@@ -102,23 +103,25 @@ class TemplateRenderService
             'resolved_layout_json' => $resolvedLayoutJson,
 
             /*
-     * Raw HTML without CSS.
-     */
-            'html' => $this->styleService->wrapHtml($html),
+             * Raw HTML without CSS.
+             */
+            'html' => $this->styleService->wrapHtml($html, $layoutSettings),
 
             /*
-     * CSS separately for frontend apps.
-     */
+             * CSS separately for frontend apps.
+             */
             'css' => $this->styleService->defaultCss(),
 
             /*
-     * Ready-to-render HTML with style tag.
-     */
-            'html_with_styles' => $this->styleService->renderFullHtml($html),
+             * Ready-to-render HTML with style tag.
+             */
+            'html_with_styles' => $this->styleService->renderFullHtml($html, $layoutSettings),
         ];
     }
     protected function normalizeLayoutJsonForRender(array $layoutJson): array
     {
+        $layoutSettings = is_array($layoutJson['settings'] ?? null) ? $layoutJson['settings'] : [];
+
         if (
             empty($layoutJson['sections'])
             && ! empty($layoutJson['components'])
@@ -128,12 +131,12 @@ class TemplateRenderService
                 [
                     'id' => 'section-root',
                     'type' => 'section',
-                    'settings' => [],
+                    'settings' => $layoutSettings,
                     'rows' => [
                         [
                             'id' => 'row-root',
                             'type' => 'row',
-                            'settings' => [],
+                            'settings' => $layoutSettings,
                             'columns' => [
                                 [
                                     'id' => 'column-root',
@@ -590,7 +593,7 @@ class TemplateRenderService
     }
     protected function sectionStyles(array $settings): array
     {
-        return $this->commonStyles($settings, [
+        $styles = $this->commonStyles($settings, [
             'padding',
             'margin',
             'background_color',
@@ -601,6 +604,13 @@ class TemplateRenderService
             'min_height',
             'text_align',
         ]);
+
+        $bgColor = $settings['backgroundColor'] ?? $settings['background_color'] ?? null;
+        if (! empty($bgColor)) {
+            $styles['background-color'] = $this->safeColor($bgColor);
+        }
+
+        return $styles;
     }
 
     protected function rowStyles(array $settings): array
@@ -620,8 +630,34 @@ class TemplateRenderService
             'justify_content',
         ]);
 
-        if (! empty($settings['max_width'])) {
-            $styles['max-width'] = $this->cssLength($settings['max_width']);
+        $widthType = $settings['contentWidthType'] ?? $settings['content_width_type'] ?? null;
+        $customWidth = $settings['customWidth'] ?? $settings['custom_width'] ?? null;
+        $maxWidth = $settings['max_width'] ?? $settings['maxWidth'] ?? null;
+
+        if (! empty($widthType)) {
+            $normalizedType = strtolower(str_replace(['-', '_', ' '], '', (string) $widthType));
+            if ($normalizedType === 'custom' || $normalizedType === 'customwidth') {
+                if (! empty($customWidth)) {
+                    $styles['max-width'] = $this->cssLength($customWidth);
+                    $styles['width'] = '100%';
+                    $styles['margin-left'] = 'auto';
+                    $styles['margin-right'] = 'auto';
+                }
+            } elseif ($normalizedType === 'full' || $normalizedType === 'fullwidth') {
+                $styles['max-width'] = '100%';
+                $styles['width'] = '100%';
+            } elseif ($normalizedType === 'boxed') {
+                $styles['max-width'] = '1200px';
+                $styles['margin-left'] = 'auto';
+                $styles['margin-right'] = 'auto';
+            }
+        } elseif (! empty($customWidth)) {
+            $styles['max-width'] = $this->cssLength($customWidth);
+            $styles['width'] = '100%';
+            $styles['margin-left'] = 'auto';
+            $styles['margin-right'] = 'auto';
+        } elseif (! empty($maxWidth)) {
+            $styles['max-width'] = $this->cssLength($maxWidth);
         }
 
         if (! empty($settings['gap'])) {
@@ -668,8 +704,9 @@ class TemplateRenderService
             $this->resolveBoxStyles($settings, 'margin', $styles);
         }
 
-        if (in_array('background_color', $allowedKeys, true) && ! empty($settings['background_color'])) {
-            $styles['background-color'] = $this->safeColor($settings['background_color']);
+        $bgColor = $settings['background_color'] ?? $settings['backgroundColor'] ?? null;
+        if (in_array('background_color', $allowedKeys, true) && ! empty($bgColor)) {
+            $styles['background-color'] = $this->safeColor($bgColor);
         }
 
         if (in_array('background_image', $allowedKeys, true) && ! empty($settings['background_image'])) {

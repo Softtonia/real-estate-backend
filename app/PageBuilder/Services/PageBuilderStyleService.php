@@ -201,13 +201,22 @@ CSS;
         return '<style>' . $this->defaultCss() . '</style>';
     }
 
-    public function wrapHtml(string $html): string
+    public function wrapHtml(string $html, array $settings = []): string
     {
-        return '<div class="pb-page-builder">' . $html . '</div>';
+        $inlineStyles = [];
+
+        $bgColor = $settings['backgroundColor'] ?? $settings['background_color'] ?? null;
+        if (! empty($bgColor) && is_string($bgColor)) {
+            $inlineStyles[] = 'background-color: ' . htmlspecialchars($bgColor, ENT_QUOTES);
+        }
+
+        $styleAttr = ! empty($inlineStyles) ? ' style="' . implode('; ', $inlineStyles) . '"' : '';
+
+        return '<div class="pb-page-builder"' . $styleAttr . '>' . $html . '</div>';
     }
 
-    public function renderFullHtml(string $html): string
+    public function renderFullHtml(string $html, array $settings = []): string
     {
-        return $this->styleTag() . $this->wrapHtml($html);
+        return $this->styleTag() . $this->wrapHtml($html, $settings);
     }
 }
