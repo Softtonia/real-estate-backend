@@ -153,10 +153,13 @@ class MediaBatchService
                 ]);
             }
 
+            $maxSizeKb = $this->resolveMaxFileSizeKb($customField, $extension);
             $fileSize = $file->getSize();
             if ($maxSizeKb > 0 && ($fileSize / 1024) > $maxSizeKb) {
+                $displayMb = round($maxSizeKb / 1024, 1);
+                $fileTypeLabel = in_array($extension, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true) ? 'Image' : 'File';
                 throw ValidationException::withMessages([
-                    'files' => ["File exceeds the maximum allowed size of {$maxSizeKb} KB."],
+                    'files' => ["{$fileTypeLabel} '{$file->getClientOriginalName()}' exceeds the maximum allowed size of {$displayMb} MB."],
                 ]);
             }
 
@@ -451,24 +454,42 @@ class MediaBatchService
         return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm', 'pdf', 'docx', 'xlsx'];
     }
 
-    private function resolveMaxFileSizeKb(?CustomField $field): int
+    private function resolveMaxFileSizeKb(?CustomField $field, string $extension): int
     {
-        if (!$field || empty($field->media_size)) {
-            return 512000; // 500 MB default max for videos/media
+        $isImage = in_array(strtolower($extension), ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
+
+        if ($isImage) {
+            // For images: default max 5MB (5120 KB) or custom field setting if smaller
+            if (!empty($field?->media_size)) {
+                $cfSizeKb = $this->parseSizeToKb((string) $field->media_size);
+                return min(5120, $cfSizeKb);
+            }
+            return 5120; // 5 MB
         }
 
-        $size = trim((string) $field->media_size);
+        // For videos and other media: use custom field dynamic setting or default 500MB
+        if (!empty($field?->media_size)) {
+            return $this->parseSizeToKb((string) $field->media_size);
+        }
+
+        return 512000; // 500 MB default for videos
+    }
+
+    private function parseSizeToKb(string $size): int
+    {
+        $size = trim($size);
         if (is_numeric($size)) {
-            return (int) $size;
+            $num = (float) $size;
+            return (int) round($num * 1024); // e.g. 50 = 50 MB = 51200 KB
         }
 
         if (preg_match('/^(\d+(?:\.\d+)?)\s*(kb|mb|gb)?$/i', $size, $matches)) {
             $num = (float) $matches[1];
-            $unit = strtolower($matches[2] ?? 'kb');
+            $unit = strtolower($matches[2] ?? 'mb');
             return match ($unit) {
-                'mb' => (int) round($num * 1024),
+                'kb' => (int) round($num),
                 'gb' => (int) round($num * 1024 * 1024),
-                default => (int) round($num),
+                default => (int) round($num * 1024),
             };
         }
 
