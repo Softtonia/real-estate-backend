@@ -216,6 +216,45 @@ class DynamicPostDataService
     private function systemData(stdClass $post, PostType $postType): array
     {
         $row = $this->rowToArray($post);
+        $entityId = (int) ($row['id'] ?? 0);
+
+        $featuredMedia = null;
+        $featuredUrl = $row['featured_image']
+            ?? $row['thumbnail']
+            ?? $row['image']
+            ?? $row['banner_image']
+            ?? null;
+
+        if (!$featuredUrl && $entityId && Schema::hasTable('custom_field_values')) {
+            $cfvRows = DB::table('custom_field_values as cfv')
+                ->leftJoin('custom_fields as cf', 'cf.id', '=', 'cfv.custom_field_id')
+                ->where('cfv.entity_id', $entityId)
+                ->where(function ($q) {
+                    $q->whereIn('cf.field_type', ['media', 'gallery', 'image', 'file'])
+                        ->orWhereNotNull('cfv.value_json');
+                })
+                ->orderBy('cfv.id', 'desc')
+                ->get(['cfv.value_json', 'cfv.value_text', 'cfv.value_string']);
+
+            foreach ($cfvRows as $cfvRow) {
+                $raw = $cfvRow->value_json ?? $cfvRow->value_text ?? $cfvRow->value_string ?? null;
+                $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+                if (is_array($decoded)) {
+                    $items = isset($decoded[0]) ? $decoded : [$decoded];
+                    foreach ($items as $item) {
+                        if (is_array($item) && !empty($item['is_featured'])) {
+                            $featuredMedia = $item;
+                            $featuredUrl = $item['url'] ?? null;
+                            break 2;
+                        }
+                    }
+                    if (!$featuredMedia && !empty($items[0]) && is_array($items[0])) {
+                        $featuredMedia = $items[0];
+                        $featuredUrl = $items[0]['url'] ?? null;
+                    }
+                }
+            }
+        }
 
         return [
             'id' => $row['id'] ?? null,
@@ -235,11 +274,8 @@ class DynamicPostDataService
             'excerpt' => $row['excerpt']
                 ?? $row['short_description']
                 ?? null,
-            'featured_image' => $row['featured_image']
-                ?? $row['thumbnail']
-                ?? $row['image']
-                ?? $row['banner_image']
-                ?? null,
+            'featured_image' => $featuredUrl,
+            'featured_media' => $featuredMedia,
             'post_type_id' => $postType->id,
             'post_type_slug' => $postType->slug,
             'created_at' => $row['created_at'] ?? null,

@@ -208,7 +208,42 @@ class TemplateDynamicFieldController extends Controller
 
         $row = $this->rowToArray($post);
 
-        $featuredMedia = $this->formatMediaFileById($row['featured_image_id'] ?? null);
+        $customFieldMedia = [];
+        if ($entityId && Schema::hasTable('custom_field_values')) {
+            $cfvRows = DB::table('custom_field_values as cfv')
+                ->leftJoin('custom_fields as cf', 'cf.id', '=', 'cfv.custom_field_id')
+                ->where('cfv.entity_id', $entityId)
+                ->where(function ($q) {
+                    $q->whereIn('cf.field_type', ['media', 'gallery', 'image', 'file'])
+                        ->orWhereNotNull('cfv.value_json');
+                })
+                ->orderBy('cfv.id', 'desc')
+                ->get(['cfv.value_json', 'cfv.value_text', 'cfv.value_string', 'cf.field_name_slug', 'cf.field_type']);
+
+            foreach ($cfvRows as $cfvRow) {
+                $raw = $cfvRow->value_json ?? $cfvRow->value_text ?? $cfvRow->value_string ?? null;
+                $normalized = $this->normalizeStoredMediaFiles($raw);
+                if (!empty($normalized)) {
+                    $customFieldMedia = array_merge($customFieldMedia, $normalized);
+                }
+            }
+        }
+
+        $featuredItemFromCustom = null;
+        if (!empty($customFieldMedia)) {
+            foreach ($customFieldMedia as $item) {
+                if (is_array($item) && !empty($item['is_featured'])) {
+                    $featuredItemFromCustom = $item;
+                    break;
+                }
+            }
+            if (!$featuredItemFromCustom && !empty($customFieldMedia[0]) && is_array($customFieldMedia[0])) {
+                $featuredItemFromCustom = $customFieldMedia[0];
+            }
+        }
+
+        $featuredMedia = $this->formatMediaFileById($row['featured_image_id'] ?? null)
+            ?: $featuredItemFromCustom;
 
         $featuredImageUrl = $featuredMedia['url']
             ?? $this->rawMediaUrl(
@@ -217,12 +252,17 @@ class TemplateDynamicFieldController extends Controller
                 ?? $row['image']
                 ?? $row['banner_image']
                 ?? null
-            );
+            )
+            ?? ($featuredItemFromCustom['url'] ?? null);
 
         $galleryMedia = $this->formatMediaFilesByIds($row['gallery_image_ids'] ?? []);
 
         if (empty($galleryMedia)) {
             $galleryMedia = $this->normalizeStoredMediaFiles($row['gallery_images'] ?? null);
+        }
+
+        if (empty($galleryMedia) && !empty($customFieldMedia)) {
+            $galleryMedia = $customFieldMedia;
         }
 
         $galleryImageUrls = collect($galleryMedia)
@@ -1278,6 +1318,15 @@ class TemplateDynamicFieldController extends Controller
     }
     private function getSystemFields(array $postPreviewData = []): array
     {
+        $featuredMediaObj = $postPreviewData['featured_image_media'] ?? null;
+        $featuredUrl = $postPreviewData['featured_image'] ?? null;
+        $isVideo = false;
+        if ($featuredMediaObj) {
+            $mime = $featuredMediaObj['mime_type'] ?? '';
+            $ext = strtolower($featuredMediaObj['extension'] ?? pathinfo((string) $featuredUrl, PATHINFO_EXTENSION));
+            $isVideo = str_starts_with($mime, 'video/') || in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi']);
+        }
+
         return [
             $this->systemField('Title', 'title', 'text', 'heading', $postPreviewData['title'] ?? null),
             $this->systemField('Slug', 'slug', 'text', 'text', $postPreviewData['slug'] ?? null),
@@ -1286,19 +1335,20 @@ class TemplateDynamicFieldController extends Controller
             $this->systemField('Excerpt', 'excerpt', 'textarea', 'text', $postPreviewData['excerpt'] ?? null),
 
             $this->systemField(
-                'Featured Image',
+                'Featured Media',
                 'featured_image',
-                'image',
-                'image',
-                $postPreviewData['featured_image'] ?? null,
+                $isVideo ? 'video' : 'image',
+                $isVideo ? 'video' : 'image',
+                $featuredUrl,
                 [],
                 [
-                    'media' => $postPreviewData['featured_image_media'] ?? null,
+                    'media' => $featuredMediaObj,
+                    'is_video' => $isVideo,
                 ]
             ),
 
             $this->systemField(
-                'Gallery Images',
+                'Gallery Media',
                 'gallery_images',
                 'gallery',
                 'gallery',
