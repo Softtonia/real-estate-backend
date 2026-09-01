@@ -3413,7 +3413,8 @@ class DynamicPostController extends Controller
                         $uploaded = $this->storeCustomFieldUploadedFiles(
                             $uploadedFiles,
                             $customField,
-                            $postType
+                            $postType,
+                            $fieldData
                         );
                     }
 
@@ -3423,6 +3424,34 @@ class DynamicPostController extends Controller
                         ->unique('path')
                         ->values()
                         ->toArray();
+
+                    // If a root featured_image was also uploaded or exists, ensure it is represented in the media custom field
+                    if (!empty($validated['featured_image_id']) && in_array($customField->field_type, ['media', 'file'], true)) {
+                        $featuredMedia = MediaFile::find((int) $validated['featured_image_id']);
+                        if ($featuredMedia && !empty($featuredMedia->path)) {
+                            $hasFeaturedInList = collect($newValueJson)->contains(fn($item) => ($item['path'] ?? '') === $featuredMedia->path);
+                            if (!$hasFeaturedInList) {
+                                array_unshift($newValueJson, [
+                                    'id' => (int) $featuredMedia->id,
+                                    'url' => $featuredMedia->url ?? Storage::disk('public')->url($featuredMedia->path),
+                                    'path' => $featuredMedia->path,
+                                    'disk' => $featuredMedia->disk ?? 'public',
+                                    'file_name' => $featuredMedia->file_name,
+                                    'original_name' => $featuredMedia->original_name,
+                                    'mime_type' => $featuredMedia->mime_type,
+                                    'extension' => $featuredMedia->extension,
+                                    'size' => $featuredMedia->size,
+                                    'is_featured' => true,
+                                ]);
+                            }
+                        }
+                    }
+
+                    // Normalize is_featured across items in the array
+                    $hasAnyFeatured = collect($newValueJson)->contains(fn($item) => !empty($item['is_featured']));
+                    if (!$hasAnyFeatured && !empty($newValueJson)) {
+                        $newValueJson[0]['is_featured'] = true;
+                    }
 
                     if ($this->containsTemporaryFilePath($newValueJson)) {
                         throw ValidationException::withMessages([
@@ -4221,8 +4250,12 @@ class DynamicPostController extends Controller
             return $this->errorResponse('Unable to create dynamic post.', 500, $e->getMessage());
         }
     }
-    private function storeCustomFieldUploadedFiles(array $files, CustomField $field, PostType $postType): array
-    {
+    private function storeCustomFieldUploadedFiles(
+        array $files,
+        CustomField $field,
+        PostType $postType,
+        array $fieldData = []
+    ): array {
         $mediaLimit = (int) ($field->media_limit ?? 1);
 
         if ($mediaLimit < 1) {
@@ -4253,8 +4286,10 @@ class DynamicPostController extends Controller
         ]);
 
         $uploaded = [];
+        $featuredIndex = $fieldData['featured_index'] ?? $fieldData['featured_file_index'] ?? null;
+        $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? null;
 
-        foreach ($files as $file) {
+        foreach ($files as $fileIdx => $file) {
             $extension = strtolower($file->getClientOriginalExtension());
 
             if (!in_array($extension, $allowedExtensions, true)) {
@@ -4281,6 +4316,15 @@ class DynamicPostController extends Controller
             $fileName = Str::uuid()->toString() . '.' . $extension;
             $path = $file->storeAs($directory, $fileName, 'public');
 
+            $isItemFeatured = false;
+            if ($featuredIndex !== null && (string) $fileIdx === (string) $featuredIndex) {
+                $isItemFeatured = true;
+            } elseif ($featuredName !== null && $originalName === $featuredName) {
+                $isItemFeatured = true;
+            } elseif (!empty($fieldData['is_featured'][$fileIdx]) || !empty($fieldData['is_featured'][(string) $fileIdx])) {
+                $isItemFeatured = true;
+            }
+
             $uploaded[] = [
                 'disk' => 'public',
                 'path' => $path,
@@ -4291,6 +4335,7 @@ class DynamicPostController extends Controller
                 'extension' => $extension,
                 'size' => $fileSize,
                 'size_kb' => round($fileSize / 1024, 2),
+                'is_featured' => $isItemFeatured,
             ];
         }
 

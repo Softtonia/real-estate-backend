@@ -155,8 +155,8 @@ class CustomFieldValueService
             case 'file':
                 $record['value_json'] = $this->normalizeMediaValue($rawValue);
                 if (is_array($record['value_json']) && !empty($record['value_json'])) {
-                    $firstMedia = $record['value_json'][0] ?? null;
-                    $firstUrl = is_array($firstMedia) ? ($firstMedia['url'] ?? $firstMedia['path'] ?? null) : (string) $firstMedia;
+                    $featuredItem = collect($record['value_json'])->firstWhere('is_featured', true) ?? ($record['value_json'][0] ?? null);
+                    $firstUrl = is_array($featuredItem) ? ($featuredItem['url'] ?? $featuredItem['path'] ?? null) : (string) $featuredItem;
                     $record['value_string'] = $firstUrl;
                     $record['value_text'] = $firstUrl;
                 }
