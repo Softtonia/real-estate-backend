@@ -3275,6 +3275,15 @@ class DynamicPostController extends Controller
 
     private function storeDynamicPostMediaFile($file, PostType $postType, string $type): MediaFile
     {
+        if (!$file || !$file->isValid()) {
+            $errorMsg = $file ? $file->getErrorMessage() : 'File upload failed.';
+            throw ValidationException::withMessages([
+                $type === 'featured-image' ? 'featured_image' : 'gallery_images' => [
+                    $errorMsg ?: 'The uploaded file is not valid or exceeds server upload limits (upload_max_filesize / post_max_size).'
+                ],
+            ]);
+        }
+
         $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp', 'mp4', 'mov', 'webm', 'avi', 'mkv'];
         $extension = strtolower($file->getClientOriginalExtension());
 
@@ -3323,6 +3332,14 @@ class DynamicPostController extends Controller
         ]);
 
         $path = $file->storeAs($directory, $fileName, 'public');
+
+        if (empty($path)) {
+            throw ValidationException::withMessages([
+                $type === 'featured-image' ? 'featured_image' : 'gallery_images' => [
+                    'Could not store uploaded file on the server.'
+                ],
+            ]);
+        }
 
         return MediaFile::create([
             'disk' => 'public',
@@ -4290,6 +4307,15 @@ class DynamicPostController extends Controller
         $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? null;
 
         foreach ($files as $fileIdx => $file) {
+            if (!$file || !$file->isValid()) {
+                $errorMsg = $file ? $file->getErrorMessage() : 'File upload failed.';
+                throw ValidationException::withMessages([
+                    'custom_fields' => [
+                        $errorMsg ?: 'The uploaded file for ' . $field->field_label . ' exceeds server upload limits (upload_max_filesize).'
+                    ],
+                ]);
+            }
+
             $extension = strtolower($file->getClientOriginalExtension());
 
             if (!in_array($extension, $allowedExtensions, true)) {
@@ -4315,6 +4341,14 @@ class DynamicPostController extends Controller
 
             $fileName = Str::uuid()->toString() . '.' . $extension;
             $path = $file->storeAs($directory, $fileName, 'public');
+
+            if (empty($path)) {
+                throw ValidationException::withMessages([
+                    'custom_fields' => [
+                        'Could not store uploaded file for ' . $field->field_label . ' on the server.'
+                    ],
+                ]);
+            }
 
             $isItemFeatured = false;
             if ($featuredIndex !== null && (string) $fileIdx === (string) $featuredIndex) {
