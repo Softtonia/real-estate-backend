@@ -413,7 +413,7 @@ class CustomFieldValueService
             }
 
             if (isset($rawValue[0])) {
-                return array_map(function ($item) {
+                $mapped = array_map(function ($item) {
                     if (is_string($item)) {
                         return [
                             'id' => null,
@@ -439,6 +439,28 @@ class CustomFieldValueService
 
                     return $item;
                 }, $rawValue);
+
+                $featuredKeys = [];
+                foreach ($mapped as $k => $item) {
+                    if (is_array($item) && !empty($item['is_featured'])) {
+                        $featuredKeys[] = $k;
+                    }
+                }
+
+                if (empty($featuredKeys) && !empty($mapped)) {
+                    if (is_array($mapped[0])) {
+                        $mapped[0]['is_featured'] = true;
+                    }
+                } elseif (count($featuredKeys) > 1) {
+                    $primaryKey = end($featuredKeys);
+                    foreach ($mapped as $k => $item) {
+                        if (is_array($item)) {
+                            $mapped[$k]['is_featured'] = ($k === $primaryKey);
+                        }
+                    }
+                }
+
+                return $mapped;
             }
         }
 

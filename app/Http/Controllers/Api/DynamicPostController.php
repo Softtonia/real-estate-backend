@@ -3464,10 +3464,37 @@ class DynamicPostController extends Controller
                         }
                     }
 
-                    // Normalize is_featured across items in the array
-                    $hasAnyFeatured = collect($newValueJson)->contains(fn($item) => !empty($item['is_featured']));
-                    if (!$hasAnyFeatured && !empty($newValueJson)) {
+                    // Normalize is_featured based on submitted targets or existing flags
+                    $featuredIndex = $fieldData['featured_index'] ?? $fieldData['featured_file_index'] ?? null;
+                    $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? null;
+                    $featuredUrl = $fieldData['featured_url'] ?? $fieldData['featured_path'] ?? null;
+
+                    if ($featuredIndex !== null || $featuredName !== null || $featuredUrl !== null) {
+                        foreach ($newValueJson as $k => $item) {
+                            $isMatch = (
+                                ($featuredIndex !== null && (string) $k === (string) $featuredIndex)
+                                || ($featuredName !== null && ($item['original_name'] ?? '') === $featuredName)
+                                || ($featuredUrl !== null && (($item['url'] ?? '') === $featuredUrl || ($item['path'] ?? '') === $featuredUrl))
+                            );
+                            $newValueJson[$k]['is_featured'] = $isMatch;
+                        }
+                    }
+
+                    // Ensure exactly ONE item is marked as is_featured: true
+                    $featuredKeys = [];
+                    foreach ($newValueJson as $k => $item) {
+                        if (!empty($item['is_featured'])) {
+                            $featuredKeys[] = $k;
+                        }
+                    }
+
+                    if (empty($featuredKeys) && !empty($newValueJson)) {
                         $newValueJson[0]['is_featured'] = true;
+                    } elseif (count($featuredKeys) > 1) {
+                        $primaryKey = end($featuredKeys);
+                        foreach ($newValueJson as $k => $item) {
+                            $newValueJson[$k]['is_featured'] = ($k === $primaryKey);
+                        }
                     }
 
                     if ($this->containsTemporaryFilePath($newValueJson)) {
@@ -3481,9 +3508,15 @@ class DynamicPostController extends Controller
                     $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
                     $customFields[$index]['value_json'] = $newValueJson;
 
+                    $featuredItem = collect($newValueJson)->firstWhere('is_featured', true) ?? ($newValueJson[0] ?? null);
+                    $featuredUrlValue = is_array($featuredItem) ? ($featuredItem['url'] ?? $featuredItem['path'] ?? null) : (string) $featuredItem;
+
+                    if (!empty($featuredUrlValue)) {
+                        $customFields[$index]['value_string'] = $featuredUrlValue;
+                        $customFields[$index]['value_text'] = $featuredUrlValue;
+                    }
+
                     unset(
-                        $customFields[$index]['value_string'],
-                        $customFields[$index]['value_text'],
                         $customFields[$index]['value_number'],
                         $customFields[$index]['value_date'],
                         $customFields[$index]['value_datetime']
@@ -3994,20 +4027,35 @@ class DynamicPostController extends Controller
             }
 
             if ($oldFilesByPath->has($path)) {
-                $items[] = $oldFilesByPath->get($path);
+                $oldItem = $oldFilesByPath->get($path);
+                $submittedProps = is_array($reference) ? array_filter($reference, fn($v) => !is_null($v)) : [];
+                $mergedItem = array_merge($oldItem, $submittedProps);
+
+                if (isset($submittedProps['is_featured'])) {
+                    $mergedItem['is_featured'] = filter_var($submittedProps['is_featured'], FILTER_VALIDATE_BOOLEAN);
+                }
+
+                $items[] = $mergedItem;
                 continue;
             }
 
+            $isFeatured = false;
+            if (is_array($reference) && isset($reference['is_featured'])) {
+                $isFeatured = filter_var($reference['is_featured'], FILTER_VALIDATE_BOOLEAN);
+            }
+
             $items[] = [
+                'id' => is_array($reference) && isset($reference['id']) ? (int) $reference['id'] : null,
                 'disk' => 'public',
                 'path' => $path,
                 'url' => Storage::disk('public')->url($path),
                 'file_name' => basename($path),
-                'original_name' => basename($path),
-                'mime_type' => null,
+                'original_name' => (is_array($reference) && !empty($reference['original_name'])) ? $reference['original_name'] : basename($path),
+                'mime_type' => (is_array($reference) && !empty($reference['mime_type'])) ? $reference['mime_type'] : null,
                 'extension' => pathinfo($path, PATHINFO_EXTENSION),
-                'size' => null,
-                'size_kb' => null,
+                'size' => is_array($reference) && isset($reference['size']) ? (int) $reference['size'] : null,
+                'size_kb' => is_array($reference) && isset($reference['size_kb']) ? (float) $reference['size_kb'] : null,
+                'is_featured' => $isFeatured,
             ];
         }
 
