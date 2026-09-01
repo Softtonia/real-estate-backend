@@ -813,9 +813,9 @@ class DynamicPostController extends Controller
                     is_array($taxonomyTermIds)
                     ? $taxonomyTermIds
                     : $post->taxonomyTerms()
-                    ->pluck('taxonomy_terms.id')
-                    ->map(fn($id) => (int) $id)
-                    ->toArray();
+                        ->pluck('taxonomy_terms.id')
+                        ->map(fn($id) => (int) $id)
+                        ->toArray();
 
                 $this->validateSubmittedCustomFieldsForPostType(
                     $postType,
@@ -888,21 +888,7 @@ class DynamicPostController extends Controller
                 ? $this->hasAssignedUserPayload($request->all())
                 : false;
 
-            DB::transaction(function () use (
-                $post,
-                $validated,
-                $newSlug,
-                $taxonomyTermIds,
-                $customFields,
-                $relationshipPostTypes,
-                $hasAssignedUserPayload,
-                $postType,
-                $hasKeywordPayload,
-                $workflowAction,
-                $workflowActor,
-                $workflowReason,
-                $workflowNotes
-            ) {
+            DB::transaction(function () use ($post, $validated, $newSlug, $taxonomyTermIds, $customFields, $relationshipPostTypes, $hasAssignedUserPayload, $postType, $hasKeywordPayload, $workflowAction, $workflowActor, $workflowReason, $workflowNotes) {
                 $postData =
                     $this->dynamicPostPayloadForDatabase(
                         $validated
@@ -1565,10 +1551,10 @@ class DynamicPostController extends Controller
 
                 return str_contains($value, ',')
                     ? collect(explode(',', $value))
-                    ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
-                    ->map(fn($id) => (int) $id)
-                    ->values()
-                    ->toArray()
+                        ->filter(fn($id) => $id !== null && $id !== '' && is_numeric($id))
+                        ->map(fn($id) => (int) $id)
+                        ->values()
+                        ->toArray()
                     : [];
             }
 
@@ -1738,7 +1724,7 @@ class DynamicPostController extends Controller
                 throw ValidationException::withMessages([
                     "relationship_post_types.{$index}.post_type_id" => [
                         ($relatedPostType?->name ?? 'Post type ' . $relatedPostTypeId)
-                            . ' is not associated as a related post type with ' . $postType->name . '.',
+                        . ' is not associated as a related post type with ' . $postType->name . '.',
                     ],
                 ]);
             }
@@ -2217,13 +2203,15 @@ class DynamicPostController extends Controller
             $trimmed = trim($value);
 
             if ($trimmed === '') {
-                if (in_array($field, [
-                    'taxonomies',
-                    'custom_fields',
-                    'gallery_image_ids',
-                    'relationship_post_types',
-                    'related_posts',
-                ], true)) {
+                if (
+                    in_array($field, [
+                        'taxonomies',
+                        'custom_fields',
+                        'gallery_image_ids',
+                        'relationship_post_types',
+                        'related_posts',
+                    ], true)
+                ) {
                     $request->merge([$field => []]);
                 }
 
@@ -3098,8 +3086,8 @@ class DynamicPostController extends Controller
             $columns,
             'value_text',
             in_array($fieldType, $textFieldTypes, true) || ($fieldType === 'text' && is_null($shortStringValue))
-                ? $stringValue
-                : null
+            ? $stringValue
+            : null
         );
 
         $this->setIfColumnExists($row, $columns, 'value_number', $fieldType === 'number' && is_numeric($value) ? $value : null);
@@ -4038,7 +4026,7 @@ class DynamicPostController extends Controller
 
         return [];
     }
-    
+
     private function deleteRemovedCustomFieldFiles(array $oldFiles, array $newFiles): void
     {
         $newPaths = collect($newFiles)
@@ -4179,16 +4167,7 @@ class DynamicPostController extends Controller
                 $slug = $slug . '-' . time();
             }
 
-            $post = DB::transaction(function () use (
-                $validated,
-                $slug,
-                $taxonomyTermIds,
-                $customFields,
-                $postType,
-                $relationshipPostTypes,
-                $hasKeywordPayload,
-                $hasAssignedUserPayload
-            ) {
+            $post = DB::transaction(function () use ($validated, $slug, $taxonomyTermIds, $customFields, $postType, $relationshipPostTypes, $hasKeywordPayload, $hasAssignedUserPayload) {
                 $postData = $this->dynamicPostPayloadForDatabase($validated);
 
                 $postData['slug'] = $slug;
@@ -5134,62 +5113,62 @@ class DynamicPostController extends Controller
             $latestRevision
             ? [
                 'id' =>
-                (int) $latestRevision->id,
+                    (int) $latestRevision->id,
 
                 'dynamic_post_id' =>
-                (int) $latestRevision->dynamic_post_id,
+                    (int) $latestRevision->dynamic_post_id,
 
                 'version' =>
-                (int) $latestRevision->version,
+                    (int) $latestRevision->version,
 
                 'source' =>
-                $latestRevision->source,
+                    $latestRevision->source,
 
                 'status' =>
-                $latestRevision->status,
+                    $latestRevision->status,
 
                 'submitted_by' =>
-                $latestRevision->submitted_by
+                    $latestRevision->submitted_by
                     ? (int) $latestRevision->submitted_by
                     : null,
 
                 'assigned_to' =>
-                $latestRevision->assigned_to
+                    $latestRevision->assigned_to
                     ? (int) $latestRevision->assigned_to
                     : null,
 
                 'assigned_by' =>
-                $latestRevision->assigned_by
+                    $latestRevision->assigned_by
                     ? (int) $latestRevision->assigned_by
                     : null,
 
                 'decided_by' =>
-                $latestRevision->decided_by
+                    $latestRevision->decided_by
                     ? (int) $latestRevision->decided_by
                     : null,
 
                 'submitted_at' =>
-                optional(
-                    $latestRevision->submitted_at
-                )->toISOString(),
+                    optional(
+                        $latestRevision->submitted_at
+                    )->toISOString(),
 
                 'assigned_at' =>
-                optional(
-                    $latestRevision->assigned_at
-                )->toISOString(),
+                    optional(
+                        $latestRevision->assigned_at
+                    )->toISOString(),
 
                 'verification_started_at' =>
-                optional(
-                    $latestRevision->verification_started_at
-                )->toISOString(),
+                    optional(
+                        $latestRevision->verification_started_at
+                    )->toISOString(),
 
                 'decided_at' =>
-                optional(
-                    $latestRevision->decided_at
-                )->toISOString(),
+                    optional(
+                        $latestRevision->decided_at
+                    )->toISOString(),
 
                 'rejection_reason' =>
-                $latestRevision->rejection_reason,
+                    $latestRevision->rejection_reason,
             ]
             : null;
 
@@ -5231,32 +5210,32 @@ class DynamicPostController extends Controller
 
         $data['featured'] = [
             'id' =>
-            $featuredPromotion
+                $featuredPromotion
                 ? (int) $featuredPromotion->id
                 : null,
 
             'promotion_id' =>
-            $featuredPromotion
+                $featuredPromotion
                 ? (int) $featuredPromotion->id
                 : null,
 
             'dynamic_post_id' =>
-            (int) $post->id,
+                (int) $post->id,
 
             'is_featured' =>
-            $isFeatured,
+                $isFeatured,
 
             'source' =>
-            $featuredPromotion?->source,
+                $featuredPromotion?->source,
 
             'featured_via' =>
-            $featuredPromotion?->source,
+                $featuredPromotion?->source,
 
             'promotion_type' =>
-            $featuredPromotion?->promotion_type,
+                $featuredPromotion?->promotion_type,
 
             'display_label' =>
-            $featuredPromotion
+                $featuredPromotion
                 ? (
                     $featuredPromotion->promotion_type
                     === PropertyFeaturedPromotion::TYPE_SPONSORED
@@ -5266,42 +5245,42 @@ class DynamicPostController extends Controller
                 : null,
 
             'status' =>
-            $featuredPromotion?->status,
+                $featuredPromotion?->status,
 
             'priority' =>
-            $featuredPromotion
+                $featuredPromotion
                 ? (int) $featuredPromotion->priority
                 : null,
 
             'placements' => [
                 'home' =>
-                $featuredPromotion
+                    $featuredPromotion
                     ? (bool) $featuredPromotion->show_on_home
                     : false,
 
                 'search' =>
-                $featuredPromotion
+                    $featuredPromotion
                     ? (bool) $featuredPromotion->show_on_search
                     : false,
 
                 'property_detail' =>
-                $featuredPromotion
+                    $featuredPromotion
                     ? (bool) $featuredPromotion->show_on_detail
                     : false,
             ],
 
             'starts_at' =>
-            $featuredPromotion
+                $featuredPromotion
                 ? $featuredPromotion
-                ->starts_at
-                ?->toISOString()
+                    ->starts_at
+                        ?->toISOString()
                 : null,
 
             'ends_at' =>
-            $featuredPromotion
+                $featuredPromotion
                 ? $featuredPromotion
-                ->ends_at
-                ?->toISOString()
+                    ->ends_at
+                        ?->toISOString()
                 : null,
         ];
 
@@ -5317,13 +5296,13 @@ class DynamicPostController extends Controller
         $featuredMedia =
             $this->formatMediaFileById(
                 $post->featured_image_id
-                    ?? null
+                ?? null
             );
 
         $galleryMedia =
             $this->formatMediaFilesByIds(
                 $post->gallery_image_ids
-                    ?? []
+                ?? []
             );
 
         $data['featured_image'] =
@@ -5335,10 +5314,10 @@ class DynamicPostController extends Controller
 
         $data['gallery_images'] =
             collect($galleryMedia)
-            ->pluck('url')
-            ->filter()
-            ->values()
-            ->toArray();
+                ->pluck('url')
+                ->filter()
+                ->values()
+                ->toArray();
 
         $data['gallery_image_files'] =
             $galleryMedia;
@@ -5346,7 +5325,7 @@ class DynamicPostController extends Controller
         $data['meta'] =
             $this->formatMetaForFrontend(
                 $data['meta']
-                    ?? []
+                ?? []
             );
 
         $data['selected_relationship_post_types'] =
@@ -5419,19 +5398,23 @@ class DynamicPostController extends Controller
             return 'approved';
         }
 
-        if (in_array(
-            $liveStatus,
-            ['reject', 'disapprove'],
-            true
-        )) {
+        if (
+            in_array(
+                $liveStatus,
+                ['reject', 'disapprove'],
+                true
+            )
+        ) {
             return 'rejected';
         }
 
-        if (in_array(
-            $liveStatus,
-            ['under_review', 'submit'],
-            true
-        )) {
+        if (
+            in_array(
+                $liveStatus,
+                ['under_review', 'submit'],
+                true
+            )
+        ) {
             return 'under_review';
         }
 
@@ -6169,11 +6152,11 @@ class DynamicPostController extends Controller
             : PostType::find($post->post_type_id);
 
         /*
-     * Important:
-     * No KYC check here.
-     * Admin route can assign/create without selected user's KYC.
-     * Frontend/mobile KYC is handled by kyc.publish middleware.
-     */
+         * Important:
+         * No KYC check here.
+         * Admin route can assign/create without selected user's KYC.
+         * Frontend/mobile KYC is handled by kyc.publish middleware.
+         */
         $this->assertAssignableUser($userId, $postType, $allowAnonymousUser);
 
         $now = now();
@@ -6776,10 +6759,7 @@ class DynamicPostController extends Controller
                 ->toArray();
 
             if ($search !== '' && !empty($searchableColumns)) {
-                $query->where(function ($searchQuery) use (
-                    $search,
-                    $searchableColumns
-                ) {
+                $query->where(function ($searchQuery) use ($search, $searchableColumns) {
                     foreach ($searchableColumns as $index => $column) {
                         if ($index === 0) {
                             $searchQuery->where(
@@ -6885,8 +6865,8 @@ class DynamicPostController extends Controller
             ->map(function (User $user) use ($rolesById) {
                 $fullName = trim(
                     ($user->first_name ?? '')
-                        . ' '
-                        . ($user->last_name ?? '')
+                    . ' '
+                    . ($user->last_name ?? '')
                 );
 
                 $isAnonymous = $this->isAnonymousAssignmentUser($user);
