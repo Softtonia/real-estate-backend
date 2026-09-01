@@ -115,7 +115,6 @@ class MediaBatchService
 
         $fieldLabel = $customField?->field_label ?: ($fieldSlug ?: 'Media Gallery');
         $allowedExtensions = $this->resolveAllowedExtensions($customField);
-        $maxSizeKb = $this->resolveMaxFileSizeKb($customField);
 
         $directory = implode('/', [
             'uploads',
@@ -454,9 +453,9 @@ class MediaBatchService
         return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm', 'pdf', 'docx', 'xlsx'];
     }
 
-    private function resolveMaxFileSizeKb(?CustomField $field, string $extension): int
+    private function resolveMaxFileSizeKb(?CustomField $field, string $extension = ''): int
     {
-        $isImage = in_array(strtolower($extension), ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
+        $isImage = !empty($extension) && in_array(strtolower($extension), ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
 
         if ($isImage) {
             // For images: default max 5MB (5120 KB) or custom field setting if smaller
