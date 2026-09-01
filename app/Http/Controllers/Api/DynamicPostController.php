@@ -3299,8 +3299,9 @@ class DynamicPostController extends Controller
         }
 
         $maxSizeKb = 5120;
+        $fileSize = $file->getSize();
 
-        if (($file->getSize() / 1024) > $maxSizeKb) {
+        if (($fileSize / 1024) > $maxSizeKb) {
             throw ValidationException::withMessages([
                 $type === 'featured-image' ? 'featured_image' : 'gallery_images' => [
                     'Image size must not be greater than 5MB.'
@@ -3308,8 +3309,11 @@ class DynamicPostController extends Controller
             ]);
         }
 
+        $originalName = $file->getClientOriginalName();
+        $mimeType = $file->getClientMimeType() ?: ($file->isValid() ? @$file->getMimeType() : null) ?: 'image/' . $extension;
+
         $postTypeSlug = Str::slug($postType->slug ?? $postType->name ?? 'common', '-');
-        $originalBaseName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+        $originalBaseName = pathinfo($originalName, PATHINFO_FILENAME);
         $safeBaseName = Str::slug($originalBaseName ?: $type, '-');
 
         if (empty($safeBaseName)) {
@@ -3338,10 +3342,10 @@ class DynamicPostController extends Controller
             'directory' => $directory,
             'path' => $path,
             'file_name' => $fileName,
-            'original_name' => $file->getClientOriginalName(),
-            'mime_type' => $file->getMimeType(),
+            'original_name' => $originalName,
+            'mime_type' => $mimeType,
             'extension' => $extension,
-            'size' => $file->getSize(),
+            'size' => $fileSize,
             'uploaded_by' => Auth::id(),
         ]);
     }
@@ -3656,13 +3660,18 @@ class DynamicPostController extends Controller
 
         $maxSizeKb = $this->parseCustomFieldMediaSizeToKb($repeater->media_size);
 
-        if (($file->getSize() / 1024) > $maxSizeKb) {
+        $fileSize = $file->getSize();
+
+        if (($fileSize / 1024) > $maxSizeKb) {
             throw ValidationException::withMessages([
                 'custom_fields' => [
                     'File size is too large for ' . $repeater->field_label . '. Maximum allowed size is ' . round($maxSizeKb / 1024, 2) . ' MB.'
                 ],
             ]);
         }
+
+        $originalName = $file->getClientOriginalName();
+        $mimeType = $file->getClientMimeType() ?: ($file->isValid() ? @$file->getMimeType() : null) ?: 'application/octet-stream';
 
         $postTypeSlug = Str::slug($postType->slug ?? $postType->name ?? 'common', '-');
         $fieldSlug = Str::slug($field->field_name_slug ?? $field->field_label, '-');
@@ -3686,11 +3695,11 @@ class DynamicPostController extends Controller
             'path' => $path,
             'url' => Storage::disk('public')->url($path),
             'file_name' => $fileName,
-            'original_name' => $file->getClientOriginalName(),
-            'mime_type' => $file->getMimeType(),
+            'original_name' => $originalName,
+            'mime_type' => $mimeType,
             'extension' => $extension,
-            'size' => $file->getSize(),
-            'size_kb' => round($file->getSize() / 1024, 2),
+            'size' => $fileSize,
+            'size_kb' => round($fileSize / 1024, 2),
         ];
     }
 
@@ -4027,7 +4036,7 @@ class DynamicPostController extends Controller
 
         return [];
     }
-
+    
     private function deleteRemovedCustomFieldFiles(array $oldFiles, array $newFiles): void
     {
         $newPaths = collect($newFiles)
@@ -4275,13 +4284,18 @@ class DynamicPostController extends Controller
                 ]);
             }
 
-            if (($file->getSize() / 1024) > $maxSizeKb) {
+            $fileSize = $file->getSize();
+
+            if (($fileSize / 1024) > $maxSizeKb) {
                 throw ValidationException::withMessages([
                     'custom_fields' => [
                         'File size is too large for ' . $field->field_label . '. Maximum allowed size is ' . round($maxSizeKb / 1024, 2) . ' MB.'
                     ],
                 ]);
             }
+
+            $originalName = $file->getClientOriginalName();
+            $mimeType = $file->getClientMimeType() ?: ($file->isValid() ? @$file->getMimeType() : null) ?: 'application/octet-stream';
 
             $fileName = Str::uuid()->toString() . '.' . $extension;
             $path = $file->storeAs($directory, $fileName, 'public');
@@ -4291,11 +4305,11 @@ class DynamicPostController extends Controller
                 'path' => $path,
                 'url' => Storage::disk('public')->url($path),
                 'file_name' => $fileName,
-                'original_name' => $file->getClientOriginalName(),
-                'mime_type' => $file->getMimeType(),
+                'original_name' => $originalName,
+                'mime_type' => $mimeType,
                 'extension' => $extension,
-                'size' => $file->getSize(),
-                'size_kb' => round($file->getSize() / 1024, 2),
+                'size' => $fileSize,
+                'size_kb' => round($fileSize / 1024, 2),
             ];
         }
 

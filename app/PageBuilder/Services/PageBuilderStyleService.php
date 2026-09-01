@@ -89,6 +89,59 @@ class PageBuilderStyleService
     background: #ffffff;
 }
 
+.pb-container {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.pb-breadcrumb {
+    width: 100%;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.pb-breadcrumb__list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    gap: 6px;
+}
+
+.pb-breadcrumb__item {
+    display: inline-flex;
+    align-items: center;
+    list-style: none !important;
+    font-size: inherit;
+}
+
+.pb-breadcrumb__item a {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.15s ease-in-out, opacity 0.15s ease-in-out;
+}
+
+.pb-breadcrumb__item a:hover {
+    text-decoration: underline;
+    opacity: 0.85;
+}
+
+.pb-breadcrumb__item--current {
+    font-weight: 600;
+}
+
+.pb-breadcrumb__sep {
+    margin-left: 6px;
+    opacity: 0.6;
+    user-select: none;
+}
+
+.pb-area-sqft {
+    font-weight: 500;
+}
+
 .pb-taxonomy-badges {
     display: flex;
     flex-wrap: wrap;

@@ -3276,6 +3276,10 @@ class UserListingController extends Controller
             now()->format('m'),
         ]);
 
+        $originalName = $file->getClientOriginalName();
+        $mimeType = $file->getClientMimeType() ?: ($file->isValid() ? @$file->getMimeType() : null) ?: 'application/octet-stream';
+        $fileSize = $file->getSize();
+
         $path = $file->storeAs($directory, $fileName, 'public');
 
         if (!$path || !Storage::disk('public')->exists($path)) {
@@ -3292,10 +3296,10 @@ class UserListingController extends Controller
         $this->putMediaColumnIfExists($payload, 'path', $path);
         $this->putMediaColumnIfExists($payload, 'url', $this->storagePublicUrl($path));
         $this->putMediaColumnIfExists($payload, 'file_name', $fileName);
-        $this->putMediaColumnIfExists($payload, 'original_name', $file->getClientOriginalName());
-        $this->putMediaColumnIfExists($payload, 'mime_type', $file->getMimeType());
+        $this->putMediaColumnIfExists($payload, 'original_name', $originalName);
+        $this->putMediaColumnIfExists($payload, 'mime_type', $mimeType);
         $this->putMediaColumnIfExists($payload, 'extension', $extension);
-        $this->putMediaColumnIfExists($payload, 'size', $file->getSize());
+        $this->putMediaColumnIfExists($payload, 'size', $fileSize);
 
         if (Schema::hasColumn('media_files', 'uploaded_by')) {
             $payload['uploaded_by'] = (int) $user->id;

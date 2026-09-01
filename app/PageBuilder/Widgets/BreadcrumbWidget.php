@@ -260,21 +260,34 @@ class BreadcrumbWidget extends BaseWidget
         $crumbs = [];
 
         // 1. Home crumb
-        if ($settings['show_home']) {
+        if (! empty($settings['show_home'])) {
             $crumbs[] = [
-                'label' => $settings['home_label'] ?: 'Home',
-                'url'   => $settings['home_url']   ?: '/',
+                'label' => ! empty($settings['home_label']) ? $settings['home_label'] : 'Home',
+                'url'   => ! empty($settings['home_url']) ? $settings['home_url'] : '/',
             ];
         }
 
         // 2. Post-type (archive / listing) crumb
-        if ($settings['show_post_type']) {
-            $postTypeLabel = $settings['post_type_label'];
-            $postTypeUrl   = $settings['post_type_url'];
+        if (! empty($settings['show_post_type'])) {
+            $postTypeLabel = (string) ($settings['post_type_label'] ?? '');
+            $postTypeUrl   = (string) ($settings['post_type_url'] ?? '');
 
-            // Auto-detect label from context when not manually specified
+            // Auto-detect post type from context when not manually specified
             if ($postTypeLabel === '') {
                 $postType = $context->postType();
+
+                if (! $postType && $context->post()) {
+                    $post = $context->post();
+                    if (method_exists($post, 'relationLoaded') && $post->relationLoaded('postType') && $post->postType) {
+                        $postType = $post->postType;
+                    } elseif (isset($post->post_type_id)) {
+                        $postType = \App\Models\PostType::find((int) $post->post_type_id);
+                    }
+                }
+
+                if (! $postType && $context->postTypeId()) {
+                    $postType = \App\Models\PostType::find((int) $context->postTypeId());
+                }
 
                 if ($postType) {
                     foreach (['name', 'label', 'plural_name', 'title'] as $attr) {
@@ -284,6 +297,10 @@ class BreadcrumbWidget extends BaseWidget
                             $postTypeLabel = (string) $val;
                             break;
                         }
+                    }
+
+                    if ($postTypeUrl === '' && ! empty($postType->slug)) {
+                        $postTypeUrl = '/' . ltrim((string) $postType->slug, '/');
                     }
                 }
             }
@@ -351,9 +368,38 @@ class BreadcrumbWidget extends BaseWidget
 
     protected function renderNav(array $crumbs, array $settings): string
     {
-        $class     = trim('pb-widget pb-breadcrumb ' . $settings['class']);
-        $style     = $this->styleAttributes($settings);
-        $sep       = e($settings['separator']);
+        $class = trim('pb-widget pb-breadcrumb ' . ($settings['class'] ?? ''));
+
+        $extraStyles = [];
+
+        $fontSize = $settings['fontSize'] ?? $settings['style']['font_size'] ?? '';
+        if ($fontSize !== '') {
+            $extraStyles['font-size'] = $this->cssLength($fontSize);
+        }
+
+        $fontWeight = $settings['fontWeight'] ?? $settings['style']['font_weight'] ?? '';
+        if ($fontWeight !== '') {
+            $extraStyles['font-weight'] = $this->safeCssValue($fontWeight);
+        }
+
+        $textTransform = $settings['textTransform'] ?? $settings['style']['text_transform'] ?? '';
+        if ($textTransform !== '') {
+            $extraStyles['text-transform'] = $this->safeCssValue($textTransform);
+        }
+
+        $color = $settings['color'] ?? $settings['style']['color'] ?? '';
+        if ($color !== '') {
+            $extraStyles['color'] = $this->safeColor($color);
+        }
+
+        $linkColor = $settings['linkColorNormal'] ?? $settings['link_color'] ?? '';
+        $linkStyleAttr = '';
+        if ($linkColor !== '') {
+            $linkStyleAttr = ' style="color:' . e($this->safeColor($linkColor)) . ';"';
+        }
+
+        $style     = $this->styleAttributes($settings, $extraStyles);
+        $sep       = e($settings['separator'] ?? '/');
         $lastIndex = count($crumbs) - 1;
         $items     = '';
 
@@ -364,7 +410,7 @@ class BreadcrumbWidget extends BaseWidget
 
             if ($isCurrent) {
                 $inner = ($settings['link_current'] && $url)
-                    ? sprintf('<a href="%s">%s</a>', e($url), $label)
+                    ? sprintf('<a href="%s"%s>%s</a>', e($url), $linkStyleAttr, $label)
                     : sprintf('<span aria-current="page">%s</span>', $label);
 
                 $items .= sprintf(
@@ -373,7 +419,7 @@ class BreadcrumbWidget extends BaseWidget
                 );
             } else {
                 $inner = $url
-                    ? sprintf('<a href="%s">%s</a>', e($url), $label)
+                    ? sprintf('<a href="%s"%s>%s</a>', e($url), $linkStyleAttr, $label)
                     : sprintf('<span>%s</span>', $label);
 
                 $items .= sprintf(

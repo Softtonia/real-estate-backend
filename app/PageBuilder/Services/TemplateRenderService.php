@@ -47,8 +47,19 @@ class TemplateRenderService
             $payload,
             $template->post_type_id ? (int) $template->post_type_id : null
         );
+
+        $postType = null;
+        if ($template->relationLoaded('postType') && $template->postType) {
+            $postType = $template->postType;
+        } elseif ($currentPost && method_exists($currentPost, 'relationLoaded') && $currentPost->relationLoaded('postType') && $currentPost->postType) {
+            $postType = $currentPost->postType;
+        } elseif ($template->post_type_id) {
+            $postType = \App\Models\PostType::find((int) $template->post_type_id);
+        }
+
         $context = WidgetContext::preview([
             'post_type_id' => $template->post_type_id,
+            'post_type' => $postType,
             'fields' => $fields,
             'request' => $payload,
             'taxonomies' => $payload['taxonomies'] ?? [],
@@ -397,8 +408,11 @@ class TemplateRenderService
             ?? null;
 
         if ($width !== null && $width !== '') {
-            $styleData['width'] = $this->cssLength($width);
-            $styleData['flex-basis'] = $this->cssLength($width);
+            $parsedWidth = $this->resolveColumnWidth($width);
+            if ($parsedWidth !== '') {
+                $styleData['width'] = $parsedWidth;
+                $styleData['flex-basis'] = $parsedWidth;
+            }
         }
 
         $style = $this->buildStyleAttribute($styleData);
@@ -409,6 +423,33 @@ class TemplateRenderService
             $style,
             $content
         );
+    }
+
+    protected function resolveColumnWidth(mixed $width): string
+    {
+        $widthStr = trim((string) $width);
+
+        if ($widthStr === '') {
+            return '';
+        }
+
+        if (is_numeric($widthStr)) {
+            $val = (float) $widthStr;
+            if ($val >= 1 && $val <= 12) {
+                return round(($val / 12) * 100, 4) . '%';
+            }
+            return $val . 'px';
+        }
+
+        if (preg_match('/^(\d+)\s*\/\s*(\d+)$/', $widthStr, $m)) {
+            $num = (float) $m[1];
+            $den = (float) $m[2];
+            if ($den > 0) {
+                return round(($num / $den) * 100, 4) . '%';
+            }
+        }
+
+        return $this->cssLength($widthStr);
     }
 
     protected function renderNodeChildren(array $node, WidgetContext $context): string
