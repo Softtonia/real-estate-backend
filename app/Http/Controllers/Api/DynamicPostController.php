@@ -3442,28 +3442,6 @@ class DynamicPostController extends Controller
                         ->values()
                         ->toArray();
 
-                    // If a root featured_image was also uploaded or exists, ensure it is represented in the media custom field
-                    if (!empty($validated['featured_image_id']) && in_array($customField->field_type, ['media', 'file'], true)) {
-                        $featuredMedia = MediaFile::find((int) $validated['featured_image_id']);
-                        if ($featuredMedia && !empty($featuredMedia->path)) {
-                            $hasFeaturedInList = collect($newValueJson)->contains(fn($item) => ($item['path'] ?? '') === $featuredMedia->path);
-                            if (!$hasFeaturedInList) {
-                                array_unshift($newValueJson, [
-                                    'id' => (int) $featuredMedia->id,
-                                    'url' => $featuredMedia->url ?? Storage::disk('public')->url($featuredMedia->path),
-                                    'path' => $featuredMedia->path,
-                                    'disk' => $featuredMedia->disk ?? 'public',
-                                    'file_name' => $featuredMedia->file_name,
-                                    'original_name' => $featuredMedia->original_name,
-                                    'mime_type' => $featuredMedia->mime_type,
-                                    'extension' => $featuredMedia->extension,
-                                    'size' => $featuredMedia->size,
-                                    'is_featured' => true,
-                                ]);
-                            }
-                        }
-                    }
-
                     // Normalize is_featured based on submitted targets or existing flags
                     $featuredIndex = $fieldData['featured_index'] ?? $fieldData['featured_file_index'] ?? null;
                     $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? null;
@@ -3964,36 +3942,24 @@ class DynamicPostController extends Controller
     {
         $references = [];
 
-        if (array_key_exists('value_json', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value_json']));
-        }
-
-        if (array_key_exists('value_string', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value_string']));
-        }
-
-        if (array_key_exists('value_text', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value_text']));
-        }
-
-        if (array_key_exists('file', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['file']));
-        }
-
-        if (array_key_exists('files', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['files']));
-        }
-
-        if (array_key_exists('media', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['media']));
-        }
-
-        if (array_key_exists('media_files', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['media_files']));
-        }
-
-        if (array_key_exists('value', $fieldData)) {
-            $references = array_merge($references, $this->normalizeSubmittedMediaReferences($fieldData['value']));
+        if (!empty($fieldData['value_json'])) {
+            $references = $this->normalizeSubmittedMediaReferences($fieldData['value_json']);
+        } elseif (!empty($fieldData['media_files'])) {
+            $references = $this->normalizeSubmittedMediaReferences($fieldData['media_files']);
+        } elseif (!empty($fieldData['media'])) {
+            $references = $this->normalizeSubmittedMediaReferences($fieldData['media']);
+        } elseif (!empty($fieldData['files']) && !is_object($fieldData['files'])) {
+            $references = $this->normalizeSubmittedMediaReferences($fieldData['files']);
+        } elseif (!empty($fieldData['value_string'])) {
+            $references = $this->normalizeSubmittedMediaReferences($fieldData['value_string']);
+        } elseif (!empty($fieldData['value_text'])) {
+            $references = $this->normalizeSubmittedMediaReferences($fieldData['value_text']);
+        } elseif (!empty($fieldData['value'])) {
+            $references = $this->normalizeSubmittedMediaReferences($fieldData['value']);
+        } elseif (array_key_exists('value_json', $fieldData) && ($fieldData['value_json'] === [] || $fieldData['value_json'] === '[]')) {
+            return [];
+        } elseif (!empty($oldValueJson)) {
+            return $oldValueJson;
         }
 
         if (empty($references)) {
@@ -5736,7 +5702,9 @@ class DynamicPostController extends Controller
                     ->values()
                     ->toArray();
 
-                $firstUrl = $mediaUrls[0] ?? null;
+                $featuredItem = collect($mediaFiles)->firstWhere('is_featured', true) ?? ($mediaFiles[0] ?? null);
+                $featuredUrl = is_array($featuredItem) ? ($featuredItem['url'] ?? $featuredItem['path'] ?? null) : (string) $featuredItem;
+                $firstUrl = $featuredUrl ?: ($mediaUrls[0] ?? null);
 
                 $item['media_files'] = $mediaFiles;
                 $item['media_urls'] = $mediaUrls;
@@ -5744,7 +5712,7 @@ class DynamicPostController extends Controller
 
                 $item['value_string'] = $firstUrl;
                 $item['value_text'] = $firstUrl;
-                $item['value_json'] = $firstUrl;
+                $item['value_json'] = $mediaFiles;
 
                 return $item;
             })

@@ -1854,13 +1854,15 @@ class UserListingController extends Controller
                     ->values()
                     ->toArray();
 
-                $firstUrl = $mediaUrls[0] ?? null;
+                $featuredItem = collect($mediaFiles)->firstWhere('is_featured', true) ?? ($mediaFiles[0] ?? null);
+                $featuredUrl = is_array($featuredItem) ? ($featuredItem['url'] ?? $featuredItem['path'] ?? null) : (string) $featuredItem;
+                $firstUrl = $featuredUrl ?: ($mediaUrls[0] ?? null);
 
                 $item['media_files'] = $mediaFiles;
                 $item['media_urls'] = $mediaUrls;
                 $item['value_string'] = $firstUrl;
                 $item['value_text'] = $firstUrl;
-                $item['value_json'] = $firstUrl;
+                $item['value_json'] = $mediaFiles;
 
                 return $item;
             })
