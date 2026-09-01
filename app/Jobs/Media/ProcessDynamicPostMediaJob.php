@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Jobs\Media;
 
-use App\Events\Media\FileUploadCompleted;
-use App\Events\Media\FileUploadFailed;
 use App\Models\MediaBatchItem;
 use App\Models\MediaFile;
 use App\Models\MediaUploadBatch;
@@ -108,8 +106,6 @@ class ProcessDynamicPostMediaJob implements ShouldQueue
                     'progress_percent' => min(100.00, $progress),
                     'status' => $batchStatus,
                 ]);
-
-                event(new FileUploadCompleted($batch, $item));
             }
         } catch (Throwable $e) {
             Log::error("ProcessDynamicPostMediaJob failed for item {$this->batchItemId}: " . $e->getMessage());
@@ -122,7 +118,6 @@ class ProcessDynamicPostMediaJob implements ShouldQueue
             $batch = MediaUploadBatch::find($item->batch_id);
             if ($batch) {
                 $batch->increment('failed_count');
-                event(new FileUploadFailed($batch, $item, $e->getMessage()));
             }
 
             throw $e;

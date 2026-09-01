@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Media;
 
-use App\Events\Media\BatchUploadCompleted;
-use App\Events\Media\BatchUploadStarted;
-use App\Events\Media\FileUploadProgress;
 use App\Jobs\Media\ProcessDynamicPostMediaJob;
 use App\Models\CustomField;
 use App\Models\CustomFieldValue;
@@ -79,10 +76,6 @@ class MediaBatchService
                 'expires_at' => now()->addHours(24),
             ]
         );
-
-        if ($batch->wasRecentlyCreated) {
-            event(new BatchUploadStarted($batch));
-        }
 
         // 2. Normalize incoming files array
         $rawFiles = $request->file('files');
@@ -222,10 +215,8 @@ class MediaBatchService
                 'is_featured' => $isItemFeatured,
             ];
 
-            // Dispatch background queue job for optimization and thumbnail creation
-            ProcessDynamicPostMediaJob::dispatch((int) $batchItem->id);
-
-            event(new FileUploadProgress($batch, $batchItem));
+            // Safely dispatch background queue job if queue worker is active
+            rescue(fn() => ProcessDynamicPostMediaJob::dispatch((int) $batchItem->id), null, false);
         }
 
         // 3. Update batch counters atomically
@@ -249,10 +240,6 @@ class MediaBatchService
                 newMedia: $newMediaRecords,
                 fieldSlug: $fieldSlug ?: ($customField?->field_name_slug)
             );
-        }
-
-        if ($batch->status === 'completed') {
-            event(new BatchUploadCompleted($batch, $allSavedMedia));
         }
 
         return [
@@ -346,6 +333,8 @@ class MediaBatchService
                 $mergedByPath[$newItem['path']] = $newItem;
             }
         }
+
+        $finalItems = array_values($mergedByPath);
 
         // Normalize is_featured: if multiple are marked as featured, keep only the latest chosen one
         $featuredCount = 0;
