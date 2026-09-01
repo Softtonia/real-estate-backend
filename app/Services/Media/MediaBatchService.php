@@ -347,30 +347,23 @@ class MediaBatchService
             }
         }
 
-        $finalItems = array_values($mergedByPath);
-
-        // Normalize is_featured: exactly one item should be true if featured was chosen
+        // Normalize is_featured: if multiple are marked as featured, keep only the latest chosen one
         $featuredCount = 0;
-        foreach ($finalItems as $item) {
+        $lastFeaturedKey = null;
+        foreach ($finalItems as $k => $item) {
             if (!empty($item['is_featured'])) {
                 $featuredCount++;
+                $lastFeaturedKey = $k;
             }
         }
-        if ($featuredCount === 0 && !empty($finalItems)) {
-            $finalItems[0]['is_featured'] = true;
-        } elseif ($featuredCount > 1) {
-            $lastFeaturedKey = null;
-            foreach ($finalItems as $k => $item) {
-                if (!empty($item['is_featured'])) {
-                    $lastFeaturedKey = $k;
-                }
-            }
+
+        if ($featuredCount > 1) {
             foreach ($finalItems as $k => $item) {
                 $finalItems[$k]['is_featured'] = ($k === $lastFeaturedKey);
             }
         }
 
-        $firstFeatured = collect($finalItems)->firstWhere('is_featured', true) ?: ($finalItems[0] ?? null);
+        $firstFeatured = collect($finalItems)->firstWhere('is_featured', true);
         $featuredUrl = $firstFeatured['url'] ?? null;
 
         CustomFieldValue::updateOrCreate(
