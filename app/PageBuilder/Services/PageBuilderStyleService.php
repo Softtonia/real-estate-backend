@@ -22,7 +22,7 @@ class PageBuilderStyleService
 
 .pb-section {
     width: 100%;
-    padding: 40px 20px;
+    padding: 16px 0;
     position: relative;
 }
 
@@ -32,7 +32,7 @@ class PageBuilderStyleService
     margin: 0 auto;
     display: flex;
     flex-wrap: wrap;
-    gap: 24px;
+    gap: 16px;
 }
 
 .pb-column {

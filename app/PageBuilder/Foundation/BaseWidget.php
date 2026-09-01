@@ -224,13 +224,8 @@ abstract class BaseWidget implements WidgetInterface
     {
         $styles = [];
 
-        if (! empty($style['margin'])) {
-            $styles['margin'] = $this->cssBoxValue($style['margin']);
-        }
-
-        if (! empty($style['padding'])) {
-            $styles['padding'] = $this->cssBoxValue($style['padding']);
-        }
+        $this->resolveBoxStyles($style, 'margin', $styles);
+        $this->resolveBoxStyles($style, 'padding', $styles);
 
         if (! empty($style['color'])) {
             $styles['color'] = $this->safeColor($style['color']);
@@ -341,6 +336,42 @@ abstract class BaseWidget implements WidgetInterface
         }
 
         return $this->cssLength($value);
+    }
+
+    protected function resolveBoxStyles(array $settings, string $prefix, array &$styles): void
+    {
+        $camelTop = $prefix . 'Top';
+        $camelRight = $prefix . 'Right';
+        $camelBottom = $prefix . 'Bottom';
+        $camelLeft = $prefix . 'Left';
+
+        $snakeTop = $prefix . '_top';
+        $snakeRight = $prefix . '_right';
+        $snakeBottom = $prefix . '_bottom';
+        $snakeLeft = $prefix . '_left';
+
+        $hasDirectional = (isset($settings[$camelTop]) && $settings[$camelTop] !== '' && $settings[$camelTop] !== null)
+            || (isset($settings[$camelRight]) && $settings[$camelRight] !== '' && $settings[$camelRight] !== null)
+            || (isset($settings[$camelBottom]) && $settings[$camelBottom] !== '' && $settings[$camelBottom] !== null)
+            || (isset($settings[$camelLeft]) && $settings[$camelLeft] !== '' && $settings[$camelLeft] !== null)
+            || (isset($settings[$snakeTop]) && $settings[$snakeTop] !== '' && $settings[$snakeTop] !== null)
+            || (isset($settings[$snakeRight]) && $settings[$snakeRight] !== '' && $settings[$snakeRight] !== null)
+            || (isset($settings[$snakeBottom]) && $settings[$snakeBottom] !== '' && $settings[$snakeBottom] !== null)
+            || (isset($settings[$snakeLeft]) && $settings[$snakeLeft] !== '' && $settings[$snakeLeft] !== null);
+
+        if ($hasDirectional) {
+            $top = $settings[$camelTop] ?? $settings[$snakeTop] ?? null;
+            $right = $settings[$camelRight] ?? $settings[$snakeRight] ?? null;
+            $bottom = $settings[$camelBottom] ?? $settings[$snakeBottom] ?? null;
+            $left = $settings[$camelLeft] ?? $settings[$snakeLeft] ?? null;
+
+            if ($top !== null && $top !== '') $styles["{$prefix}-top"] = $this->cssLength($top);
+            if ($right !== null && $right !== '') $styles["{$prefix}-right"] = $this->cssLength($right);
+            if ($bottom !== null && $bottom !== '') $styles["{$prefix}-bottom"] = $this->cssLength($bottom);
+            if ($left !== null && $left !== '') $styles["{$prefix}-left"] = $this->cssLength($left);
+        } elseif (! empty($settings[$prefix])) {
+            $styles[$prefix] = $this->cssBoxValue($settings[$prefix]);
+        }
     }
 
     protected function safeColor(mixed $value): string

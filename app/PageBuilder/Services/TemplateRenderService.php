@@ -514,7 +514,7 @@ class TemplateRenderService
         return $this->renderWidgetNode($node, $context);
     }
 
-    protected function componentStyles(array $settings): array
+    protected function componentStyles(array $settings, bool $isFrontend = false): array
     {
         $styles = [];
 
@@ -526,29 +526,27 @@ class TemplateRenderService
             $styles['width'] = $this->cssLength($settings['width']);
         }
 
-        if (! empty($settings['padding'])) {
-            $styles['padding'] = $this->cssBoxValue($settings['padding']);
-        }
-
-        if (! empty($settings['margin'])) {
-            $styles['margin'] = $this->cssBoxValue($settings['margin']);
-        }
+        $this->resolveBoxStyles($settings, 'padding', $styles);
+        $this->resolveBoxStyles($settings, 'margin', $styles);
 
         if (! empty($settings['flexDirection'])) {
             $styles['display'] = 'flex';
             $styles['flex-direction'] = $this->safeCssKeyword($settings['flexDirection']);
         }
 
-        if (! empty($settings['borderWidth'])) {
-            $styles['border-width'] = $this->cssLength($settings['borderWidth']);
-        }
+        $borderType = $settings['borderType'] ?? $settings['border_style'] ?? null;
+        $borderColor = $settings['borderColor'] ?? $settings['border_color'] ?? null;
+        $borderWidth = $settings['borderWidth'] ?? $settings['border_width'] ?? null;
 
-        if (! empty($settings['borderType'])) {
-            $styles['border-style'] = $this->safeCssKeyword($settings['borderType']);
-        }
+        // Suppress canvas editor placeholder dashed border on frontend
+        $isCanvasGuideBorder = ($borderType === 'dashed' && (empty($borderColor) || strtolower((string) $borderColor) === '#cbd5e1'));
 
-        if (! empty($settings['borderColor'])) {
-            $styles['border-color'] = $this->safeColor($settings['borderColor']);
+        if (! $isCanvasGuideBorder && ! empty($borderWidth) && ! empty($borderType) && $borderType !== 'none') {
+            $styles['border-width'] = $this->cssLength($borderWidth);
+            $styles['border-style'] = $this->safeCssKeyword($borderType);
+            if (! empty($borderColor)) {
+                $styles['border-color'] = $this->safeColor($borderColor);
+            }
         }
 
         if (! empty($settings['backgroundColor'])) {
@@ -662,12 +660,12 @@ class TemplateRenderService
     {
         $styles = [];
 
-        if (in_array('padding', $allowedKeys, true) && ! empty($settings['padding'])) {
-            $styles['padding'] = $this->cssBoxValue($settings['padding']);
+        if (in_array('padding', $allowedKeys, true)) {
+            $this->resolveBoxStyles($settings, 'padding', $styles);
         }
 
-        if (in_array('margin', $allowedKeys, true) && ! empty($settings['margin'])) {
-            $styles['margin'] = $this->cssBoxValue($settings['margin']);
+        if (in_array('margin', $allowedKeys, true)) {
+            $this->resolveBoxStyles($settings, 'margin', $styles);
         }
 
         if (in_array('background_color', $allowedKeys, true) && ! empty($settings['background_color'])) {
@@ -711,6 +709,42 @@ class TemplateRenderService
         }
 
         return $styles;
+    }
+
+    protected function resolveBoxStyles(array $settings, string $prefix, array &$styles): void
+    {
+        $camelTop = $prefix . 'Top';
+        $camelRight = $prefix . 'Right';
+        $camelBottom = $prefix . 'Bottom';
+        $camelLeft = $prefix . 'Left';
+
+        $snakeTop = $prefix . '_top';
+        $snakeRight = $prefix . '_right';
+        $snakeBottom = $prefix . '_bottom';
+        $snakeLeft = $prefix . '_left';
+
+        $hasDirectional = (isset($settings[$camelTop]) && $settings[$camelTop] !== '' && $settings[$camelTop] !== null)
+            || (isset($settings[$camelRight]) && $settings[$camelRight] !== '' && $settings[$camelRight] !== null)
+            || (isset($settings[$camelBottom]) && $settings[$camelBottom] !== '' && $settings[$camelBottom] !== null)
+            || (isset($settings[$camelLeft]) && $settings[$camelLeft] !== '' && $settings[$camelLeft] !== null)
+            || (isset($settings[$snakeTop]) && $settings[$snakeTop] !== '' && $settings[$snakeTop] !== null)
+            || (isset($settings[$snakeRight]) && $settings[$snakeRight] !== '' && $settings[$snakeRight] !== null)
+            || (isset($settings[$snakeBottom]) && $settings[$snakeBottom] !== '' && $settings[$snakeBottom] !== null)
+            || (isset($settings[$snakeLeft]) && $settings[$snakeLeft] !== '' && $settings[$snakeLeft] !== null);
+
+        if ($hasDirectional) {
+            $top = $settings[$camelTop] ?? $settings[$snakeTop] ?? null;
+            $right = $settings[$camelRight] ?? $settings[$snakeRight] ?? null;
+            $bottom = $settings[$camelBottom] ?? $settings[$snakeBottom] ?? null;
+            $left = $settings[$camelLeft] ?? $settings[$snakeLeft] ?? null;
+
+            if ($top !== null && $top !== '') $styles["{$prefix}-top"] = $this->cssLength($top);
+            if ($right !== null && $right !== '') $styles["{$prefix}-right"] = $this->cssLength($right);
+            if ($bottom !== null && $bottom !== '') $styles["{$prefix}-bottom"] = $this->cssLength($bottom);
+            if ($left !== null && $left !== '') $styles["{$prefix}-left"] = $this->cssLength($left);
+        } elseif (! empty($settings[$prefix])) {
+            $styles[$prefix] = $this->cssBoxValue($settings[$prefix]);
+        }
     }
 
     protected function buildStyleAttribute(array $styles): string
