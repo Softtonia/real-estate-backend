@@ -2686,3 +2686,13 @@ Route::middleware(['throttle:120,1'])->group(function () {
 });
 
 Route::post('membership/webhooks/razorpay', [RazorpayWebhookController::class, 'handle']);
+
+/*
+|--------------------------------------------------------------------------
+| Magicbricks-Style Property Search & Filter API (v1)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('v1')->middleware(['throttle:api'])->group(function () {
+    Route::get('properties/search', [\App\Http\Controllers\Api\PropertySearchController::class, 'search']);
+    Route::get('properties/filter-options', [\App\Http\Controllers\Api\PropertySearchController::class, 'filterOptions']);
+});
