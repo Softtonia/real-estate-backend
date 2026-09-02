@@ -171,6 +171,14 @@ class PropertySearchRequest extends FormRequest
                 'nullable',
                 $flexibleFilter,
             ],
+            'category' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'categories' => [
+                'nullable',
+                $flexibleFilter,
+            ],
             'post_type' => [
                 'nullable',
                 $flexibleFilter,
@@ -179,7 +187,88 @@ class PropertySearchRequest extends FormRequest
                 'nullable',
                 $flexibleFilter,
             ],
+            'sub_property_type' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'property_sub_type' => [
+                'nullable',
+                $flexibleFilter,
+            ],
             'bedrooms' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'bhk' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'bathrooms' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'bathroom' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'possession_status' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'property_status' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'sale_type' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'posted_by' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'posted_since' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
+            'ownership' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'ownership_type' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'furnishing' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'furnishing_status' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'amenities' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'amenity' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'facing' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'property_facing' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'localities' => [
+                'nullable',
+                $flexibleFilter,
+            ],
+            'top_localities' => [
                 'nullable',
                 $flexibleFilter,
             ],
@@ -188,6 +277,7 @@ class PropertySearchRequest extends FormRequest
                 $flexibleFilter,
             ],
 
+            // Numeric Ranges
             'price_min' => [
                 'nullable',
                 'numeric',
@@ -196,18 +286,96 @@ class PropertySearchRequest extends FormRequest
             'price_max' => [
                 'nullable',
                 'numeric',
-                'gte:price_min',
             ],
+            'min_price' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'max_price' => [
+                'nullable',
+                'numeric',
+            ],
+            'rent_min' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'rent_max' => [
+                'nullable',
+                'numeric',
+            ],
+            'min_rent' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'max_rent' => [
+                'nullable',
+                'numeric',
+            ],
+            'area_min' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'area_max' => [
+                'nullable',
+                'numeric',
+            ],
+            'min_area' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'max_area' => [
+                'nullable',
+                'numeric',
+            ],
+            'covered_area_min' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'covered_area_max' => [
+                'nullable',
+                'numeric',
+            ],
+            'floor_min' => [
+                'nullable',
+                'integer',
+            ],
+            'floor_max' => [
+                'nullable',
+                'integer',
+            ],
+            'floor' => [
+                'nullable',
+            ],
+
+            // Boolean Flags
+            'verified' => ['nullable'],
+            'is_verified' => ['nullable'],
+            'has_photos' => ['nullable'],
+            'has_videos' => ['nullable'],
+            'photos_and_videos' => ['nullable'],
+            'rera' => ['nullable'],
+            'is_rera' => ['nullable'],
+            'rera_registered' => ['nullable'],
+            'rera_agents' => ['nullable'],
+            'certified_agents' => ['nullable'],
+            'with_offers' => ['nullable'],
+            'offers' => ['nullable'],
+            'mb_exclusive' => ['nullable'],
+            'exclusive' => ['nullable'],
 
             'sort_by' => [
                 'nullable',
-                Rule::in([
-                    'newest',
-                    'oldest',
-                    'price_low',
-                    'price_high',
-                    'relevance',
-                ]),
+                'string',
+            ],
+            'sort' => [
+                'nullable',
+                'string',
             ],
 
             'is_sponsored' => [

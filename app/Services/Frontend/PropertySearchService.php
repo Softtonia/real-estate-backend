@@ -6,6 +6,8 @@ use App\Models\DynamicPost;
 use App\Models\MediaFile;
 use App\Models\PropertyFeaturedPromotion;
 use App\Models\User;
+use App\Services\PropertySearch\PropertyCategoryAliasResolver;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -19,20 +21,81 @@ class PropertySearchService
 {
     public function options(array $filters = []): array
     {
-        return Cache::store('redis')->remember(
-            'frontend:property-search:options:v9',
+        return Cache::remember(
+            'frontend:property-search:options:v10',
             now()->addHours(6),
             function (): array {
                 $purposes = $this->taxonomyOptions('purpose');
                 $propertyTypes = $this->taxonomyOptions('property_type');
+                if (empty($propertyTypes)) {
+                    $propertyTypes = $this->taxonomyOptions('property-type');
+                }
                 $groupedPropertyTypes = $this->buildGroupedPropertyTypes($propertyTypes);
+
+                $possessionStatuses = $this->taxonomyOptions('property-status');
+                if (empty($possessionStatuses)) {
+                    $possessionStatuses = $this->taxonomyOptions('property_status');
+                }
+
+                $amenities = $this->taxonomyOptions('amenities');
+
+                $saleTypes = $this->taxonomyOptions('sale-type');
+                if (empty($saleTypes)) {
+                    $saleTypes = $this->taxonomyOptions('sale_type');
+                }
+                if (empty($saleTypes)) {
+                    $saleTypes = [
+                        ['id' => 1, 'name' => 'New', 'slug' => 'new'],
+                        ['id' => 2, 'name' => 'Resale', 'slug' => 'resale'],
+                    ];
+                }
 
                 return [
                     'purposes' => $purposes,
                     'property_types' => $propertyTypes,
                     'grouped_property_types' => $groupedPropertyTypes,
                     'bedrooms' => $this->bedroomOptions(),
+                    'bhk_options' => $this->bedroomOptions(),
                     'budget_options' => $this->dynamicBudgetOptions(),
+                    'possession_statuses' => $possessionStatuses,
+                    'sale_types' => $saleTypes,
+                    'amenities' => $amenities,
+                    'ownership_options' => [
+                        ['label' => 'Freehold', 'value' => 'Freehold'],
+                        ['label' => 'Leasehold', 'value' => 'Leasehold'],
+                        ['label' => 'Power Of Attorney', 'value' => 'Power Of Attorney'],
+                        ['label' => 'Co-operative Society', 'value' => 'Co-operative Society'],
+                    ],
+                    'furnishing_options' => [
+                        ['label' => 'Furnished', 'value' => 'Furnished'],
+                        ['label' => 'Semi-Furnished', 'value' => 'Semi-Furnished'],
+                        ['label' => 'Unfurnished', 'value' => 'Unfurnished'],
+                    ],
+                    'facing_options' => [
+                        ['label' => 'East', 'value' => 'East'],
+                        ['label' => 'North', 'value' => 'North'],
+                        ['label' => 'North-East', 'value' => 'North-East'],
+                        ['label' => 'West', 'value' => 'West'],
+                        ['label' => 'South', 'value' => 'South'],
+                        ['label' => 'South-East', 'value' => 'South-East'],
+                        ['label' => 'South-West', 'value' => 'South-West'],
+                        ['label' => 'North-West', 'value' => 'North-West'],
+                    ],
+                    'posted_by_options' => [
+                        ['label' => 'Builders', 'value' => 'builder'],
+                        ['label' => 'Broker', 'value' => 'agent'],
+                        ['label' => 'Owners', 'value' => 'owner'],
+                    ],
+                    'posted_since_options' => [
+                        ['label' => 'All', 'value' => 'all'],
+                        ['label' => 'Yesterday', 'value' => 'yesterday'],
+                        ['label' => 'Last Week', 'value' => 'last_week'],
+                        ['label' => 'Last 2 Weeks', 'value' => 'last_2_weeks'],
+                        ['label' => 'Last 3 Weeks', 'value' => 'last_3_weeks'],
+                        ['label' => 'Last Month', 'value' => 'last_month'],
+                        ['label' => 'Last 2 Months', 'value' => 'last_2_months'],
+                        ['label' => 'Last 4 Months', 'value' => 'last_4_months'],
+                    ],
                 ];
             }
         );
@@ -383,9 +446,26 @@ class PropertySearchService
         $this->applyPublicAvailabilityScope($query);
 
         $this->applyLocationFilters($query, $filters);
+        $this->applyLocalitiesFilter($query, $filters);
         $this->applyGeneralSearch($query, $filters);
         $this->applyTaxonomyFilters($query, $filters);
+        $this->applySubPropertyTypeFilter($query, $filters);
+        $this->applyPossessionStatusFilter($query, $filters);
+        $this->applySaleTypeFilter($query, $filters);
+        $this->applyAmenitiesFilter($query, $filters);
         $this->applyBedroomFilter($query, $filters);
+        $this->applyBathroomFilter($query, $filters);
+        $this->applyCoveredAreaFilter($query, $filters);
+        $this->applyFloorFilter($query, $filters);
+        $this->applyFurnishingFilter($query, $filters);
+        $this->applyFacingFilter($query, $filters);
+        $this->applyOwnershipFilter($query, $filters);
+        $this->applyReraFilter($query, $filters);
+        $this->applyMediaFilter($query, $filters);
+        $this->applyVerifiedFilter($query, $filters);
+        $this->applyPostedByFilter($query, $filters);
+        $this->applyPostedSinceFilter($query, $filters);
+        $this->applySpecialTagsFilter($query, $filters);
         $this->applyPriceFilter($query, $filters);
         $this->applyPriceSelect($query);
         $this->applyPromotionFilters($query, $filters);
@@ -781,15 +861,498 @@ class PropertySearchService
         }
     }
 
+    private function applyLocalitiesFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['localities'] ?? $filters['top_localities'] ?? $filters['locality'] ?? null;
+        $localities = $this->normalizeFilterValues($raw);
+
+        if (empty($localities)) {
+            return;
+        }
+
+        $query->where(function (Builder $locQuery) use ($localities): void {
+            foreach ($localities as $loc) {
+                $clean = trim((string) $loc);
+                if ($clean !== '') {
+                    $locQuery->orWhere('dynamic_posts.area_locality', 'LIKE', "%{$clean}%");
+                }
+            }
+        });
+    }
+
+    private function applySubPropertyTypeFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['sub_property_type'] ?? $filters['property_sub_type'] ?? $filters['sub_type'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $termIds = $this->resolveTaxonomyTermIds('property_type', $values);
+        if (empty($termIds)) {
+            $termIds = $this->resolveTaxonomyTermIds('property-type', $values);
+        }
+
+        if (!empty($termIds)) {
+            $query->whereHas('taxonomyTerms', function (Builder $q) use ($termIds): void {
+                $q->whereIn('taxonomy_terms.id', $termIds);
+            });
+        }
+    }
+
+    private function applyPossessionStatusFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['possession_status'] ?? $filters['property_status'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $termIds = $this->resolveTaxonomyTermIds('property-status', $values);
+        if (empty($termIds)) {
+            $termIds = $this->resolveTaxonomyTermIds('property_status', $values);
+        }
+
+        if (!empty($termIds)) {
+            $query->whereHas('taxonomyTerms', function (Builder $q) use ($termIds): void {
+                $q->whereIn('taxonomy_terms.id', $termIds);
+            });
+        } else {
+            // Fallback to custom field search
+            $this->applyCustomFieldStringFilter($query, ['possession_status', 'possession'], $values);
+        }
+    }
+
+    private function applySaleTypeFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['sale_type'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $termIds = $this->resolveTaxonomyTermIds('sale_type', $values);
+        if (empty($termIds)) {
+            $termIds = $this->resolveTaxonomyTermIds('sale-type', $values);
+        }
+
+        if (!empty($termIds)) {
+            $query->whereHas('taxonomyTerms', function (Builder $q) use ($termIds): void {
+                $q->whereIn('taxonomy_terms.id', $termIds);
+            });
+        } else {
+            $this->applyCustomFieldStringFilter($query, ['sale_type', 'property_status'], $values);
+        }
+    }
+
+    private function applyAmenitiesFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['amenities'] ?? $filters['amenity'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $termIds = $this->resolveTaxonomyTermIds('amenities', $values);
+
+        if (!empty($termIds)) {
+            // Must have all selected amenities
+            foreach ($termIds as $tid) {
+                $query->whereHas('taxonomyTerms', function (Builder $q) use ($tid): void {
+                    $q->where('taxonomy_terms.id', $tid);
+                });
+            }
+        }
+    }
+
+    private function applyBathroomFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['bathrooms'] ?? $filters['bathroom'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $fieldIds = $resolver->resolveFieldIds('bathrooms', $categories);
+
+        if (!empty($fieldIds) && Schema::hasTable('custom_field_values')) {
+            $query->whereExists(function ($exists) use ($values, $fieldIds): void {
+                $exists
+                    ->selectRaw('1')
+                    ->from('custom_field_values as bath_cfv')
+                    ->whereColumn('bath_cfv.entity_id', 'dynamic_posts.id')
+                    ->where('bath_cfv.entity_type', 'post')
+                    ->whereIn('bath_cfv.custom_field_id', $fieldIds)
+                    ->where(function ($vq) use ($values): void {
+                        foreach ($values as $val) {
+                            $norm = mb_strtolower(trim((string) $val));
+                            $vq->orWhereRaw("LOWER(TRIM(COALESCE(bath_cfv.value_string, ''))) = ?", [$norm]);
+                            if (is_numeric($val)) {
+                                $vq->orWhere('bath_cfv.value_number', (float) $val);
+                            }
+                        }
+                    });
+            });
+        }
+    }
+
+    private function applyCoveredAreaFilter(Builder $query, array $filters): void
+    {
+        $min = $filters['area_min'] ?? $filters['min_area'] ?? $filters['covered_area_min'] ?? null;
+        $max = $filters['area_max'] ?? $filters['max_area'] ?? $filters['covered_area_max'] ?? null;
+
+        $hasMin = $min !== null && $min !== '' && is_numeric($min);
+        $hasMax = $max !== null && $max !== '' && is_numeric($max);
+
+        if (!$hasMin && !$hasMax) {
+            return;
+        }
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $fieldIds = $resolver->resolveFieldIds('area', $categories);
+
+        if (!empty($fieldIds) && Schema::hasTable('custom_field_values')) {
+            $query->whereExists(function ($exists) use ($fieldIds, $hasMin, $hasMax, $min, $max): void {
+                $exists
+                    ->selectRaw('1')
+                    ->from('custom_field_values as area_cfv')
+                    ->whereColumn('area_cfv.entity_id', 'dynamic_posts.id')
+                    ->where('area_cfv.entity_type', 'post')
+                    ->whereIn('area_cfv.custom_field_id', $fieldIds)
+                    ->whereNotNull('area_cfv.value_number');
+
+                if ($hasMin) {
+                    $exists->where('area_cfv.value_number', '>=', (float) $min);
+                }
+                if ($hasMax) {
+                    $exists->where('area_cfv.value_number', '<=', (float) $max);
+                }
+            });
+        }
+    }
+
+    private function applyFloorFilter(Builder $query, array $filters): void
+    {
+        $min = $filters['floor_min'] ?? null;
+        $max = $filters['floor_max'] ?? null;
+        $singleFloor = $filters['floor'] ?? null;
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $fieldIds = $resolver->resolveFieldIds('floor', $categories);
+
+        if (empty($fieldIds) || !Schema::hasTable('custom_field_values')) {
+            return;
+        }
+
+        if ($singleFloor !== null && $singleFloor !== '') {
+            $query->whereExists(function ($exists) use ($fieldIds, $singleFloor): void {
+                $exists
+                    ->selectRaw('1')
+                    ->from('custom_field_values as floor_cfv')
+                    ->whereColumn('floor_cfv.entity_id', 'dynamic_posts.id')
+                    ->where('floor_cfv.entity_type', 'post')
+                    ->whereIn('floor_cfv.custom_field_id', $fieldIds)
+                    ->where(function ($fq) use ($singleFloor): void {
+                        $fq->where('floor_cfv.value_string', (string) $singleFloor);
+                        if (is_numeric($singleFloor)) {
+                            $fq->orWhere('floor_cfv.value_number', (float) $singleFloor);
+                        }
+                    });
+            });
+            return;
+        }
+
+        $hasMin = $min !== null && $min !== '' && is_numeric($min);
+        $hasMax = $max !== null && $max !== '' && is_numeric($max);
+
+        if ($hasMin || $hasMax) {
+            $query->whereExists(function ($exists) use ($fieldIds, $hasMin, $hasMax, $min, $max): void {
+                $exists
+                    ->selectRaw('1')
+                    ->from('custom_field_values as floor_cfv')
+                    ->whereColumn('floor_cfv.entity_id', 'dynamic_posts.id')
+                    ->where('floor_cfv.entity_type', 'post')
+                    ->whereIn('floor_cfv.custom_field_id', $fieldIds)
+                    ->whereNotNull('floor_cfv.value_number');
+
+                if ($hasMin) {
+                    $exists->where('floor_cfv.value_number', '>=', (float) $min);
+                }
+                if ($hasMax) {
+                    $exists->where('floor_cfv.value_number', '<=', (float) $max);
+                }
+            });
+        }
+    }
+
+    private function applyFurnishingFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['furnishing'] ?? $filters['furnishing_status'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $fieldIds = $resolver->resolveFieldIds('furnishing', $categories);
+
+        $this->applyCustomFieldStringFilterByIds($query, $fieldIds, $values);
+    }
+
+    private function applyFacingFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['facing'] ?? $filters['property_facing'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $fieldIds = $resolver->resolveFieldIds('facing', $categories);
+
+        $this->applyCustomFieldStringFilterByIds($query, $fieldIds, $values);
+    }
+
+    private function applyOwnershipFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['ownership'] ?? $filters['ownership_type'] ?? null;
+        $values = $this->normalizeFilterValues($raw);
+
+        if (empty($values)) {
+            return;
+        }
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $fieldIds = $resolver->resolveFieldIds('ownership', $categories);
+
+        $this->applyCustomFieldStringFilterByIds($query, $fieldIds, $values);
+    }
+
+    private function applyReraFilter(Builder $query, array $filters): void
+    {
+        $rera = $filters['rera'] ?? $filters['is_rera'] ?? $filters['rera_registered'] ?? null;
+
+        if ($rera === null) {
+            return;
+        }
+
+        $isReraBool = is_bool($rera) ? $rera : in_array($rera, [1, '1', true, 'true', 'yes'], true);
+
+        if (!$isReraBool) {
+            return;
+        }
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $fieldIds = $resolver->resolveFieldIds('rera', $categories);
+
+        if (!empty($fieldIds) && Schema::hasTable('custom_field_values')) {
+            $query->whereExists(function ($exists) use ($fieldIds): void {
+                $exists
+                    ->selectRaw('1')
+                    ->from('custom_field_values as rera_cfv')
+                    ->whereColumn('rera_cfv.entity_id', 'dynamic_posts.id')
+                    ->where('rera_cfv.entity_type', 'post')
+                    ->whereIn('rera_cfv.custom_field_id', $fieldIds)
+                    ->whereNotNull('rera_cfv.value_string')
+                    ->where('rera_cfv.value_string', '!=', '');
+            });
+        }
+    }
+
+    private function applyMediaFilter(Builder $query, array $filters): void
+    {
+        $hasPhotos = $filters['has_photos'] ?? $filters['photos_and_videos'] ?? null;
+        $hasVideos = $filters['has_videos'] ?? null;
+
+        $photosBool = is_bool($hasPhotos) ? $hasPhotos : in_array($hasPhotos, [1, '1', true, 'true', 'yes'], true);
+        $videosBool = is_bool($hasVideos) ? $hasVideos : in_array($hasVideos, [1, '1', true, 'true', 'yes'], true);
+
+        if (!$photosBool && !$videosBool) {
+            return;
+        }
+
+        $categories = $this->normalizeFilterValues($filters['category'] ?? $filters['categories'] ?? $filters['property'] ?? []);
+        $resolver = app(PropertyCategoryAliasResolver::class);
+        $galleryFieldIds = $resolver->resolveFieldIds('gallery', $categories);
+
+        if (!empty($galleryFieldIds) && Schema::hasTable('custom_field_values')) {
+            $query->whereExists(function ($exists) use ($galleryFieldIds, $videosBool): void {
+                $exists
+                    ->selectRaw('1')
+                    ->from('custom_field_values as media_cfv')
+                    ->whereColumn('media_cfv.entity_id', 'dynamic_posts.id')
+                    ->where('media_cfv.entity_type', 'post')
+                    ->whereIn('media_cfv.custom_field_id', $galleryFieldIds)
+                    ->whereNotNull('media_cfv.value_json')
+                    ->whereRaw('JSON_LENGTH(media_cfv.value_json) > 0');
+
+                if ($videosBool) {
+                    $exists->where(function ($vq): void {
+                        $videoPatterns = ['%.mp4%', '%.mov%', '%.webm%', '%.avi%', '%.mkv%', '%video/%'];
+                        foreach ($videoPatterns as $pattern) {
+                            $vq->orWhere('media_cfv.value_json', 'LIKE', $pattern);
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    private function applyVerifiedFilter(Builder $query, array $filters): void
+    {
+        $verified = $filters['verified'] ?? $filters['is_verified'] ?? null;
+
+        if ($verified === null) {
+            return;
+        }
+
+        $isVerifiedBool = is_bool($verified) ? $verified : in_array($verified, [1, '1', true, 'true', 'yes'], true);
+
+        if ($isVerifiedBool) {
+            $query->where('dynamic_posts.live_status', 'approve');
+        }
+    }
+
+    private function applyPostedByFilter(Builder $query, array $filters): void
+    {
+        $raw = $filters['posted_by'] ?? $filters['author_role'] ?? null;
+        $roles = $this->normalizeFilterValues($raw);
+
+        if (empty($roles)) {
+            return;
+        }
+
+        $roleNames = array_map(function ($r) {
+            $rLower = mb_strtolower(trim((string) $r));
+            return match ($rLower) {
+                'builders', 'builder' => 'builder',
+                'broker', 'brokers', 'agents', 'agent' => 'agent',
+                'owners', 'owner' => 'owner',
+                default => $rLower,
+            };
+        }, $roles);
+
+        $query->whereHas('author.roles', function (Builder $q) use ($roleNames): void {
+            $q->whereIn('name', $roleNames);
+        });
+    }
+
+    private function applyPostedSinceFilter(Builder $query, array $filters): void
+    {
+        $since = $filters['posted_since'] ?? null;
+
+        if (empty($since) || $since === 'all') {
+            return;
+        }
+
+        $sinceNorm = mb_strtolower(trim((string) $since));
+
+        $threshold = match ($sinceNorm) {
+            'yesterday', '1d' => Carbon::now()->subDay(),
+            'last_week', 'last-week', '7d' => Carbon::now()->subDays(7),
+            'last_2_weeks', 'last-2-weeks', '14d' => Carbon::now()->subDays(14),
+            'last_3_weeks', 'last-3-weeks', '21d' => Carbon::now()->subDays(21),
+            'last_month', 'last-month', '30d', '1m' => Carbon::now()->subDays(30),
+            'last_2_months', 'last-2-months', '60d', '2m' => Carbon::now()->subDays(60),
+            'last_4_months', 'last-4-months', '120d', '4m' => Carbon::now()->subDays(120),
+            'last_6_months', 'last-6-months', '180d', '6m' => Carbon::now()->subDays(180),
+            'last_year', '1y' => Carbon::now()->subYear(),
+            default => null,
+        };
+
+        if ($threshold !== null) {
+            $query->where('dynamic_posts.published_at', '>=', $threshold);
+        }
+    }
+
+    private function applySpecialTagsFilter(Builder $query, array $filters): void
+    {
+        // 1. Properties with Offers
+        $withOffers = $filters['with_offers'] ?? $filters['offers'] ?? null;
+        if ($withOffers !== null && in_array($withOffers, [1, '1', true, 'true', 'yes'], true)) {
+            $this->applyCustomFieldStringFilter($query, ['offers', 'has_offers', 'property_offers'], ['1', 'yes', 'true']);
+        }
+
+        // 2. MB Exclusive / Urban Realities Exclusive
+        $exclusive = $filters['mb_exclusive'] ?? $filters['exclusive'] ?? null;
+        if ($exclusive !== null && in_array($exclusive, [1, '1', true, 'true', 'yes'], true)) {
+            $this->applyCustomFieldStringFilter($query, ['is_exclusive', 'exclusive_property', 'exclusive'], ['1', 'yes', 'true']);
+        }
+
+        // 3. Posted by Certified Agents
+        $certified = $filters['certified_agents'] ?? $filters['certified'] ?? null;
+        if ($certified !== null && in_array($certified, [1, '1', true, 'true', 'yes'], true)) {
+            $query->whereHas('author', function (Builder $userQuery): void {
+                $userQuery->where('is_verified', 1);
+            });
+        }
+    }
+
+    private function applyCustomFieldStringFilterByIds(Builder $query, array $fieldIds, array $values): void
+    {
+        if (empty($fieldIds) || empty($values) || !Schema::hasTable('custom_field_values')) {
+            return;
+        }
+
+        $query->whereExists(function ($exists) use ($fieldIds, $values): void {
+            $exists
+                ->selectRaw('1')
+                ->from('custom_field_values as str_cfv')
+                ->whereColumn('str_cfv.entity_id', 'dynamic_posts.id')
+                ->where('str_cfv.entity_type', 'post')
+                ->whereIn('str_cfv.custom_field_id', $fieldIds)
+                ->where(function ($vq) use ($values): void {
+                    foreach ($values as $val) {
+                        $norm = mb_strtolower(trim((string) $val));
+                        $vq->orWhereRaw("LOWER(TRIM(COALESCE(str_cfv.value_string, ''))) = ?", [$norm])
+                           ->orWhereRaw("LOWER(TRIM(COALESCE(str_cfv.value_text, ''))) = ?", [$norm]);
+                    }
+                });
+        });
+    }
+
+    private function applyCustomFieldStringFilter(Builder $query, array $fieldSlugs, array $values): void
+    {
+        if (empty($fieldSlugs) || empty($values) || !Schema::hasTable('custom_fields') || !Schema::hasTable('custom_field_values')) {
+            return;
+        }
+
+        $fieldIds = DB::table('custom_fields')
+            ->where(function ($q) use ($fieldSlugs): void {
+                foreach ($fieldSlugs as $slug) {
+                    $q->orWhere('field_name_slug', 'like', "%{$slug}%")
+                      ->orWhere('field_label', 'like', "%{$slug}%");
+                }
+            })
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->all();
+
+        $this->applyCustomFieldStringFilterByIds($query, $fieldIds, $values);
+    }
+
     private function applyPriceFilter(Builder $query, array $filters): void
     {
-        $hasMin = array_key_exists('price_min', $filters)
-            && $filters['price_min'] !== null
-            && $filters['price_min'] !== '';
+        $min = $filters['price_min'] ?? $filters['min_price'] ?? $filters['rent_min'] ?? $filters['min_rent'] ?? null;
+        $max = $filters['price_max'] ?? $filters['max_price'] ?? $filters['rent_max'] ?? $filters['max_rent'] ?? null;
 
-        $hasMax = array_key_exists('price_max', $filters)
-            && $filters['price_max'] !== null
-            && $filters['price_max'] !== '';
+        $hasMin = $min !== null && $min !== '' && is_numeric($min);
+        $hasMax = $max !== null && $max !== '' && is_numeric($max);
 
         if (!$hasMin && !$hasMax) {
             return;
@@ -807,7 +1370,7 @@ class PropertySearchService
 
         $priceExpression = $this->priceSqlExpression('price_cfv');
 
-        $query->whereExists(function ($exists) use ($priceFieldIds, $priceExpression, $filters, $hasMin, $hasMax): void {
+        $query->whereExists(function ($exists) use ($priceFieldIds, $priceExpression, $hasMin, $hasMax, $min, $max): void {
             $exists
                 ->selectRaw('1')
                 ->from('custom_field_values as price_cfv')
@@ -819,14 +1382,14 @@ class PropertySearchService
             if ($hasMin) {
                 $exists->whereRaw(
                     "{$priceExpression} >= ?",
-                    [(float) $filters['price_min']]
+                    [(float) $min]
                 );
             }
 
             if ($hasMax) {
                 $exists->whereRaw(
                     "{$priceExpression} <= ?",
-                    [(float) $filters['price_max']]
+                    [(float) $max]
                 );
             }
         });
