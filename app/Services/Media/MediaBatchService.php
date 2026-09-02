@@ -84,6 +84,119 @@ class MediaBatchService
         }
 
         if (empty($rawFiles)) {
+            // Check if this is a featured media update request
+            $targetMediaId = $request->input('featured_media_id')
+                ?: $request->input('media_file_id')
+                ?: $request->input('featured_id')
+                ?: $request->input('id');
+
+            $targetClientFileId = $request->input('featured_client_file_id')
+                ?: $request->input('client_file_id');
+
+            $targetUrl = $request->input('featured_url')
+                ?: $request->input('url');
+
+            $targetPath = $request->input('featured_path')
+                ?: $request->input('path');
+
+            $targetFileName = $request->input('featured_file_name')
+                ?: $request->input('file_name');
+
+            $allSavedMedia = [];
+
+            // 1. If dynamic_post_id and customFieldId are provided, update the stored custom_field_values
+            if ($dynamicPostId && $customFieldId) {
+                $cfValue = CustomFieldValue::where('entity_id', $dynamicPostId)
+                    ->where('entity_type', 'post')
+                    ->where('custom_field_id', $customFieldId)
+                    ->first();
+
+                if ($cfValue && !empty($cfValue->value_json)) {
+                    $raw = $cfValue->value_json;
+                    $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+                    $items = [];
+                    if (is_array($decoded)) {
+                        $items = $decoded['media'] ?? $decoded['images'] ?? (isset($decoded[0]) ? $decoded : [$decoded]);
+                    }
+
+                    $matchedIndex = null;
+                    foreach ($items as $k => $item) {
+                        if (is_array($item)) {
+                            $isMatch = (
+                                ($targetMediaId && isset($item['id']) && (int) $item['id'] === (int) $targetMediaId)
+                                || ($targetClientFileId && isset($item['client_file_id']) && (string) $item['client_file_id'] === (string) $targetClientFileId)
+                                || ($targetFileName && (($item['file_name'] ?? '') === $targetFileName || ($item['original_name'] ?? '') === $targetFileName))
+                                || ($targetPath && ($item['path'] ?? '') === $targetPath)
+                                || ($targetUrl && ($item['url'] ?? '') === $targetUrl)
+                            );
+
+                            if ($isMatch) {
+                                $matchedIndex = $k;
+                                break;
+                            }
+                        }
+                    }
+
+                    if ($matchedIndex !== null) {
+                        foreach ($items as $k => $item) {
+                            if (is_array($item)) {
+                                $items[$k]['is_featured'] = ($k === $matchedIndex);
+                            }
+                        }
+
+                        $featuredItem = $items[$matchedIndex];
+                        $featuredUrl = is_array($featuredItem) ? ($featuredItem['url'] ?? $featuredItem['path'] ?? null) : null;
+
+                        $cfValue->update([
+                            'value_json' => $items,
+                            'value_string' => $featuredUrl,
+                            'value_text' => $featuredUrl,
+                        ]);
+
+                        $allSavedMedia = $items;
+                    }
+                }
+            }
+
+            // 2. Also update MediaBatchItem records in the batch if they exist
+            if ($batch->id) {
+                $batchItems = MediaBatchItem::where('batch_id', $batch->id)->get();
+                if ($batchItems->isNotEmpty()) {
+                    foreach ($batchItems as $bItem) {
+                        $isMatch = (
+                            ($targetMediaId && (int) $bItem->media_file_id === (int) $targetMediaId)
+                            || ($targetClientFileId && (string) $bItem->client_file_id === (string) $targetClientFileId)
+                            || ($targetFileName && ($bItem->file_name === $targetFileName || $bItem->original_name === $targetFileName))
+                            || ($targetPath && $bItem->path === $targetPath)
+                            || ($targetUrl && $bItem->url === $targetUrl)
+                        );
+                        $bItem->update(['is_featured' => $isMatch]);
+                    }
+                }
+            }
+
+            // If we updated featured media, return success response immediately
+            if (!empty($allSavedMedia) || $targetMediaId || $targetClientFileId || $targetFileName || $targetUrl) {
+                return [
+                    'batch_uuid' => $batch->batch_uuid,
+                    'status' => 'completed',
+                    'progress_percent' => 100.0,
+                    'uploaded_count' => (int) $batch->uploaded_count,
+                    'expected_count' => (int) $batch->expected_count,
+                    'uploaded_items' => MediaBatchItem::where('batch_id', $batch->id)->get()->map(fn($item) => [
+                        'client_file_id' => $item->client_file_id,
+                        'media_file_id' => $item->media_file_id,
+                        'url' => $item->url,
+                        'path' => $item->path,
+                        'file_name' => $item->file_name,
+                        'original_name' => $item->original_name,
+                        'is_featured' => (bool) $item->is_featured,
+                        'status' => $item->status,
+                    ])->values()->toArray(),
+                    'saved_media' => $allSavedMedia,
+                ];
+            }
+
             throw ValidationException::withMessages([
                 'files' => ['No valid file(s) provided for upload.'],
             ]);
