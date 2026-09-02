@@ -308,8 +308,8 @@ class TemplateDynamicFieldController extends Controller
 
             'status' => $row['status'] ?? null,
             'live_status' => $row['live_status'] ?? null,
-            'created_at' => !empty($row['created_at']) ? (\Carbon\Carbon::tryParse((string) $row['created_at'])?->format('d-m-Y') ?? (is_string($row['created_at']) ? explode(' ', $row['created_at'])[0] : $row['created_at'])) : null,
-            'updated_at' => !empty($row['updated_at']) ? (\Carbon\Carbon::tryParse((string) $row['updated_at'])?->format('d-m-Y') ?? (is_string($row['updated_at']) ? explode(' ', $row['updated_at'])[0] : $row['updated_at'])) : null,
+            'created_at' => !empty($row['created_at']) ? (\Carbon\Carbon::tryParse((string) $row['created_at'])?->format('Y-m-d') ?? (is_string($row['created_at']) ? explode(' ', $row['created_at'])[0] : $row['created_at'])) : null,
+            'updated_at' => !empty($row['updated_at']) ? (\Carbon\Carbon::tryParse((string) $row['updated_at'])?->format('Y-m-d') ?? (is_string($row['updated_at']) ? explode(' ', $row['updated_at'])[0] : $row['updated_at'])) : null,
         ];
     }
 
@@ -1386,7 +1386,7 @@ class TemplateDynamicFieldController extends Controller
                     'field' => 'system.created_at',
                     'text' => $createdAt,
                     'content' => $createdAt,
-                    'format' => 'd-m-Y',
+                    'format' => 'Y-m-d',
                 ]
             ),
             $this->systemField(
@@ -1400,7 +1400,7 @@ class TemplateDynamicFieldController extends Controller
                     'field' => 'system.updated_at',
                     'text' => $updatedAt,
                     'content' => $updatedAt,
-                    'format' => 'd-m-Y',
+                    'format' => 'Y-m-d',
                 ]
             ),
         ];

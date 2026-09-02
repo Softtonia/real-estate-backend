@@ -235,8 +235,8 @@ class DynamicPostFieldValueService
             'featured_image' => $this->firstValue($post, ['featured_image', 'thumbnail', 'image']),
             'post_type_id' => $postType->id ?? $post->post_type_id ?? null,
             'post_type_slug' => $postType->slug ?? $post->post_type_slug ?? $post->post_type ?? null,
-            'created_at' => !empty($post->created_at) ? (\Carbon\Carbon::tryParse((string) $post->created_at)?->format('d-m-Y') ?? (is_string($post->created_at) ? explode(' ', (string) $post->created_at)[0] : $post->created_at)) : null,
-            'updated_at' => !empty($post->updated_at) ? (\Carbon\Carbon::tryParse((string) $post->updated_at)?->format('d-m-Y') ?? (is_string($post->updated_at) ? explode(' ', (string) $post->updated_at)[0] : $post->updated_at)) : null,
+            'created_at' => !empty($post->created_at) ? (\Carbon\Carbon::tryParse((string) $post->created_at)?->format('Y-m-d') ?? (is_string($post->created_at) ? explode(' ', (string) $post->created_at)[0] : $post->created_at)) : null,
+            'updated_at' => !empty($post->updated_at) ? (\Carbon\Carbon::tryParse((string) $post->updated_at)?->format('Y-m-d') ?? (is_string($post->updated_at) ? explode(' ', (string) $post->updated_at)[0] : $post->updated_at)) : null,
         ];
     }
 

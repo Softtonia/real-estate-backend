@@ -229,7 +229,7 @@ class TemplateRenderService
                         try {
                             $parsed = \Carbon\Carbon::tryParse((string) $textValue);
                             if ($parsed) {
-                                $textValue = $parsed->format('d-m-Y');
+                                $textValue = $parsed->format('Y-m-d');
                             }
                         } catch (\Throwable) {
                         }
@@ -256,7 +256,7 @@ class TemplateRenderService
                     try {
                         $parsed = \Carbon\Carbon::tryParse((string) $dateStr);
                         if ($parsed) {
-                            $dateStr = $parsed->format('d-m-Y');
+                            $dateStr = $parsed->format('Y-m-d');
                         }
                     } catch (\Throwable) {
                     }
