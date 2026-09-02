@@ -7970,7 +7970,8 @@ class DynamicPostController extends Controller
     }
 
     /**
-     * Delete a single media item from custom field value_json, database, and physical storage.
+     * Delete a single media item from custom field value_json, batch storage, or physical storage.
+     * Supports both Edit Mode (with post_id) and Add Post Mode (with batch_uuid / client_file_id).
      *
      * POST /api/dynamic-posts/{dynamicPost}/delete-media
      * POST /api/dynamic-posts/delete-media
@@ -7979,7 +7980,8 @@ class DynamicPostController extends Controller
     {
         $request->validate([
             'post_id'         => ['nullable', 'integer'],
-            'custom_field_id' => ['required', 'integer', 'exists:custom_fields,id'],
+            'batch_uuid'      => ['nullable', 'string'],
+            'custom_field_id' => ['nullable', 'integer'],
             'media_id'        => ['nullable'],
             'client_file_id'  => ['nullable'],
             'path'            => ['nullable', 'string'],
@@ -7987,38 +7989,9 @@ class DynamicPostController extends Controller
             'file_name'       => ['nullable', 'string'],
         ]);
 
-        $postId = $dynamicPost?->id ?? (int) $request->input('post_id');
-        if (!$postId) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'Post ID is required.',
-            ], 422);
-        }
-
-        $post = $dynamicPost ?? DynamicPost::find($postId);
-        if (!$post) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'Dynamic post not found.',
-            ], 404);
-        }
-
-        $customFieldId = (int) $request->input('custom_field_id');
-        $cfValue = CustomFieldValue::where('entity_type', 'post')
-            ->where('entity_id', $post->id)
-            ->where('custom_field_id', $customFieldId)
-            ->first();
-
-        if (!$cfValue || empty($cfValue->value_json)) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'No media found for this custom field.',
-            ], 404);
-        }
-
-        $items = is_array($cfValue->value_json)
-            ? $cfValue->value_json
-            : (json_decode($cfValue->value_json, true) ?: []);
+        $postId        = $dynamicPost?->id ?? (int) $request->input('post_id');
+        $batchUuid     = $request->input('batch_uuid');
+        $customFieldId = $request->input('custom_field_id') ? (int) $request->input('custom_field_id') : null;
 
         $targetMediaId      = $request->input('media_id');
         $targetClientFileId = $request->input('client_file_id');
@@ -8043,12 +8016,12 @@ class DynamicPostController extends Controller
 
         $isMatch = function ($it) use ($targets): bool {
             if (!is_array($it)) return false;
-            $idStr       = isset($it['id']) ? trim((string) $it['id']) : '';
+            $idStr       = isset($it['id']) ? trim((string) $it['id']) : (isset($it['media_file_id']) ? trim((string) $it['media_file_id']) : '');
             $clientIdStr = isset($it['client_file_id']) ? trim((string) $it['client_file_id']) : '';
             $pathStr     = isset($it['path']) ? trim((string) $it['path']) : '';
             $urlStr      = isset($it['url']) ? trim((string) $it['url']) : '';
             $origUrlStr  = isset($it['original_url']) ? trim((string) $it['original_url']) : '';
-            $fileNameStr = isset($it['file_name']) ? trim((string) $it['file_name']) : '';
+            $fileNameStr = isset($it['file_name']) ? trim((string) $it['file_name']) : (isset($it['original_name']) ? trim((string) $it['original_name']) : '');
 
             foreach ($targets as $t) {
                 if ($idStr !== '' && ($idStr === $t || (is_numeric($idStr) && is_numeric($t) && (int)$idStr === (int)$t))) return true;
@@ -8061,82 +8034,236 @@ class DynamicPostController extends Controller
             return false;
         };
 
-        $toDelete  = collect($items)->filter(fn($it) => $isMatch($it))->values()->all();
-        $remaining = collect($items)->reject(fn($it) => $isMatch($it))->values()->all();
+        // ══════════════════════════════════════════════════════════════════
+        // 1. EDIT MODE: Post ID exists -> update dynamic post custom fields
+        // ══════════════════════════════════════════════════════════════════
+        if ($postId > 0) {
+            $post = $dynamicPost ?? DynamicPost::find($postId);
+            if (!$post) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Dynamic post not found.',
+                ], 404);
+            }
 
-        if (empty($toDelete)) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'Media item not found in this post gallery.',
-            ], 404);
+            $cfQuery = CustomFieldValue::where('entity_type', 'post')
+                ->where('entity_id', $post->id);
+
+            if ($customFieldId) {
+                $cfQuery->where('custom_field_id', $customFieldId);
+            } else {
+                $cfQuery->whereNotNull('value_json');
+            }
+
+            $cfValue = $cfQuery->first();
+
+            if ($cfValue && !empty($cfValue->value_json)) {
+                $items = is_array($cfValue->value_json)
+                    ? $cfValue->value_json
+                    : (json_decode($cfValue->value_json, true) ?: []);
+
+                $toDelete  = collect($items)->filter(fn($it) => $isMatch($it))->values()->all();
+                $remaining = collect($items)->reject(fn($it) => $isMatch($it))->values()->all();
+
+                if (!empty($toDelete)) {
+                    $this->deletePhysicalAndDbMediaItems($toDelete);
+
+                    $hasFeatured = false;
+                    foreach ($remaining as $r) {
+                        if (!empty($r['is_featured'])) {
+                            $hasFeatured = true;
+                            break;
+                        }
+                    }
+                    if (!$hasFeatured && !empty($remaining)) {
+                        $remaining[0]['is_featured'] = true;
+                    }
+
+                    $featuredUrl = !empty($remaining)
+                        ? ($remaining[0]['url'] ?? $remaining[0]['path'] ?? null)
+                        : null;
+
+                    $cfValue->value_json   = !empty($remaining) ? $remaining : null;
+                    $cfValue->value_string = $featuredUrl;
+                    $cfValue->value_text   = $featuredUrl;
+                    $cfValue->save();
+
+                    return response()->json([
+                        'status'  => true,
+                        'message' => 'Media deleted successfully from post gallery and storage.',
+                        'data'    => [
+                            'deleted_count'   => count($toDelete),
+                            'deleted_items'   => $toDelete,
+                            'remaining_media' => $remaining,
+                        ],
+                    ], 200);
+                }
+            }
         }
 
-        // Delete physical files and MediaFile database rows
-        foreach ($toDelete as $item) {
-            $mediaDbId = (int) ($item['id'] ?? 0);
+        // ══════════════════════════════════════════════════════════════════
+        // 2. ADD / BATCH MODE: No post ID yet -> delete from batch & storage
+        // ══════════════════════════════════════════════════════════════════
+        $batchQuery = \App\Models\MediaUploadBatch::query();
+        if ($batchUuid) {
+            $batchQuery->where('batch_uuid', $batchUuid);
+        }
+
+        $batches = $batchQuery->get();
+        $batchItemsQuery = \App\Models\MediaBatchItem::query();
+        if ($batches->isNotEmpty()) {
+            $batchItemsQuery->whereIn('batch_id', $batches->pluck('id'));
+        }
+
+        $allBatchItems = $batchItemsQuery->get();
+        $deletedBatchItems = [];
+        $deletedItemsData = [];
+
+        foreach ($allBatchItems as $bItem) {
+            $itemArray = [
+                'id'              => $bItem->media_file_id,
+                'media_file_id'   => $bItem->media_file_id,
+                'client_file_id'  => $bItem->client_file_id,
+                'path'            => $bItem->path,
+                'url'             => $bItem->url,
+                'file_name'       => $bItem->file_name,
+                'original_name'   => $bItem->original_name,
+            ];
+
+            if ($isMatch($itemArray)) {
+                $deletedBatchItems[] = $bItem;
+                $deletedItemsData[] = $itemArray;
+            }
+        }
+
+        // Delete physical files and records
+        if (!empty($deletedBatchItems)) {
+            $this->deletePhysicalAndDbMediaItems($deletedItemsData);
+
+            foreach ($deletedBatchItems as $dbi) {
+                $batchId = $dbi->batch_id;
+                $dbi->delete();
+
+                if ($batchId) {
+                    $parentBatch = \App\Models\MediaUploadBatch::find($batchId);
+                    if ($parentBatch) {
+                        $newCount = \App\Models\MediaBatchItem::where('batch_id', $batchId)->count();
+                        $parentBatch->uploaded_count = $newCount;
+                        $parentBatch->processed_count = $newCount;
+                        $parentBatch->save();
+                    }
+                }
+            }
+
+            // Get remaining items in the active batch
+            $remaining = [];
+            if ($batches->isNotEmpty()) {
+                $remaining = \App\Models\MediaBatchItem::whereIn('batch_id', $batches->pluck('id'))
+                    ->get()
+                    ->map(fn($item) => [
+                        'id'             => $item->media_file_id,
+                        'media_file_id'  => $item->media_file_id,
+                        'client_file_id' => $item->client_file_id,
+                        'url'            => $item->url,
+                        'path'           => $item->path,
+                        'file_name'      => $item->file_name,
+                        'is_featured'    => (bool) $item->is_featured,
+                    ])
+                    ->values()
+                    ->all();
+            }
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Media deleted successfully from batch storage.',
+                'data'    => [
+                    'deleted_count'   => count($deletedItemsData),
+                    'deleted_items'   => $deletedItemsData,
+                    'remaining_media' => $remaining,
+                ],
+            ], 200);
+        }
+
+        // 3. Fallback: direct MediaFile deletion by targets
+        $mediaFiles = \App\Models\MediaFile::where(function ($q) use ($targets) {
+            foreach ($targets as $t) {
+                if (is_numeric($t)) {
+                    $q->orWhere('id', (int) $t);
+                }
+                $q->orWhere('path', $t)
+                  ->orWhere('file_name', $t)
+                  ->orWhere('original_name', $t);
+            }
+        })->get();
+
+        if ($mediaFiles->isNotEmpty()) {
+            $deletedFiles = [];
+            foreach ($mediaFiles as $mf) {
+                $disk = $mf->disk ?? 'public';
+                if ($mf->path && \Illuminate\Support\Facades\Storage::disk($disk)->exists($mf->path)) {
+                    \Illuminate\Support\Facades\Storage::disk($disk)->delete($mf->path);
+                }
+                $deletedFiles[] = [
+                    'id'        => $mf->id,
+                    'path'      => $mf->path,
+                    'file_name' => $mf->file_name,
+                ];
+                $mf->delete();
+            }
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Media file deleted successfully from storage and database.',
+                'data'    => [
+                    'deleted_count'   => count($deletedFiles),
+                    'deleted_items'   => $deletedFiles,
+                    'remaining_media' => [],
+                ],
+            ], 200);
+        }
+
+        return response()->json([
+            'status'  => false,
+            'message' => 'Media item not found.',
+        ], 404);
+    }
+
+    private function deletePhysicalAndDbMediaItems(array $items): void
+    {
+        foreach ($items as $item) {
+            $mediaDbId = (int) ($item['id'] ?? $item['media_file_id'] ?? 0);
             if ($mediaDbId) {
-                $mediaRecord = MediaFile::find($mediaDbId);
+                $mediaRecord = \App\Models\MediaFile::find($mediaDbId);
                 if ($mediaRecord) {
                     $disk = $mediaRecord->disk ?? 'public';
-                    if ($mediaRecord->path && Storage::disk($disk)->exists($mediaRecord->path)) {
-                        Storage::disk($disk)->delete($mediaRecord->path);
+                    if ($mediaRecord->path && \Illuminate\Support\Facades\Storage::disk($disk)->exists($mediaRecord->path)) {
+                        \Illuminate\Support\Facades\Storage::disk($disk)->delete($mediaRecord->path);
                     }
                     $mediaRecord->delete();
                 } else {
                     $path = $item['path'] ?? null;
                     $disk = $item['disk'] ?? 'public';
-                    if ($path && Storage::disk($disk)->exists($path)) {
-                        Storage::disk($disk)->delete($path);
+                    if ($path && \Illuminate\Support\Facades\Storage::disk($disk)->exists($path)) {
+                        \Illuminate\Support\Facades\Storage::disk($disk)->delete($path);
                     }
                 }
             } else {
                 $path = $item['path'] ?? null;
                 if ($path) {
-                    $foundRecord = MediaFile::where('path', $path)->first();
+                    $foundRecord = \App\Models\MediaFile::where('path', $path)->first();
                     if ($foundRecord) {
                         $disk = $foundRecord->disk ?? 'public';
-                        if ($foundRecord->path && Storage::disk($disk)->exists($foundRecord->path)) {
-                            Storage::disk($disk)->delete($foundRecord->path);
+                        if ($foundRecord->path && \Illuminate\Support\Facades\Storage::disk($disk)->exists($foundRecord->path)) {
+                            \Illuminate\Support\Facades\Storage::disk($disk)->delete($foundRecord->path);
                         }
                         $foundRecord->delete();
                     }
                     $disk = $item['disk'] ?? 'public';
-                    if (Storage::disk($disk)->exists($path)) {
-                        Storage::disk($disk)->delete($path);
+                    if (\Illuminate\Support\Facades\Storage::disk($disk)->exists($path)) {
+                        \Illuminate\Support\Facades\Storage::disk($disk)->delete($path);
                     }
                 }
             }
         }
-
-        // Ensure at least one remaining item is featured if any media is left
-        $hasFeatured = false;
-        foreach ($remaining as $r) {
-            if (!empty($r['is_featured'])) {
-                $hasFeatured = true;
-                break;
-            }
-        }
-        if (!$hasFeatured && !empty($remaining)) {
-            $remaining[0]['is_featured'] = true;
-        }
-
-        $featuredUrl = !empty($remaining)
-            ? ($remaining[0]['url'] ?? $remaining[0]['path'] ?? null)
-            : null;
-
-        $cfValue->value_json   = !empty($remaining) ? $remaining : null;
-        $cfValue->value_string = $featuredUrl;
-        $cfValue->value_text   = $featuredUrl;
-        $cfValue->save();
-
-        return response()->json([
-            'status'  => true,
-            'message' => 'Media deleted successfully from storage and database.',
-            'data'    => [
-                'deleted_count'   => count($toDelete),
-                'deleted_items'   => $toDelete,
-                'remaining_media' => $remaining,
-            ],
-        ], 200);
     }
 }
