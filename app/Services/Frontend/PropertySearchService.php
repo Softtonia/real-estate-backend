@@ -560,10 +560,11 @@ class PropertySearchService
             } elseif (is_string($rawCity) && trim($rawCity) !== '') {
                 $cName = mb_strtolower(trim($rawCity));
                 if (Schema::hasTable('cities')) {
-                    $foundId = DB::table('cities')
-                        ->whereRaw('LOWER(name) = ?', [$cName])
-                        ->orWhereRaw('LOWER(slug) = ?', [$cName])
-                        ->value('id');
+                    $cityQuery = DB::table('cities')->whereRaw('LOWER(name) = ?', [$cName]);
+                    if (Schema::hasColumn('cities', 'slug')) {
+                        $cityQuery->orWhereRaw('LOWER(slug) = ?', [$cName]);
+                    }
+                    $foundId = $cityQuery->value('id');
                     if ($foundId) {
                         $cityId = (int) $foundId;
                     }
@@ -573,10 +574,11 @@ class PropertySearchService
 
         if (!$cityId && $location !== '') {
             if (Schema::hasTable('cities')) {
-                $foundCityId = DB::table('cities')
-                    ->whereRaw('LOWER(name) = ?', [mb_strtolower($location)])
-                    ->orWhereRaw('LOWER(slug) = ?', [mb_strtolower($location)])
-                    ->value('id');
+                $cityLocQuery = DB::table('cities')->whereRaw('LOWER(name) = ?', [mb_strtolower($location)]);
+                if (Schema::hasColumn('cities', 'slug')) {
+                    $cityLocQuery->orWhereRaw('LOWER(slug) = ?', [mb_strtolower($location)]);
+                }
+                $foundCityId = $cityLocQuery->value('id');
 
                 if ($foundCityId) {
                     $cityId = (int) $foundCityId;
