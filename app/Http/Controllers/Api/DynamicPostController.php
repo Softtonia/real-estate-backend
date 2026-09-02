@@ -3421,6 +3421,7 @@ class DynamicPostController extends Controller
             if ($isMediaField) {
                 $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
                 $mediaStateSubmitted = $this->customFieldMediaStateWasSubmitted($fieldData);
+                $retainedFiles = !empty($oldValueJson) ? $oldValueJson : [];
 
                 // Find matching custom field in raw request payload regardless of array indexing
                 $rawRequestField = null;
