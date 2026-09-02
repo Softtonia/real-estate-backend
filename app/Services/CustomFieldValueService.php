@@ -274,26 +274,33 @@ class CustomFieldValueService
                         ->toArray();
                 }
 
-                $incomingItems = $this->normalizeMediaValue($rawValue) ?: [];
+                if (array_key_exists('value_json', $field) && is_array($field['value_json'])) {
+                    $finalItems = $field['value_json'];
+                } else {
+                    $incomingItems = $this->normalizeMediaValue($rawValue) ?: [];
 
-                $mergedByPath = [];
-                foreach ($existingItems as $it) {
-                    if (is_array($it) && !empty($it['path'])) {
-                        $mergedByPath[$it['path']] = $it;
+                    $mergedByPath = [];
+                    foreach ($existingItems as $it) {
+                        if (is_array($it) && !empty($it['path'])) {
+                            $mergedByPath[$it['path']] = $it;
+                        }
+                    }
+
+                    foreach ($incomingItems as $it) {
+                        if (is_array($it) && !empty($it['path'])) {
+                            $mergedByPath[$it['path']] = array_merge($mergedByPath[$it['path']] ?? [], $it);
+                        }
+                    }
+
+                    $finalItems = array_values($mergedByPath);
+
+                    if (empty($finalItems) && !empty($incomingItems)) {
+                        $finalItems = $incomingItems;
                     }
                 }
 
-                foreach ($incomingItems as $it) {
-                    if (is_array($it) && !empty($it['path'])) {
-                        $mergedByPath[$it['path']] = array_merge($mergedByPath[$it['path']] ?? [], $it);
-                    }
-                }
-
-                $finalItems = array_values($mergedByPath);
-
-                // If nothing in merged but incoming was formatted
-                if (empty($finalItems) && !empty($incomingItems)) {
-                    $finalItems = $incomingItems;
+                if (!empty($allRemovalTargets)) {
+                    $finalItems = collect($finalItems)->reject(fn($it) => $isItemRemoved($it))->values()->toArray();
                 }
 
                 // Featured identification: stable ID identity

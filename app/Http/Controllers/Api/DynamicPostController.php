@@ -2344,6 +2344,21 @@ class DynamicPostController extends Controller
             'custom_fields.*.media_files.*' => ['nullable'],
             'custom_fields.*.value' => ['nullable'],
             'custom_fields.*.value.*' => ['nullable'],
+            'custom_fields.*.removed_media_ids' => ['nullable'],
+            'custom_fields.*.removed_media_ids.*' => ['nullable'],
+            'custom_fields.*.delete_media_ids' => ['nullable'],
+            'custom_fields.*.delete_media_ids.*' => ['nullable'],
+            'custom_fields.*.removed_ids' => ['nullable'],
+            'custom_fields.*.removed_ids.*' => ['nullable'],
+            'custom_fields.*.removed_paths' => ['nullable'],
+            'custom_fields.*.removed_paths.*' => ['nullable'],
+            'custom_fields.*.deleted_paths' => ['nullable'],
+            'custom_fields.*.deleted_paths.*' => ['nullable'],
+            'custom_fields.*.featured_media_id' => ['nullable'],
+            'custom_fields.*.featured_id' => ['nullable'],
+            'custom_fields.*.featured_client_file_id' => ['nullable'],
+            'custom_fields.*.featured_url' => ['nullable'],
+            'custom_fields.*.featured_index' => ['nullable'],
             'custom_fields.*.repeaters' => ['nullable', 'array'],
             'custom_fields.*.repeaters.*' => ['nullable', 'array'],
             'custom_fields.*.repeaters.*.*' => ['nullable'],
@@ -3407,25 +3422,47 @@ class DynamicPostController extends Controller
                 $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
                 $mediaStateSubmitted = $this->customFieldMediaStateWasSubmitted($fieldData);
 
-                $retainedFiles = !empty($oldValueJson) ? $oldValueJson : [];
+                // Find matching custom field in raw request payload regardless of array indexing
+                $rawRequestField = null;
+                $rawCustomFields = $request->input('custom_fields') ?? ($request->all()['custom_fields'] ?? []);
+                if (is_array($rawCustomFields)) {
+                    if (isset($rawCustomFields[$index]) && (int)($rawCustomFields[$index]['custom_field_id'] ?? 0) === $fieldId) {
+                        $rawRequestField = $rawCustomFields[$index];
+                    } else {
+                        foreach ($rawCustomFields as $rcf) {
+                            if (is_array($rcf) && (int)($rcf['custom_field_id'] ?? 0) === $fieldId) {
+                                $rawRequestField = $rcf;
+                                break;
+                            }
+                        }
+                    }
+                }
 
                 // ── Explicit removal: parse removed_media_ids and removed_paths (support string IDs, client_file_ids, integer IDs, paths, URLs) ──
                 $rawRemovedIds = collect(
                     $fieldData['removed_media_ids']
-                    ?? $fieldData['delete_media_ids']
-                    ?? $fieldData['removed_ids']
+                    ?? ($rawRequestField['removed_media_ids'] ?? null)
+                    ?? ($fieldData['delete_media_ids'] ?? null)
+                    ?? ($rawRequestField['delete_media_ids'] ?? null)
+                    ?? ($fieldData['removed_ids'] ?? null)
+                    ?? ($rawRequestField['removed_ids'] ?? null)
                     ?? $request->input("custom_fields.{$index}.removed_media_ids")
                     ?? []
                 )->flatten()->filter(fn($v) => $v !== null && $v !== '')->map(fn($v) => trim((string) $v))->values()->all();
 
                 $rawRemovedPaths = collect(
                     $fieldData['removed_paths']
-                    ?? $fieldData['deleted_paths']
+                    ?? ($rawRequestField['removed_paths'] ?? null)
+                    ?? ($fieldData['deleted_paths'] ?? null)
+                    ?? ($rawRequestField['deleted_paths'] ?? null)
                     ?? $request->input("custom_fields.{$index}.removed_paths")
                     ?? []
                 )->flatten()->filter(fn($v) => $v !== null && $v !== '')->map(fn($v) => trim((string) $v))->values()->all();
 
                 $allRemovalTargets = array_values(array_unique(array_merge($rawRemovedIds, $rawRemovedPaths)));
+
+                $customFields[$index]['removed_media_ids'] = $rawRemovedIds;
+                $customFields[$index]['removed_paths'] = $rawRemovedPaths;
 
                 // Matcher closure to test if any item matches the removal list
                 $isItemRemoved = function ($it) use ($allRemovalTargets): bool {
