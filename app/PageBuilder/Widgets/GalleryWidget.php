@@ -183,13 +183,21 @@ class GalleryWidget extends BaseWidget
         if (($settings['source'] ?? 'static') === 'dynamic') {
             $field = $settings['field'] ?? null;
 
-            if (! $field) {
-                return [];
+            $value = null;
+            if ($field) {
+                $value = $context->field($field, null);
+
+                if (empty($value) && str_starts_with((string) $field, 'custom.')) {
+                    $stripped = substr((string) $field, 7);
+                    $value = $context->field($stripped, null);
+                }
             }
 
-            $value = $context->field($field, []);
+            if (empty($value) && ! empty($settings['images'])) {
+                $value = $settings['images'];
+            }
 
-            return $this->normalizeImages($value);
+            return $this->normalizeImages($value ?? []);
         }
 
         return $this->normalizeImages($settings['images'] ?? []);
@@ -208,7 +216,7 @@ class GalleryWidget extends BaseWidget
                 return $this->normalizeImages($decoded);
             }
 
-            return array_filter(array_map('trim', explode(',', $value)));
+            return array_values(array_filter(array_map('trim', explode(',', $value))));
         }
 
         if (is_object($value)) {
@@ -223,7 +231,12 @@ class GalleryWidget extends BaseWidget
          * Support:
          * { images: [...] }
          * { gallery: [...] }
+         * { media: [...] }
          */
+        if (isset($value['media']) && is_array($value['media'])) {
+            return $this->normalizeImages($value['media']);
+        }
+
         if (isset($value['images']) && is_array($value['images'])) {
             return $this->normalizeImages($value['images']);
         }
@@ -232,11 +245,25 @@ class GalleryWidget extends BaseWidget
             return $this->normalizeImages($value['gallery']);
         }
 
+        if (isset($value['url']) || isset($value['path']) || isset($value['src'])) {
+            return [$value];
+        }
+
         return array_values($value);
     }
 
     protected function imageUrl(mixed $image): string
     {
+        if (is_numeric($image)) {
+            if (\Illuminate\Support\Facades\Schema::hasTable('media_files')) {
+                $media = \Illuminate\Support\Facades\DB::table('media_files')->where('id', (int) $image)->first();
+                if ($media) {
+                    return (string) ($media->url ?? $media->path ?? '');
+                }
+            }
+            return '';
+        }
+
         if (is_string($image)) {
             return $image;
         }
@@ -249,13 +276,22 @@ class GalleryWidget extends BaseWidget
             return '';
         }
 
-        return (string) (
+        $url = (string) (
             $image['url']
-            ?? $image['path']
-            ?? $image['src']
             ?? $image['full_url']
+            ?? $image['src']
+            ?? $image['path']
             ?? ''
         );
+
+        if (!$url && isset($image['id']) && is_numeric($image['id']) && \Illuminate\Support\Facades\Schema::hasTable('media_files')) {
+            $media = \Illuminate\Support\Facades\DB::table('media_files')->where('id', (int) $image['id'])->first();
+            if ($media) {
+                return (string) ($media->url ?? $media->path ?? '');
+            }
+        }
+
+        return $url;
     }
 
     protected function imageAlt(mixed $image): string

@@ -69,7 +69,8 @@ class TemplateDynamicFieldController extends Controller
         $customFields = $this->getDynamicCustomFields(
             $postTypeRecord,
             $entityId,
-            $selectedTermIds
+            $selectedTermIds,
+            $postPreviewData
         );
 
         $taxonomyFields = $this->getTaxonomyFields(
@@ -82,7 +83,7 @@ class TemplateDynamicFieldController extends Controller
          * to extract Area Sq.Ft dynamic options even when value is null.
          */
         $allCustomFieldsForPostType = $entityId
-            ? $this->getDynamicCustomFields($postTypeRecord, null, $selectedTermIds)
+            ? $this->getDynamicCustomFields($postTypeRecord, null, $selectedTermIds, $postPreviewData)
             : $customFields;
 
         $areaSqFtFields = collect($allCustomFieldsForPostType)
@@ -313,7 +314,12 @@ class TemplateDynamicFieldController extends Controller
         ];
     }
 
-    private function getDynamicCustomFields(object $postTypeRecord, ?int $entityId, array $selectedTermIds): array
+    private function getDynamicCustomFields(
+        object $postTypeRecord,
+        ?int $entityId,
+        array $selectedTermIds,
+        array $postPreviewData = []
+    ): array
     {
         if (!Schema::hasTable('custom_fields')) {
             return [];
@@ -360,7 +366,7 @@ class TemplateDynamicFieldController extends Controller
                     $selectedTermIds
                 );
             })
-            ->map(function ($field) use ($entityId) {
+            ->map(function ($field) use ($entityId, $postPreviewData) {
                 $fieldKey = $field->field_name_slug
                     ?? $field->field_name
                     ?? $field->slug
@@ -386,6 +392,14 @@ class TemplateDynamicFieldController extends Controller
                             $entityId,
                             (int) $field->id
                         );
+
+                        if (empty($fieldValue)) {
+                            if (!empty($postPreviewData[$fieldKey])) {
+                                $fieldValue = $postPreviewData[$fieldKey];
+                            } elseif ($fieldType === 'gallery' && !empty($postPreviewData['gallery_images'])) {
+                                $fieldValue = $postPreviewData['gallery_images'];
+                            }
+                        }
 
                         if (in_array($fieldType, ['media', 'file', 'image', 'gallery'], true)) {
                             $fieldValue = $this->formatDynamicMediaFieldValue($fieldValue, $fieldType);
@@ -976,10 +990,24 @@ class TemplateDynamicFieldController extends Controller
         }
 
         if (is_numeric($value)) {
-            return $this->formatMediaFilesByIds([$value]);
+            $formatted = $this->formatMediaFilesByIds([(int) $value]);
+            return !empty($formatted) ? $formatted : [];
         }
 
         if (is_string($value)) {
+            if (str_contains($value, ',')) {
+                $parts = array_filter(array_map('trim', explode(',', $value)));
+                return collect($parts)
+                    ->flatMap(fn($part) => $this->normalizeStoredMediaFiles($part))
+                    ->filter(fn($media) => !empty($media['url']))
+                    ->values()
+                    ->toArray();
+            }
+
+            if (is_numeric(trim($value))) {
+                return $this->normalizeStoredMediaFiles((int) trim($value));
+            }
+
             $url = $this->mediaPublicUrl($value);
 
             return $url ? [
@@ -988,7 +1016,13 @@ class TemplateDynamicFieldController extends Controller
                     'path' => $value,
                     'url' => $url,
                 ]
-            ] : [];
+            ] : [
+                [
+                    'id' => null,
+                    'path' => $value,
+                    'url' => $value,
+                ]
+            ];
         }
 
         if (!is_array($value)) {
@@ -999,38 +1033,65 @@ class TemplateDynamicFieldController extends Controller
             $value = $value['media'];
         }
 
-        if (isset($value['id']) && is_numeric($value['id'])) {
-            return $this->formatMediaFilesByIds([(int) $value['id']]);
+        if (isset($value['images']) && is_array($value['images'])) {
+            $value = $value['images'];
         }
 
-        if (isset($value['url']) || isset($value['path'])) {
+        if (isset($value['gallery']) && is_array($value['gallery'])) {
+            $value = $value['gallery'];
+        }
+
+        if (isset($value['url']) || isset($value['path']) || isset($value['src']) || isset($value['full_url'])) {
             $path = $value['path'] ?? null;
             $url = $this->mediaPublicUrl(
                 path: $path,
-                existingUrl: $value['url'] ?? null,
+                existingUrl: $value['url'] ?? $value['full_url'] ?? $value['src'] ?? null,
                 disk: $value['disk'] ?? null
             );
 
-            return $url ? [
+            if (!$url) {
+                $url = (string) ($value['url'] ?? $value['full_url'] ?? $value['src'] ?? $value['path'] ?? '');
+            }
+
+            $isVideo = false;
+            $mime = (string) ($value['mime_type'] ?? $value['mime'] ?? '');
+            if (!empty($value['is_video']) || str_starts_with($mime, 'video/')) {
+                $isVideo = true;
+            } elseif ($url) {
+                $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
+                $isVideo = in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi']);
+            }
+
+            return [
                 array_merge($value, [
                     'url' => $url,
+                    'is_video' => $isVideo,
                 ])
-            ] : [];
+            ];
         }
 
         return collect($value)
             ->flatMap(function ($item) {
                 if (is_numeric($item)) {
-                    return $this->formatMediaFilesByIds([(int) $item]);
+                    $formatted = $this->formatMediaFilesByIds([(int) $item]);
+                    return !empty($formatted) ? $formatted : [];
                 }
 
                 if (is_string($item)) {
-                    $url = $this->mediaPublicUrl($item);
+                    $itemStr = trim($item);
+                    if (is_numeric($itemStr)) {
+                        return $this->formatMediaFilesByIds([(int) $itemStr]);
+                    }
+
+                    $url = $this->mediaPublicUrl($itemStr);
+                    if (!$url) {
+                        $url = $itemStr;
+                    }
 
                     return $url ? [
                         [
                             'id' => null,
-                            'path' => $item,
+                            'path' => $itemStr,
                             'url' => $url,
                         ]
                     ] : [];
@@ -1040,22 +1101,42 @@ class TemplateDynamicFieldController extends Controller
                     return [];
                 }
 
+                $dbFile = [];
                 if (isset($item['id']) && is_numeric($item['id'])) {
-                    return $this->formatMediaFilesByIds([(int) $item['id']]);
+                    $dbFiles = $this->formatMediaFilesByIds([(int) $item['id']]);
+                    if (!empty($dbFiles[0])) {
+                        $dbFile = $dbFiles[0];
+                    }
                 }
 
-                $path = $item['path'] ?? null;
+                $merged = array_merge($dbFile, $item);
+
+                $path = $merged['path'] ?? null;
                 $url = $this->mediaPublicUrl(
                     path: $path,
-                    existingUrl: $item['url'] ?? null,
-                    disk: $item['disk'] ?? null
+                    existingUrl: $merged['url'] ?? $merged['full_url'] ?? $merged['src'] ?? null,
+                    disk: $merged['disk'] ?? null
                 );
 
-                return $url ? [
-                    array_merge($item, [
+                if (!$url) {
+                    $url = (string) ($merged['url'] ?? $merged['full_url'] ?? $merged['src'] ?? $merged['path'] ?? '');
+                }
+
+                $isVideo = false;
+                $mime = (string) ($merged['mime_type'] ?? $merged['mime'] ?? '');
+                if (!empty($merged['is_video']) || str_starts_with($mime, 'video/')) {
+                    $isVideo = true;
+                } elseif ($url) {
+                    $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
+                    $isVideo = in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi']);
+                }
+
+                return [
+                    array_merge($merged, [
                         'url' => $url,
+                        'is_video' => $isVideo,
                     ])
-                ] : [];
+                ];
             })
             ->filter(fn($media) => !empty($media['url']))
             ->values()

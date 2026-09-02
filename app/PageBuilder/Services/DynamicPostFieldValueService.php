@@ -732,8 +732,38 @@ class DynamicPostFieldValueService
             return [];
         }
 
+        if (isset($value['media']) && is_array($value['media'])) {
+            $value = $value['media'];
+        }
+
+        if (isset($value['images']) && is_array($value['images'])) {
+            $value = $value['images'];
+        }
+
+        if (isset($value['gallery']) && is_array($value['gallery'])) {
+            $value = $value['gallery'];
+        }
+
+        if (isset($value['url']) || isset($value['path']) || isset($value['src'])) {
+            $value = [$value];
+        }
+
         return collect($value)
             ->map(function ($item) {
+                if (is_numeric($item)) {
+                    if (Schema::hasTable('media_files')) {
+                        $media = DB::table('media_files')->where('id', (int) $item)->first();
+                        if ($media) {
+                            return [
+                                'id' => (int) $media->id,
+                                'url' => $media->url ?? $media->path ?? '',
+                                'alt' => $media->file_name ?? '',
+                            ];
+                        }
+                    }
+                    return null;
+                }
+
                 if (is_string($item)) {
                     return [
                         'url' => $item,
@@ -742,14 +772,25 @@ class DynamicPostFieldValueService
                 }
 
                 if (is_array($item)) {
-                    return [
-                        'url' => $item['url']
-                            ?? $item['full_url']
-                            ?? $item['src']
-                            ?? $item['path']
-                            ?? '',
-                        'alt' => $item['alt'] ?? $item['title'] ?? '',
-                    ];
+                    $url = $item['url']
+                        ?? $item['full_url']
+                        ?? $item['src']
+                        ?? $item['path']
+                        ?? '';
+
+                    if (!$url && isset($item['id']) && is_numeric($item['id']) && Schema::hasTable('media_files')) {
+                        $media = DB::table('media_files')->where('id', (int) $item['id'])->first();
+                        if ($media) {
+                            $url = $media->url ?? $media->path ?? '';
+                        }
+                    }
+
+                    if (!empty($url)) {
+                        return array_merge($item, [
+                            'url' => $url,
+                            'alt' => $item['alt'] ?? $item['title'] ?? '',
+                        ]);
+                    }
                 }
 
                 return null;
