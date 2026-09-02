@@ -7968,4 +7968,175 @@ class DynamicPostController extends Controller
 
         return $authUser instanceof User ? $authUser : null;
     }
+
+    /**
+     * Delete a single media item from custom field value_json, database, and physical storage.
+     *
+     * POST /api/dynamic-posts/{dynamicPost}/delete-media
+     * POST /api/dynamic-posts/delete-media
+     */
+    public function deleteCustomFieldMedia(Request $request, ?DynamicPost $dynamicPost = null): JsonResponse
+    {
+        $request->validate([
+            'post_id'         => ['nullable', 'integer'],
+            'custom_field_id' => ['required', 'integer', 'exists:custom_fields,id'],
+            'media_id'        => ['nullable'],
+            'client_file_id'  => ['nullable'],
+            'path'            => ['nullable', 'string'],
+            'url'             => ['nullable', 'string'],
+            'file_name'       => ['nullable', 'string'],
+        ]);
+
+        $postId = $dynamicPost?->id ?? (int) $request->input('post_id');
+        if (!$postId) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Post ID is required.',
+            ], 422);
+        }
+
+        $post = $dynamicPost ?? DynamicPost::find($postId);
+        if (!$post) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Dynamic post not found.',
+            ], 404);
+        }
+
+        $customFieldId = (int) $request->input('custom_field_id');
+        $cfValue = CustomFieldValue::where('entity_type', 'post')
+            ->where('entity_id', $post->id)
+            ->where('custom_field_id', $customFieldId)
+            ->first();
+
+        if (!$cfValue || empty($cfValue->value_json)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'No media found for this custom field.',
+            ], 404);
+        }
+
+        $items = is_array($cfValue->value_json)
+            ? $cfValue->value_json
+            : (json_decode($cfValue->value_json, true) ?: []);
+
+        $targetMediaId      = $request->input('media_id');
+        $targetClientFileId = $request->input('client_file_id');
+        $targetPath         = $request->input('path');
+        $targetUrl          = $request->input('url');
+        $targetFileName     = $request->input('file_name');
+
+        $targets = array_values(array_filter([
+            $targetMediaId !== null ? trim((string) $targetMediaId) : null,
+            $targetClientFileId !== null ? trim((string) $targetClientFileId) : null,
+            $targetPath !== null ? trim((string) $targetPath) : null,
+            $targetUrl !== null ? trim((string) $targetUrl) : null,
+            $targetFileName !== null ? trim((string) $targetFileName) : null,
+        ]));
+
+        if (empty($targets)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Please provide media_id, client_file_id, path, or url to delete.',
+            ], 422);
+        }
+
+        $isMatch = function ($it) use ($targets): bool {
+            if (!is_array($it)) return false;
+            $idStr       = isset($it['id']) ? trim((string) $it['id']) : '';
+            $clientIdStr = isset($it['client_file_id']) ? trim((string) $it['client_file_id']) : '';
+            $pathStr     = isset($it['path']) ? trim((string) $it['path']) : '';
+            $urlStr      = isset($it['url']) ? trim((string) $it['url']) : '';
+            $origUrlStr  = isset($it['original_url']) ? trim((string) $it['original_url']) : '';
+            $fileNameStr = isset($it['file_name']) ? trim((string) $it['file_name']) : '';
+
+            foreach ($targets as $t) {
+                if ($idStr !== '' && ($idStr === $t || (is_numeric($idStr) && is_numeric($t) && (int)$idStr === (int)$t))) return true;
+                if ($clientIdStr !== '' && $clientIdStr === $t) return true;
+                if ($pathStr !== '' && ($pathStr === $t || str_contains($t, $pathStr) || str_contains($pathStr, $t))) return true;
+                if ($urlStr !== '' && ($urlStr === $t || str_contains($t, $urlStr) || str_contains($urlStr, $t))) return true;
+                if ($origUrlStr !== '' && $origUrlStr === $t) return true;
+                if ($fileNameStr !== '' && $fileNameStr === $t) return true;
+            }
+            return false;
+        };
+
+        $toDelete  = collect($items)->filter(fn($it) => $isMatch($it))->values()->all();
+        $remaining = collect($items)->reject(fn($it) => $isMatch($it))->values()->all();
+
+        if (empty($toDelete)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Media item not found in this post gallery.',
+            ], 404);
+        }
+
+        // Delete physical files and MediaFile database rows
+        foreach ($toDelete as $item) {
+            $mediaDbId = (int) ($item['id'] ?? 0);
+            if ($mediaDbId) {
+                $mediaRecord = MediaFile::find($mediaDbId);
+                if ($mediaRecord) {
+                    $disk = $mediaRecord->disk ?? 'public';
+                    if ($mediaRecord->path && Storage::disk($disk)->exists($mediaRecord->path)) {
+                        Storage::disk($disk)->delete($mediaRecord->path);
+                    }
+                    $mediaRecord->delete();
+                } else {
+                    $path = $item['path'] ?? null;
+                    $disk = $item['disk'] ?? 'public';
+                    if ($path && Storage::disk($disk)->exists($path)) {
+                        Storage::disk($disk)->delete($path);
+                    }
+                }
+            } else {
+                $path = $item['path'] ?? null;
+                if ($path) {
+                    $foundRecord = MediaFile::where('path', $path)->first();
+                    if ($foundRecord) {
+                        $disk = $foundRecord->disk ?? 'public';
+                        if ($foundRecord->path && Storage::disk($disk)->exists($foundRecord->path)) {
+                            Storage::disk($disk)->delete($foundRecord->path);
+                        }
+                        $foundRecord->delete();
+                    }
+                    $disk = $item['disk'] ?? 'public';
+                    if (Storage::disk($disk)->exists($path)) {
+                        Storage::disk($disk)->delete($path);
+                    }
+                }
+            }
+        }
+
+        // Ensure at least one remaining item is featured if any media is left
+        $hasFeatured = false;
+        foreach ($remaining as $r) {
+            if (!empty($r['is_featured'])) {
+                $hasFeatured = true;
+                break;
+            }
+        }
+        if (!$hasFeatured && !empty($remaining)) {
+            $remaining[0]['is_featured'] = true;
+        }
+
+        $featuredUrl = !empty($remaining)
+            ? ($remaining[0]['url'] ?? $remaining[0]['path'] ?? null)
+            : null;
+
+        $cfValue->value_json   = !empty($remaining) ? $remaining : null;
+        $cfValue->value_string = $featuredUrl;
+        $cfValue->value_text   = $featuredUrl;
+        $cfValue->save();
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Media deleted successfully from storage and database.',
+            'data'    => [
+                'deleted_count'   => count($toDelete),
+                'deleted_items'   => $toDelete,
+                'remaining_media' => $remaining,
+            ],
+        ], 200);
+    }
 }

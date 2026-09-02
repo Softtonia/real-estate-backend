@@ -2104,6 +2104,11 @@ Route::middleware(['throttle:60,1', 'admin.token', 'validate.api.client'])->grou
     Route::delete('dynamic-posts/{dynamicPost}', [DynamicPostController::class, 'destroy'])
         ->whereNumber('dynamicPost');
 
+    // Instant Single Media Delete for Custom Fields / Gallery
+    Route::post('dynamic-posts/{dynamicPost}/delete-media', [DynamicPostController::class, 'deleteCustomFieldMedia'])
+        ->whereNumber('dynamicPost');
+    Route::post('dynamic-posts/delete-media', [DynamicPostController::class, 'deleteCustomFieldMedia']);
+
     /*
     |--------------------------------------------------------------------------
     | Taxonomies
