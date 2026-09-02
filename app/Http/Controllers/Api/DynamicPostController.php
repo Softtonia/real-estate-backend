@@ -3409,58 +3409,74 @@ class DynamicPostController extends Controller
 
                 $retainedFiles = !empty($oldValueJson) ? $oldValueJson : [];
 
-                // ── Explicit removal: parse removed_media_ids and removed_paths ──────────
-                $removedIds = collect(
-                        $fieldData['removed_media_ids']
-                        ?? $fieldData['delete_media_ids']
-                        ?? $fieldData['removed_ids']
-                        ?? $request->input("custom_fields.{$index}.removed_media_ids")
-                        ?? []
-                    )
-                    ->map(fn($id) => (int) $id)
-                    ->filter()
-                    ->unique()
-                    ->values()
-                    ->toArray();
+                // ── Explicit removal: parse removed_media_ids and removed_paths (support string IDs, client_file_ids, integer IDs, paths, URLs) ──
+                $rawRemovedIds = collect(
+                    $fieldData['removed_media_ids']
+                    ?? $fieldData['delete_media_ids']
+                    ?? $fieldData['removed_ids']
+                    ?? $request->input("custom_fields.{$index}.removed_media_ids")
+                    ?? []
+                )->flatten()->filter(fn($v) => $v !== null && $v !== '')->map(fn($v) => trim((string) $v))->values()->all();
 
-                $removedPaths = collect(
-                        $fieldData['removed_paths']
-                        ?? $fieldData['deleted_paths']
-                        ?? $request->input("custom_fields.{$index}.removed_paths")
-                        ?? []
-                    )
-                    ->filter()
-                    ->values()
-                    ->toArray();
+                $rawRemovedPaths = collect(
+                    $fieldData['removed_paths']
+                    ?? $fieldData['deleted_paths']
+                    ?? $request->input("custom_fields.{$index}.removed_paths")
+                    ?? []
+                )->flatten()->filter(fn($v) => $v !== null && $v !== '')->map(fn($v) => trim((string) $v))->values()->all();
 
-                // DEBUG: log submitted removal request
-                \Log::debug('[CustomField Delete] submitted removed_media_ids', [
-                    'custom_field_id' => $fieldId,
-                    'field_type'      => $customField->field_type,
-                    'removed_ids'     => $removedIds,
-                    'removed_paths'   => $removedPaths,
-                    'existing_post_id'=> $existingPost?->id,
-                ]);
+                $allRemovalTargets = array_values(array_unique(array_merge($rawRemovedIds, $rawRemovedPaths)));
 
-                if (!empty($removedIds) || !empty($removedPaths)) {
-                    // Identify items in old value_json that must be deleted
-                    $toDelete = collect($retainedFiles)->filter(function ($it) use ($removedIds, $removedPaths) {
-                        if (!is_array($it)) {
-                            return false;
+                // Matcher closure to test if any item matches the removal list
+                $isItemRemoved = function ($it) use ($allRemovalTargets): bool {
+                    if (!is_array($it)) {
+                        return false;
+                    }
+                    $idStr       = isset($it['id']) ? trim((string) $it['id']) : '';
+                    $clientIdStr = isset($it['client_file_id']) ? trim((string) $it['client_file_id']) : '';
+                    $pathStr     = isset($it['path']) ? trim((string) $it['path']) : '';
+                    $urlStr      = isset($it['url']) ? trim((string) $it['url']) : '';
+                    $origUrlStr  = isset($it['original_url']) ? trim((string) $it['original_url']) : '';
+                    $fileNameStr = isset($it['file_name']) ? trim((string) $it['file_name']) : '';
+
+                    foreach ($allRemovalTargets as $target) {
+                        $t = trim((string) $target);
+                        if ($t === '') continue;
+
+                        if ($idStr !== '' && ($idStr === $t || (is_numeric($idStr) && is_numeric($t) && (int)$idStr === (int)$t))) {
+                            return true;
                         }
-                        $idMatch   = !empty($removedIds)   && in_array((int) ($it['id']   ?? 0), $removedIds,   true);
-                        $pathMatch = !empty($removedPaths) && in_array($it['path'] ?? '',    $removedPaths, true);
-                        return $idMatch || $pathMatch;
-                    });
+                        if ($clientIdStr !== '' && $clientIdStr === $t) {
+                            return true;
+                        }
+                        if ($pathStr !== '' && ($pathStr === $t || str_contains($t, $pathStr) || str_contains($pathStr, $t))) {
+                            return true;
+                        }
+                        if ($urlStr !== '' && ($urlStr === $t || str_contains($t, $urlStr) || str_contains($urlStr, $t))) {
+                            return true;
+                        }
+                        if ($origUrlStr !== '' && $origUrlStr === $t) {
+                            return true;
+                        }
+                        if ($fileNameStr !== '' && $fileNameStr === $t) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
 
-                    // DEBUG: log matched items
-                    \Log::debug('[CustomField Delete] matched items for deletion', [
+                if (!empty($allRemovalTargets)) {
+                    // Identify items in old value_json that must be deleted
+                    $toDelete = collect($retainedFiles)->filter(fn($it) => $isItemRemoved($it))->values()->all();
+
+                    \Log::debug('[CustomField Delete] submitted removals', [
                         'custom_field_id' => $fieldId,
-                        'matched'         => $toDelete->map(fn($it) => ['id' => $it['id'] ?? null, 'path' => $it['path'] ?? null])->values()->toArray(),
+                        'targets'         => $allRemovalTargets,
+                        'matched_count'   => count($toDelete),
+                        'matched'         => collect($toDelete)->map(fn($it) => ['id' => $it['id'] ?? null, 'client_file_id' => $it['client_file_id'] ?? null, 'path' => $it['path'] ?? null])->values()->toArray(),
                     ]);
 
                     foreach ($toDelete as $item) {
-                        // 1. Delete MediaFile DB row (which also gives us the real disk)
                         $mediaDbId = (int) ($item['id'] ?? 0);
                         if ($mediaDbId) {
                             $mediaRecord = MediaFile::find($mediaDbId);
@@ -3469,33 +3485,45 @@ class DynamicPostController extends Controller
                                 $filePath = $mediaRecord->path;
                                 if ($filePath && Storage::disk($disk)->exists($filePath)) {
                                     Storage::disk($disk)->delete($filePath);
-                                    \Log::debug('[CustomField Delete] deleted storage file', ['disk' => $disk, 'path' => $filePath]);
                                 }
                                 $mediaRecord->delete();
-                                \Log::debug('[CustomField Delete] deleted MediaFile DB row', ['id' => $mediaDbId]);
                             } else {
-                                // No DB row — fall back to path deletion from value_json item
                                 $this->deleteStoredCustomFieldFileItem($item);
                             }
                         } else {
-                            // No stable ID — delete from storage using path from value_json
-                            $this->deleteStoredCustomFieldFileItem($item);
-                            \Log::debug('[CustomField Delete] deleted by path (no DB id)', ['path' => $item['path'] ?? null]);
+                            // Try finding MediaFile by path or client_file_id
+                            $path = $item['path'] ?? null;
+                            if ($path) {
+                                $foundRecord = MediaFile::where('path', $path)->first();
+                                if ($foundRecord) {
+                                    $disk = $foundRecord->disk ?? 'public';
+                                    if ($foundRecord->path && Storage::disk($disk)->exists($foundRecord->path)) {
+                                        Storage::disk($disk)->delete($foundRecord->path);
+                                    }
+                                    $foundRecord->delete();
+                                } else {
+                                    $this->deleteStoredCustomFieldFileItem($item);
+                                }
+                            } else {
+                                $this->deleteStoredCustomFieldFileItem($item);
+                            }
                         }
                     }
 
                     // Remove deleted items from $retainedFiles
                     $retainedFiles = collect($retainedFiles)
-                        ->reject(fn($it) =>
-                            in_array((int) ($it['id'] ?? 0), $removedIds, true)
-                            || in_array($it['path'] ?? '', $removedPaths, true)
-                        )
+                        ->reject(fn($it) => $isItemRemoved($it))
                         ->values()
                         ->toArray();
                 }
 
                 if ($mediaStateSubmitted) {
                     $submittedItems = $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson);
+                    // Filter out any explicitly removed items from submitted items as well
+                    if (!empty($allRemovalTargets)) {
+                        $submittedItems = collect($submittedItems)->reject(fn($it) => $isItemRemoved($it))->values()->toArray();
+                    }
+
                     if (!empty($submittedItems)) {
                         $mergedOld = [];
                         foreach ($retainedFiles as $oldIt) {
@@ -3526,6 +3554,7 @@ class DynamicPostController extends Controller
                 $newValueJson = collect($retainedFiles)
                     ->merge($uploaded)
                     ->filter(fn($item) => is_array($item) && !empty($item['path']))
+                    ->reject(fn($it) => !empty($allRemovalTargets) && $isItemRemoved($it))
                     ->unique('path')
                     ->values()
                     ->toArray();

@@ -174,40 +174,61 @@ class CustomFieldValueService
                     $existingItems = $this->normalizeMediaValue($existingRecord->value_json) ?: [];
                 }
 
-                // Check for explicit removed IDs or paths
-                $removedIds = collect($field['removed_media_ids'] ?? $field['delete_media_ids'] ?? $field['removed_ids'] ?? [])
-                    ->map(fn($id) => (int) $id)
-                    ->filter()
-                    ->unique()
-                    ->values()
-                    ->toArray();
+                // Check for explicit removed IDs or paths (support string IDs, client_file_ids, integer IDs, paths, URLs)
+                $rawRemovedIds = collect($field['removed_media_ids'] ?? $field['delete_media_ids'] ?? $field['removed_ids'] ?? [])
+                    ->flatten()->filter(fn($v) => $v !== null && $v !== '')->map(fn($v) => trim((string) $v))->values()->all();
 
-                $removedPaths = collect($field['removed_paths'] ?? $field['deleted_paths'] ?? [])
-                    ->filter()
-                    ->values()
-                    ->toArray();
+                $rawRemovedPaths = collect($field['removed_paths'] ?? $field['deleted_paths'] ?? [])
+                    ->flatten()->filter(fn($v) => $v !== null && $v !== '')->map(fn($v) => trim((string) $v))->values()->all();
 
-                Log::debug('[CustomFieldValueService Delete] submitted removal', [
-                    'custom_field_id' => $customField->id,
-                    'removed_ids'     => $removedIds,
-                    'removed_paths'   => $removedPaths,
-                    'entity_id'       => $entityId,
-                ]);
+                $allRemovalTargets = array_values(array_unique(array_merge($rawRemovedIds, $rawRemovedPaths)));
 
-                if (!empty($removedIds) || !empty($removedPaths)) {
-                    // Find matching items in existing value_json to delete
-                    $toDelete = collect($existingItems)->filter(function ($it) use ($removedIds, $removedPaths) {
-                        if (!is_array($it)) {
-                            return false;
+                $isItemRemoved = function ($it) use ($allRemovalTargets): bool {
+                    if (!is_array($it)) {
+                        return false;
+                    }
+                    $idStr       = isset($it['id']) ? trim((string) $it['id']) : '';
+                    $clientIdStr = isset($it['client_file_id']) ? trim((string) $it['client_file_id']) : '';
+                    $pathStr     = isset($it['path']) ? trim((string) $it['path']) : '';
+                    $urlStr      = isset($it['url']) ? trim((string) $it['url']) : '';
+                    $origUrlStr  = isset($it['original_url']) ? trim((string) $it['original_url']) : '';
+                    $fileNameStr = isset($it['file_name']) ? trim((string) $it['file_name']) : '';
+
+                    foreach ($allRemovalTargets as $target) {
+                        $t = trim((string) $target);
+                        if ($t === '') continue;
+
+                        if ($idStr !== '' && ($idStr === $t || (is_numeric($idStr) && is_numeric($t) && (int)$idStr === (int)$t))) {
+                            return true;
                         }
-                        $idMatch   = !empty($removedIds)   && in_array((int) ($it['id']   ?? 0), $removedIds,   true);
-                        $pathMatch = !empty($removedPaths) && in_array($it['path'] ?? '',    $removedPaths, true);
-                        return $idMatch || $pathMatch;
-                    });
+                        if ($clientIdStr !== '' && $clientIdStr === $t) {
+                            return true;
+                        }
+                        if ($pathStr !== '' && ($pathStr === $t || str_contains($t, $pathStr) || str_contains($pathStr, $t))) {
+                            return true;
+                        }
+                        if ($urlStr !== '' && ($urlStr === $t || str_contains($t, $urlStr) || str_contains($urlStr, $t))) {
+                            return true;
+                        }
+                        if ($origUrlStr !== '' && $origUrlStr === $t) {
+                            return true;
+                        }
+                        if ($fileNameStr !== '' && $fileNameStr === $t) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
 
-                    Log::debug('[CustomFieldValueService Delete] matched items', [
+                if (!empty($allRemovalTargets)) {
+                    // Find matching items in existing value_json to delete
+                    $toDelete = collect($existingItems)->filter(fn($it) => $isItemRemoved($it))->values()->all();
+
+                    Log::debug('[CustomFieldValueService Delete] submitted removals', [
                         'custom_field_id' => $customField->id,
-                        'matched'         => $toDelete->map(fn($it) => ['id' => $it['id'] ?? null, 'path' => $it['path'] ?? null])->values()->toArray(),
+                        'targets'         => $allRemovalTargets,
+                        'matched_count'   => count($toDelete),
+                        'matched'         => collect($toDelete)->map(fn($it) => ['id' => $it['id'] ?? null, 'client_file_id' => $it['client_file_id'] ?? null, 'path' => $it['path'] ?? null])->values()->toArray(),
                     ]);
 
                     foreach ($toDelete as $item) {
@@ -219,34 +240,36 @@ class CustomFieldValueService
                                 $filePath = $mediaRecord->path;
                                 if ($filePath && Storage::disk($disk)->exists($filePath)) {
                                     Storage::disk($disk)->delete($filePath);
-                                    Log::debug('[CustomFieldValueService Delete] storage file deleted', ['disk' => $disk, 'path' => $filePath]);
                                 }
                                 $mediaRecord->delete();
-                                Log::debug('[CustomFieldValueService Delete] MediaFile DB row deleted', ['id' => $mediaDbId]);
                             } else {
-                                // No DB row — just delete physical file from path in value_json
                                 $path = $item['path'] ?? null;
                                 $disk = $item['disk'] ?? 'public';
                                 if ($path && Storage::disk($disk)->exists($path)) {
                                     Storage::disk($disk)->delete($path);
-                                    Log::debug('[CustomFieldValueService Delete] fallback path deleted', ['path' => $path]);
                                 }
                             }
                         } else {
                             $path = $item['path'] ?? null;
+                            if ($path) {
+                                $foundRecord = MediaFile::where('path', $path)->first();
+                                if ($foundRecord) {
+                                    $disk = $foundRecord->disk ?? 'public';
+                                    if ($foundRecord->path && Storage::disk($disk)->exists($foundRecord->path)) {
+                                        Storage::disk($disk)->delete($foundRecord->path);
+                                    }
+                                    $foundRecord->delete();
+                                }
+                            }
                             $disk = $item['disk'] ?? 'public';
                             if ($path && Storage::disk($disk)->exists($path)) {
                                 Storage::disk($disk)->delete($path);
-                                Log::debug('[CustomFieldValueService Delete] path-only deletion', ['path' => $path]);
                             }
                         }
                     }
 
                     $existingItems = collect($existingItems)
-                        ->reject(fn($it) =>
-                            in_array((int) ($it['id'] ?? 0), $removedIds, true)
-                            || in_array($it['path'] ?? '', $removedPaths, true)
-                        )
+                        ->reject(fn($it) => $isItemRemoved($it))
                         ->values()
                         ->toArray();
                 }
