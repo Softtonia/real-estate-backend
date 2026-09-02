@@ -3119,33 +3119,22 @@ class DynamicPostController extends Controller
         $featuredInput = $request->input('featured_image');
 
         if ($featuredFile) {
-            if ($existingPost && !empty($existingPost->featured_image_id)) {
-                $this->deleteMediaFileById($existingPost->featured_image_id);
-            }
-
             $featuredMedia = $this->storeDynamicPostMediaFile($featuredFile, $postType, 'featured-image');
             $validated['featured_image_id'] = $featuredMedia->id;
         } elseif ($existingPost && $request->request->has('featured_image')) {
             if (empty($featuredInput)) {
-                $this->deleteMediaFileById($existingPost->featured_image_id);
                 $validated['featured_image_id'] = null;
             } else {
                 $submittedFeaturedId = $this->resolveMediaFileIdFromUrl((string) $featuredInput);
 
                 if ($submittedFeaturedId) {
-                    if ((int) $submittedFeaturedId !== (int) $existingPost->featured_image_id) {
-                        $this->deleteMediaFileById($existingPost->featured_image_id);
-                    }
-
                     $validated['featured_image_id'] = $submittedFeaturedId;
                 }
             }
         } elseif ($existingPost && array_key_exists('featured_image_id', $validated)) {
             if (empty($validated['featured_image_id'])) {
-                $this->deleteMediaFileById($existingPost->featured_image_id);
                 $validated['featured_image_id'] = null;
-            } elseif ((int) $validated['featured_image_id'] !== (int) $existingPost->featured_image_id) {
-                $this->deleteMediaFileById($existingPost->featured_image_id);
+            } else {
                 $validated['featured_image_id'] = (int) $validated['featured_image_id'];
             }
         }
@@ -3205,26 +3194,12 @@ class DynamicPostController extends Controller
                 }
             }
 
-            if ($existingPost) {
-                $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
-
-                if (!empty($removedGalleryIds)) {
-                    $this->deleteMediaFilesByIds($removedGalleryIds);
-                }
-            }
-
             $validated['gallery_image_ids'] = collect($submittedGalleryIds)
                 ->unique()
                 ->values()
                 ->toArray();
         } elseif ($existingPost && array_key_exists('gallery_image_ids', $validated)) {
             $submittedGalleryIds = $this->normalizeIds($validated['gallery_image_ids']);
-            $removedGalleryIds = array_values(array_diff($currentGalleryIds, $submittedGalleryIds));
-
-            if (!empty($removedGalleryIds)) {
-                $this->deleteMediaFilesByIds($removedGalleryIds);
-            }
-
             $validated['gallery_image_ids'] = $submittedGalleryIds;
         }
 

@@ -12,7 +12,7 @@ class CustomFieldValueService
      * Repeater removed because repeater values are stored separately
      * in custom_field_repeater_values table.
      */
-    private const JSON_FIELD_TYPES = ['checkbox', 'media', 'file'];
+    private const JSON_FIELD_TYPES = ['checkbox', 'media', 'file', 'image', 'gallery'];
 
     /**
      * Main entry point: Save custom field values for an entity.
@@ -153,6 +153,8 @@ class CustomFieldValueService
 
             case 'media':
             case 'file':
+            case 'image':
+            case 'gallery':
                 $record['value_json'] = $this->normalizeMediaValue($rawValue);
                 if (is_array($record['value_json']) && !empty($record['value_json'])) {
                     $featuredItem = collect($record['value_json'])->firstWhere('is_featured', true) ?? ($record['value_json'][0] ?? null);
@@ -547,13 +549,19 @@ class CustomFieldValueService
 
                 $isFeatured = false;
                 if (isset($item['is_featured'])) {
-                    $isFeatured = filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN);
+                    $isFeatured = filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN) || in_array($item['is_featured'], [1, '1', 'true', true], true);
                 } elseif ($featuredRef !== null) {
                     $isFeatured = ($id !== null && (int) $id === (int) $featuredRef)
                         || ($url !== null && (string) $url === (string) $featuredRef)
                         || ($path !== null && (string) $path === (string) $featuredRef)
                         || ($featuredRef === $idx);
                 }
+
+                $mimeType = $item['mime_type'] ?? null;
+                $ext = strtolower($item['extension'] ?? pathinfo($path ?: (string) $url, PATHINFO_EXTENSION));
+                $isVideo = !empty($item['is_video'])
+                    || ($mimeType && str_starts_with($mimeType, 'video/'))
+                    || in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi'], true);
 
                 $normalized[] = array_merge($item, [
                     'id' => $id,
@@ -562,6 +570,9 @@ class CustomFieldValueService
                     'disk' => $item['disk'] ?? 'public',
                     'file_name' => $item['file_name'] ?? ($path ? basename($path) : null),
                     'original_name' => $item['original_name'] ?? ($path ? basename($path) : null),
+                    'mime_type' => $mimeType,
+                    'extension' => $ext,
+                    'is_video' => $isVideo,
                     'is_featured' => $isFeatured,
                 ]);
             }
@@ -578,20 +589,19 @@ class CustomFieldValueService
             $unique[] = $normItem;
         }
 
-        $featuredKeys = [];
+        $featuredIndex = null;
         foreach ($unique as $k => $item) {
-            if (!empty($item['is_featured'])) {
-                $featuredKeys[] = $k;
+            if (!empty($item['is_featured']) && filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN)) {
+                $featuredIndex = $k;
             }
         }
 
-        if (empty($featuredKeys) && !empty($unique)) {
-            $unique[0]['is_featured'] = true;
-        } elseif (count($featuredKeys) > 1) {
-            $primaryKey = end($featuredKeys);
-            foreach ($unique as $k => $item) {
-                $unique[$k]['is_featured'] = ($k === $primaryKey);
-            }
+        if ($featuredIndex === null && !empty($unique)) {
+            $featuredIndex = 0;
+        }
+
+        foreach ($unique as $k => $item) {
+            $unique[$k]['is_featured'] = ($k === $featuredIndex);
         }
 
         return $unique;

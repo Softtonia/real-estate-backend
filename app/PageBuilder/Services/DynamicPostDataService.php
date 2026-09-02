@@ -240,17 +240,17 @@ class DynamicPostDataService
                 $raw = $cfvRow->value_json ?? $cfvRow->value_text ?? $cfvRow->value_string ?? null;
                 $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
                 if (is_array($decoded)) {
-                    $items = isset($decoded[0]) ? $decoded : [$decoded];
+                    $items = $decoded['media'] ?? $decoded['images'] ?? (isset($decoded[0]) ? $decoded : [$decoded]);
                     foreach ($items as $item) {
                         if (is_array($item) && !empty($item['is_featured'])) {
                             $featuredMedia = $item;
-                            $featuredUrl = $item['url'] ?? null;
+                            $featuredUrl = $item['url'] ?? $item['path'] ?? null;
                             break 2;
                         }
                     }
                     if (!$featuredMedia && !empty($items[0]) && is_array($items[0])) {
                         $featuredMedia = $items[0];
-                        $featuredUrl = $items[0]['url'] ?? null;
+                        $featuredUrl = $items[0]['url'] ?? $items[0]['path'] ?? null;
                     }
                 }
             }

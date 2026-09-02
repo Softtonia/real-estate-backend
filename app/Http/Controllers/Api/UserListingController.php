@@ -3616,29 +3616,114 @@ class UserListingController extends Controller
             }
 
             /*
-         * Existing media preserve.
-         */
-            if (
-                empty($uploadedMedia)
-                && isset($item['value_json'])
-                && !empty($item['value_json'])
-            ) {
+             * Existing media preserve:
+             * Do not overwrite/remove existing media when new files are uploaded or when updating.
+             */
+            $existingMedia = [];
+            if (isset($item['value_json']) && !empty($item['value_json'])) {
                 $existingValue = is_array($item['value_json'])
                     ? $item['value_json']
                     : json_decode((string) $item['value_json'], true);
 
                 if (is_array($existingValue)) {
-                    $uploadedMedia = $existingValue['media'] ?? $existingValue;
+                    $existingMedia = $existingValue['media'] ?? $existingValue['images'] ?? $existingValue;
+                }
+            } elseif (isset($item['media']) && is_array($item['media'])) {
+                $existingMedia = $item['media'];
+            } elseif (isset($item['media_files']) && is_array($item['media_files'])) {
+                $existingMedia = $item['media_files'];
+            } elseif (isset($item['value']) && !empty($item['value'])) {
+                $existingValue = is_array($item['value'])
+                    ? $item['value']
+                    : json_decode((string) $item['value'], true);
+
+                if (is_array($existingValue)) {
+                    $existingMedia = $existingValue['media'] ?? $existingValue['images'] ?? $existingValue;
                 }
             }
 
-            if (!empty($uploadedMedia)) {
+            if (empty($existingMedia) && !empty($listing->id)) {
+                $dbVal = DB::table($table)
+                    ->where('entity_id', (int) $listing->id)
+                    ->where('custom_field_id', (int) $customFieldId)
+                    ->value('value_json');
+
+                if ($dbVal) {
+                    $decodedDb = is_array($dbVal) ? $dbVal : json_decode((string) $dbVal, true);
+                    if (is_array($decodedDb)) {
+                        $existingMedia = $decodedDb['media'] ?? $decodedDb['images'] ?? $decodedDb;
+                    }
+                }
+            }
+
+            $combinedMedia = [];
+            if (is_array($existingMedia)) {
+                if (isset($existingMedia['url']) || isset($existingMedia['path'])) {
+                    $combinedMedia[] = $existingMedia;
+                } else {
+                    foreach ($existingMedia as $em) {
+                        if (!empty($em)) {
+                            $combinedMedia[] = $em;
+                        }
+                    }
+                }
+            }
+
+            foreach ($uploadedMedia as $um) {
+                if (!empty($um)) {
+                    $combinedMedia[] = $um;
+                }
+            }
+
+            if (!empty($combinedMedia)) {
+                $featuredIndex = null;
+
+                // 1. Check if any item has is_featured = true
+                foreach ($combinedMedia as $k => $m) {
+                    if (is_array($m) && !empty($m['is_featured']) && (filter_var($m['is_featured'], FILTER_VALIDATE_BOOLEAN) || in_array($m['is_featured'], [1, '1', 'true', true], true))) {
+                        $featuredIndex = $k;
+                    }
+                }
+
+                // 2. Check explicit featured reference from request or item payload
+                $featuredRef = $item['featured'] ?? $item['featured_id'] ?? $item['featured_url'] ?? $item['featured_index'] ?? $item['featured_image'] ?? null;
+                if ($featuredRef !== null) {
+                    foreach ($combinedMedia as $k => $m) {
+                        if (is_array($m)) {
+                            if ((isset($m['id']) && (int) $m['id'] === (int) $featuredRef)
+                                || (isset($m['url']) && (string) $m['url'] === (string) $featuredRef)
+                                || (isset($m['path']) && (string) $m['path'] === (string) $featuredRef)
+                                || ($featuredRef === $k)
+                            ) {
+                                $featuredIndex = $k;
+                            }
+                        }
+                    }
+                }
+
+                if ($featuredIndex === null && !empty($combinedMedia)) {
+                    $featuredIndex = 0;
+                }
+
+                foreach ($combinedMedia as $k => $m) {
+                    if (is_array($m)) {
+                        $mime = (string) ($m['mime_type'] ?? '');
+                        $ext = strtolower(pathinfo((string) ($m['path'] ?? $m['url'] ?? ''), PATHINFO_EXTENSION));
+                        $isVideo = !empty($m['is_video']) || str_starts_with($mime, 'video/') || in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi'], true);
+
+                        $combinedMedia[$k]['is_video'] = $isVideo;
+                        $combinedMedia[$k]['is_featured'] = ($k === $featuredIndex);
+                    }
+                }
+
                 $item['value_json'] = [
-                    'media' => array_values($uploadedMedia),
+                    'media' => array_values($combinedMedia),
                 ];
 
-                $item['value_string'] = $uploadedMedia[0]['url'] ?? null;
-                $item['value_text'] = $uploadedMedia[0]['url'] ?? null;
+                $featuredItem = $combinedMedia[$featuredIndex] ?? ($combinedMedia[0] ?? null);
+                $featuredUrl = is_array($featuredItem) ? ($featuredItem['url'] ?? $featuredItem['path'] ?? null) : (string) $featuredItem;
+                $item['value_string'] = $featuredUrl;
+                $item['value_text'] = $featuredUrl;
             }
 
             $payload = [];
