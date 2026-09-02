@@ -2658,6 +2658,19 @@ class DynamicPostController extends Controller
             $service->saveValues($entityId, $entityType, $normalFields);
         }
 
+        $batchUuids = [];
+        foreach ($fields as $f) {
+            if (!empty($f['batch_uuid'])) {
+                $batchUuids[] = (string) $f['batch_uuid'];
+            }
+            if (!empty($f['media_batch_uuid'])) {
+                $batchUuids[] = (string) $f['media_batch_uuid'];
+            }
+        }
+        if (!empty($batchUuids)) {
+            app(\App\Services\Media\MediaBatchService::class)->attachBatchesToDynamicPost($entityId, $batchUuids);
+        }
+
         foreach ($repeaterFieldIds as $repeaterFieldId) {
             CustomFieldValue::updateOrCreate(
                 [

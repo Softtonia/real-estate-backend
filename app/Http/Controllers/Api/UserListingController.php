@@ -563,6 +563,20 @@ class UserListingController extends Controller
                     postType: $postType
                 );
 
+                $batchUuids = [];
+                if ($request->filled('batch_uuid')) {
+                    $batchUuids[] = (string) $request->input('batch_uuid');
+                }
+                if ($request->filled('media_batch_uuid')) {
+                    $batchUuids[] = (string) $request->input('media_batch_uuid');
+                }
+                if ($request->filled('batch_uuids') && is_array($request->input('batch_uuids'))) {
+                    $batchUuids = array_merge($batchUuids, $request->input('batch_uuids'));
+                }
+                if (!empty($batchUuids)) {
+                    app(\App\Services\Media\MediaBatchService::class)->attachBatchesToDynamicPost((int) $listing->id, $batchUuids);
+                }
+
                 $this->consumeMembershipListingCredit($request, $listing, 'frontend_listing');
 
                 $this->propertyWorkflow()->registerInitialSubmission(
@@ -1120,6 +1134,20 @@ class UserListingController extends Controller
                         request: $request,
                         postType: $postType
                     );
+                }
+
+                $batchUuids = [];
+                if ($request->filled('batch_uuid')) {
+                    $batchUuids[] = (string) $request->input('batch_uuid');
+                }
+                if ($request->filled('media_batch_uuid')) {
+                    $batchUuids[] = (string) $request->input('media_batch_uuid');
+                }
+                if ($request->filled('batch_uuids') && is_array($request->input('batch_uuids'))) {
+                    $batchUuids = array_merge($batchUuids, $request->input('batch_uuids'));
+                }
+                if (!empty($batchUuids)) {
+                    app(\App\Services\Media\MediaBatchService::class)->attachBatchesToDynamicPost((int) $ownedListing->id, $batchUuids);
                 }
 
                 $this->propertyWorkflow()->registerUserUpdate(
@@ -3611,6 +3639,30 @@ class UserListingController extends Controller
 
                     if ($media) {
                         $uploadedMedia[] = $this->mediaFilePayload($media);
+                    }
+                }
+            }
+
+            /*
+             * Batch UUID support for Add Post flow.
+             */
+            $batchUuid = $item['batch_uuid'] ?? $item['media_batch_uuid'] ?? null;
+            if ($batchUuid) {
+                $batch = \App\Models\MediaUploadBatch::with('items')->where('batch_uuid', $batchUuid)->first();
+                if ($batch) {
+                    $batch->update(['dynamic_post_id' => (int) $listing->id]);
+                    foreach ($batch->items as $bItem) {
+                        $uploadedMedia[] = [
+                            'id' => $bItem->media_file_id,
+                            'url' => $bItem->url,
+                            'path' => $bItem->path,
+                            'file_name' => $bItem->file_name,
+                            'original_name' => $bItem->original_name,
+                            'mime_type' => $bItem->mime_type,
+                            'extension' => $bItem->extension,
+                            'size' => $bItem->size,
+                            'is_featured' => (bool) $bItem->is_featured,
+                        ];
                     }
                 }
             }

@@ -299,6 +299,49 @@ class MediaBatchService
     }
 
     /**
+     * Link batches created during "Add Post" flow to the newly created dynamic post.
+     */
+    public function attachBatchesToDynamicPost(int $dynamicPostId, array $batchUuids = []): void
+    {
+        $batchUuids = array_values(array_filter(array_unique(array_map('trim', $batchUuids))));
+
+        if (empty($batchUuids)) {
+            return;
+        }
+
+        $batches = MediaUploadBatch::with('items')
+            ->whereIn('batch_uuid', $batchUuids)
+            ->get();
+
+        foreach ($batches as $batch) {
+            $batch->update(['dynamic_post_id' => $dynamicPostId]);
+
+            if ($batch->custom_field_id) {
+                $batchMedia = $batch->items->map(fn($item) => [
+                    'id' => $item->media_file_id,
+                    'url' => $item->url,
+                    'path' => $item->path,
+                    'file_name' => $item->file_name,
+                    'original_name' => $item->original_name,
+                    'mime_type' => $item->mime_type,
+                    'extension' => $item->extension,
+                    'size' => $item->size,
+                    'is_featured' => (bool) $item->is_featured,
+                ])->toArray();
+
+                if (!empty($batchMedia)) {
+                    $this->syncBatchMediaToCustomFieldValue(
+                        dynamicPostId: $dynamicPostId,
+                        customFieldId: (int) $batch->custom_field_id,
+                        newMedia: $batchMedia,
+                        fieldSlug: $batch->field_slug
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * Merge new batch media into custom_field_values without losing existing files.
      */
     private function syncBatchMediaToCustomFieldValue(
