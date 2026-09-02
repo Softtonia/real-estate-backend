@@ -308,8 +308,8 @@ class TemplateDynamicFieldController extends Controller
 
             'status' => $row['status'] ?? null,
             'live_status' => $row['live_status'] ?? null,
-            'created_at' => $row['created_at'] ?? null,
-            'updated_at' => $row['updated_at'] ?? null,
+            'created_at' => !empty($row['created_at']) ? (\Carbon\Carbon::tryParse((string) $row['created_at'])?->format('d-m-Y') ?? (is_string($row['created_at']) ? explode(' ', $row['created_at'])[0] : $row['created_at'])) : null,
+            'updated_at' => !empty($row['updated_at']) ? (\Carbon\Carbon::tryParse((string) $row['updated_at'])?->format('d-m-Y') ?? (is_string($row['updated_at']) ? explode(' ', $row['updated_at'])[0] : $row['updated_at'])) : null,
         ];
     }
 
@@ -1329,6 +1329,8 @@ class TemplateDynamicFieldController extends Controller
         }
 
         $listingId = $postPreviewData['listing_id'] ?? $postPreviewData['listing_code'] ?? null;
+        $createdAt = $postPreviewData['created_at'] ?? null;
+        $updatedAt = $postPreviewData['updated_at'] ?? null;
 
         return [
             $this->systemField('Title', 'title', 'text', 'heading', $postPreviewData['title'] ?? null),
@@ -1376,25 +1378,29 @@ class TemplateDynamicFieldController extends Controller
             $this->systemField(
                 'Post Created Date',
                 'created_at',
-                'date',
-                'date',
-                $postPreviewData['created_at'] ?? null,
+                'text',
+                'text',
+                $createdAt,
                 [
                     'source' => 'dynamic',
                     'field' => 'system.created_at',
-                    'format' => 'M d, Y',
+                    'text' => $createdAt,
+                    'content' => $createdAt,
+                    'format' => 'd-m-Y',
                 ]
             ),
             $this->systemField(
                 'Post Updated Date',
                 'updated_at',
-                'date',
-                'date',
-                $postPreviewData['updated_at'] ?? null,
+                'text',
+                'text',
+                $updatedAt,
                 [
                     'source' => 'dynamic',
                     'field' => 'system.updated_at',
-                    'format' => 'M d, Y',
+                    'text' => $updatedAt,
+                    'content' => $updatedAt,
+                    'format' => 'd-m-Y',
                 ]
             ),
         ];

@@ -224,6 +224,17 @@ class TemplateRenderService
                     : $value;
 
                 if ($textValue !== null) {
+                    $fieldPath = strtolower((string) ($path ?? $component['key'] ?? ''));
+                    if (str_contains($fieldPath, 'created_at') || str_contains($fieldPath, 'updated_at') || str_contains($fieldPath, 'date')) {
+                        try {
+                            $parsed = \Carbon\Carbon::tryParse((string) $textValue);
+                            if ($parsed) {
+                                $textValue = $parsed->format('d-m-Y');
+                            }
+                        } catch (\Throwable) {
+                        }
+                    }
+
                     $component['settings']['text'] = $textValue;
                     $component['settings']['content'] = $textValue;
                 }
@@ -242,6 +253,13 @@ class TemplateRenderService
             if ($type === 'date') {
                 if ($value !== null) {
                     $dateStr = is_array($value) ? json_encode($value) : (string) $value;
+                    try {
+                        $parsed = \Carbon\Carbon::tryParse((string) $dateStr);
+                        if ($parsed) {
+                            $dateStr = $parsed->format('d-m-Y');
+                        }
+                    } catch (\Throwable) {
+                    }
                     $component['settings']['date'] = $dateStr;
                     $component['settings']['value'] = $dateStr;
                 }
