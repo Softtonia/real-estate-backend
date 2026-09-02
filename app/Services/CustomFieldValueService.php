@@ -4,6 +4,9 @@ namespace App\Services;
 
 use App\Models\CustomField;
 use App\Models\CustomFieldValue;
+use App\Models\MediaFile;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class CustomFieldValueService
 {
@@ -175,15 +178,75 @@ class CustomFieldValueService
                 $removedIds = collect($field['removed_media_ids'] ?? $field['delete_media_ids'] ?? $field['removed_ids'] ?? [])
                     ->map(fn($id) => (int) $id)
                     ->filter()
+                    ->unique()
+                    ->values()
                     ->toArray();
 
                 $removedPaths = collect($field['removed_paths'] ?? $field['deleted_paths'] ?? [])
                     ->filter()
+                    ->values()
                     ->toArray();
 
+                Log::debug('[CustomFieldValueService Delete] submitted removal', [
+                    'custom_field_id' => $customField->id,
+                    'removed_ids'     => $removedIds,
+                    'removed_paths'   => $removedPaths,
+                    'entity_id'       => $entityId,
+                ]);
+
                 if (!empty($removedIds) || !empty($removedPaths)) {
+                    // Find matching items in existing value_json to delete
+                    $toDelete = collect($existingItems)->filter(function ($it) use ($removedIds, $removedPaths) {
+                        if (!is_array($it)) {
+                            return false;
+                        }
+                        $idMatch   = !empty($removedIds)   && in_array((int) ($it['id']   ?? 0), $removedIds,   true);
+                        $pathMatch = !empty($removedPaths) && in_array($it['path'] ?? '',    $removedPaths, true);
+                        return $idMatch || $pathMatch;
+                    });
+
+                    Log::debug('[CustomFieldValueService Delete] matched items', [
+                        'custom_field_id' => $customField->id,
+                        'matched'         => $toDelete->map(fn($it) => ['id' => $it['id'] ?? null, 'path' => $it['path'] ?? null])->values()->toArray(),
+                    ]);
+
+                    foreach ($toDelete as $item) {
+                        $mediaDbId = (int) ($item['id'] ?? 0);
+                        if ($mediaDbId) {
+                            $mediaRecord = MediaFile::find($mediaDbId);
+                            if ($mediaRecord) {
+                                $disk = $mediaRecord->disk ?? 'public';
+                                $filePath = $mediaRecord->path;
+                                if ($filePath && Storage::disk($disk)->exists($filePath)) {
+                                    Storage::disk($disk)->delete($filePath);
+                                    Log::debug('[CustomFieldValueService Delete] storage file deleted', ['disk' => $disk, 'path' => $filePath]);
+                                }
+                                $mediaRecord->delete();
+                                Log::debug('[CustomFieldValueService Delete] MediaFile DB row deleted', ['id' => $mediaDbId]);
+                            } else {
+                                // No DB row — just delete physical file from path in value_json
+                                $path = $item['path'] ?? null;
+                                $disk = $item['disk'] ?? 'public';
+                                if ($path && Storage::disk($disk)->exists($path)) {
+                                    Storage::disk($disk)->delete($path);
+                                    Log::debug('[CustomFieldValueService Delete] fallback path deleted', ['path' => $path]);
+                                }
+                            }
+                        } else {
+                            $path = $item['path'] ?? null;
+                            $disk = $item['disk'] ?? 'public';
+                            if ($path && Storage::disk($disk)->exists($path)) {
+                                Storage::disk($disk)->delete($path);
+                                Log::debug('[CustomFieldValueService Delete] path-only deletion', ['path' => $path]);
+                            }
+                        }
+                    }
+
                     $existingItems = collect($existingItems)
-                        ->reject(fn($it) => in_array((int) ($it['id'] ?? 0), $removedIds, true) || in_array($it['path'] ?? '', $removedPaths, true))
+                        ->reject(fn($it) =>
+                            in_array((int) ($it['id'] ?? 0), $removedIds, true)
+                            || in_array($it['path'] ?? '', $removedPaths, true)
+                        )
                         ->values()
                         ->toArray();
                 }
