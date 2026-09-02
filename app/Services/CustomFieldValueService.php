@@ -66,7 +66,7 @@ class CustomFieldValueService
                 continue;
             }
 
-            $resolved = $this->resolveValue($customField, $field);
+            $resolved = $this->resolveValue($customField, $field, $entityId, $entityType);
 
             CustomFieldValue::updateOrCreate(
                 [
@@ -82,7 +82,7 @@ class CustomFieldValueService
     /**
      * Resolve the correct columns for a given field type and raw input.
      */
-    private function resolveValue(CustomField $customField, array $field): array
+    private function resolveValue(CustomField $customField, array $field, ?int $entityId = null, ?string $entityType = null): array
     {
         $fieldType = $customField->field_type;
         $rawValue = $this->resolveLegacyValue($field, $customField);
@@ -97,11 +97,13 @@ class CustomFieldValueService
             'value_json' => null,
         ];
 
-        if (is_null($rawValue) || $rawValue === '' || $rawValue === []) {
+        $isMediaField = in_array($fieldType, ['media', 'file', 'image', 'gallery'], true);
+
+        if (!$isMediaField && (is_null($rawValue) || $rawValue === '' || $rawValue === [])) {
             return $record;
         }
 
-        if (is_array($rawValue) && !in_array($fieldType, ['checkbox', 'media', 'file'], true)) {
+        if (is_array($rawValue) && !in_array($fieldType, ['checkbox', 'media', 'file', 'image', 'gallery'], true)) {
             $record['value_json'] = $rawValue;
             return $record;
         }
@@ -155,10 +157,101 @@ class CustomFieldValueService
             case 'file':
             case 'image':
             case 'gallery':
-                $record['value_json'] = $this->normalizeMediaValue($rawValue);
-                if (is_array($record['value_json']) && !empty($record['value_json'])) {
-                    $featuredItem = collect($record['value_json'])->firstWhere('is_featured', true) ?? ($record['value_json'][0] ?? null);
-                    $firstUrl = is_array($featuredItem) ? ($featuredItem['url'] ?? $featuredItem['path'] ?? null) : (string) $featuredItem;
+                // Fetch existing DB record to ensure we NEVER wipe out media unless explicitly requested
+                $existingRecord = null;
+                if ($entityId && $entityType) {
+                    $existingRecord = CustomFieldValue::where('entity_type', $entityType)
+                        ->where('entity_id', $entityId)
+                        ->where('custom_field_id', $customField->id)
+                        ->first();
+                }
+
+                $existingItems = [];
+                if ($existingRecord && !empty($existingRecord->value_json)) {
+                    $existingItems = $this->normalizeMediaValue($existingRecord->value_json) ?: [];
+                }
+
+                // Check for explicit removed IDs or paths
+                $removedIds = collect($field['removed_media_ids'] ?? $field['delete_media_ids'] ?? $field['removed_ids'] ?? [])
+                    ->map(fn($id) => (int) $id)
+                    ->filter()
+                    ->toArray();
+
+                $removedPaths = collect($field['removed_paths'] ?? $field['deleted_paths'] ?? [])
+                    ->filter()
+                    ->toArray();
+
+                if (!empty($removedIds) || !empty($removedPaths)) {
+                    $existingItems = collect($existingItems)
+                        ->reject(fn($it) => in_array((int) ($it['id'] ?? 0), $removedIds, true) || in_array($it['path'] ?? '', $removedPaths, true))
+                        ->values()
+                        ->toArray();
+                }
+
+                $incomingItems = $this->normalizeMediaValue($rawValue) ?: [];
+
+                $mergedByPath = [];
+                foreach ($existingItems as $it) {
+                    if (is_array($it) && !empty($it['path'])) {
+                        $mergedByPath[$it['path']] = $it;
+                    }
+                }
+
+                foreach ($incomingItems as $it) {
+                    if (is_array($it) && !empty($it['path'])) {
+                        $mergedByPath[$it['path']] = array_merge($mergedByPath[$it['path']] ?? [], $it);
+                    }
+                }
+
+                $finalItems = array_values($mergedByPath);
+
+                // If nothing in merged but incoming was formatted
+                if (empty($finalItems) && !empty($incomingItems)) {
+                    $finalItems = $incomingItems;
+                }
+
+                // Featured identification: stable ID identity
+                $featuredRef = $field['featured_media_id'] ?? $field['featured_id'] ?? $field['featured_client_file_id'] ?? $field['featured_url'] ?? null;
+                if ($featuredRef === null && is_array($rawValue)) {
+                    $featuredRef = $rawValue['featured_media_id'] ?? $rawValue['featured_id'] ?? $rawValue['featured_client_file_id'] ?? $rawValue['featured_url'] ?? null;
+                }
+
+                $featuredIndex = null;
+                if ($featuredRef !== null) {
+                    foreach ($finalItems as $k => $item) {
+                        if (($item['id'] !== null && (int) $item['id'] === (int) $featuredRef)
+                            || (isset($item['client_file_id']) && (string) $item['client_file_id'] === (string) $featuredRef)
+                            || (!empty($item['url']) && (string) $item['url'] === (string) $featuredRef)
+                            || (!empty($item['path']) && (string) $item['path'] === (string) $featuredRef)
+                            || ($featuredRef === $k)
+                        ) {
+                            $featuredIndex = $k;
+                            break;
+                        }
+                    }
+                }
+
+                if ($featuredIndex === null) {
+                    foreach ($finalItems as $k => $item) {
+                        if (!empty($item['is_featured']) && filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN)) {
+                            $featuredIndex = $k;
+                            break;
+                        }
+                    }
+                }
+
+                if ($featuredIndex === null && !empty($finalItems)) {
+                    $featuredIndex = 0;
+                }
+
+                foreach ($finalItems as $k => $item) {
+                    $finalItems[$k]['is_featured'] = ($k === $featuredIndex);
+                }
+
+                $record['value_json'] = !empty($finalItems) ? $finalItems : null;
+                if (!empty($finalItems)) {
+                    $firstFeatured = $finalItems[$featuredIndex] ?? ($finalItems[0] ?? null);
+                    $firstUrl = is_array($firstFeatured) ? ($firstFeatured['url'] ?? $firstFeatured['path'] ?? null) : (string) $firstFeatured;
                     $record['value_string'] = $firstUrl;
                     $record['value_text'] = $firstUrl;
                 }

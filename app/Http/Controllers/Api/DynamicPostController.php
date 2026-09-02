@@ -3407,43 +3407,60 @@ class DynamicPostController extends Controller
                 $uploadedFiles = $this->extractCustomFieldUploadedFiles($request, $index);
                 $mediaStateSubmitted = $this->customFieldMediaStateWasSubmitted($fieldData);
 
-                if (!empty($uploadedFiles) || $mediaStateSubmitted) {
-                    $retainedFiles = !empty($oldValueJson) ? $oldValueJson : [];
-                    if ($mediaStateSubmitted) {
-                        $submittedItems = $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson);
-                        if (!empty($submittedItems)) {
-                            $mergedOld = [];
-                            foreach ($retainedFiles as $oldIt) {
-                                if (is_array($oldIt) && !empty($oldIt['path'])) {
-                                    $mergedOld[$oldIt['path']] = $oldIt;
-                                }
-                            }
-                            foreach ($submittedItems as $subIt) {
-                                if (is_array($subIt) && !empty($subIt['path'])) {
-                                    $mergedOld[$subIt['path']] = array_merge($mergedOld[$subIt['path']] ?? [], $subIt);
-                                }
-                            }
-                            $retainedFiles = array_values($mergedOld);
-                        }
-                    }
+                $retainedFiles = !empty($oldValueJson) ? $oldValueJson : [];
 
-                    $uploaded = [];
+                // Check for explicit removed IDs or paths
+                $removedIds = collect($fieldData['removed_media_ids'] ?? $fieldData['delete_media_ids'] ?? $fieldData['removed_ids'] ?? $request->input("custom_fields.{$index}.removed_media_ids") ?? [])
+                    ->map(fn($id) => (int) $id)
+                    ->filter()
+                    ->toArray();
 
-                    if (!empty($uploadedFiles)) {
-                        $uploaded = $this->storeCustomFieldUploadedFiles(
-                            $uploadedFiles,
-                            $customField,
-                            $postType,
-                            $fieldData
-                        );
-                    }
+                $removedPaths = collect($fieldData['removed_paths'] ?? $fieldData['deleted_paths'] ?? $request->input("custom_fields.{$index}.removed_paths") ?? [])
+                    ->filter()
+                    ->toArray();
 
-                    $newValueJson = collect($retainedFiles)
-                        ->merge($uploaded)
-                        ->filter(fn($item) => is_array($item) && !empty($item['path']))
-                        ->unique('path')
+                if (!empty($removedIds) || !empty($removedPaths)) {
+                    $retainedFiles = collect($retainedFiles)
+                        ->reject(fn($it) => in_array((int) ($it['id'] ?? 0), $removedIds, true) || in_array($it['path'] ?? '', $removedPaths, true))
                         ->values()
                         ->toArray();
+                }
+
+                if ($mediaStateSubmitted) {
+                    $submittedItems = $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson);
+                    if (!empty($submittedItems)) {
+                        $mergedOld = [];
+                        foreach ($retainedFiles as $oldIt) {
+                            if (is_array($oldIt) && !empty($oldIt['path'])) {
+                                $mergedOld[$oldIt['path']] = $oldIt;
+                            }
+                        }
+                        foreach ($submittedItems as $subIt) {
+                            if (is_array($subIt) && !empty($subIt['path'])) {
+                                $mergedOld[$subIt['path']] = array_merge($mergedOld[$subIt['path']] ?? [], $subIt);
+                            }
+                        }
+                        $retainedFiles = array_values($mergedOld);
+                    }
+                }
+
+                $uploaded = [];
+
+                if (!empty($uploadedFiles)) {
+                    $uploaded = $this->storeCustomFieldUploadedFiles(
+                        $uploadedFiles,
+                        $customField,
+                        $postType,
+                        $fieldData
+                    );
+                }
+
+                $newValueJson = collect($retainedFiles)
+                    ->merge($uploaded)
+                    ->filter(fn($item) => is_array($item) && !empty($item['path']))
+                    ->unique('path')
+                    ->values()
+                    ->toArray();
 
                     // Stable ID identification and featured media assignment
                     $explicitFeaturedId = $fieldData['featured_media_id'] ?? $fieldData['featured_id'] ?? $request->input("custom_fields.{$index}.featured_media_id") ?? $request->input("custom_fields.{$index}.featured_id") ?? $request->input('featured_media_id') ?? $request->input('featured_id') ?? null;
@@ -3529,17 +3546,6 @@ class DynamicPostController extends Controller
                         $customFields[$index]['value_date'],
                         $customFields[$index]['value_datetime']
                     );
-                } else {
-                    $valueJson = $fieldData['value_json'] ?? [];
-
-                    if ($this->containsTemporaryFilePath($valueJson)) {
-                        throw ValidationException::withMessages([
-                            "custom_fields.{$index}.value_json" => [
-                                'Temporary file path is not allowed. Please upload the file again.'
-                            ],
-                        ]);
-                    }
-                }
             }
 
             $repeaterInput = $this->extractRepeaterInputFromFieldData($fieldData, $customField);
@@ -3986,8 +3992,6 @@ class DynamicPostController extends Controller
             $references = $this->normalizeSubmittedMediaReferences($fieldData['value_text']);
         } elseif (!empty($fieldData['value'])) {
             $references = $this->normalizeSubmittedMediaReferences($fieldData['value']);
-        } elseif (array_key_exists('value_json', $fieldData) && ($fieldData['value_json'] === [] || $fieldData['value_json'] === '[]')) {
-            return [];
         } elseif (!empty($oldValueJson)) {
             return $oldValueJson;
         }

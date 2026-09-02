@@ -49,6 +49,17 @@ class MediaBatchService
             }
         }
 
+        if ($dynamicPostId && !$customFieldId) {
+            $cfVal = CustomFieldValue::where('entity_id', $dynamicPostId)
+                ->where('entity_type', 'post')
+                ->whereNotNull('value_json')
+                ->first();
+            if ($cfVal) {
+                $customFieldId = (int) $cfVal->custom_field_id;
+                $customField = CustomField::find($customFieldId);
+            }
+        }
+
         $postTypeSlug = 'common';
         if ($dynamicPostId) {
             $post = DynamicPost::with('postType')->find($dynamicPostId);
