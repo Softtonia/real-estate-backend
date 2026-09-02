@@ -114,7 +114,7 @@ class PropertySearchController extends Controller
             $amenityTerms = $this->getTermsForTaxonomy('amenities');
 
             // 6. Cities
-            $cities = City::select(['id', 'name', 'slug', 'state_id'])
+            $cities = City::select(['id', 'name', 'state_id'])
                 ->orderBy('name')
                 ->limit(50)
                 ->get();

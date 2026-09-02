@@ -685,8 +685,8 @@ class PropertySearchQueryBuilder
     protected function applyEagerLoading(): void
     {
         $this->query->with([
-            'city:id,name,slug,state_id',
-            'state:id,name,slug',
+            'city:id,name,state_id',
+            'state:id,name',
             'author:id,name,email',
             'currentFeaturedPromotion',
             'taxonomyTerms' => function ($q) {
