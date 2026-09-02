@@ -141,15 +141,6 @@ class DynamicFieldResolver implements DynamicResolverInterface
             ];
         }
 
-        if (in_array('featured_image', $supports, true) || in_array('thumbnail', $supports, true)) {
-            $fields[] = [
-                'key' => 'system.featured_image',
-                'label' => 'Featured Image',
-                'type' => 'media',
-                'source' => 'system',
-            ];
-        }
-
         return $fields;
     }
 

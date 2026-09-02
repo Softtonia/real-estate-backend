@@ -75,7 +75,8 @@ class PageBuilderStyleService
     border-radius: 8px;
 }
 
-.pb-gallery-item img {
+.pb-gallery-item img,
+.pb-gallery-item video {
     width: 100%;
     height: 100%;
     display: block;

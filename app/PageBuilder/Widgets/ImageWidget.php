@@ -103,13 +103,15 @@ class ImageWidget extends BaseWidget
 
     public function render(array $settings, WidgetContext $context): string
     {
+        $settings = $this->validateSettings($settings);
+
         $url = $this->resolveImageUrl($settings, $context);
 
         if (! $url) {
             return '';
         }
 
-        $class = trim('pb-widget pb-image ' . $settings['class']);
+        $class = trim('pb-widget pb-image ' . ($settings['class'] ?? ''));
 
         $attributes = [
             'src' => $url,
@@ -142,7 +144,31 @@ class ImageWidget extends BaseWidget
             $value = $context->field($field, '');
 
             if (is_array($value)) {
-                return (string) ($value['url'] ?? $value['path'] ?? '');
+                // If it's a list with is_featured, return that item
+                foreach ($value as $item) {
+                    if (is_array($item) && ! empty($item['is_featured'])) {
+                        return (string) ($item['url'] ?? $item['path'] ?? $item['src'] ?? '');
+                    }
+                }
+
+                if (! empty($value['url'])) {
+                    return (string) $value['url'];
+                }
+
+                if (! empty($value['path'])) {
+                    return (string) $value['path'];
+                }
+
+                if (! empty($value[0])) {
+                    if (is_array($value[0])) {
+                        return (string) ($value[0]['url'] ?? $value[0]['path'] ?? $value[0]['src'] ?? '');
+                    }
+                    if (is_string($value[0])) {
+                        return (string) $value[0];
+                    }
+                }
+
+                return '';
             }
 
             return (string) $value;

@@ -229,13 +229,21 @@ class TemplateRenderService
                 }
             }
 
-            if (in_array($type, ['image', 'gallery'], true)) {
+            if ($type === 'image') {
                 $url = $this->extractFirstUrl($value);
 
                 if ($url) {
-                    $component['type'] = $type === 'gallery' ? 'gallery' : 'image';
-                    $component['component_key'] = $type === 'gallery' ? 'gallery' : 'image';
+                    $component['type'] = 'image';
+                    $component['component_key'] = 'image';
                     $component['settings']['url'] = $url;
+                }
+            }
+
+            if ($type === 'gallery') {
+                $component['type'] = 'gallery';
+                $component['component_key'] = 'gallery';
+                if (is_array($value)) {
+                    $component['settings']['images'] = $value;
                 }
             }
 
@@ -281,16 +289,33 @@ class TemplateRenderService
             return null;
         }
 
+        // 1. Check if any item is marked as is_featured (image or video)
+        foreach ($value as $item) {
+            if (is_array($item) && ! empty($item['is_featured'])) {
+                $featuredUrl = $item['url'] ?? $item['path'] ?? $item['src'] ?? null;
+                if ($featuredUrl) {
+                    return (string) $featuredUrl;
+                }
+            }
+        }
+
+        // 2. Direct object with url or path
         if (! empty($value['url'])) {
             return (string) $value['url'];
         }
 
-        if (! empty($value[0]) && is_array($value[0]) && ! empty($value[0]['url'])) {
-            return (string) $value[0]['url'];
-        }
-
         if (! empty($value['path'])) {
             return (string) $value['path'];
+        }
+
+        // 3. First item in array
+        if (! empty($value[0])) {
+            if (is_array($value[0])) {
+                return (string) ($value[0]['url'] ?? $value[0]['path'] ?? $value[0]['src'] ?? null);
+            }
+            if (is_string($value[0])) {
+                return (string) $value[0];
+            }
         }
 
         return null;

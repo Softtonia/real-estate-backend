@@ -451,7 +451,17 @@ class TemplateDynamicFieldController extends Controller
             return $mediaFiles;
         }
 
-        return $mediaFiles[0] ?? $value;
+        if (!empty($mediaFiles)) {
+            foreach ($mediaFiles as $media) {
+                if (is_array($media) && !empty($media['is_featured'])) {
+                    return $media;
+                }
+            }
+
+            return $mediaFiles[0];
+        }
+
+        return $value;
     }
 
     private function fieldMatchesLocationRules(object $field, object $postTypeRecord, array $selectedTermIds): bool
@@ -1319,15 +1329,6 @@ class TemplateDynamicFieldController extends Controller
     }
     private function getSystemFields(array $postPreviewData = []): array
     {
-        $featuredMediaObj = $postPreviewData['featured_image_media'] ?? null;
-        $featuredUrl = $postPreviewData['featured_image'] ?? null;
-        $isVideo = false;
-        if ($featuredMediaObj) {
-            $mime = $featuredMediaObj['mime_type'] ?? '';
-            $ext = strtolower($featuredMediaObj['extension'] ?? pathinfo((string) $featuredUrl, PATHINFO_EXTENSION));
-            $isVideo = str_starts_with($mime, 'video/') || in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi']);
-        }
-
         $listingId = $postPreviewData['listing_id'] ?? $postPreviewData['listing_code'] ?? null;
 
         return [
@@ -1336,31 +1337,6 @@ class TemplateDynamicFieldController extends Controller
             $this->systemField('Listing ID', 'listing_id', 'text', 'text', $listingId),
             $this->systemField('Content', 'content', 'texteditor', 'text', $postPreviewData['content'] ?? null),
             $this->systemField('Excerpt', 'excerpt', 'textarea', 'text', $postPreviewData['excerpt'] ?? null),
-
-            $this->systemField(
-                'Featured Media',
-                'featured_image',
-                $isVideo ? 'video' : 'image',
-                $isVideo ? 'video' : 'image',
-                $featuredUrl,
-                [],
-                [
-                    'media' => $featuredMediaObj,
-                    'is_video' => $isVideo,
-                ]
-            ),
-
-            $this->systemField(
-                'Gallery Media',
-                'gallery_images',
-                'gallery',
-                'gallery',
-                $postPreviewData['gallery_images'] ?? [],
-                [],
-                [
-                    'media' => $postPreviewData['gallery_image_files'] ?? [],
-                ]
-            ),
 
             $this->systemField('Location', 'location', 'location', 'location', $postPreviewData['location'] ?? null),
             $this->systemField('Country', 'country', 'text', 'text', $postPreviewData['location']['country_name'] ?? null),

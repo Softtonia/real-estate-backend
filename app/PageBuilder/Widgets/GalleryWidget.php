@@ -115,18 +115,20 @@ class GalleryWidget extends BaseWidget
 
     public function render(array $settings, WidgetContext $context): string
     {
+        $settings = $this->validateSettings($settings);
+
         $images = $this->resolveImages($settings, $context);
 
         if (empty($images)) {
             return '';
         }
 
-        $class = trim('pb-widget pb-gallery ' . $settings['class']);
+        $class = trim('pb-widget pb-gallery ' . ($settings['class'] ?? ''));
 
         $style = $this->styleAttributes($settings, [
             'display' => 'grid',
-            'grid-template-columns' => 'repeat(' . (int) $settings['columns'] . ',1fr)',
-            'gap' => e((string) $settings['gap']),
+            'grid-template-columns' => 'repeat(' . (int) ($settings['columns'] ?? 3) . ',1fr)',
+            'gap' => e((string) ($settings['gap'] ?? '16px')),
         ]);
 
         $items = collect($images)
@@ -136,6 +138,23 @@ class GalleryWidget extends BaseWidget
 
                 if (! $url) {
                     return '';
+                }
+
+                $isVideo = false;
+                if (is_array($image)) {
+                    $mime = (string) ($image['mime_type'] ?? $image['mime'] ?? '');
+                    $isVideo = ! empty($image['is_video']) || str_starts_with($mime, 'video/');
+                }
+                if (! $isVideo) {
+                    $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
+                    $isVideo = in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi']);
+                }
+
+                if ($isVideo) {
+                    return sprintf(
+                        '<figure class="pb-gallery-item pb-gallery-video"><video src="%s" controls preload="metadata" playsinline></video></figure>',
+                        e($url)
+                    );
                 }
 
                 return sprintf(
