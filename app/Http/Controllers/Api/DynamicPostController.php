@@ -3408,9 +3408,24 @@ class DynamicPostController extends Controller
                 $mediaStateSubmitted = $this->customFieldMediaStateWasSubmitted($fieldData);
 
                 if (!empty($uploadedFiles) || $mediaStateSubmitted) {
-                    $retainedFiles = $mediaStateSubmitted
-                        ? $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson)
-                        : [];
+                    $retainedFiles = !empty($oldValueJson) ? $oldValueJson : [];
+                    if ($mediaStateSubmitted) {
+                        $submittedItems = $this->submittedCustomFieldMediaItems($fieldData, $oldValueJson);
+                        if (!empty($submittedItems)) {
+                            $mergedOld = [];
+                            foreach ($retainedFiles as $oldIt) {
+                                if (is_array($oldIt) && !empty($oldIt['path'])) {
+                                    $mergedOld[$oldIt['path']] = $oldIt;
+                                }
+                            }
+                            foreach ($submittedItems as $subIt) {
+                                if (is_array($subIt) && !empty($subIt['path'])) {
+                                    $mergedOld[$subIt['path']] = array_merge($mergedOld[$subIt['path']] ?? [], $subIt);
+                                }
+                            }
+                            $retainedFiles = array_values($mergedOld);
+                        }
+                    }
 
                     $uploaded = [];
 
@@ -3430,43 +3445,63 @@ class DynamicPostController extends Controller
                         ->values()
                         ->toArray();
 
-                    // Normalize is_featured based on submitted targets or existing flags
-                    $featuredId = $fieldData['featured_id'] ?? $fieldData['featured_media_id'] ?? $request->input('featured_id') ?? $request->input('featured_media_id') ?? $request->input('featured_image_id') ?? null;
-                    $featuredIndex = $fieldData['featured_index'] ?? $fieldData['featured_file_index'] ?? $request->input('featured_index') ?? null;
-                    $featuredName = $fieldData['featured_file_name'] ?? $fieldData['featured_name'] ?? $request->input('featured_file_name') ?? $request->input('featured_name') ?? null;
-                    $featuredUrl = $fieldData['featured_url'] ?? $fieldData['featured_path'] ?? $request->input('featured_url') ?? $request->input('featured_path') ?? ($request->has('featured_image') && is_string($request->input('featured_image')) ? $request->input('featured_image') : null);
+                    // Stable ID identification and featured media assignment
+                    $explicitFeaturedId = $fieldData['featured_media_id'] ?? $fieldData['featured_id'] ?? $request->input("custom_fields.{$index}.featured_media_id") ?? $request->input("custom_fields.{$index}.featured_id") ?? $request->input('featured_media_id') ?? $request->input('featured_id') ?? null;
+                    $explicitFeaturedClientFileId = $fieldData['featured_client_file_id'] ?? $request->input("custom_fields.{$index}.featured_client_file_id") ?? $request->input('featured_client_file_id') ?? null;
+                    $explicitFeaturedIndex = $fieldData['featured_index'] ?? $request->input("custom_fields.{$index}.featured_index") ?? null;
 
-                    if ($featuredId !== null || $featuredIndex !== null || $featuredName !== null || (!empty($featuredUrl) && is_string($featuredUrl))) {
-                        foreach ($newValueJson as $k => $item) {
-                            $isMatch = (
-                                ($featuredId !== null && isset($item['id']) && (int) $item['id'] === (int) $featuredId)
-                                || ($featuredIndex !== null && (string) $k === (string) $featuredIndex)
-                                || ($featuredName !== null && (($item['original_name'] ?? '') === $featuredName || ($item['file_name'] ?? '') === $featuredName))
-                                || (!empty($featuredUrl) && is_string($featuredUrl) && (
-                                    ($item['url'] ?? '') === $featuredUrl
-                                    || ($item['path'] ?? '') === $featuredUrl
-                                    || (!empty($item['path']) && basename($item['path']) === basename($featuredUrl))
-                                    || (!empty($item['file_name']) && $item['file_name'] === basename($featuredUrl))
-                                ))
-                            );
-                            $newValueJson[$k]['is_featured'] = $isMatch;
+                    // Check if an explicit item in value_json has is_featured: true
+                    $explicitItemFeaturedId = null;
+                    foreach ($newValueJson as $item) {
+                        if (is_array($item) && !empty($item['is_featured']) && (filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN) || in_array($item['is_featured'], [1, '1', 'true', true], true))) {
+                            if (!empty($item['id'])) {
+                                $explicitItemFeaturedId = (int) $item['id'];
+                            } elseif (!empty($item['client_file_id'])) {
+                                $explicitFeaturedClientFileId = $item['client_file_id'];
+                            }
                         }
                     }
 
-                    // Ensure exactly ONE item is marked as is_featured: true
-                    $featuredKeys = [];
-                    foreach ($newValueJson as $k => $item) {
-                        if (!empty($item['is_featured'])) {
-                            $featuredKeys[] = $k;
-                        }
-                    }
+                    $targetFeaturedId = $explicitFeaturedId !== null ? (int) $explicitFeaturedId : $explicitItemFeaturedId;
 
-                    if (empty($featuredKeys) && !empty($newValueJson)) {
-                        $newValueJson[0]['is_featured'] = true;
-                    } elseif (count($featuredKeys) > 1) {
-                        $primaryKey = end($featuredKeys);
+                    if ($targetFeaturedId !== null) {
+                        $foundMatch = false;
                         foreach ($newValueJson as $k => $item) {
-                            $newValueJson[$k]['is_featured'] = ($k === $primaryKey);
+                            if (isset($item['id']) && (int) $item['id'] === $targetFeaturedId) {
+                                $foundMatch = true;
+                                break;
+                            }
+                        }
+
+                        if ($foundMatch) {
+                            foreach ($newValueJson as $k => $item) {
+                                $newValueJson[$k]['is_featured'] = (isset($item['id']) && (int) $item['id'] === $targetFeaturedId);
+                            }
+                        }
+                    } elseif ($explicitFeaturedClientFileId !== null) {
+                        foreach ($newValueJson as $k => $item) {
+                            $newValueJson[$k]['is_featured'] = (isset($item['client_file_id']) && (string) $item['client_file_id'] === (string) $explicitFeaturedClientFileId);
+                        }
+                    } elseif ($explicitFeaturedIndex !== null && isset($newValueJson[(int) $explicitFeaturedIndex])) {
+                        foreach ($newValueJson as $k => $item) {
+                            $newValueJson[$k]['is_featured'] = ($k === (int) $explicitFeaturedIndex);
+                        }
+                    } else {
+                        // If no featured change is submitted, preserve existing featured item
+                        $featuredIndex = null;
+                        foreach ($newValueJson as $k => $item) {
+                            if (!empty($item['is_featured'])) {
+                                $featuredIndex = $k;
+                                break;
+                            }
+                        }
+
+                        if ($featuredIndex === null && !empty($newValueJson)) {
+                            $featuredIndex = 0;
+                        }
+
+                        foreach ($newValueJson as $k => $item) {
+                            $newValueJson[$k]['is_featured'] = ($k === $featuredIndex);
                         }
                     }
 
@@ -3478,7 +3513,7 @@ class DynamicPostController extends Controller
                         ]);
                     }
 
-                    $this->deleteRemovedCustomFieldFiles($oldValueJson, $newValueJson);
+                    // DO NOT run deleteRemovedCustomFieldFiles - featured changes or partial updates must never delete gallery media!
                     $customFields[$index]['value_json'] = $newValueJson;
 
                     $featuredItem = collect($newValueJson)->firstWhere('is_featured', true) ?? ($newValueJson[0] ?? null);

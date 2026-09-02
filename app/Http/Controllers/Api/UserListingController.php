@@ -3728,27 +3728,46 @@ class UserListingController extends Controller
             }
 
             if (!empty($combinedMedia)) {
-                $featuredIndex = null;
+                $explicitFeaturedId = $item['featured_media_id'] ?? $item['featured_id'] ?? $request->input("custom_fields.{$index}.featured_media_id") ?? $request->input("custom_fields.{$index}.featured_id") ?? $request->input('featured_media_id') ?? $request->input('featured_id') ?? null;
+                $explicitFeaturedClientFileId = $item['featured_client_file_id'] ?? $request->input("custom_fields.{$index}.featured_client_file_id") ?? $request->input('featured_client_file_id') ?? null;
+                $explicitFeaturedIndex = $item['featured_index'] ?? $request->input("custom_fields.{$index}.featured_index") ?? null;
 
-                // 1. Check if any item has is_featured = true
-                foreach ($combinedMedia as $k => $m) {
+                $explicitItemFeaturedId = null;
+                foreach ($combinedMedia as $m) {
                     if (is_array($m) && !empty($m['is_featured']) && (filter_var($m['is_featured'], FILTER_VALIDATE_BOOLEAN) || in_array($m['is_featured'], [1, '1', 'true', true], true))) {
-                        $featuredIndex = $k;
+                        if (!empty($m['id'])) {
+                            $explicitItemFeaturedId = (int) $m['id'];
+                        } elseif (!empty($m['client_file_id'])) {
+                            $explicitFeaturedClientFileId = $m['client_file_id'];
+                        }
                     }
                 }
 
-                // 2. Check explicit featured reference from request or item payload
-                $featuredRef = $item['featured'] ?? $item['featured_id'] ?? $item['featured_url'] ?? $item['featured_index'] ?? $item['featured_image'] ?? null;
-                if ($featuredRef !== null) {
+                $targetFeaturedId = $explicitFeaturedId !== null ? (int) $explicitFeaturedId : $explicitItemFeaturedId;
+                $featuredIndex = null;
+
+                if ($targetFeaturedId !== null) {
                     foreach ($combinedMedia as $k => $m) {
-                        if (is_array($m)) {
-                            if ((isset($m['id']) && (int) $m['id'] === (int) $featuredRef)
-                                || (isset($m['url']) && (string) $m['url'] === (string) $featuredRef)
-                                || (isset($m['path']) && (string) $m['path'] === (string) $featuredRef)
-                                || ($featuredRef === $k)
-                            ) {
-                                $featuredIndex = $k;
-                            }
+                        if (is_array($m) && isset($m['id']) && (int) $m['id'] === $targetFeaturedId) {
+                            $featuredIndex = $k;
+                            break;
+                        }
+                    }
+                } elseif ($explicitFeaturedClientFileId !== null) {
+                    foreach ($combinedMedia as $k => $m) {
+                        if (is_array($m) && isset($m['client_file_id']) && (string) $m['client_file_id'] === (string) $explicitFeaturedClientFileId) {
+                            $featuredIndex = $k;
+                            break;
+                        }
+                    }
+                } elseif ($explicitFeaturedIndex !== null && isset($combinedMedia[(int) $explicitFeaturedIndex])) {
+                    $featuredIndex = (int) $explicitFeaturedIndex;
+                } else {
+                    // Preserve existing featured item
+                    foreach ($combinedMedia as $k => $m) {
+                        if (is_array($m) && !empty($m['is_featured'])) {
+                            $featuredIndex = $k;
+                            break;
                         }
                     }
                 }

@@ -19,15 +19,15 @@ class DynamicPostDataService
 
         $post = $this->findDynamicPost($payload, $postType);
 
-        if (! $post) {
+        if (!$post) {
             return [];
         }
 
-        if (! $postType) {
+        if (!$postType) {
             $postType = $this->resolvePostTypeFromPost($post);
         }
 
-        if (! $postType) {
+        if (!$postType) {
             return [];
         }
 
@@ -81,7 +81,7 @@ class DynamicPostDataService
             ?? $loaded['content_data']
             ?? [];
 
-        if (! is_array($fields)) {
+        if (!is_array($fields)) {
             $fields = [];
         }
 
@@ -99,7 +99,7 @@ class DynamicPostDataService
 
         $postType = null;
 
-        if (! empty($loaded['post_type_id']) || ! empty($loaded['post_type'])) {
+        if (!empty($loaded['post_type_id']) || !empty($loaded['post_type'])) {
             $postType = (object) [
                 'id' => $loaded['post_type_id'] ?? null,
                 'slug' => $loaded['post_type'] ?? null,
@@ -110,7 +110,7 @@ class DynamicPostDataService
         return new WidgetContext(
             post: $post,
             postType: $postType,
-            postTypeId: ! empty($loaded['post_type_id']) ? (int) $loaded['post_type_id'] : null,
+            postTypeId: !empty($loaded['post_type_id']) ? (int) $loaded['post_type_id'] : null,
             fields: $fields,
             taxonomies: $loaded['taxonomies'] ?? [],
             terms: $loaded['terms'] ?? [],
@@ -136,13 +136,13 @@ class DynamicPostDataService
 
     private function resolvePostType(array $payload): ?PostType
     {
-        if (! empty($payload['post_type_id'])) {
+        if (!empty($payload['post_type_id'])) {
             return PostType::query()
                 ->where('id', $payload['post_type_id'])
                 ->first();
         }
 
-        if (! empty($payload['post_type'])) {
+        if (!empty($payload['post_type'])) {
             return PostType::query()
                 ->where('slug', $payload['post_type'])
                 ->first();
@@ -155,7 +155,7 @@ class DynamicPostDataService
     {
         $row = $this->rowToArray($post);
 
-        if (! empty($row['post_type_id'])) {
+        if (!empty($row['post_type_id'])) {
             return PostType::query()
                 ->where('id', $row['post_type_id'])
                 ->first();
@@ -176,7 +176,7 @@ class DynamicPostDataService
 
     private function findDynamicPost(array $payload, ?PostType $postType = null): ?stdClass
     {
-        if (! Schema::hasTable('dynamic_posts')) {
+        if (!Schema::hasTable('dynamic_posts')) {
             return null;
         }
 
@@ -190,7 +190,7 @@ class DynamicPostDataService
 
         if ($id) {
             $query->where('id', $id);
-        } elseif (! empty($payload['slug']) && Schema::hasColumn('dynamic_posts', 'slug')) {
+        } elseif (!empty($payload['slug']) && Schema::hasColumn('dynamic_posts', 'slug')) {
             $query->where('slug', $payload['slug']);
         } else {
             return null;
@@ -292,7 +292,7 @@ class DynamicPostDataService
         $customMeta = [];
 
         $selectedTermIds = collect($taxonomyData['taxonomy_term_ids'] ?? [])
-            ->map(fn ($id) => (int) $id)
+            ->map(fn($id) => (int) $id)
             ->filter()
             ->unique()
             ->values()
@@ -305,7 +305,7 @@ class DynamicPostDataService
             $fieldId = (int) ($field->id ?? 0);
             $fieldKey = $this->fieldKey($field);
 
-            if (! $fieldId || $fieldKey === '') {
+            if (!$fieldId || $fieldKey === '') {
                 continue;
             }
 
@@ -386,13 +386,13 @@ class DynamicPostDataService
             'data',
             'json_data',
         ] as $jsonColumn) {
-            if (! array_key_exists($jsonColumn, $row)) {
+            if (!array_key_exists($jsonColumn, $row)) {
                 continue;
             }
 
             $decoded = $this->decodeMaybeJson($row[$jsonColumn]);
 
-            if (! is_array($decoded)) {
+            if (!is_array($decoded)) {
                 continue;
             }
 
@@ -461,7 +461,7 @@ class DynamicPostDataService
 
     private function applicableCustomFields(PostType $postType, array $selectedTermIds): array
     {
-        if (! Schema::hasTable('custom_fields')) {
+        if (!Schema::hasTable('custom_fields')) {
             return [];
         }
 
@@ -510,7 +510,7 @@ class DynamicPostDataService
     {
         $fieldRules = $this->getFieldLocationRules((int) $field->id);
 
-        if (! empty($fieldRules)) {
+        if (!empty($fieldRules)) {
             return $this->evaluateLocationRules($fieldRules, $postType, $selectedTermIds);
         }
 
@@ -519,7 +519,7 @@ class DynamicPostDataService
         if ($groupId) {
             $groupRules = $this->getGroupLocationRules((int) $groupId);
 
-            if (! empty($groupRules)) {
+            if (!empty($groupRules)) {
                 return $this->evaluateLocationRules($groupRules, $postType, $selectedTermIds);
             }
         }
@@ -529,7 +529,7 @@ class DynamicPostDataService
 
     private function getFieldLocationRules(int $fieldId): array
     {
-        if (! Schema::hasTable('custom_field_group_location_rules')) {
+        if (!Schema::hasTable('custom_field_group_location_rules')) {
             return [];
         }
 
@@ -555,7 +555,7 @@ class DynamicPostDataService
 
     private function getGroupLocationRules(int $groupId): array
     {
-        if (! Schema::hasTable('custom_field_group_location_rules')) {
+        if (!Schema::hasTable('custom_field_group_location_rules')) {
             return [];
         }
 
@@ -597,7 +597,7 @@ class DynamicPostDataService
             $groupMatched = true;
 
             foreach ($groupRules as $rule) {
-                if (! $this->singleLocationRuleMatches($rule, $postType, $selectedTermIds)) {
+                if (!$this->singleLocationRuleMatches($rule, $postType, $selectedTermIds)) {
                     $groupMatched = false;
                     break;
                 }
@@ -624,7 +624,7 @@ class DynamicPostDataService
         $matches = false;
 
         if ($showIf === 'post_type') {
-            $matches = ! empty($rule->post_type_id)
+            $matches = !empty($rule->post_type_id)
                 && (int) $rule->post_type_id === (int) $postType->id;
         }
 
@@ -636,19 +636,19 @@ class DynamicPostDataService
             } elseif (empty($selectedTermIds)) {
                 $matches = false;
             } else {
-                $matches = ! empty(array_intersect($ruleTermIds, $selectedTermIds));
+                $matches = !empty(array_intersect($ruleTermIds, $selectedTermIds));
             }
         }
 
-        return $operator === 'is_not_equal_to' ? ! $matches : $matches;
+        return $operator === 'is_not_equal_to' ? !$matches : $matches;
     }
 
     private function customFieldValuesByFieldId(int $entityId): array
     {
         if (
-            ! $entityId
-            || ! Schema::hasTable('custom_field_values')
-            || ! Schema::hasTable('custom_fields')
+            !$entityId
+            || !Schema::hasTable('custom_field_values')
+            || !Schema::hasTable('custom_fields')
         ) {
             return [];
         }
@@ -692,11 +692,11 @@ class DynamicPostDataService
         foreach ($rows as $row) {
             $fieldId = (int) ($row->custom_field_id ?? 0);
 
-            if (! $fieldId) {
+            if (!$fieldId) {
                 continue;
             }
 
-            if (! isset($values[$fieldId])) {
+            if (!isset($values[$fieldId])) {
                 $values[$fieldId] = $row;
             }
         }
@@ -707,9 +707,9 @@ class DynamicPostDataService
     private function customRepeaterValues(int $entityId, int $customFieldId): array
     {
         if (
-            ! $entityId
-            || ! $customFieldId
-            || ! Schema::hasTable('custom_field_repeater_values')
+            !$entityId
+            || !$customFieldId
+            || !Schema::hasTable('custom_field_repeater_values')
         ) {
             return [];
         }
@@ -769,11 +769,11 @@ class DynamicPostDataService
 
             $value = $this->extractCustomFieldStoredValue($row);
 
-            if (! empty($row->repeater_option_value)) {
+            if (!empty($row->repeater_option_value)) {
                 $value = $row->repeater_option_value;
             }
 
-            if (! isset($formatted[$rowIndex])) {
+            if (!isset($formatted[$rowIndex])) {
                 $formatted[$rowIndex] = [];
             }
 
@@ -835,8 +835,8 @@ class DynamicPostDataService
         return match ($fieldType) {
             'boolean' => $this->normalizeBooleanValue($value),
             'number' => is_numeric($value)
-                ? (str_contains((string) $value, '.') ? (float) $value : (int) $value)
-                : $value,
+            ? (str_contains((string) $value, '.') ? (float) $value : (int) $value)
+            : $value,
             'media', 'file', 'image' => $this->normalizeMediaValue($value),
             'checkbox', 'multi_select', 'multiselect' => is_array($value) ? $value : $this->normalizeIds($value),
             default => $value,
@@ -879,7 +879,7 @@ class DynamicPostDataService
         $terms = [];
 
         foreach (['taxonomy_term_ids', 'term_ids'] as $column) {
-            if (! isset($row[$column])) {
+            if (!isset($row[$column])) {
                 continue;
             }
 
@@ -937,13 +937,13 @@ class DynamicPostDataService
 
         $termIds = collect($termIds)
             ->flatten()
-            ->filter(fn ($id) => $id !== null && $id !== '')
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '')
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();
 
-        if (! empty($termIds) && Schema::hasTable('taxonomy_terms')) {
+        if (!empty($termIds) && Schema::hasTable('taxonomy_terms')) {
             $termRows = DB::table('taxonomy_terms')
                 ->whereIn('id', $termIds)
                 ->get();
@@ -981,7 +981,7 @@ class DynamicPostDataService
                 if ($taxonomySlug) {
                     $taxonomyTerms[(string) $taxonomySlug][] = $termItem['id'];
 
-                    if (! isset($taxonomies[$taxonomySlug])) {
+                    if (!isset($taxonomies[$taxonomySlug])) {
                         $taxonomies[$taxonomySlug] = [
                             'taxonomy_id' => $taxonomyId,
                             'taxonomy_slug' => $taxonomySlug,
@@ -1002,7 +1002,7 @@ class DynamicPostDataService
         foreach ($taxonomyTerms as $key => $ids) {
             $taxonomyTerms[$key] = collect($ids)
                 ->filter()
-                ->map(fn ($id) => (int) $id)
+                ->map(fn($id) => (int) $id)
                 ->unique()
                 ->values()
                 ->all();
@@ -1035,14 +1035,14 @@ class DynamicPostDataService
             $value = explode(',', $value);
         }
 
-        if (! is_array($value)) {
+        if (!is_array($value)) {
             return [];
         }
 
         return collect($value)
             ->flatten()
-            ->filter(fn ($id) => $id !== null && $id !== '')
-            ->map(fn ($id) => (int) $id)
+            ->filter(fn($id) => $id !== null && $id !== '')
+            ->map(fn($id) => (int) $id)
             ->unique()
             ->values()
             ->all();

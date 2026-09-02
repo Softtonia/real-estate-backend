@@ -205,6 +205,7 @@ class MediaBatchService
             $uploadedItems[] = $batchItem;
             $newMediaRecords[] = [
                 'id' => (int) $mediaRecord->id,
+                'client_file_id' => $clientFileId,
                 'url' => $url,
                 'path' => $path,
                 'file_name' => $fileName,
@@ -217,6 +218,51 @@ class MediaBatchService
 
             // Safely dispatch background queue job if queue worker is active
             rescue(fn() => ProcessDynamicPostMediaJob::dispatch((int) $batchItem->id), null, false);
+        }
+
+        // Resolve exact featured item from explicit inputs (featured_client_file_id, featured_media_id, featured_index, or is_featured flags)
+        $explicitFeaturedClientFileId = $request->input('featured_client_file_id');
+        $explicitFeaturedMediaId = $request->input('featured_media_id') ?: $request->input('featured_id');
+        $explicitFeaturedIndex = $request->input('featured_index');
+
+        $featuredKey = null;
+        if ($explicitFeaturedClientFileId !== null) {
+            foreach ($uploadedItems as $k => $item) {
+                if ((string) $item->client_file_id === (string) $explicitFeaturedClientFileId) {
+                    $featuredKey = $k;
+                    break;
+                }
+            }
+        } elseif ($explicitFeaturedMediaId !== null) {
+            foreach ($uploadedItems as $k => $item) {
+                if ((int) $item->media_file_id === (int) $explicitFeaturedMediaId) {
+                    $featuredKey = $k;
+                    break;
+                }
+            }
+        } elseif ($explicitFeaturedIndex !== null && isset($uploadedItems[(int) $explicitFeaturedIndex])) {
+            $featuredKey = (int) $explicitFeaturedIndex;
+        } else {
+            // Check if any item was submitted with is_featured: true
+            foreach ($uploadedItems as $k => $item) {
+                if (!empty($item->is_featured)) {
+                    $featuredKey = $k;
+                    break;
+                }
+            }
+        }
+
+        if ($featuredKey !== null) {
+            foreach ($uploadedItems as $k => $item) {
+                $isFeat = ($k === $featuredKey);
+                if ($item->is_featured !== $isFeat) {
+                    $item->update(['is_featured' => $isFeat]);
+                    $uploadedItems[$k]->is_featured = $isFeat;
+                }
+                if (isset($newMediaRecords[$k])) {
+                    $newMediaRecords[$k]['is_featured'] = $isFeat;
+                }
+            }
         }
 
         // 3. Update batch counters atomically
@@ -379,24 +425,40 @@ class MediaBatchService
 
         $finalItems = array_values($mergedByPath);
 
-        // Normalize is_featured: if multiple are marked as featured, keep only the latest chosen one
-        $featuredCount = 0;
-        $lastFeaturedKey = null;
+        // Check if any newly added item was explicitly marked as featured
+        $newFeaturedKey = null;
         foreach ($finalItems as $k => $item) {
-            if (!empty($item['is_featured'])) {
-                $featuredCount++;
-                $lastFeaturedKey = $k;
+            foreach ($newMedia as $nm) {
+                if (!empty($nm['is_featured']) && ($item['path'] === ($nm['path'] ?? null) || (isset($item['id'], $nm['id']) && (int) $item['id'] === (int) $nm['id']))) {
+                    $newFeaturedKey = $k;
+                    break 2;
+                }
             }
         }
 
-        if ($featuredCount > 1) {
+        $featuredIndex = null;
+        if ($newFeaturedKey !== null) {
+            $featuredIndex = $newFeaturedKey;
+        } else {
+            // Keep existing featured item
             foreach ($finalItems as $k => $item) {
-                $finalItems[$k]['is_featured'] = ($k === $lastFeaturedKey);
+                if (!empty($item['is_featured'])) {
+                    $featuredIndex = $k;
+                    break;
+                }
             }
         }
 
-        $firstFeatured = collect($finalItems)->firstWhere('is_featured', true);
-        $featuredUrl = $firstFeatured['url'] ?? null;
+        if ($featuredIndex === null && !empty($finalItems)) {
+            $featuredIndex = 0;
+        }
+
+        foreach ($finalItems as $k => $item) {
+            $finalItems[$k]['is_featured'] = ($k === $featuredIndex);
+        }
+
+        $firstFeatured = $finalItems[$featuredIndex] ?? ($finalItems[0] ?? null);
+        $featuredUrl = is_array($firstFeatured) ? ($firstFeatured['url'] ?? $firstFeatured['path'] ?? null) : null;
 
         CustomFieldValue::updateOrCreate(
             [

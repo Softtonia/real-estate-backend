@@ -388,15 +388,15 @@ class CustomFieldValueService
             return null;
         }
 
-        // Support wrapper structures: { images: [...], featured: 123 } or { media: [...] }
+        // Support wrapper structures: { images: [...], featured_media_id: 123 } or { media: [...] }
         if (isset($rawValue['images']) && is_array($rawValue['images'])) {
-            $featuredRef = $rawValue['featured'] ?? $rawValue['featured_id'] ?? $rawValue['featured_url'] ?? null;
+            $featuredRef = $rawValue['featured_media_id'] ?? $rawValue['featured_id'] ?? $rawValue['featured'] ?? $rawValue['featured_client_file_id'] ?? $rawValue['featured_url'] ?? null;
             $items = $rawValue['images'];
         } elseif (isset($rawValue['media']) && is_array($rawValue['media'])) {
-            $featuredRef = $rawValue['featured'] ?? $rawValue['featured_id'] ?? $rawValue['featured_url'] ?? null;
+            $featuredRef = $rawValue['featured_media_id'] ?? $rawValue['featured_id'] ?? $rawValue['featured'] ?? $rawValue['featured_client_file_id'] ?? $rawValue['featured_url'] ?? null;
             $items = $rawValue['media'];
         } elseif (isset($rawValue['media_files']) && is_array($rawValue['media_files'])) {
-            $featuredRef = $rawValue['featured'] ?? $rawValue['featured_id'] ?? $rawValue['featured_url'] ?? null;
+            $featuredRef = $rawValue['featured_media_id'] ?? $rawValue['featured_id'] ?? $rawValue['featured'] ?? $rawValue['featured_client_file_id'] ?? $rawValue['featured_url'] ?? null;
             $items = $rawValue['media_files'];
         } elseif (isset($rawValue['path']) || isset($rawValue['url']) || isset($rawValue['id'])) {
             $urlStr = (string) ($rawValue['url'] ?? '');
@@ -548,13 +548,14 @@ class CustomFieldValueService
                 }
 
                 $isFeatured = false;
-                if (isset($item['is_featured'])) {
-                    $isFeatured = filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN) || in_array($item['is_featured'], [1, '1', 'true', true], true);
-                } elseif ($featuredRef !== null) {
+                if ($featuredRef !== null) {
                     $isFeatured = ($id !== null && (int) $id === (int) $featuredRef)
+                        || (isset($item['client_file_id']) && (string) $item['client_file_id'] === (string) $featuredRef)
                         || ($url !== null && (string) $url === (string) $featuredRef)
                         || ($path !== null && (string) $path === (string) $featuredRef)
                         || ($featuredRef === $idx);
+                } elseif (isset($item['is_featured'])) {
+                    $isFeatured = filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN) || in_array($item['is_featured'], [1, '1', 'true', true], true);
                 }
 
                 $mimeType = $item['mime_type'] ?? null;
@@ -590,9 +591,26 @@ class CustomFieldValueService
         }
 
         $featuredIndex = null;
-        foreach ($unique as $k => $item) {
-            if (!empty($item['is_featured']) && filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN)) {
-                $featuredIndex = $k;
+        if ($featuredRef !== null) {
+            foreach ($unique as $k => $item) {
+                if (($item['id'] !== null && (int) $item['id'] === (int) $featuredRef)
+                    || (isset($item['client_file_id']) && (string) $item['client_file_id'] === (string) $featuredRef)
+                    || (!empty($item['url']) && (string) $item['url'] === (string) $featuredRef)
+                    || (!empty($item['path']) && (string) $item['path'] === (string) $featuredRef)
+                    || ($featuredRef === $k)
+                ) {
+                    $featuredIndex = $k;
+                    break;
+                }
+            }
+        }
+
+        if ($featuredIndex === null) {
+            foreach ($unique as $k => $item) {
+                if (!empty($item['is_featured']) && filter_var($item['is_featured'], FILTER_VALIDATE_BOOLEAN)) {
+                    $featuredIndex = $k;
+                    break;
+                }
             }
         }
 
