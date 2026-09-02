@@ -281,7 +281,8 @@ class TemplateDynamicFieldController extends Controller
 
             'title' => $row['title'] ?? null,
             'slug' => $row['slug'] ?? null,
-            'listing_code' => $row['listing_code'] ?? null,
+            'listing_id' => $row['listing_id'] ?? $row['listing_code'] ?? null,
+            'listing_code' => $row['listing_id'] ?? $row['listing_code'] ?? null,
             'content' => $row['content'] ?? $row['description'] ?? null,
             'excerpt' => $row['excerpt'] ?? null,
 
@@ -1327,10 +1328,12 @@ class TemplateDynamicFieldController extends Controller
             $isVideo = str_starts_with($mime, 'video/') || in_array($ext, ['mp4', 'mov', 'webm', 'ogg', 'mkv', 'avi']);
         }
 
+        $listingId = $postPreviewData['listing_id'] ?? $postPreviewData['listing_code'] ?? null;
+
         return [
             $this->systemField('Title', 'title', 'text', 'heading', $postPreviewData['title'] ?? null),
             $this->systemField('Slug', 'slug', 'text', 'text', $postPreviewData['slug'] ?? null),
-            $this->systemField('Listing Code', 'listing_code', 'text', 'text', $postPreviewData['listing_code'] ?? null),
+            $this->systemField('Listing ID', 'listing_id', 'text', 'text', $listingId),
             $this->systemField('Content', 'content', 'texteditor', 'text', $postPreviewData['content'] ?? null),
             $this->systemField('Excerpt', 'excerpt', 'textarea', 'text', $postPreviewData['excerpt'] ?? null),
 
@@ -1369,6 +1372,31 @@ class TemplateDynamicFieldController extends Controller
 
             $this->systemField('Status', 'status', 'text', 'text', $postPreviewData['status'] ?? null),
             $this->systemField('Live Status', 'live_status', 'text', 'text', $postPreviewData['live_status'] ?? null),
+
+            $this->systemField(
+                'Post Created Date',
+                'created_at',
+                'date',
+                'date',
+                $postPreviewData['created_at'] ?? null,
+                [
+                    'source' => 'dynamic',
+                    'field' => 'system.created_at',
+                    'format' => 'M d, Y',
+                ]
+            ),
+            $this->systemField(
+                'Post Updated Date',
+                'updated_at',
+                'date',
+                'date',
+                $postPreviewData['updated_at'] ?? null,
+                [
+                    'source' => 'dynamic',
+                    'field' => 'system.updated_at',
+                    'format' => 'M d, Y',
+                ]
+            ),
         ];
     }
 
@@ -1523,6 +1551,13 @@ class TemplateDynamicFieldController extends Controller
             $system[$field['key']] = $field['field_value'] ?? null;
         }
 
+        if (isset($system['listing_id']) && !isset($system['listing_code'])) {
+            $system['listing_code'] = $system['listing_id'];
+        }
+        if (isset($system['listing_code']) && !isset($system['listing_id'])) {
+            $system['listing_id'] = $system['listing_code'];
+        }
+
         foreach ($customFields as $field) {
             if (!isset($field['key'])) {
                 continue;
@@ -1551,6 +1586,7 @@ class TemplateDynamicFieldController extends Controller
         $relatedPostsWidget = app(\App\PageBuilder\Widgets\RelatedPostsWidget::class);
         $areaSqFtWidget = app(\App\PageBuilder\Widgets\AreaSqFtWidget::class);
         $breadcrumbWidget = app(\App\PageBuilder\Widgets\BreadcrumbWidget::class);
+        $dateWidget = app(\App\PageBuilder\Widgets\DateWidget::class);
 
         return [
             [
@@ -1610,6 +1646,7 @@ class TemplateDynamicFieldController extends Controller
                     'target' => '_self',
                 ],
             ],
+            $dateWidget->sidebarItem(),
             $breadcrumbWidget->sidebarItem(),
             $areaSqFtWidget->sidebarItem(),
 
@@ -1627,6 +1664,10 @@ class TemplateDynamicFieldController extends Controller
 
         if ($type === 'gallery' || str_contains($slug, 'gallery')) {
             return 'gallery';
+        }
+
+        if (in_array($type, ['date', 'datetime', 'timestamp', 'time'], true)) {
+            return 'date';
         }
 
         return match ($type) {

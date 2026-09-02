@@ -142,6 +142,15 @@ class PageBuilderStyleService
     font-weight: 500;
 }
 
+.pb-date {
+    display: inline-block;
+}
+
+.pb-date-prefix,
+.pb-date-suffix {
+    opacity: 0.85;
+}
+
 .pb-taxonomy-badges {
     display: flex;
     flex-wrap: wrap;

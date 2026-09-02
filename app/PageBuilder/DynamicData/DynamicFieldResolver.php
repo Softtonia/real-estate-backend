@@ -86,6 +86,12 @@ class DynamicFieldResolver implements DynamicResolverInterface
                 'source' => 'system',
             ],
             [
+                'key' => 'system.listing_id',
+                'label' => 'Listing ID',
+                'type' => 'text',
+                'source' => 'system',
+            ],
+            [
                 'key' => 'system.title',
                 'label' => 'Title',
                 'type' => 'text',

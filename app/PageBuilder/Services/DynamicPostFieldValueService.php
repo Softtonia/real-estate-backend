@@ -221,10 +221,14 @@ class DynamicPostFieldValueService
 
     protected function systemFields(object $post, ?PostType $postType): array
     {
+        $listingId = $this->firstValue($post, ['listing_id', 'listing_code']);
+
         return [
             'id' => $post->id ?? null,
             'title' => $this->firstValue($post, ['title', 'post_title', 'name']),
             'slug' => $this->firstValue($post, ['slug', 'post_slug']),
+            'listing_id' => $listingId,
+            'listing_code' => $listingId,
             'status' => $this->firstValue($post, ['status']),
             'content' => $this->firstValue($post, ['content', 'description', 'post_content']),
             'excerpt' => $this->firstValue($post, ['excerpt', 'short_description']),
@@ -281,6 +285,8 @@ class DynamicPostFieldValueService
             'post_title',
             'name',
             'slug',
+            'listing_code',
+            'listing_id',
             'status',
             'content',
             'description',

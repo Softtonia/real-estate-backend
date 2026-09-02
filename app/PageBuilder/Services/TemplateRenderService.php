@@ -239,6 +239,14 @@ class TemplateRenderService
                 }
             }
 
+            if ($type === 'date') {
+                if ($value !== null) {
+                    $dateStr = is_array($value) ? json_encode($value) : (string) $value;
+                    $component['settings']['date'] = $dateStr;
+                    $component['settings']['value'] = $dateStr;
+                }
+            }
+
             if ($type === 'button') {
                 if (is_string($value)) {
                     $component['settings']['url'] = $value;
@@ -875,6 +883,7 @@ class TemplateRenderService
             'taxonomy', 'terms', 'taxonomy_terms' => 'taxonomy_terms',
             'html', 'custom_html', 'code' => 'html',
             'link', 'url' => 'button',
+            'datetime', 'created_at', 'updated_at', 'post_date' => 'date',
             default => $type,
         };
     }

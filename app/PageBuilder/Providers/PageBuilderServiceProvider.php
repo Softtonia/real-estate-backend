@@ -21,6 +21,7 @@ use App\PageBuilder\Widgets\ImageWidget;
 use App\PageBuilder\Widgets\RepeaterWidget;
 use App\PageBuilder\Widgets\TaxonomyTermsWidget;
 use App\PageBuilder\Widgets\BreadcrumbWidget;
+use App\PageBuilder\Widgets\DateWidget;
 use App\PageBuilder\Widgets\TextWidget;
 
 class PageBuilderServiceProvider extends ServiceProvider
@@ -65,6 +66,7 @@ class PageBuilderServiceProvider extends ServiceProvider
             HtmlWidget::class,
             AreaSqFtWidget::class,
             BreadcrumbWidget::class,
+            DateWidget::class,
         ]);
     }
 }
