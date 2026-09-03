@@ -144,8 +144,17 @@ class AdminUserNotificationsController extends Controller
     /**
      * View/Get details of a specific notification.
      */
-    public function show(UserNotification $notification): JsonResponse
+    public function show(mixed $param1, mixed $param2 = null): JsonResponse
     {
+        $notification = $this->resolveNotification($param1, $param2);
+
+        if (!$notification) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Notification not found.',
+            ], 404);
+        }
+
         $notification->loadMissing(['user:id,first_name,last_name,email,user_name']);
 
         return response()->json([
@@ -158,8 +167,17 @@ class AdminUserNotificationsController extends Controller
     /**
      * Mark notification as read.
      */
-    public function markAsRead(UserNotification $notification): JsonResponse
+    public function markAsRead(mixed $param1, mixed $param2 = null): JsonResponse
     {
+        $notification = $this->resolveNotification($param1, $param2);
+
+        if (!$notification) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Notification not found.',
+            ], 404);
+        }
+
         $notification->markAsRead();
 
         return response()->json([
@@ -172,14 +190,41 @@ class AdminUserNotificationsController extends Controller
     /**
      * Delete a notification.
      */
-    public function destroy(UserNotification $notification): JsonResponse
+    public function destroy(mixed $param1, mixed $param2 = null): JsonResponse
     {
+        $notification = $this->resolveNotification($param1, $param2);
+
+        if (!$notification) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Notification not found.',
+            ], 404);
+        }
+
         $notification->delete();
 
         return response()->json([
             'status' => true,
             'message' => 'Notification deleted successfully.',
         ]);
+    }
+
+    /**
+     * Resolve notification model from single or multiple route parameters.
+     */
+    private function resolveNotification(mixed $param1, mixed $param2 = null): ?UserNotification
+    {
+        $target = $param2 ?? $param1;
+
+        if ($target instanceof UserNotification) {
+            return $target;
+        }
+
+        if (is_numeric($target)) {
+            return UserNotification::find((int) $target);
+        }
+
+        return null;
     }
 
     /**
