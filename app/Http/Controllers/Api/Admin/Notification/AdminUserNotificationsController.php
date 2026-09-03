@@ -81,7 +81,7 @@ class AdminUserNotificationsController extends Controller
                 return response()->json([
                     'status' => true,
                     'message' => 'User notifications fetched successfully.',
-                    'data' => $formatted,
+                    'notifications' => $formatted,
                     'meta' => [
                         'current_page' => $paginator->currentPage(),
                         'last_page' => $paginator->lastPage(),
@@ -98,7 +98,6 @@ class AdminUserNotificationsController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'User notifications fetched successfully.',
-                'data' => $notifications,
                 'notifications' => $notifications,
             ]);
         } catch (Throwable $e) {
