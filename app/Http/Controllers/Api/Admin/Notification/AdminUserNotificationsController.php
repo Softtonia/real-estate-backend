@@ -142,6 +142,20 @@ class AdminUserNotificationsController extends Controller
     }
 
     /**
+     * View/Get details of a specific notification.
+     */
+    public function show(UserNotification $notification): JsonResponse
+    {
+        $notification->loadMissing(['user:id,first_name,last_name,email,user_name']);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Notification fetched successfully.',
+            'data' => $this->formatNotification($notification),
+        ]);
+    }
+
+    /**
      * Mark notification as read.
      */
     public function markAsRead(UserNotification $notification): JsonResponse

@@ -942,6 +942,8 @@ Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/ip-logs-update-
 // Admin User Notifications
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-notifications', [AdminUserNotificationsController::class, 'index']);
 Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/notifications', [AdminUserNotificationsController::class, 'index'])->whereNumber('userId');
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/user-notifications/{notification}', [AdminUserNotificationsController::class, 'show']);
+Route::middleware(['throttle:60,1', 'admin.token'])->get('admin/users/{userId}/notifications/{notification}', [AdminUserNotificationsController::class, 'show'])->whereNumber('userId');
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-notifications', [AdminUserNotificationsController::class, 'store']);
 Route::middleware(['throttle:60,1', 'admin.token'])->post('admin/user-notifications/{notification}/read', [AdminUserNotificationsController::class, 'markAsRead']);
 Route::middleware(['throttle:60,1', 'admin.token'])->delete('admin/user-notifications/{notification}', [AdminUserNotificationsController::class, 'destroy']);
